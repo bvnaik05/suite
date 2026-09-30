@@ -5,16 +5,28 @@ import type { RectangleShape, TextShape, ImageShape, LineShape, FreeDrawShape, T
 
 export type Shape = RectangleShape | TextShape | ImageShape | FreeDrawShape | LineShape
 export type Scene = { rectangles: (RectangleShape | TextShape | ImageShape | FreeDrawShape)[]; lines: LineShape[] }
+export const MAX_DRAW_POINTS = 100_000
 export function isLine(shape: Shape): shape is LineShape { return 'kind' in shape && (shape.kind === 'line' || shape.kind === 'arrow') }
 export function isImage(shape: Shape): shape is ImageShape { return 'kind' in shape && shape.kind === 'image' }
 export function isText(shape: Shape): shape is TextShape { return 'kind' in shape && shape.kind === 'text' }
 export function isDiamond(shape: Shape): boolean { return 'kind' in shape && shape.kind === 'diamond' }
 export function isEllipse(shape: Shape): boolean { return 'kind' in shape && shape.kind === 'ellipse' }
+export function freeDrawPointCount(shapes: Shape[]): number {
+  return shapes.reduce((count, shape) => count + (isFreeDraw(shape) ? shape.points.length : 0), 0)
+}
 export function bounds(shapes: Shape[]): RectangleShape | undefined {
   if (!shapes.length) return
-  const points = shapes.flatMap(shape => isLine(shape) ? [shape.start, shape.end, lineControlPoint(shape)] : isFreeDraw(shape) && shape.points.length ? shape.points : Object.values(rectangleCorners(shape)))
-  const x = Math.min(...points.map(p => p.x)), y = Math.min(...points.map(p => p.y))
-  return { id: 'selection', x, y, width: Math.max(...points.map(p => p.x)) - x, height: Math.max(...points.map(p => p.y)) - y, rotation: 0, cornerRadius: 0 }
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity
+  for (const shape of shapes) {
+    const points = isLine(shape) ? [shape.start, shape.end, lineControlPoint(shape)] : isFreeDraw(shape) && shape.points.length ? shape.points : Object.values(rectangleCorners(shape))
+    for (const point of points) {
+      left = Math.min(left, point.x)
+      top = Math.min(top, point.y)
+      right = Math.max(right, point.x)
+      bottom = Math.max(bottom, point.y)
+    }
+  }
+  return { id: 'selection', x: left, y: top, width: right - left, height: bottom - top, rotation: 0, cornerRadius: 0 }
 }
 export function transformShape(shape: Shape, from: RectangleShape, to: RectangleShape): Shape {
   const a = rectangleCenter(from), b = rectangleCenter(to)
@@ -31,8 +43,9 @@ export function transformShape(shape: Shape, from: RectangleShape, to: Rectangle
   }
   if (isFreeDraw(shape)) {
     const points = shape.points.map(map)
-    const xs = points.map(point => point.x), ys = points.map(point => point.y)
-    return { ...shape, points, x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) }
+    if (!points.length) return { ...shape, points }
+    const box = bounds([{ ...shape, points }])!
+    return { ...shape, points, x: box.x, y: box.y, width: box.width, height: box.height }
   }
   const center = map(rectangleCenter(shape))
   const radians = shape.rotation * Math.PI / 180
@@ -50,6 +63,7 @@ export function parseScene(value: unknown): Scene {
   const scene = JSON.parse(JSON.stringify(value)) as Scene
   if (!Array.isArray(scene.rectangles) || !Array.isArray(scene.lines) || scene.rectangles.length + scene.lines.length > 10000) throw new Error('Invalid drawing')
   const ids = new Set<string>()
+  let totalPoints = 0
   for (const shape of [...scene.rectangles, ...scene.lines]) {
     if (!shape || typeof shape !== 'object' || typeof shape.id !== 'string' || ids.has(shape.id)) throw new Error('Invalid object')
     ids.add(shape.id)
@@ -81,7 +95,11 @@ export function parseScene(value: unknown): Scene {
     if (!numbers.every(n => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 1e8)) throw new Error('Invalid geometry')
     if (!isLine(shape) && (shape.width < 0 || shape.height < 0)) throw new Error('Invalid size')
     if ('kind' in shape && !['diamond', 'ellipse', 'text', 'image', 'freedraw', 'line', 'arrow'].includes(String(shape.kind))) throw new Error('Invalid shape')
-    if (isFreeDraw(shape) && (!Array.isArray(shape.points) || shape.points.length > 100000 || !shape.points.flatMap(point => [point.x, point.y]).every(Number.isFinite))) throw new Error('Invalid free draw')
+    if (isFreeDraw(shape)) {
+      if (!Array.isArray(shape.points)) throw new Error('Invalid free draw')
+      totalPoints += shape.points.length
+      if (totalPoints > MAX_DRAW_POINTS || !shape.points.every(point => Number.isFinite(point?.x) && Number.isFinite(point?.y))) throw new Error('Invalid free draw')
+    }
     const text = shape as TextShape
     if (text.kind === 'text') {
       if ((text as { fontFamily?: unknown }).fontFamily === 'monday') text.fontFamily = 'shantell'

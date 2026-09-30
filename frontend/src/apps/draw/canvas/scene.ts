@@ -78,8 +78,6 @@ export type ImageShape = RectangleShape & {
 export type FreeDrawShape = RectangleShape & {
   kind: 'freedraw'
   points: Point[]
-  pressures: number[]
-  simulatePressure: boolean
 }
 
 export function isClosedFreeDraw(shape: FreeDrawShape): boolean {

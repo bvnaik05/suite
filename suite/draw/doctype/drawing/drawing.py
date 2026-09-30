@@ -44,6 +44,7 @@ class Drawing(Document):
             frappe.throw(f"A drawing cannot contain more than {MAX_SHAPES:,} objects.")
 
         ids = set()
+        total_points = 0
         geometry = ("x", "y", "width", "height", "rotation", "cornerRadius")
         for objects, is_line in ((rectangles, False), (lines, True)):
             for shape in objects:
@@ -80,9 +81,11 @@ class Drawing(Document):
 
                 if kind == "freedraw":
                     points = shape.get("points")
+                    if isinstance(points, list):
+                        total_points += len(points)
                     if (
                         not isinstance(points, list)
-                        or len(points) > MAX_POINTS
+                        or total_points > MAX_POINTS
                         or not all(_valid_point(point) for point in points)
                     ):
                         frappe.throw("A free draw object has invalid points.")

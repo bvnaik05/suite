@@ -73,10 +73,18 @@ async function request(path: string, method = 'GET', body?: unknown) {
 async function refresh() {
   loading.value = true
   try {
-    const data = await request('/api/resource/Drawing?fields=' + encodeURIComponent(JSON.stringify(['name', 'title', 'content', 'creation', 'modified'])) + '&limit_page_length=1000')
-    drawings.value = data.data
+    const fields = encodeURIComponent(JSON.stringify(['name', 'title', 'content', 'creation', 'modified']))
+    const pageLength = 100
+    const found: Drawing[] = []
+    while (true) {
+      const result = await request(`/api/resource/Drawing?fields=${fields}&order_by=name%20asc&limit_page_length=${pageLength}&limit_start=${found.length}`)
+      const page = result.data as Drawing[]
+      found.push(...page)
+      if (page.length < pageLength) break
+    }
+    drawings.value = found
     loadFailed.value = false
-  } catch { loadFailed.value = true }
+  } catch { drawings.value = []; loadFailed.value = true }
   finally { loading.value = false }
 }
 async function createDrawing() {

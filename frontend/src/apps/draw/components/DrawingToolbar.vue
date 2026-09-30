@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { defineComponent, h } from 'vue'
-import { Button } from 'frappe-ui'
-import { Dropdown } from 'frappe-ui'
-
-import { Tooltip } from 'frappe-ui'
-import { TooltipProvider } from 'frappe-ui'
+import { Button, Dropdown, Tooltip, TooltipProvider } from 'frappe-ui'
 import { ArrowRight, Circle, Diamond, Eraser, ImagePlus, Minus, MousePointer2, Pencil, Square, Type } from 'lucide-vue-next'
 import laserPointerIcon from '../assets/laser-pointer.svg?no-inline'
 import type { DrawingTool } from '../canvas/tools'

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import './styles.css'
-import { drawingTitle } from './canvas/persistence'
-import { TextInput } from 'frappe-ui'
+import { copyingDraft, drawingConflict, drawingLoadError, drawingTitle, saveRecoveredCopy } from './canvas/persistence'
+import { Button, TextInput } from 'frappe-ui'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import drawLogo from './assets/draw-logo.svg'
 import type { DrawingTool } from './canvas/tools'
@@ -15,8 +15,9 @@ const titleInput = ref<{ el: HTMLInputElement | null } | null>(null)
 const activeTool = ref<DrawingTool | null>('select')
 let lastTool: DrawingTool = 'select'
 const toolShortcuts: Partial<Record<string, DrawingTool>> = {
-  t: 'text', i: 'image', k: 'laser', p: 'draw',
-  e: 'eraser', 0: 'eraser', d: 'diamond', a: 'arrow',
+  r: 'rectangle', d: 'diamond', c: 'ellipse', o: 'ellipse',
+  l: 'line', a: 'arrow', t: 'text', i: 'image',
+  k: 'laser', p: 'draw', e: 'eraser', 0: 'eraser',
 }
 
 function startRenaming() {
@@ -35,6 +36,7 @@ function finishRenaming() {
   nextTick(() => document.querySelector<HTMLElement>('.infinite-canvas')?.focus())
 }
 function cancelRenaming() { titleDraft.value = title.value; finishRenaming() }
+function retryLoad() { location.reload() }
 
 function selectTool(tool: DrawingTool) {
   if (tool === 'eraser' && activeTool.value !== 'eraser') lastTool = activeTool.value ?? 'select'
@@ -50,7 +52,7 @@ function cancelTool() {
 }
 
 function onToolShortcut(event: KeyboardEvent) {
-  if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
+  if (drawingConflict.value || drawingLoadError.value || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
   const target = event.target instanceof HTMLElement ? event.target : null
   if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return
   const tool = toolShortcuts[event.key.toLowerCase()]
@@ -119,18 +121,29 @@ onBeforeUnmount(() => {
           class="title-button"
           type="button"
           aria-label="Rename drawing"
+          :disabled="drawingConflict || drawingLoadError"
           @click="startRenaming"
         >
           {{ title }}
         </button>
       </h1>
     </header>
-    <DrawingToolbar :active-tool="activeTool" @select="selectTool" />
+    <DrawingToolbar :active-tool="activeTool" :inert="drawingConflict || drawingLoadError" @select="selectTool" />
     <InfiniteCanvas
       :active-tool="activeTool"
-      @activate-tool="selectTool"
+      :inert="drawingConflict || drawingLoadError"
       @cancel-tool="cancelTool"
       @shape-created="finishTool"
     />
+    <div v-if="drawingConflict || drawingLoadError" class="drawing-recovery" role="alert">
+      <div v-if="drawingConflict" class="drawing-recovery-card">
+        <p>The saved drawing changed since this draft. Save the draft as a new drawing to continue editing.</p>
+        <Button variant="solid" label="Save recovered copy" :disabled="copyingDraft" @click="saveRecoveredCopy" />
+      </div>
+      <div v-else class="drawing-recovery-card">
+        <p>Could not load this drawing. Check your connection and permissions, then retry.</p>
+        <Button label="Retry" @click="retryLoad" />
+      </div>
+    </div>
   </main>
 </template>

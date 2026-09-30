@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { loadDrawing, queueSave, drawingTitle, warnUnsaved, saveDrawing, drawingLoading } from '../canvas/persistence'
-import { bounds, transformShape, isDiamond, isEllipse, isFreeDraw, isImage, isLine, isText, parseScene, type Scene, type Shape } from '../canvas/selection'
+import { bounds, freeDrawPointCount, transformShape, isDiamond, isEllipse, isFreeDraw, isImage, isLine, isText, parseScene, MAX_DRAW_POINTS, type Scene, type Shape } from '../canvas/selection'
 import { Button, Icon, Select, Tooltip, TooltipProvider } from 'frappe-ui'
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Italic, Minus, Plus, Redo2, Underline, Undo2 } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -94,7 +94,6 @@ const textAlignOptions = [
 
 const props = defineProps<{ activeTool: DrawingTool | null }>()
 const emit = defineEmits<{
-  activateTool: [tool: DrawingTool]
   cancelTool: []
   shapeCreated: []
 }>()
@@ -127,6 +126,7 @@ const pendingRectangle = ref<RectangleShape>()
 const pendingLine = ref<LineShape>()
 const pendingText = ref<RectangleShape>()
 const pendingDraw = ref<FreeDrawShape>()
+let drawPointLimit = MAX_DRAW_POINTS
 const erasedShapeIds = ref<string[]>([])
 const drawStyle = reactive({ stroke: '#171717' as string | null, fill: 'none', strokeWidth: 3, strokeStyle: 'solid' as const, opacity: 1 })
 const croppingImageId = ref<string>()
@@ -276,11 +276,6 @@ const MIN_LABEL_FONT_SIZE = 12
 const MAX_HISTORY_ENTRIES = 100
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
-const toolShortcuts: Partial<Record<string, DrawingTool>> = {
-  r: 'rectangle', d: 'diamond', c: 'ellipse', o: 'ellipse', l: 'line',
-  a: 'arrow', t: 'text', i: 'image', p: 'draw', e: 'eraser',
-}
-
 let selectionGesture:
   | {
       pointerId: number
@@ -546,7 +541,7 @@ function panToMinimapPoint(point: Point) {
 
 function copyScene(scene: Scene = { rectangles: rectangles.value, lines: lines.value }): Scene {
   return {
-    rectangles: scene.rectangles.map((rectangle) => isFreeDraw(rectangle) ? { ...rectangle, points: rectangle.points.map(point => ({ ...point })), pressures: [...rectangle.pressures] } : { ...rectangle }),
+    rectangles: scene.rectangles.map((rectangle) => isFreeDraw(rectangle) ? { ...rectangle, points: rectangle.points.map(point => ({ ...point })) } : { ...rectangle }),
     lines: scene.lines.map((line) => ({ ...line, start: { ...line.start }, end: { ...line.end } })),
   }
 }
@@ -560,6 +555,11 @@ function commitScene(previousSelection = selectedShapeIds.value) {
   for (const shape of allShapes.value) if (shape.order === undefined) shape.order = ++order
   const next = copyScene()
   if (scenesMatch(history[historyIndex], next)) return
+  if (freeDrawPointCount(next.rectangles) > MAX_DRAW_POINTS) {
+    restoreScene(historyIndex)
+    liveMessage.value = 'A drawing can contain up to 100,000 free draw points.'
+    return
+  }
   const previousIds = new Set([...history[historyIndex]!.rectangles, ...history[historyIndex]!.lines].map(s => s.id))
   const surviving = previousSelection.filter(id => previousIds.has(id))
   if (surviving.length) historySelections[historyIndex] = surviving
@@ -1462,7 +1462,7 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
     alignmentGuides.value = resizeSnap.alignmentGuides
     spacingMarkers.value = []
   } else {
-    clearShapeSnapFeedback()
+    clearSnapFeedback()
   }
   let next =
     selectionGesture.kind === 'move'
@@ -1751,13 +1751,13 @@ function reorderSelectedShapes(action: 'front' | 'forward' | 'backward' | 'back'
   commitScene()
 }
 
-function clearShapeSnapFeedback() {
+function clearSnapFeedback() {
   alignmentGuides.value = []
   spacingMarkers.value = []
 }
 
-function clearSnapFeedback() {
-  clearShapeSnapFeedback()
+function isExternalLink(link: string): boolean {
+  return /^https?:\/\//i.test(link)
 }
 
 function updateSelectionHover(point: Point) {
@@ -1781,7 +1781,7 @@ function updateSelectionHover(point: Point) {
 function updateLinkHover(point: Point) {
   const worldPoint = screenToWorld(point, latestViewport())
   const shape = [...allShapes.value].reverse().find(candidate =>
-    candidate.link && (isLine(candidate) ? containsLine(candidate, point) : containsPoint(candidate, worldPoint)),
+    candidate.link && isExternalLink(candidate.link) && (isLine(candidate) ? containsLine(candidate, point) : containsPoint(candidate, worldPoint)),
   )
   if (!shape?.link) { linkHover.value = undefined; return }
   const frame = bounds([shape])!
@@ -2052,11 +2052,16 @@ function shapeFromPoints(start: Point, end: Point, id: string, constrainProporti
 }
 
 function beginDraw(event: PointerEvent, point: Point) {
+  drawPointLimit = MAX_DRAW_POINTS - freeDrawPointCount(rectangles.value)
+  if (drawPointLimit < 1) {
+    liveMessage.value = 'A drawing can contain up to 100,000 free draw points.'
+    return
+  }
   const world = screenToWorld(point, latestViewport())
   drawPointerId = event.pointerId
   pendingDraw.value = {
-    id: 'pending-draw', kind: 'freedraw', points: [world], pressures: [event.pressure],
-    simulatePressure: true, x: world.x, y: world.y, width: 0, height: 0,
+    id: 'pending-draw', kind: 'freedraw', points: [world],
+    x: world.x, y: world.y, width: 0, height: 0,
     rotation: 0, cornerRadius: 0, stroke: drawStyle.stroke, fill: drawStyle.fill, strokeWidth: drawStyle.strokeWidth,
     strokeStyle: drawStyle.strokeStyle, opacity: drawStyle.opacity,
   }
@@ -2069,24 +2074,24 @@ function updateDraw(event: PointerEvent) {
   if (!shape) return
   const samples = event.getCoalescedEvents?.()
   for (const sample of samples?.length ? samples : [event]) {
+    if (shape.points.length >= drawPointLimit) break
     const point = screenToWorld(localPoint(sample), latestViewport())
     if (distance(point, shape.points.at(-1)!) * viewport.scale < 1) continue
     shape.points.push(point)
-    shape.pressures.push(sample.pressure)
   }
   const first = shape.points[0]!
   const last = shape.points.at(-1)!
   if (shape.points.length > 2 && distance(first, last) * viewport.scale <= 12) {
     shape.points[shape.points.length - 1] = { ...first }
   }
-  const xs = shape.points.map(point => point.x), ys = shape.points.map(point => point.y)
-  Object.assign(shape, { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) })
+  const box = bounds([shape])!
+  Object.assign(shape, { x: box.x, y: box.y, width: box.width, height: box.height })
 }
 
 function finishDraw(event: PointerEvent) {
   if (drawPointerId !== event.pointerId || !pendingDraw.value) return false
   if (event.type === 'pointerup') updateDraw(event)
-  const shape = { ...pendingDraw.value, id: nextId('draw'), points: [...pendingDraw.value.points], pressures: [...pendingDraw.value.pressures] }
+  const shape = { ...pendingDraw.value, id: nextId('draw'), points: [...pendingDraw.value.points] }
   rectangles.value.push(shape)
   pendingDraw.value = undefined
   drawPointerId = undefined
@@ -2240,7 +2245,7 @@ function onPointerDown(event: PointerEvent) {
     }
     if (event.ctrlKey || event.metaKey) {
       const worldPoint = screenToWorld(point, latestViewport())
-      const linked = [...allShapes.value].reverse().find(shape => shape.link && (isLine(shape) ? containsLine(shape, point) : containsPoint(shape, worldPoint)))
+      const linked = [...allShapes.value].reverse().find(shape => shape.link && isExternalLink(shape.link) && (isLine(shape) ? containsLine(shape, point) : containsPoint(shape, worldPoint)))
       if (linked?.link) { window.open(linked.link, '_blank', 'noopener,noreferrer'); event.preventDefault(); return }
     }
     startSelection(event, point)
@@ -2542,7 +2547,6 @@ function onKeyDown(event: KeyboardEvent) {
   }
   isShiftPressed.value = event.shiftKey
   const key = event.key.toLowerCase()
-  const shortcutTool = toolShortcuts[key]
   if (event.key === 'Escape' && croppingImage.value) {
     cancelCrop()
     event.preventDefault()
@@ -2609,9 +2613,6 @@ function onKeyDown(event: KeyboardEvent) {
     event.preventDefault()
   } else if (event.key === '0') {
     resetZoom()
-    event.preventDefault()
-  } else if (shortcutTool && (!['t', 'i'].includes(key) || !(event.ctrlKey || event.metaKey || event.altKey))) {
-    emit('activateTool', shortcutTool)
     event.preventDefault()
   } else if (event.key === 'Escape') {
     cancelGesture()
