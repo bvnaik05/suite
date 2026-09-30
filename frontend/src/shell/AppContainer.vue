@@ -24,7 +24,7 @@ const route = useRoute()
 const root = useRootStore()
 const session = useSessionStore()
 
-const appsUsingCommonSettings = ['slides', 'sheets', 'writer']
+const appsUsingCommonSettings = ['slides', 'sheets', 'writer', 'draw']
 const showCommonSettings = computed(() => {
   if (!session.isLoggedIn) return false
   const appId = route.meta.appId as string | undefined

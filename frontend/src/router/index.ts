@@ -39,6 +39,7 @@ const legacyRouteLoaders: Record<
   writer: () => import('@/apps/writer/routes'),
   sheets: () => import('@/apps/sheets/routes'),
   meet: () => import('@/apps/meet/routes'),
+  draw: () => import('@/apps/draw/routes'),
 }
 const legacyApps = SUITE_APPS.filter((app) => app.id in legacyRouteLoaders).map(
   (app) => ({

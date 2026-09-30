@@ -1,5 +1,4 @@
 <template>
-  <!-- '/suite' launcher: brand-logo app switcher for all 7 suite apps. -->
   <div class="flex h-full flex-col">
     <header class="flex h-12 shrink-0 items-center justify-between border-b p-2">
       <div v-if="workspaceName" class="flex items-center gap-2">
@@ -29,7 +28,6 @@
             :label="app.name"
           />
 
-          <LauncherTile :logo="settingsLogo" :label="__('Settings')" @click="openSettings()" />
         </div>
       </div>
     </div>
@@ -44,8 +42,8 @@ import { Avatar, Dropdown } from 'frappe-ui'
 import { CircleUser, LogOut } from 'lucide-vue-next'
 
 import { SUITE_APPS } from '@/apps/registry'
-import settingsLogo from '@/assets/app-logos/settings.svg'
 import { useCurrentUser, useSessionStore } from '@/boot/session'
+import { useSettingsMenuOption } from '@/composables/useSettingsMenuOption'
 import { useThemeMenuOption } from '@/composables/useThemeMenuOption'
 import LauncherTile from '@/shell/LauncherTile.vue'
 import SuiteSettingsDialog from '@/shell/settings/SuiteSettingsDialog.vue'
@@ -68,6 +66,7 @@ const userMenuOptions = [
     onClick: () => openSettings('profile'),
   },
   useThemeMenuOption(),
+  useSettingsMenuOption(),
   {
     label: __('Log out'),
     icon: h(LogOut, { class: 'stroke-[1.5]' }),
