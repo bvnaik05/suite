@@ -176,20 +176,20 @@ const selectedLabel = computed(() => {
   return shape && !isText(shape) && !isImage(shape) && !isFreeDraw(shape) && shape.label ? shape : undefined
 })
 const textPropertyControlsEnabled = computed(() => props.activeTool !== 'draw' && (Boolean(textEditor.value) || selectedTextShapes.value.length > 0 || Boolean(selectedLabel.value) || (!selectedShapes.value.length && props.activeTool === 'text')))
-const usesSolidColorPalette = computed(() => props.activeTool !== 'draw' && (selectedShapes.value.some(shape => isLine(shape) || isText(shape)) || Boolean(selectedLabel.value) || (!selectedShapes.value.length && textPropertyControlsEnabled.value)))
+const usesSolidColorPalette = computed(() => props.activeTool === 'draw' || selectedShapes.value.some(shape => isLine(shape) || isFreeDraw(shape) || isText(shape)) || Boolean(selectedLabel.value) || (!selectedShapes.value.length && textPropertyControlsEnabled.value))
 const propertyColorKind = computed<'shape' | 'text' | 'draw' | 'arrow' | 'line'>(() => {
-  if (props.activeTool === 'draw') return 'draw'
+  if (props.activeTool === 'draw') return 'shape'
   const shape = selectedShapes.value.at(-1)
   if (!shape || isText(shape) || shape === selectedLabel.value) return 'text'
   if (isLine(shape)) return shape.kind
   return 'shape'
 })
-const propertyColorTarget = computed<'border' | 'fill'>(() => props.activeTool === 'draw' ? 'fill' : selectedShapes.value.some(isLine) ? 'border' : 'fill')
+const propertyColorTarget = computed<'border' | 'fill'>(() => props.activeTool === 'draw' || selectedShapes.value.some(shape => isLine(shape) || isFreeDraw(shape)) ? 'border' : 'fill')
 const activePropertyColor = computed(() => {
-  if (props.activeTool === 'draw') return drawStyle.fill === 'none' ? '#171717' : drawStyle.fill
+  if (props.activeTool === 'draw') return drawStyle.stroke ?? '#171717'
   const shape = selectedShapes.value.at(-1)
   return shape
-    ? (isLine(shape) ? (shape.kind === 'arrow' ? shape.arrowHeadFill ?? shape.stroke : shape.stroke) ?? '#171717' : shape === selectedLabel.value ? shape.labelFill ?? '#171717' : shape.fill ?? '#e6f4ff')
+    ? (isLine(shape) || isFreeDraw(shape) ? (isLine(shape) && shape.kind === 'arrow' ? shape.arrowHeadFill ?? shape.stroke : shape.stroke) ?? '#171717' : shape === selectedLabel.value ? shape.labelFill ?? '#171717' : shape.fill ?? '#e6f4ff')
     : textEditor.value?.fill ?? armedTextStyle.fill
 })
 const activePropertyBorderColor = computed(() => {
@@ -200,8 +200,8 @@ const activePropertyBorderColor = computed(() => {
   if (!selectedShapes.value.length && textPropertyControlsEnabled.value) return armedTextStyle.backgroundColor
   return selectedShapes.value.at(-1)?.stroke ?? '#171717'
 })
-const activePropertyStrokeWidth = computed(() => selectedShapes.value.at(-1)?.strokeWidth ?? 2)
-const activePropertyStrokeStyle = computed(() => selectedShapes.value.at(-1)?.strokeStyle ?? 'solid')
+const activePropertyStrokeWidth = computed(() => props.activeTool === 'draw' ? drawStyle.strokeWidth : selectedShapes.value.at(-1)?.strokeWidth ?? 2)
+const activePropertyStrokeStyle = computed(() => props.activeTool === 'draw' ? drawStyle.strokeStyle : selectedShapes.value.at(-1)?.strokeStyle ?? 'solid')
 const propertyToolbarVisible = computed(() => props.activeTool !== 'eraser' && Boolean(props.activeTool === 'draw' || selectedShapes.value.length || textPropertyControlsEnabled.value))
 const propertyTextStyle = computed(() => {
   const editor = textEditor.value
@@ -1663,6 +1663,10 @@ function applyObjectColor(color: ObjectColor) {
 }
 
 function applySolidColor(color: string) {
+  if (props.activeTool === 'draw') {
+    drawStyle.stroke = color
+    return
+  }
   if (textEditor.value) {
     textEditor.value.fill = color
     if (textEditor.value.kind === 'label' && textEditor.value.shapeId) {
@@ -1681,7 +1685,7 @@ function applySolidColor(color: string) {
     return
   }
   const selected = new Set(selectedShapeIds.value)
-  rectangles.value = rectangles.value.map(shape => selected.has(shape.id) ? { ...shape, fill: color } : shape)
+  rectangles.value = rectangles.value.map(shape => selected.has(shape.id) ? isFreeDraw(shape) ? { ...shape, stroke: color } : { ...shape, fill: color } : shape)
   lines.value = lines.value.map(shape => selected.has(shape.id) ? { ...shape, stroke: color, ...(shape.kind === 'arrow' ? { arrowHeadFill: color } : {}) } : shape)
   commitScene()
 }
@@ -1721,6 +1725,10 @@ function applyCustomPropertyColor(color: string | undefined, target?: 'border' |
 }
 
 function applyCustomPropertyStyle(patch: Pick<RectangleShape, 'strokeWidth' | 'strokeStyle'>) {
+  if (props.activeTool === 'draw') {
+    Object.assign(drawStyle, patch)
+    return
+  }
   updateSelectedStyle(patch)
 }
 
@@ -3096,7 +3104,7 @@ onBeforeUnmount(() => {
             :secondary-color="activePropertyBorderColor"
             :stroke-width="activePropertyStrokeWidth"
             :stroke-style="activePropertyStrokeStyle"
-            :show-border-options="props.activeTool !== 'draw' && !selectedLabel && Boolean(selectedShapes.length && !selectedTextShapes.length)"
+            :show-border-options="props.activeTool === 'draw' || (!selectedLabel && Boolean(selectedShapes.length && !selectedTextShapes.length))"
             :target="propertyColorTarget"
             :mode="selectedLabel ? 'property-solid' : 'property-object'"
             :property-kind="propertyColorKind"
@@ -3137,7 +3145,6 @@ onBeforeUnmount(() => {
           />
         </template>
       </div>
-      <template v-if="props.activeTool !== 'draw'">
         <Select
           :model-value="propertyTextStyle.fontFamily"
           :options="fontOptions"
@@ -3162,7 +3169,6 @@ onBeforeUnmount(() => {
         <Tooltip text="Italic" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontStyle === 'italic' }" label="Italic" :aria-pressed="propertyTextStyle.fontStyle === 'italic'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontStyle: propertyTextStyle.fontStyle === 'italic' ? 'normal' : 'italic' })"><Icon :name="Italic" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
         <Tooltip text="Underline" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.textDecoration === 'underline' }" label="Underline" :aria-pressed="propertyTextStyle.textDecoration === 'underline'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ textDecoration: propertyTextStyle.textDecoration === 'underline' ? 'none' : 'underline' })"><Icon :name="Underline" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
         <Tooltip :text="propertyTextAlignOption.label" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Text alignment" :aria-label="propertyTextAlignOption.label" :disabled="!textPropertyControlsEnabled" @click="cyclePropertyTextAlign"><Icon :name="propertyTextAlignOption.icon" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-      </template>
       <Tooltip text="Bring forward" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Bring forward" :disabled="!selectedShapes.length || !layerActions.forward" @click="reorderSelectedShapes('forward')"><Icon :name="ChevronUp" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
       <Tooltip text="Send backward" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Send backward" :disabled="!selectedShapes.length || !layerActions.backward" @click="reorderSelectedShapes('backward')"><Icon :name="ChevronDown" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
     </div>
@@ -3288,7 +3294,7 @@ onBeforeUnmount(() => {
 :global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'])),
 :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'])) { bottom: 50px !important; height: auto !important; min-height: 0 !important; max-height: calc(100vh - 72px) !important; }
 :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content']):not(:has(~ div [data-slot='content'])) [data-slot='content'] .lucide-check) { display: none; }
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .property-toolbar { right: 16px; bottom: 64px; left: 16px; width: auto; transform: none; }
   .property-toolbar :deep(.property-text-control--font) { width: 104px; }
   .property-toolbar :deep(.property-text-control--size) { width: 52px; }
