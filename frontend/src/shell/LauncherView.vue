@@ -28,8 +28,6 @@
             :logo="app.logo"
             :label="app.name"
           />
-
-          <LauncherTile :logo="settingsLogo" :label="__('Settings')" @click="openSettings()" />
         </div>
       </div>
     </div>
@@ -46,8 +44,8 @@ import { useRouter } from 'vue-router'
 
 import { SUITE_APPS } from '@/apps/registry'
 import { useStartMeeting } from '@/apps/meet/composables/useStartMeeting'
-import settingsLogo from '@/assets/app-logos/settings.svg'
 import { useCurrentUser, useSessionStore } from '@/boot/session'
+import { useSettingsMenuOption } from '@/composables/useSettingsMenuOption'
 import { useThemeMenuOption } from '@/composables/useThemeMenuOption'
 import LauncherTile from '@/shell/LauncherTile.vue'
 import SuiteSettingsDialog from '@/shell/settings/SuiteSettingsDialog.vue'
@@ -140,6 +138,7 @@ const unregisterPaletteGroups = root.registerPaletteGroups('suite-launcher', () 
 const { workspaceName, workspaceLogo } = useWorkspace()
 
 const sessionStore = useSessionStore()
+const settingsMenuOption = useSettingsMenuOption()
 
 const userMenuOptions = [
   {
@@ -148,6 +147,7 @@ const userMenuOptions = [
     onClick: () => openSettings('profile'),
   },
   useThemeMenuOption(),
+  settingsMenuOption,
   {
     label: __('Log out'),
     icon: h(LogOut, { class: 'stroke-[1.5]' }),

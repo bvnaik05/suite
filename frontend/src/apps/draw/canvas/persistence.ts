@@ -1,24 +1,19 @@
 import { ref } from 'vue'
 import { toast } from 'frappe-ui'
 import { parseScene, type Scene } from './selection'
+import { drawRequest } from './request'
 
 type Drawing = { title: string; content: Scene; baseModified?: string }
 type DrawingDocument = { title: string; content: string | Scene; modified: string }
 const doctype = 'Drawing'
 export const drawingTitle = ref('Untitled Drawing')
-let user = '', csrf = '', name = '', modified = '', key = ''
+let user = '', name = '', modified = '', key = ''
 export const drawingLoading = ref(true)
 let ready = false, dirty = false
 let pending: Drawing | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 let inFlight: Promise<void> | undefined
 let database: IDBDatabase | undefined
-
-async function request(path: string, method = 'GET', body?: unknown) {
-  const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrf }, body: body === undefined ? undefined : JSON.stringify(body) })
-  if (!response.ok) throw new Error(response.status === 409 || response.status === 417 ? 'Drawing changed in another tab. Reload before saving.' : 'Frappe is unavailable. Your changes are kept in this browser.')
-  return response.json()
-}
 
 function documentPath() {
   return `/api/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`
@@ -54,18 +49,9 @@ export async function loadDrawing(): Promise<Scene | undefined> {
     const url = new URL(location.href)
     name = url.searchParams.get('drawing') ?? ''
     if (!name) { location.replace('/draw/'); return }
-    csrf = window.csrf_token ?? ''
-    const csrfTask = (async () => {
-      if (!csrf || csrf === '{{ csrf_token }}') {
-        const desk = await fetch('/desk', { credentials: 'same-origin' }).then(r => r.text())
-        csrf = desk.match(/frappe.csrf_token\s*=\s*["']([^"']+)/)?.[1] ?? ''
-      }
-      if (!csrf || csrf === '{{ csrf_token }}') throw new Error('Could not get the Frappe session token. Reload the page.')
-    })()
     const [auth, result] = await Promise.all([
-      request('/api/method/frappe.auth.get_logged_user'),
-      request(documentPath()),
-      csrfTask,
+      drawRequest('/api/method/frappe.auth.get_logged_user'),
+      drawRequest(documentPath()),
     ])
     user = auth.message
     if (!user || user === 'Guest') throw new Error('Sign in to Frappe to save drawings.')
@@ -109,11 +95,10 @@ export async function saveDrawing() {
       if (!next) return
       try {
         const document = { title: next.title, content: JSON.stringify(next.content), ...(modified ? { modified } : {}) }
-        const result = await request(modified ? documentPath() : `/api/resource/${encodeURIComponent(doctype)}`, modified ? 'PUT' : 'POST', modified ? document : { doctype, name, ...document })
+        const result = await drawRequest(modified ? documentPath() : `/api/resource/${encodeURIComponent(doctype)}`, modified ? 'PUT' : 'POST', modified ? document : { doctype, name, ...document })
         modified = result.data.modified
         if (pending && pending !== next) { pending.baseModified = modified; await draft('put', pending) }
         if (pending === next) {
-          // A local cleanup failure must not turn a committed Frappe document into a failed save.
           void draft('delete').catch(() => {})
           if (pending === next) { pending = undefined; dirty = false }
         }

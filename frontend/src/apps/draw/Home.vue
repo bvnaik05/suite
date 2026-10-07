@@ -11,6 +11,7 @@ import { useSessionStore } from '@/boot/session'
 import type { Scene, Shape } from './canvas/selection'
 import { bounds, isLine } from './canvas/selection'
 import { freeDrawPath } from './canvas/scene'
+import { drawRequest } from './canvas/request'
 
 type Drawing = { name: string; title: string; content: string; creation: string; modified: string }
 const drawings = ref<Drawing[]>([])
@@ -25,7 +26,6 @@ const sortFields = [
   { label: 'Created', field: 'creation' },
 ]
 const preview = ref<Drawing | null>(null)
-const csrf = ref('')
 const session = useSessionStore()
 const appsMenuOption = useAppSwitcher('draw')
 const settingsMenuOption = useSettingsMenuOption()
@@ -75,16 +75,7 @@ const edited = (date: string) => {
 }
 async function request(path: string, method = 'GET', body?: unknown) {
   try {
-    const response = await fetch(path, { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrf.value }, body: body === undefined ? undefined : JSON.stringify(body) })
-    if (!response.ok) {
-      const data = await response.json().catch(() => null)
-      let message = data?.message
-      try {
-        message ||= JSON.parse(JSON.parse(data?._server_messages ?? '[]')[0] ?? '{}').message
-      } catch { /* use the error type or status below */ }
-      throw new Error(message || data?.exc_type || `Frappe returned HTTP ${response.status}`)
-    }
-    return method === 'DELETE' ? undefined : response.json()
+    return await drawRequest(path, method, body)
   } catch (cause) {
     const networkError = cause instanceof TypeError
     toast.error(networkError ? 'Could not connect to Frappe' : 'Frappe request failed', { description: networkError ? 'Please check your connection and try again.' : cause instanceof Error ? cause.message : 'Please try again.' })
@@ -119,7 +110,7 @@ async function duplicate(drawing: Drawing) {
   try {
     const copy = await request('/api/resource/Drawing', 'POST', { doctype: 'Drawing', title: `${drawing.title} Copy`, content: drawing.content })
     location.href = editorUrl(copy.data.name)
-  } catch { /* request shows the toast */ }
+  } catch {}
 }
 function remove(drawing: Drawing) {
   dialog.confirm({
@@ -144,14 +135,7 @@ const menuOptions = (drawing: Drawing) => [
     { label: 'Preview', icon: h(Eye, { class: 'stroke-[1.5] !size-3.5' }), onClick: () => { preview.value = drawing } },
   ] },
 ]
-onMounted(async () => {
-  csrf.value = (window as Window & { csrf_token?: string }).csrf_token ?? ''
-  if (!csrf.value || csrf.value === '{{ csrf_token }}') {
-    const desk = await fetch('/desk', { credentials: 'same-origin' }).then(r => r.text()).catch(() => '')
-    csrf.value = desk.match(/frappe.csrf_token\s*=\s*["']([^"']+)/)?.[1] ?? ''
-  }
-  await refresh()
-})
+onMounted(refresh)
 </script>
 
 <template>
