@@ -107,7 +107,7 @@ function updateHex(value: string) {
 async function pickScreenColor() {
   const Picker = (window as typeof window & { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper
   if (!Picker) return
-  try { selectColor((await new Picker().open()).sRGBHex) } catch { /* picker cancelled */ }
+  try { selectColor((await new Picker().open()).sRGBHex) } catch {}
 }
 </script>
 

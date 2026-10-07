@@ -36,7 +36,6 @@ function wrappedLines(text: string, width: number, fontSize: number, style?: Pic
   form.style.cssText = 'position: fixed; visibility: hidden; pointer-events: none;'
   form.append(input)
   document.body.append(form)
-  // Hard wrapping exposes the textarea's actual line breaks without submitting anything.
   const wrapped = String(new FormData(form).get('text'))
   form.remove()
   return wrapped.replace(/\r\n?/g, '\n').split('\n')

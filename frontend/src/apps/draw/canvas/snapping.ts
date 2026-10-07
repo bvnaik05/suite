@@ -229,7 +229,6 @@ function bestSpacingCandidate(
   const ordered = [...references].sort((left, right) => minimum(left, axis) - minimum(right, axis))
   let best: AxisCandidate | undefined
 
-  // ponytail: O(n²) is enough for small scenes; add a spatial index only after measured lag.
   for (let firstIndex = 0; firstIndex < ordered.length; firstIndex += 1) {
     for (let secondIndex = firstIndex + 1; secondIndex < ordered.length; secondIndex += 1) {
       const first = ordered[firstIndex]

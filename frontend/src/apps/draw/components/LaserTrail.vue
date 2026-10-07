@@ -33,7 +33,6 @@ function animate(now: number) {
   const cutoff = now - props.duration
   strokes = strokes.filter((stroke) => stroke.points.at(-1)!.time > cutoff)
   paths.value = strokes.map(({ id, points }) => {
-    // Keep the preceding controls so the fading tail does not change the curve.
     const firstVisible = points.findIndex((point) => point.time > cutoff)
     points.splice(0, Math.max(0, firstVisible - 2))
     return {
