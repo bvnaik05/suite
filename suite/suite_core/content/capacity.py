@@ -49,8 +49,8 @@ def row_bound(update: updates.Update, row_bytes: int) -> int:
     return row_bytes + SPLIT_COST * len(splits)
 
 
-def admit(control_row, update: updates.Update, row_bound: int, now: datetime) -> None:
-    """Raise `Full` unless the locked `control_row` has room for a row of `row_bound`.
+def admit(control_row, update: updates.Update, row_bound_bytes: int, now: datetime) -> None:
+    """Raise `Full` unless the locked `control_row` has room for a row of `row_bound_bytes`.
 
     A push that only deletes gets `DELETE_ROOM` past the cap. With no tail left
     to compact, nothing can make room, so a push that adds and doesn't fit is full
@@ -64,7 +64,7 @@ def admit(control_row, update: updates.Update, row_bound: int, now: datetime) ->
         raise Full("doc_full", FULL_RETRY_MS)
 
     cap_bytes = STATE_MAX if adds_content else STATE_MAX + DELETE_ROOM
-    under_cap = state_bytes + tail_bound + row_bound <= cap_bytes
+    under_cap = state_bytes + tail_bound + row_bound_bytes <= cap_bytes
     tail_has_room = tail_rows < TAIL_ROWS_MAX
     if under_cap and tail_has_room:
         return
