@@ -210,7 +210,9 @@ def floor_clocks(adapter: str, doc: frappe._dict) -> dict[int, int]:
     return clocks
 
 
-def dependents(tail: list[TailRow], revs: set[int], floor: dict[int, int]) -> tuple[set[int], dict[int, int]]:
+def dependents(
+    tail: list[TailRow], revs: set[int], floor_clock_by_writer: dict[int, int]
+) -> tuple[set[int], dict[int, int]]:
     """The revs of `tail` to quarantine with `revs`, and for each writer losing a row, the clock its kept
     content ends at.
 
@@ -230,7 +232,7 @@ def dependents(tail: list[TailRow], revs: set[int], floor: dict[int, int]) -> tu
             for row in tail
             if row.client in first_picked_rev and row.rev > first_picked_rev[row.client]
         }
-        cut = {client: floor.get(client, 0) for client in first_picked_rev}
+        cut = {client: floor_clock_by_writer.get(client, 0) for client in first_picked_rev}
         for row in tail:
             kept_with_structs = row.rev not in quarantined_revs and row.update and row.update.structs
             if row.client in cut and kept_with_structs:

@@ -252,8 +252,8 @@ export async function pushInPieces(
 		data: Buffer.from(sessionJson),
 	});
 	expect(sessionResponse.ok(), await sessionResponse.text()).toBe(true);
-	const session = (await sessionResponse.json()) as { client_id: number };
-	const clientId = session.client_id;
+	const sessionReply = (await sessionResponse.json()) as { client_id: number };
+	const clientId = sessionReply.client_id;
 
 	const paragraphForm = {
 		node,
@@ -325,13 +325,13 @@ export async function pushInPieces(
  * With `bareRefusal` the 413 has no body, as some load balancers send. */
 export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusal = false) {
 	const upstream = new URL(target);
-	const bodies = {
+	const bodyStats = {
 		largest: 0,
 		refused: 0,
 	};
 
 	const refuse = (outgoing: ServerResponse) => {
-		bodies.refused++;
+		bodyStats.refused++;
 		if (bareRefusal) {
 			outgoing.writeHead(413).end();
 		} else {
@@ -345,7 +345,7 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 		const chunks: Buffer[] = [];
 		const forwardBody = () => {
 			const body = Buffer.concat(chunks);
-			bodies.largest = Math.max(bodies.largest, body.length);
+			bodyStats.largest = Math.max(bodyStats.largest, body.length);
 			if (body.length > limit) {
 				refuse(outgoing);
 				return;
@@ -384,5 +384,5 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 	};
 	const close = () => new Promise<void>(shutDown);
 	const origin = `${upstream.protocol}//${upstream.hostname}:${port}`;
-	return { origin, bodies, liftLimit, close };
+	return { origin, bodyStats, liftLimit, close };
 }
