@@ -1412,7 +1412,7 @@ describe('collab room', () => {
     const stored = text(await join(server.endpoints()))
     failFirstPush!()
 
-    expect([keepalives.length, stored]).toEqual([2, 'first second'])
+    expect([keepalives.length, stored]).toEqual([1, 'first second'])
   })
 
   it('leaving the page during a save after a long burst of typing keeps both last pushes within the keepalive quota', async () => {

@@ -699,17 +699,15 @@ export class Room implements CollabRoom {
   private sendKeepalivePair() {
     const pending = this.inFlightRange?.box.pending ?? []
     const lastUnsent = pending[pending.length - 1]?.seq
-    const tail = this.keepalivePush(this.inFlightRange, KEEPALIVE_QUOTA / 2)
-    const overlap = this.keepalivePush(null, KEEPALIVE_QUOTA - (tail?.body.byteLength ?? 0))
     const overlapAlone = this.keepalivePush(null, KEEPALIVE_QUOTA)
-    // A pair that can't carry all the unsent work gives way to an overlap that can
-    const pairCarriesAll = overlap?.header.to === lastUnsent
-    const overlapAloneCarriesAll = overlapAlone?.header.to === lastUnsent
-    if (overlapAlone && overlapAloneCarriesAll && !pairCarriesAll) {
+    // The server stores only what it lacks, so an overlap that carries all the unsent work goes alone
+    if (overlapAlone && overlapAlone.header.to === lastUnsent) {
       this.sendKeepalive(overlapAlone.body)
       return
     }
 
+    const tail = this.keepalivePush(this.inFlightRange, KEEPALIVE_QUOTA / 2)
+    const overlap = this.keepalivePush(null, KEEPALIVE_QUOTA - (tail?.body.byteLength ?? 0))
     if (tail && overlap) {
       this.sendKeepalive(tail.body)
       this.sendKeepalive(overlap.body)
