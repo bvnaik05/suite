@@ -890,6 +890,35 @@ class TestWriterCompactionTriggers(CheckpointCase):
         self.assertGreaterEqual(elapsed, 1.9)
         self.assertLess(elapsed, 3)
 
+    def test_a_second_closing_tab_answers_busy_at_once_while_another_waits(self):
+        node = self.new_document()
+        doc_id, site = self.doc_row(node).id, frappe.local.site
+        (first_tab_push,) = self.typing_pushes(node, ["one"])
+        (second_tab_push,) = self.typing_pushes(node, ["two"])
+        self.hold_document(doc_id, 1.8)
+        answered = []
+
+        def close_first_tab():
+            frappe.init(site=site)
+            frappe.connect()
+            frappe.set_user(WRITER)
+            try:
+                response = call_route(routes.updates_post, node, body=as_final(first_tab_push))
+                answered.append(response.status_code)
+            finally:
+                frappe.destroy()
+
+        first_tab = threading.Thread(target=close_first_tab)
+        first_tab.start()
+        time.sleep(0.8)
+
+        status, elapsed = self.timed_push(node, as_final(second_tab_push))
+        first_tab.join()
+
+        self.assertEqual(status, 423)
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(answered, [200])
+
     def test_a_push_from_an_open_tab_answers_busy_at_once_while_the_document_is_held(self):
         node = self.new_document()
         doc_id = self.doc_row(node).id

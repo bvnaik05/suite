@@ -3,10 +3,11 @@
 Pushes take the control row with `SKIP LOCKED` as the first statement of a fresh
 transaction, so a web thread never waits on a document: a held lock answers
 `busy` at once. Only a hiding or closing tab's last push, which can't retry,
-waits up to two seconds for it. Each row gets the next gap-free `rev` and extends a hash chain,
-and is committed before the push answers. A push that repeats seqs already
-committed gets their original answer back, checked against each seq's sha, so a
-lost answer costs one request and never a second row.
+waits up to two seconds for it, and only one such push per document at a time.
+Each row gets the next gap-free `rev` and extends a hash chain, and is committed
+before the push answers. A push that repeats seqs already committed gets their
+original answer back, checked against each seq's sha, so a lost answer costs one
+request and never a second row.
 """
 
 import base64
@@ -16,12 +17,13 @@ import hashlib
 import json
 import secrets
 import struct
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 import frappe
 from frappe.utils import now_datetime
+from frappe.utils.background_jobs import get_redis_conn
 
-from suite.suite_core.content import capacity, ingest, live, scheduling, stage
+from suite.suite_core.content import admission, capacity, ingest, live, scheduling, stage
 from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.tables import table
 
@@ -391,6 +393,26 @@ def busy_refusal() -> Refusal:
     return Refusal(423, "busy", retry_ms=retry_ms)
 
 
+@contextlib.contextmanager
+def lock_clause(adapter: str, doc_id: str, final: bool) -> Iterator[str]:
+    """How a push takes the control row: a final push waits, one per document, so they can't tie up the workers."""
+    if not final:
+        yield "SKIP LOCKED"
+        return
+
+    redis = get_redis_conn()
+    key = f"suite:collab:final-wait:{frappe.local.site}:{adapter}:{doc_id}"
+    token = secrets.token_hex(16)
+    if not redis.set(key, token, nx=True, ex=FINAL_PUSH_WAIT_S + 1):
+        yield "SKIP LOCKED"
+        return
+
+    try:
+        yield f"WAIT {FINAL_PUSH_WAIT_S}"
+    finally:
+        redis.eval(admission.RELEASE_SCRIPT, 1, key, token)
+
+
 def push(
     adapter: str, doc_id: str, header: dict, payload: bytes, principal: str, schema: ingest.EditorSchema
 ) -> dict:
@@ -417,19 +439,20 @@ def push(
         raise Refusal(409, "poison")
 
     row_bound = capacity.row_bound(row.update, len(payload))
-    lock = f"WAIT {FINAL_PUSH_WAIT_S}" if header.get("final") is True else "SKIP LOCKED"
     # The lock must be the first statement of a fresh transaction
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    try:
-        locked_rows = frappe.db.sql(
-            f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
-            `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`
-            FROM `{table(adapter, "doc")}` WHERE `id` = %s FOR UPDATE {lock}""",
-            doc_id,
-            as_dict=True,
-        )
-    except frappe.QueryTimeoutError:
-        raise busy_refusal() from None
+    with lock_clause(adapter, doc_id, header.get("final") is True) as lock:
+        try:
+            locked_rows = frappe.db.sql(
+                f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
+                `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`
+                FROM `{table(adapter, "doc")}` WHERE `id` = %s FOR UPDATE {lock}""",
+                doc_id,
+                as_dict=True,
+            )
+        # Frappe also writes an Error Log row per timeout, which one waiter per document keeps rare
+        except frappe.QueryTimeoutError:
+            raise busy_refusal() from None
 
     if not locked_rows:
         raise busy_refusal()
