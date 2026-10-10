@@ -44,6 +44,9 @@ const WAITING_MAX = 256
 // When rows were judged clean and still failed to apply in this page, per lineage
 const strikes = new Map<string, number[]>()
 
+// The seqs of one session a push carries, through `to`
+type PushRange = { box: Outbox; to: number }
+
 export interface RoomInit {
   doc: Y.Doc
   lineage: string
@@ -85,6 +88,7 @@ export class Room implements CollabRoom {
   // Tabs' leftovers come first and this tab's own stays last
   private outboxes: Outbox[]
   private inFlight: Promise<void> | null = null
+  private inFlightRange: PushRange | null = null
   private pulling: Promise<void> | null = null
   private connecting: Promise<void> | null = null
   private sendTimer: ReturnType<typeof setTimeout> | null = null
@@ -671,16 +675,23 @@ export class Room implements CollabRoom {
   // A hidden or departing page may never run its send timer, its retry, or hear back from a save on its way
   private sendNow = () => {
     this.cancelQueuedSend()
+    // The push on its way may have landed unanswered, which only what follows it continues,
+    // or never reached the server, which only all of it covers
     if (this.inFlight) {
-      const keepalivePush = this.preparePush(true)
-      if (keepalivePush && !keepalivePush.pieces) {
-        void this.options.endpoints.push(keepalivePush.body, { keepalive: true }).catch(() => {})
-      }
+      this.sendKeepalive(this.inFlightRange)
+      this.sendKeepalive(null)
       return
     }
 
     this.endRetry?.()
     void this.send({ keepalive: true })
+  }
+
+  private sendKeepalive(after: PushRange | null) {
+    const keepalivePush = this.preparePush(true, after)
+    if (keepalivePush && !keepalivePush.pieces) {
+      void this.options.endpoints.push(keepalivePush.body, { keepalive: true }).catch(() => {})
+    }
   }
 
   // The first edit after a quiet spell goes out at once; later ones wait out the server's pace and go together
@@ -712,15 +723,19 @@ export class Room implements CollabRoom {
     this.sendTimer = null
   }
 
-  private preparePush(keepalive?: boolean) {
-    const box = this.outboxes.find((other) => other.pending.length) ?? this.ownOutbox
+  private preparePush(keepalive?: boolean, after: PushRange | null = null) {
+    const box = after?.box ?? this.outboxes.find((other) => other.pending.length) ?? this.ownOutbox
     const cannotSend = this.closed || !this.bound || this.judging || this.saveState === 'failed'
     if (!box.pending.length || cannotSend) {
       return null
     }
 
     const maxBytes = keepalive ? MAX_KEEPALIVE_BYTES : MAX_PUSH_BYTES
-    const entries = box.nextBatch(maxBytes)
+    const entries = box.nextBatch(maxBytes, after?.to)
+    if (!entries.length) {
+      return null
+    }
+
     const header = {
       proto: 1,
       lineage: this.lineage,
@@ -796,8 +811,10 @@ export class Room implements CollabRoom {
     }
     const pushDone = () => {
       this.inFlight = null
+      this.inFlightRange = null
       this.notifyListeners()
     }
+    this.inFlightRange = { box, to: header.to }
     this.inFlight = Promise.resolve()
       .then(push)
       .then((reply) => this.settlePush(reply, box, header.to), pushFailed)

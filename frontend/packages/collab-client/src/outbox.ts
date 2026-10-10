@@ -64,11 +64,12 @@ export class Outbox {
     return this.pending.length > 0 && this.pending[0].seq !== this.acked + 1
   }
 
-  // The longest leading run of pending entries that fits one push
-  nextBatch(maxBytes: number): Entry[] {
+  // The longest leading run of pending entries after `afterSeq` that fits one push
+  nextBatch(maxBytes: number, afterSeq = 0): Entry[] {
     const batch: Entry[] = []
     let size = 0
-    for (const entry of this.pending) {
+    const unsent = this.pending.filter((entry) => entry.seq > afterSeq)
+    for (const entry of unsent) {
       const tooMany = batch.length >= MAX_ENTRIES
       const tooBig = size + entry.bytes.byteLength > maxBytes
       if (batch.length && (tooMany || tooBig)) {

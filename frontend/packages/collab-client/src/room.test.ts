@@ -1346,6 +1346,38 @@ describe('collab room', () => {
     expect(text(await join(server.endpoints()))).toBe('typed during a slow save')
   })
 
+  it('leaving the page before a committed save is answered still sends what was typed after it', async () => {
+    const server = fakeServer()
+    const endpoints = server.endpoints()
+    const push = endpoints.push
+    let keepalive: ReturnType<typeof push> | null = null
+    let readAnswer!: () => void
+    const answerRead = new Promise<void>((resolve) => (readAnswer = resolve))
+    endpoints.push = async (body, options) => {
+      if (options?.keepalive) {
+        keepalive = push(body, options)
+        return keepalive
+      }
+
+      const answer = await push(body, options)
+      // The page goes before it reads the answer
+      await answerRead
+      return answer
+    }
+    const room = await join(endpoints)
+    room.doc.getText('t').insert(0, 'first ')
+    await vi.waitFor(() => expect(server.rows).toHaveLength(1))
+    room.doc.getText('t').insert(6, 'second')
+
+    window.dispatchEvent(new Event('pagehide'))
+    await vi.waitFor(() => expect(keepalive).not.toBeNull())
+    await keepalive
+    const stored = text(await join(server.endpoints()))
+    readAnswer()
+
+    expect(stored).toBe('first second')
+  })
+
   it('a viewer follows the document but nothing they do is sent', async () => {
     const server = fakeServer()
     const writer = await join(server.endpoints())
