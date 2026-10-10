@@ -1475,6 +1475,38 @@ describe('collab room', () => {
     expect(stored).toBe(`${paste} after`)
   })
 
+  it('leaving the page while a save that never arrives is on its way sends it alone when it and what followed are too big for two', async () => {
+    const server = fakeServer()
+    const endpoints = server.endpoints()
+    const push = endpoints.push
+    const keepalives: ReturnType<typeof push>[] = []
+    let failFirstPush: (() => void) | null = null
+    endpoints.push = (body, options) => {
+      if (options?.keepalive) {
+        const answer = push(body, options)
+        keepalives.push(answer)
+        return answer
+      }
+
+      return new Promise(
+        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
+      )
+    }
+    const room = await join(endpoints)
+    const saved = 's'.repeat(30_000)
+    const typedAfter = 't'.repeat(20_000)
+    room.doc.getText('t').insert(0, saved)
+    await vi.waitFor(() => expect(failFirstPush).not.toBeNull())
+    room.doc.getText('t').insert(30_000, typedAfter)
+
+    window.dispatchEvent(new Event('pagehide'))
+    await Promise.all(keepalives)
+    const stored = text(await join(server.endpoints()))
+    failFirstPush!()
+
+    expect(stored).toBe(saved + typedAfter)
+  })
+
   it('a viewer follows the document but nothing they do is sent', async () => {
     const server = fakeServer()
     const writer = await join(server.endpoints())

@@ -53,6 +53,8 @@ const strikes = new Map<string, number[]>()
 
 // The seqs of one session a push carries, through `to`
 type PushRange = { box: Outbox; to: number }
+// A keepalive push ready to send, with the seqs it carries
+type KeepalivePush = { header: { from: number; to: number }; body: Uint8Array<ArrayBuffer> }
 
 export interface RoomInit {
   doc: Y.Doc
@@ -693,28 +695,60 @@ export class Room implements CollabRoom {
     void this.send({ keepalive: true })
   }
 
-  // Both are in flight at once, so they share the browser's keepalive quota; one that can't go leaves it all to the other
+  // Both are in flight at once, so they share the browser's keepalive quota
   private sendKeepalivePair() {
-    const tail = this.keepaliveBody(this.inFlightRange, KEEPALIVE_QUOTA / 2)
-    const overlap = this.keepaliveBody(null, KEEPALIVE_QUOTA - (tail?.byteLength ?? 0))
-    const bodies = overlap
-      ? [tail, overlap]
-      : [this.keepaliveBody(this.inFlightRange, KEEPALIVE_QUOTA)]
-    for (const body of bodies) {
-      if (body) {
-        void this.options.endpoints.push(body, { keepalive: true }).catch(() => {})
-      }
+    const pending = this.inFlightRange?.box.pending ?? []
+    const lastUnsent = pending[pending.length - 1]?.seq
+    const tail = this.keepalivePush(this.inFlightRange, KEEPALIVE_QUOTA / 2)
+    const overlap = this.keepalivePush(null, KEEPALIVE_QUOTA - (tail?.body.byteLength ?? 0))
+    const overlapAlone = this.keepalivePush(null, KEEPALIVE_QUOTA)
+    // A pair that can't carry all the unsent work gives way to an overlap that can
+    const pairCarriesAll = overlap?.header.to === lastUnsent
+    const overlapAloneCarriesAll = overlapAlone?.header.to === lastUnsent
+    if (overlapAlone && overlapAloneCarriesAll && !pairCarriesAll) {
+      this.sendKeepalive(overlapAlone.body)
+      return
+    }
+
+    if (tail && overlap) {
+      this.sendKeepalive(tail.body)
+      this.sendKeepalive(overlap.body)
+      return
+    }
+
+    // When only one fits, the overlap holds the most
+    const alone = overlapAlone ?? this.keepalivePush(this.inFlightRange, KEEPALIVE_QUOTA)
+    if (alone) {
+      this.sendKeepalive(alone.body)
     }
   }
 
-  // Null when there is nothing to send or it won't fit in `quota`
-  private keepaliveBody(after: PushRange | null, quota: number) {
-    const keepalivePush = this.preparePush(true, after, quota - MAX_HEADER_BYTES)
-    if (!keepalivePush || keepalivePush.pieces || keepalivePush.body.byteLength > quota) {
+  private sendKeepalive(body: Uint8Array<ArrayBuffer>) {
+    void this.options.endpoints.push(body, { keepalive: true }).catch(() => {})
+  }
+
+  // Null when there is nothing to send or not even one entry fits in `quota`
+  private keepalivePush(
+    after: PushRange | null,
+    quota: number,
+    maxBytes = quota - MAX_HEADER_BYTES,
+  ): KeepalivePush | null {
+    const prepared = this.preparePush(true, after, maxBytes)
+    if (!prepared || prepared.pieces) {
       return null
     }
 
-    return keepalivePush.body
+    const overshoot = prepared.body.byteLength - quota
+    if (overshoot <= 0) {
+      return prepared
+    }
+
+    if (prepared.header.from === prepared.header.to) {
+      return null
+    }
+
+    // The header can outgrow its allowance, so fewer entries may fit
+    return this.keepalivePush(after, quota, maxBytes - overshoot)
   }
 
   // The first edit after a quiet spell goes out at once; later ones wait out the server's pace and go together
