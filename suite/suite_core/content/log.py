@@ -7,7 +7,7 @@ waits up to two seconds for it, and only one such push per document at a time.
 Each row gets the next gap-free `rev` and extends a hash chain, and is committed
 before the push answers. A push that repeats seqs already committed gets their
 original answer back, checked against each seq's sha, so a lost answer costs one
-request and never a second row.
+request and never a second row. One that also reaches past them commits only the rest.
 """
 
 import base64
@@ -20,11 +20,12 @@ import struct
 from collections.abc import Iterator, Sequence
 
 import frappe
+import pycrdt
 from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_redis_conn
 from redis.exceptions import RedisError
 
-from suite.suite_core.content import admission, capacity, ingest, live, scheduling, stage
+from suite.suite_core.content import admission, capacity, ingest, live, scheduling, stage, updates
 from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.tables import table
 
@@ -354,7 +355,8 @@ def session_for(adapter: str, doc_id: str, header: dict, principal: str):
 
 
 def replay(adapter: str, doc_id: str, header: dict, acked_seq: int, head_rev: int) -> dict | None:
-    """The original answer for a push that starts inside the committed seqs, if every sha matches."""
+    """The original answer for a push the session already committed, if every sha matches. A push
+    that starts inside the committed seqs and reaches past them is only checked."""
     if header["from"] > acked_seq:
         return None
 
@@ -376,6 +378,9 @@ def replay(adapter: str, doc_id: str, header: dict, acked_seq: int, head_rev: in
         sha, _row = stored_seqs.get(seq, (None, None))
         if sha != header["shas"][seq - header["from"]]:
             raise Refusal(409, "seq_conflict")
+
+    if header["to"] > acked_seq:
+        return None
 
     # Every seq from `from` through `last_seq` matched a stored row, so `last_seq` has one
     last_row = stored_seqs[last_seq][1]
@@ -486,6 +491,15 @@ def push(
             frappe.db.rollback()
             return replayed
 
+        if header["from"] <= acked:
+            header, payload = unacked_part(header, payload, acked, int(session.next_clock))
+            try:
+                row = ingest.check_row(payload, header["cid"])
+            except ValueError:
+                raise Refusal(400, "malformed") from None
+
+            row_bound = capacity.row_bound(row.update, len(payload))
+
         if header["from"] != acked + 1:
             raise Refusal(409, "seq", acked=acked)
 
@@ -564,6 +578,14 @@ def push(
         "acked": header["to"],
         "pace_ms": PACE_MS,
     }
+
+
+def unacked_part(header: dict, payload: bytes, acked: int, next_clock: int) -> tuple[dict, bytes]:
+    """The seqs of a push past `acked`, with the update cut to the writer's clocks from `next_clock`."""
+    committed = acked + 1 - header["from"]
+    state = updates.encoded_uint(1) + updates.encoded_uint(header["cid"]) + updates.encoded_uint(next_clock)
+    unacked = {**header, "from": acked + 1, "shas": header["shas"][committed:]}
+    return unacked, pycrdt.get_update(payload, state)
 
 
 def assembled_payload(adapter: str, doc_id: str, header: dict) -> bytes:

@@ -206,9 +206,10 @@ function fakeServer(state = 'live', lineage = 'L') {
           if (session.shas[seq] !== header.shas[seq - header.from])
             return reply(409, { collab: 'seq_conflict' })
         }
-        return reply(200, { dup: true, acked: session.acked, head: rows.length })
+        if (header.to <= session.acked)
+          return reply(200, { dup: true, acked: session.acked, head: rows.length })
       }
-      if (header.from !== session.acked + 1)
+      if (header.from > session.acked + 1)
         return reply(409, { collab: 'seq', acked: session.acked })
       let bytes = inline
       if (header.stage_id) {
@@ -226,6 +227,12 @@ function fakeServer(state = 'live', lineage = 'L') {
         stages.delete(header.stage_id)
         if (!whole) return reply(409, { collab: 'stage_incomplete' })
       }
+      // Only what follows the committed seqs is stored
+      if (header.from <= session.acked)
+        bytes = Y.diffUpdate(
+          bytes,
+          Y.encodeStateVectorFromUpdate(Y.mergeUpdates(rows.map((row) => row.bytes))),
+        )
       header.shas.forEach((sha: string, index: number) => (session.shas[header.from + index] = sha))
       rows.push({ rev: rows.length + 1, bytes })
       session.acked = header.to
@@ -1503,6 +1510,39 @@ describe('collab room', () => {
     await Promise.all(keepalives)
     const stored = text(await join(server.endpoints()))
     failFirstPush!()
+
+    expect(stored).toBe(saved + typedAfter)
+  })
+
+  it('leaving the page before a big committed save is answered still sends what was typed after it', async () => {
+    const server = fakeServer()
+    const endpoints = server.endpoints()
+    const push = endpoints.push
+    const keepalives: ReturnType<typeof push>[] = []
+    let readAnswer!: () => void
+    const answerRead = new Promise<void>((resolve) => (readAnswer = resolve))
+    endpoints.push = async (body, options) => {
+      if (options?.keepalive) {
+        const answer = push(body, options)
+        keepalives.push(answer)
+        return answer
+      }
+
+      const answer = await push(body, options)
+      await answerRead
+      return answer
+    }
+    const room = await join(endpoints)
+    const saved = 's'.repeat(30_000)
+    const typedAfter = 't'.repeat(20_000)
+    room.doc.getText('t').insert(0, saved)
+    await vi.waitFor(() => expect(server.rows).toHaveLength(1))
+    room.doc.getText('t').insert(30_000, typedAfter)
+
+    window.dispatchEvent(new Event('pagehide'))
+    await Promise.all(keepalives)
+    const stored = text(await join(server.endpoints()))
+    readAnswer()
 
     expect(stored).toBe(saved + typedAfter)
   })

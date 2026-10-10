@@ -355,21 +355,39 @@ class TestWriterCollab(IntegrationTestCase):
         self.assertEqual((body["rev"], body["chain"]), (first[1]["rev"], first[1]["chain"]))
         self.assert_one_order(node, 1)
 
-    def test_a_resend_grown_by_more_typing_gets_the_original_answer(self):
+    def test_a_resend_grown_by_more_typing_stores_only_the_new_typing(self):
         self.set_mode("on")
         node = self.new_document()
         sid, client_id = self.start_session(node)
 
-        a, b = typed_updates(client_id, ["a", "b"])
+        a, b = typed_updates(client_id, ["first", " second"])
         both = pycrdt.merge_updates(a, b)
 
-        first = self.push(node, sid, client_id, 1, a)
+        self.push(node, sid, client_id, 1, a)
         status, body = self.push(node, sid, client_id, 1, both, entries=[a, b])
-        rest = self.push(node, sid, client_id, 2, b)
+        again = self.push(node, sid, client_id, 1, both, entries=[a, b])
 
-        self.assertEqual((status, body["dup"], body["acked"], body["rev"]), (200, True, 1, first[1]["rev"]))
-        self.assertEqual((rest[0], rest[1]["rev"], rest[1]["acked"]), (200, 2, 2))
+        self.assertEqual((status, "dup" in body, body["rev"], body["acked"]), (200, False, 2, 2))
+        self.assertEqual((again[0], again[1]["dup"], again[1]["rev"], again[1]["acked"]), (200, True, 2, 2))
         self.assert_one_order(node, 2)
+        reader = pycrdt.Doc()
+        for _rev, payload in self.open_document(node)[1]:
+            reader.apply_update(payload)
+
+        self.assertEqual(str(reader.get("default", type=pycrdt.XmlFragment).children[0]), "first second")
+
+    def test_a_resend_grown_by_more_typing_with_different_committed_bytes_is_refused(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+
+        a = self.typed_update(client_id, 1, "a")
+        self.push(node, sid, client_id, 1, a)
+        c, d = typed_updates(client_id, ["c", "d"])
+        status, body = self.push(node, sid, client_id, 1, pycrdt.merge_updates(c, d), entries=[c, d])
+
+        self.assertEqual((status, body), (409, {"collab": "seq_conflict"}))
+        self.assertEqual([payload for _, payload in self.open_document(node)[1]], [a])
 
     def test_a_resend_with_different_bytes_is_refused(self):
         self.set_mode("on")
