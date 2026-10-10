@@ -84,8 +84,7 @@ class Compaction:
 
             admission.limit_memory()
             snapshot = self.fit_snapshot()
-            nothing_new = snapshot is None or snapshot["head_rev"] == snapshot["base"]
-            if nothing_new:
+            if snapshot is None or snapshot["head_rev"] == snapshot["base"]:
                 frappe.db.rollback()
                 self.clear_attempt()
                 return

@@ -9,7 +9,7 @@ with its values changed and nothing else.
 import builtins
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 MAX_SAFE_INTEGER = 2**53 - 1
@@ -149,7 +149,7 @@ def checked_json(text: str):
         if depth >= MAX_DEPTH:
             raise ValueError("value nested too deep")
 
-        items = ()
+        items: Iterable[object] = ()
         if isinstance(value, dict):
             items = value.values()
         elif isinstance(value, list):

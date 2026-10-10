@@ -232,8 +232,10 @@ def claim_session(adapter: str, doc: dict, sid: str, claim, principal: str) -> s
     """Bind the clientID a tab opened offline chose itself: `ok`, `clash` or `lineage`. Mints nothing."""
     client_id = claim.get("cid") if isinstance(claim, dict) else None
     lineage = claim.get("lineage") if isinstance(claim, dict) else None
-    client_id_is_int = isinstance(client_id, int) and not isinstance(client_id, bool)
-    if not client_id_is_int or not isinstance(lineage, str):
+    if not isinstance(client_id, int) or isinstance(client_id, bool):
+        raise Refusal(400, "malformed")
+
+    if not isinstance(lineage, str):
         raise Refusal(400, "malformed")
 
     if not CLIENT_ID_MAX <= client_id < 2 * CLIENT_ID_MAX:

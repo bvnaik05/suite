@@ -234,8 +234,8 @@ def dependents(
         }
         cut = {client: floor_clock_by_writer.get(client, 0) for client in first_picked_rev}
         for row in tail:
-            kept_with_structs = row.rev not in quarantined_revs and row.update and row.update.structs
-            if row.client in cut and kept_with_structs:
+            kept = row.rev not in quarantined_revs
+            if row.client in cut and kept and row.update and row.update.structs:
                 last_struct = row.update.structs[-1]
                 cut[row.client] = max(cut[row.client], last_struct.clock + last_struct.length)
         new_dependents = {
