@@ -30,6 +30,8 @@ export const REMOTE = Symbol('collab-remote')
 const ADOPT = Symbol('collab-adopt')
 
 const PERSIST_AFTER_MS = 60_000
+// The gap between pushes until the server names its own
+const DEFAULT_PACE_MS = 500
 const STRIKE_WINDOW_MS = 10 * 60_000
 const MAX_STRIKES = 3
 // Without live updates a tab pulls every tick while others are editing or work waits, and every sixth tick otherwise
@@ -60,6 +62,7 @@ export interface Opening {
   rows: Row[]
   limits?: Limits
   rooms?: RoomKeys
+  paceMs?: number
   // Opened from the device copy, so the server hasn't answered yet
   offline?: boolean
 }
@@ -84,7 +87,8 @@ export class Room implements CollabRoom {
   private pulling: Promise<void> | null = null
   private connecting: Promise<void> | null = null
   private sendTimer: ReturnType<typeof setTimeout> | null = null
-  private firstUnsentAt = 0
+  private paceMs = DEFAULT_PACE_MS
+  private lastPushStartedAt = 0
   private unsentSince = 0
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private retrying: Promise<void> | null = null
@@ -133,6 +137,7 @@ export class Room implements CollabRoom {
     this.ownOutbox.release = releaseOwnLock ?? (() => {})
 
     this.appliedThrough = opening.base
+    this.paceMs = opening.paceMs ?? DEFAULT_PACE_MS
     this.unheard = !!opening.offline
     this.limits = opening.limits ?? null
     this.follow(opening.schema)
@@ -647,10 +652,7 @@ export class Room implements CollabRoom {
 
   // A hidden or departing page may never run its send timer, its retry, or hear back from a save on its way
   private sendNow = () => {
-    if (this.sendTimer) {
-      clearTimeout(this.sendTimer)
-    }
-    this.sendTimer = null
+    this.cancelQueuedSend()
     if (this.inFlight) {
       const keepalivePush = this.preparePush(true)
       if (keepalivePush && !keepalivePush.pieces) {
@@ -663,23 +665,24 @@ export class Room implements CollabRoom {
     void this.send({ keepalive: true })
   }
 
+  // The first edit after a quiet spell goes out at once; later ones wait out the server's pace and go together
   private scheduleSend() {
-    const now = Date.now()
-    if (!this.sendTimer) {
-      this.firstUnsentAt = now
-    } else {
-      clearTimeout(this.sendTimer)
-    }
+    if (this.sendTimer) return
 
-    // By default an edit goes out at once; edits made while a push is in flight go out together after it
-    const sendDelay = this.options.sendDelayMs ?? 0
-    const sendBy = this.firstUnsentAt + (this.options.sendMaxDelayMs ?? 0)
-    const delay = Math.min(sendDelay, sendBy - now)
+    const paceEndsAt = this.lastPushStartedAt + this.paceMs
+    const wait = Math.max(0, paceEndsAt - Date.now())
     const sendQueued = () => {
       this.sendTimer = null
       void this.send()
     }
-    this.sendTimer = setTimeout(sendQueued, Math.max(0, delay))
+    this.sendTimer = setTimeout(sendQueued, wait)
+  }
+
+  private cancelQueuedSend() {
+    if (this.sendTimer) {
+      clearTimeout(this.sendTimer)
+    }
+    this.sendTimer = null
   }
 
   private preparePush(keepalive?: boolean) {
@@ -738,6 +741,10 @@ export class Room implements CollabRoom {
     const prepared = this.preparePush(request.keepalive)
     if (!prepared) return Promise.resolve()
 
+    // What was queued goes in this push
+    this.cancelQueuedSend()
+    this.lastPushStartedAt = Date.now()
+
     const { box, header, body, pieces } = prepared
     const { endpoints } = this.options
     const push = async () => {
@@ -767,6 +774,9 @@ export class Room implements CollabRoom {
   }
 
   private async settlePush(reply: Reply, box: Outbox, lastSeq: number) {
+    if (typeof reply.pace_ms === 'number') {
+      this.paceMs = reply.pace_ms
+    }
     if (reply.status !== 423) {
       this.setPaused(null)
     }
@@ -1077,13 +1087,11 @@ export class Room implements CollabRoom {
   }
 
   private clearTimers() {
-    if (this.sendTimer) {
-      clearTimeout(this.sendTimer)
-    }
+    this.cancelQueuedSend()
     if (this.reportTimer) {
       clearTimeout(this.reportTimer)
     }
-    this.sendTimer = this.reportTimer = null
+    this.reportTimer = null
     this.endRetry?.()
   }
 

@@ -13,6 +13,7 @@ export interface ReplyBody {
   head?: number
   reason?: string
   retry_ms?: number
+  pace_ms?: number
   judged?: number
   verdict?: string
 }

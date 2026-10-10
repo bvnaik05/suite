@@ -41,8 +41,6 @@ export interface OpenOptions {
   // The realtime socket rows and presence arrive on; without one the room polls
   socket?: LiveSocket | null
   pollMs?: number
-  sendDelayMs?: number
-  sendMaxDelayMs?: number
 }
 
 export interface LiveSocket {

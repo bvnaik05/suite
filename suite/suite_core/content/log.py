@@ -25,7 +25,7 @@ from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.tables import table
 
 PROTOCOL_VERSION = 1
-PACE_MS = 1000
+PACE_MS = 500
 CLIENT_ID_MAX = 2**30
 PURGE_BATCH = 500
 # A push stamped by a newer build than this server waits out the deploy

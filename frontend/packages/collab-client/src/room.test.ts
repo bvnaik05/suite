@@ -52,6 +52,8 @@ function fakeServer(state = 'live', lineage = 'L') {
   const rows: { rev: number; bytes: Uint8Array }[] = []
   const sessions = new Map<string, { cid: number; acked: number; shas: string[] }>()
   const access = { refuse: null as Answer | null, canWrite: true, online: true }
+  // The gap the server asks for between pushes, on open and in each push reply
+  const pace = { ms: undefined as number | undefined }
   const calls: string[] = []
   const pulls: number[] = []
   const finals: boolean[] = []
@@ -125,6 +127,7 @@ function fakeServer(state = 'live', lineage = 'L') {
         proto: 1,
         lineage,
         can_write: access.canWrite,
+        pace_ms: pace.ms,
         base: checkpoint.base,
         q_epoch: epoch.now,
         schema: schema.now,
@@ -228,7 +231,7 @@ function fakeServer(state = 'live', lineage = 'L') {
       session.acked = header.to
       const encodedRow = bytes.byteLength <= 32 * 1024 ? base64(bytes) : null
       publish('suite_collab_row', { rev: rows.length, schema: header.schema, u: encodedRow })
-      return reply(200, { rev: rows.length, head: rows.length, acked: header.to })
+      return reply(200, { rev: rows.length, head: rows.length, acked: header.to, pace_ms: pace.ms })
     },
   })
   const compact = () => {
@@ -252,6 +255,7 @@ function fakeServer(state = 'live', lineage = 'L') {
     pieces,
     endpoints,
     access,
+    pace,
     calls,
     pulls,
     finals,
@@ -271,6 +275,7 @@ function fakeServer(state = 'live', lineage = 'L') {
 
 const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
 
+type FakeServer = ReturnType<typeof fakeServer>
 type FakeSocket = ReturnType<typeof fakeSocket>
 
 // A tab's socket to the realtime service: it joins what the room set names and acks only if the service answers
@@ -330,7 +335,6 @@ async function join(endpoints: CollabEndpoints, extra: Partial<OpenOptions> = {}
     schema: 1,
     signedIn: () => signedIn,
     pollMs: 60_000,
-    sendDelayMs: 0,
     ...extra,
   })
   if (opened.state !== 'live') throw new Error(opened.state)
@@ -339,6 +343,15 @@ async function join(endpoints: CollabEndpoints, extra: Partial<OpenOptions> = {}
 }
 
 const text = (room: CollabRoom) => room.doc.getText('t').toString()
+
+// A room that has just pushed while the server asks for a minute between pushes, so new typing waits
+async function joinMidPace(server: FakeServer, endpoints: CollabEndpoints) {
+  server.pace.ms = 60_000
+  const room = await join(endpoints)
+  room.doc.getMap('m').set('opened', true)
+  await room.flush()
+  return room
+}
 // Three pieces' worth of typing
 const BIG = 'x'.repeat(600_000)
 
@@ -741,7 +754,7 @@ describe('collab room', () => {
   it('typing from before a newer editor wrote is still saved', async () => {
     vi.useFakeTimers()
     const server = fakeServer()
-    const room = await join(server.endpoints(), { sendDelayMs: 1000 })
+    const room = await join(server.endpoints())
     room.doc.getText('t').insert(0, 'kept')
     server.schema.now = 2
 
@@ -1175,13 +1188,13 @@ describe('collab room', () => {
   it('leaving the page with a big change unsent stages it without keepalive', async () => {
     const server = fakeServer()
     const endpoints = server.endpoints()
+    const room = await joinMidPace(server, endpoints)
     const sent: (boolean | undefined)[] = []
     const push = endpoints.push
     endpoints.push = (body, options) => {
       sent.push(options?.keepalive)
       return push(body, options)
     }
-    const room = await join(endpoints, { sendDelayMs: 60_000, sendMaxDelayMs: 60_000 })
     room.doc.getText('t').insert(0, BIG)
 
     window.dispatchEvent(new Event('pagehide'))
@@ -1244,13 +1257,13 @@ describe('collab room', () => {
   it('hiding the tab sends what was typed at once, and showing it sends nothing', async () => {
     const server = fakeServer()
     const endpoints = server.endpoints()
+    const room = await joinMidPace(server, endpoints)
     const sent: (boolean | undefined)[] = []
     const push = endpoints.push
     endpoints.push = (body, options) => {
       sent.push(options?.keepalive)
       return push(body, options)
     }
-    const room = await join(endpoints, { sendDelayMs: 60_000, sendMaxDelayMs: 60_000 })
     room.doc.getText('t').insert(0, 'typed before hiding')
 
     document.dispatchEvent(new Event('visibilitychange'))
@@ -1272,13 +1285,13 @@ describe('collab room', () => {
   it('leaving the page sends what was typed at once', async () => {
     const server = fakeServer()
     const endpoints = server.endpoints()
+    const room = await joinMidPace(server, endpoints)
     const sent: (boolean | undefined)[] = []
     const push = endpoints.push
     endpoints.push = (body, options) => {
       sent.push(options?.keepalive)
       return push(body, options)
     }
-    const room = await join(endpoints, { sendDelayMs: 60_000, sendMaxDelayMs: 60_000 })
     room.doc.getText('t').insert(0, 'typed before leaving')
 
     window.dispatchEvent(new Event('pagehide'))
@@ -1498,6 +1511,67 @@ describe('collab room', () => {
       })
     }
   })
+  it('the first edit after a pause is sent at once', async () => {
+    vi.useFakeTimers()
+    const server = fakeServer()
+    const room = await join(server.endpoints())
+    room.doc.getText('t').insert(0, 'one')
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(2000)
+
+    room.doc.getText('t').insert(3, ' two')
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect([server.rows.length, room.unsent]).toEqual([2, 0])
+  })
+
+  it('steady typing is sent at most once per pace, half a second when the server names none', async () => {
+    vi.useFakeTimers()
+    const server = fakeServer()
+    const endpoints = server.endpoints()
+    const room = await join(endpoints)
+    const startedAt = Date.now()
+    const pushedAt: number[] = []
+    const push = endpoints.push
+    endpoints.push = (body, options) => {
+      pushedAt.push(Date.now() - startedAt)
+      return push(body, options)
+    }
+
+    for (let key = 0; key < 20; key++) {
+      room.doc.getText('t').insert(key, 'x')
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    await room.flush()
+
+    expect(pushedAt).toEqual([0, 500, 1000, 1500, 2000])
+    expect(text(await join(server.endpoints()))).toBe('xxxxxxxxxxxxxxxxxxxx')
+  })
+
+  it('a pace the server changes in a push reply sets the gap from then on', async () => {
+    vi.useFakeTimers()
+    const server = fakeServer()
+    server.pace.ms = 2000
+    const endpoints = server.endpoints()
+    const room = await join(endpoints)
+    const startedAt = Date.now()
+    const pushedAt: number[] = []
+    const push = endpoints.push
+    endpoints.push = (body, options) => {
+      pushedAt.push(Date.now() - startedAt)
+      return push(body, options)
+    }
+
+    room.doc.getText('t').insert(0, 'a')
+    await vi.advanceTimersByTimeAsync(100)
+    room.doc.getText('t').insert(1, 'b')
+    server.pace.ms = 300
+    await vi.advanceTimersByTimeAsync(2000)
+    room.doc.getText('t').insert(2, 'c')
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(pushedAt).toEqual([0, 2000, 2300])
+  })
 })
 
 // IndexedDB answers through setImmediate, which must keep running
@@ -1617,6 +1691,7 @@ describe('collab room on a device', () => {
     server.access.online = true
     await vi.advanceTimersByTimeAsync(1000)
     await vi.advanceTimersByTimeAsync(1000)
+    await idle()
 
     expect(server.calls.slice(0, 3)).toEqual(['claim', 'push', 'pull'])
     expect([text(offline), offline.saveState, server.rows.length]).toEqual([
