@@ -10,7 +10,14 @@ import {
   type Row,
 } from './frames'
 import { Live, type LiveHooks } from './live'
-import { holdLock, MAX_KEEPALIVE_BYTES, MAX_PUSH_BYTES, Outbox } from './outbox'
+import {
+  holdLock,
+  KEEPALIVE_QUOTA,
+  MAX_HEADER_BYTES,
+  MAX_KEEPALIVE_BYTES,
+  MAX_PUSH_BYTES,
+  Outbox,
+} from './outbox'
 import { PIECE_BYTES, putPieces, stageFor, type Staging } from './pieces'
 import type { DeviceStore, StoredSession } from './store'
 import {
@@ -678,8 +685,10 @@ export class Room implements CollabRoom {
     // The push on its way may have landed unanswered, which only what follows it continues,
     // or never reached the server, which only all of it covers
     if (this.inFlight) {
-      this.sendKeepalive(this.inFlightRange)
-      this.sendKeepalive(null)
+      // Both are in flight at once, so they split the browser's keepalive quota
+      const quotaShare = KEEPALIVE_QUOTA / 2
+      this.sendKeepalive(this.inFlightRange, quotaShare)
+      this.sendKeepalive(null, quotaShare)
       return
     }
 
@@ -687,9 +696,12 @@ export class Room implements CollabRoom {
     void this.send({ keepalive: true })
   }
 
-  private sendKeepalive(after: PushRange | null) {
-    const keepalivePush = this.preparePush(true, after)
-    if (keepalivePush && !keepalivePush.pieces) {
+  private sendKeepalive(after: PushRange | null, quota: number) {
+    const keepalivePush = this.preparePush(true, after, quota - MAX_HEADER_BYTES)
+    if (!keepalivePush || keepalivePush.pieces) return
+
+    // A single change past its share would take the other's
+    if (keepalivePush.body.byteLength <= quota) {
       void this.options.endpoints.push(keepalivePush.body, { keepalive: true }).catch(() => {})
     }
   }
@@ -723,14 +735,17 @@ export class Room implements CollabRoom {
     this.sendTimer = null
   }
 
-  private preparePush(keepalive?: boolean, after: PushRange | null = null) {
+  private preparePush(
+    keepalive?: boolean,
+    after: PushRange | null = null,
+    maxBytes = keepalive ? MAX_KEEPALIVE_BYTES : MAX_PUSH_BYTES,
+  ) {
     const box = after?.box ?? this.outboxes.find((other) => other.pending.length) ?? this.ownOutbox
     const cannotSend = this.closed || !this.bound || this.judging || this.saveState === 'failed'
     if (!box.pending.length || cannotSend) {
       return null
     }
 
-    const maxBytes = keepalive ? MAX_KEEPALIVE_BYTES : MAX_PUSH_BYTES
     const entries = box.nextBatch(maxBytes, after?.to)
     if (!entries.length) {
       return null

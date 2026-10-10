@@ -1378,6 +1378,72 @@ describe('collab room', () => {
     expect(stored).toBe('first second')
   })
 
+  it('leaving the page while a save that never arrives is on its way sends it with what was typed after it', async () => {
+    const server = fakeServer()
+    const endpoints = server.endpoints()
+    const push = endpoints.push
+    const keepalives: ReturnType<typeof push>[] = []
+    let failFirstPush: (() => void) | null = null
+    endpoints.push = (body, options) => {
+      if (options?.keepalive) {
+        const answer = push(body, options)
+        keepalives.push(answer)
+        return answer
+      }
+
+      return new Promise(
+        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
+      )
+    }
+    const room = await join(endpoints)
+    room.doc.getText('t').insert(0, 'first ')
+    await vi.waitFor(() => expect(failFirstPush).not.toBeNull())
+    room.doc.getText('t').insert(6, 'second')
+
+    window.dispatchEvent(new Event('pagehide'))
+    await Promise.all(keepalives)
+    const stored = text(await join(server.endpoints()))
+    failFirstPush!()
+
+    expect([keepalives.length, stored]).toEqual([2, 'first second'])
+  })
+
+  it('leaving the page during a save after a long burst of typing keeps both last pushes within the keepalive quota', async () => {
+    const server = fakeServer()
+    const endpoints = server.endpoints()
+    const push = endpoints.push
+    const keepalives: ReturnType<typeof push>[] = []
+    const keepaliveBytes: number[] = []
+    let failFirstPush: (() => void) | null = null
+    endpoints.push = (body, options) => {
+      if (options?.keepalive) {
+        keepaliveBytes.push(body.byteLength)
+        const answer = push(body, options)
+        keepalives.push(answer)
+        return answer
+      }
+
+      return new Promise(
+        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
+      )
+    }
+    const room = await join(endpoints)
+    room.doc.getText('t').insert(0, 'first ')
+    await vi.waitFor(() => expect(failFirstPush).not.toBeNull())
+    for (let index = 0; index < 20; index++) {
+      room.doc.getText('t').insert(6, 'x'.repeat(4000))
+    }
+
+    window.dispatchEvent(new Event('pagehide'))
+    await Promise.all(keepalives)
+    const stored = text(await join(server.endpoints()))
+    failFirstPush!()
+
+    expect(keepaliveBytes).toHaveLength(2)
+    expect(keepaliveBytes[0] + keepaliveBytes[1]).toBeLessThanOrEqual(65_536)
+    expect(stored.startsWith('first x')).toBe(true)
+  })
+
   it('a viewer follows the document but nothing they do is sent', async () => {
     const server = fakeServer()
     const writer = await join(server.endpoints())

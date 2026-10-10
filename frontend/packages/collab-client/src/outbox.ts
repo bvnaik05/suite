@@ -5,9 +5,11 @@ import type { StoredEntry } from './store'
 
 // Each sha adds 67 bytes to the push header, which the server caps at 4 KiB
 const MAX_ENTRIES = 48
+export const MAX_HEADER_BYTES = 4 * 1024
 export const MAX_PUSH_BYTES = 256 * 1024
-// Browsers refuse keepalive bodies over 64 KiB
-export const MAX_KEEPALIVE_BYTES = 60 * 1024
+// Browsers refuse keepalive bodies past 64 KiB in flight at once
+export const KEEPALIVE_QUOTA = 64 * 1024
+export const MAX_KEEPALIVE_BYTES = KEEPALIVE_QUOTA - MAX_HEADER_BYTES
 
 // `sha` lets the server tell a resent seq from a different one under the same number
 export type Entry = { seq: number; bytes: Uint8Array; sha: string }
