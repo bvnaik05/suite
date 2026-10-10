@@ -685,10 +685,7 @@ export class Room implements CollabRoom {
     // The push on its way may have landed unanswered, which only what follows it continues,
     // or never reached the server, which only all of it covers
     if (this.inFlight) {
-      // Both are in flight at once, so they split the browser's keepalive quota
-      const quotaShare = KEEPALIVE_QUOTA / 2
-      this.sendKeepalive(this.inFlightRange, quotaShare)
-      this.sendKeepalive(null, quotaShare)
+      this.sendKeepalivePair()
       return
     }
 
@@ -696,14 +693,28 @@ export class Room implements CollabRoom {
     void this.send({ keepalive: true })
   }
 
-  private sendKeepalive(after: PushRange | null, quota: number) {
-    const keepalivePush = this.preparePush(true, after, quota - MAX_HEADER_BYTES)
-    if (!keepalivePush || keepalivePush.pieces) return
-
-    // A single change past its share would take the other's
-    if (keepalivePush.body.byteLength <= quota) {
-      void this.options.endpoints.push(keepalivePush.body, { keepalive: true }).catch(() => {})
+  // Both are in flight at once, so they share the browser's keepalive quota; one that can't go leaves it all to the other
+  private sendKeepalivePair() {
+    const tail = this.keepaliveBody(this.inFlightRange, KEEPALIVE_QUOTA / 2)
+    const overlap = this.keepaliveBody(null, KEEPALIVE_QUOTA - (tail?.byteLength ?? 0))
+    const bodies = overlap
+      ? [tail, overlap]
+      : [this.keepaliveBody(this.inFlightRange, KEEPALIVE_QUOTA)]
+    for (const body of bodies) {
+      if (body) {
+        void this.options.endpoints.push(body, { keepalive: true }).catch(() => {})
+      }
     }
+  }
+
+  // Null when there is nothing to send or it won't fit in `quota`
+  private keepaliveBody(after: PushRange | null, quota: number) {
+    const keepalivePush = this.preparePush(true, after, quota - MAX_HEADER_BYTES)
+    if (!keepalivePush || keepalivePush.pieces || keepalivePush.body.byteLength > quota) {
+      return null
+    }
+
+    return keepalivePush.body
   }
 
   // The first edit after a quiet spell goes out at once; later ones wait out the server's pace and go together

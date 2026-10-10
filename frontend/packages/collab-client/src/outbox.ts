@@ -7,8 +7,8 @@ import type { StoredEntry } from './store'
 const MAX_ENTRIES = 48
 export const MAX_HEADER_BYTES = 4 * 1024
 export const MAX_PUSH_BYTES = 256 * 1024
-// Browsers refuse keepalive bodies past 64 KiB in flight at once
-export const KEEPALIVE_QUOTA = 64 * 1024
+// Browsers refuse keepalive requests past 64 KiB in flight at once; 1 KiB stays for the URL and headers
+export const KEEPALIVE_QUOTA = 63 * 1024
 export const MAX_KEEPALIVE_BYTES = KEEPALIVE_QUOTA - MAX_HEADER_BYTES
 
 // `sha` lets the server tell a resent seq from a different one under the same number
