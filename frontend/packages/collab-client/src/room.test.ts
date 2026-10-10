@@ -2347,6 +2347,8 @@ describe('collab room live', () => {
 
   it('a peer’s caret claiming rows that don’t exist makes the tab pull at most once in ten seconds', async () => {
     fakeTime()
+    // An epoch has just begun, so the room-key refresh pull comes long after the test ends
+    vi.setSystemTime(1_800_000_000_000)
     const server = fakeServer()
     const socket = server.socket()
     const reader = await join(server.endpoints(), { socket })
