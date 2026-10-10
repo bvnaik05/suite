@@ -32,6 +32,7 @@ const ADOPT = Symbol('collab-adopt')
 const PERSIST_AFTER_MS = 60_000
 // The gap between pushes until the server names its own
 const DEFAULT_PACE_MS = 500
+const MAX_PACE_MS = 10_000
 const STRIKE_WINDOW_MS = 10 * 60_000
 const MAX_STRIKES = 3
 // Without live updates a tab pulls every tick while others are editing or work waits, and every sixth tick otherwise
@@ -137,7 +138,7 @@ export class Room implements CollabRoom {
     this.ownOutbox.release = releaseOwnLock ?? (() => {})
 
     this.appliedThrough = opening.base
-    this.paceMs = opening.paceMs ?? DEFAULT_PACE_MS
+    this.paceMs = paceWithinRange(opening.paceMs)
     this.unheard = !!opening.offline
     this.limits = opening.limits ?? null
     this.follow(opening.schema)
@@ -695,6 +696,15 @@ export class Room implements CollabRoom {
     this.sendTimer = setTimeout(sendQueued, wait)
   }
 
+  // Typing already waiting goes out by the new pace
+  private setPace(paceMs: unknown) {
+    this.paceMs = paceWithinRange(paceMs)
+    if (this.sendTimer) {
+      this.cancelQueuedSend()
+      this.scheduleSend()
+    }
+  }
+
   private cancelQueuedSend() {
     if (this.sendTimer) {
       clearTimeout(this.sendTimer)
@@ -797,8 +807,8 @@ export class Room implements CollabRoom {
   }
 
   private async settlePush(reply: Reply, box: Outbox, lastSeq: number) {
-    if (typeof reply.pace_ms === 'number') {
-      this.paceMs = reply.pace_ms
+    if (reply.pace_ms !== undefined) {
+      this.setPace(reply.pace_ms)
     }
     if (reply.status !== 423) {
       this.setPaused(null)
@@ -1155,3 +1165,12 @@ function recordStrike(lineage: string) {
 }
 
 const backoffMs = () => 1000 + Math.random() * 29_000
+
+// A server pace that is missing or not a number falls back to the default; one out of range is held to it
+function paceWithinRange(paceMs: unknown) {
+  if (typeof paceMs !== 'number' || !Number.isFinite(paceMs)) {
+    return DEFAULT_PACE_MS
+  }
+
+  return Math.min(Math.max(paceMs, 0), MAX_PACE_MS)
+}

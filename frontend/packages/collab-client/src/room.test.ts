@@ -1572,6 +1572,74 @@ describe('collab room', () => {
 
     expect(pushedAt).toEqual([0, 2000, 2300])
   })
+
+  it('typing already waiting goes out by a pace a reply shortens', async () => {
+    vi.useFakeTimers()
+    const server = fakeServer()
+    server.pace.ms = 5000
+    const endpoints = server.endpoints()
+    const room = await join(endpoints)
+    const startedAt = Date.now()
+    const pushedAt: number[] = []
+    const push = endpoints.push
+    endpoints.push = async (body, options) => {
+      pushedAt.push(Date.now() - startedAt)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      return push(body, options)
+    }
+
+    room.doc.getText('t').insert(0, 'a')
+    await vi.advanceTimersByTimeAsync(100)
+    room.doc.getText('t').insert(1, 'b')
+    server.pace.ms = 2000
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(pushedAt).toEqual([0, 2000])
+  })
+
+  it('a pace above ten seconds is held to ten seconds', async () => {
+    vi.useFakeTimers()
+    const server = fakeServer()
+    server.pace.ms = 2 ** 31
+    const endpoints = server.endpoints()
+    const room = await join(endpoints)
+    const startedAt = Date.now()
+    const pushedAt: number[] = []
+    const push = endpoints.push
+    endpoints.push = (body, options) => {
+      pushedAt.push(Date.now() - startedAt)
+      return push(body, options)
+    }
+
+    room.doc.getText('t').insert(0, 'a')
+    await vi.advanceTimersByTimeAsync(100)
+    room.doc.getText('t').insert(1, 'b')
+    await vi.advanceTimersByTimeAsync(20_000)
+
+    expect(pushedAt).toEqual([0, 10_000])
+  })
+
+  it('a pace that is not a number falls back to half a second', async () => {
+    vi.useFakeTimers()
+    const server = fakeServer()
+    server.pace.ms = 'soon' as unknown as number
+    const endpoints = server.endpoints()
+    const room = await join(endpoints)
+    const startedAt = Date.now()
+    const pushedAt: number[] = []
+    const push = endpoints.push
+    endpoints.push = (body, options) => {
+      pushedAt.push(Date.now() - startedAt)
+      return push(body, options)
+    }
+
+    room.doc.getText('t').insert(0, 'a')
+    await vi.advanceTimersByTimeAsync(100)
+    room.doc.getText('t').insert(1, 'b')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(pushedAt).toEqual([0, 500])
+  })
 })
 
 // IndexedDB answers through setImmediate, which must keep running
