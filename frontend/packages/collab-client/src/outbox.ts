@@ -51,7 +51,9 @@ export class Outbox {
   acknowledge(through: number): Uint8Array | null {
     this.acked = Math.max(this.acked, through)
     const committed = this.pending.filter((entry) => entry.seq <= this.acked)
-    if (!committed.length) return null
+    if (!committed.length) {
+      return null
+    }
 
     this.pending = this.pending.filter((entry) => entry.seq > this.acked)
     return Y.mergeUpdates(committed.map((entry) => entry.bytes))
@@ -92,7 +94,9 @@ export class Outbox {
 export function holdLock(name: string): Promise<(() => void) | null> {
   const locks = globalThis.navigator?.locks
   const releaseNothing = () => {}
-  if (!locks) return Promise.resolve(releaseNothing)
+  if (!locks) {
+    return Promise.resolve(releaseNothing)
+  }
 
   return new Promise((resolve) => {
     const options: LockOptions = { ifAvailable: true }

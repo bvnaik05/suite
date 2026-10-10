@@ -10,7 +10,9 @@ const schema = getSchema(writerSchema())
 // A body the editor can't hold; an empty body is a new document, which the editor fills itself
 export const writerFault: Fault = (doc) => {
   const body = doc.getXmlFragment(BODY_FIELD)
-  if (!body.length) return null
+  if (!body.length) {
+    return null
+  }
 
   try {
     const root = yXmlFragmentToProseMirrorRootNode(body, schema)

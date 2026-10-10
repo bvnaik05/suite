@@ -144,18 +144,28 @@ export function useWriterCollab(
   // "editing" while there is no room to ask
   const editingState = computed<'editing' | 'paused' | 'closed'>(() => {
     const roomStatus = status.value
-    if (!isLive.value || !roomStatus) return 'editing'
+    if (!isLive.value || !roomStatus) {
+      return 'editing'
+    }
 
     const lostAccess = roomStatus.blocked === 'lost_edit' || roomStatus.blocked === 'lost_read'
-    if (lostAccess) return 'closed'
+    if (lostAccess) {
+      return 'closed'
+    }
 
     const stopped = roomStatus.saveState === 'failed' || roomStatus.blocked === 'offline'
-    if (stopped) return 'paused'
+    if (stopped) {
+      return 'paused'
+    }
 
-    if (roomStatus.canWrite) return 'editing'
+    if (roomStatus.canWrite) {
+      return 'editing'
+    }
 
     const waiting = roomStatus.blocked || roomStatus.paused || roomStatus.held
-    if (waiting) return 'paused'
+    if (waiting) {
+      return 'paused'
+    }
 
     return 'closed'
   })
@@ -166,7 +176,9 @@ export function useWriterCollab(
   const paused = computed(() => (isLive.value ? (status.value?.paused ?? null) : null))
   const banner = computed(() => {
     const roomStatus = status.value
-    if (!isLive.value || !roomStatus) return null
+    if (!isLive.value || !roomStatus) {
+      return null
+    }
 
     const bannerState: BannerState = {
       ...roomStatus,

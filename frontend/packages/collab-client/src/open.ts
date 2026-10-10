@@ -17,19 +17,27 @@ export async function openCollabRoom(options: OpenOptions): Promise<Opened> {
   try {
     openAnswer = await endpoints.open()
   } catch (error) {
-    if (!device) throw error
+    if (!device) {
+      throw error
+    }
 
     const copy = await device.store.copy(device.doc).catch(() => null)
-    if (!copy) throw error
+    if (!copy) {
+      throw error
+    }
 
     const room = await openOffline(copy, options, error)
     return { state: 'live', room }
   }
 
-  if (openAnswer.status !== 200) throw toOpenError(openAnswer, options)
+  if (openAnswer.status !== 200) {
+    throw toOpenError(openAnswer, options)
+  }
 
   const { header, checkpoint, rows } = decodeFrame<OpenHeader>(openAnswer.bytes)
-  if (header.state !== 'live') return { state: header.state }
+  if (header.state !== 'live') {
+    return { state: header.state }
+  }
 
   const doc = new Y.Doc()
   const sid = randomHex(16)
@@ -130,7 +138,9 @@ async function claimClientId(
       await store.saveSession(session)
       return clientId
     } catch (error) {
-      if ((error as Error)?.name !== 'ConstraintError' || attempt === 2) throw openFailure
+      if ((error as Error)?.name !== 'ConstraintError' || attempt === 2) {
+        throw openFailure
+      }
     }
   }
 }

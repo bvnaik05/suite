@@ -81,7 +81,9 @@ type StoredPiece = { id: number; bytes: Uint8Array }
 
 // Null where the browser keeps no IndexedDB for this page (blocked storage, or opening hangs)
 export function openDeviceStore(name: string, timeoutMs = 3000): Promise<DeviceStore | null> {
-  if (typeof indexedDB === 'undefined') return Promise.resolve(null)
+  if (typeof indexedDB === 'undefined') {
+    return Promise.resolve(null)
+  }
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), timeoutMs)
@@ -159,7 +161,9 @@ class IndexedDeviceStore implements DeviceStore {
       requestResult<CopyMeta | undefined>(metaRequest),
       requestResult<StoredPiece[]>(piecesRequest),
     ])
-    if (!meta) return null
+    if (!meta) {
+      return null
+    }
 
     const bytes = pieces.length ? Y.mergeUpdates(pieces.map((piece) => piece.bytes)) : EMPTY_UPDATE
     return {

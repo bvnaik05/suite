@@ -9,7 +9,9 @@ import { fullName, lookUp } from '@/apps/writer/composables/useUsers'
 
 // A guest is named by its tab, so two guests in one document read apart
 export function peerName(user: string, peerId: number) {
-  if (user === 'Guest') return `Guest ${peerId.toString(36).slice(-4).toUpperCase()}`
+  if (user === 'Guest') {
+    return `Guest ${peerId.toString(36).slice(-4).toUpperCase()}`
+  }
 
   return fullName(user)
 }
@@ -19,7 +21,9 @@ export function peopleOf(peers: Peer[]) {
   const seen = new Set<string>()
   const newPerson = (peer: Peer) => {
     const key = peer.user === 'Guest' ? `${peer.pid}` : peer.user
-    if (seen.has(key)) return []
+    if (seen.has(key)) {
+      return []
+    }
 
     seen.add(key)
     const person = {
@@ -39,13 +43,17 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
   name: 'collabCarets',
   addOptions: () => ({ presence: null }),
   addProseMirrorPlugins() {
-    if (!this.options.presence) return []
+    if (!this.options.presence) {
+      return []
+    }
 
     const editor = this.editor
     const awareness = this.options.presence.awareness
     const canPlace = (position: unknown) => {
       const syncState = ySyncPluginKey.getState(editor.state)
-      if (!syncState?.binding) return false
+      if (!syncState?.binding) {
+        return false
+      }
 
       const relative = Y.createRelativePositionFromJSON(position)
       const absolute = relativePositionToAbsolutePosition(

@@ -28,7 +28,9 @@ export function judge(checkpoint: Uint8Array | null, rows: Uint8Array[], fault: 
     }
   }
 
-  if (!faultAfter(rows.length)) return { verdict: 'clean' }
+  if (!faultAfter(rows.length)) {
+    return { verdict: 'clean' }
+  }
 
   const checkpointFault = faultAfter(0)
   if (checkpointFault) {

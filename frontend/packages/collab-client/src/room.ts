@@ -187,7 +187,9 @@ export class Room implements CollabRoom {
 
   get atLimit() {
     const limits = this.limits
-    if (!limits) return false
+    if (!limits) {
+      return false
+    }
 
     return limits.state_bytes + limits.tail_bound >= limits.state_max
   }
@@ -199,11 +201,17 @@ export class Room implements CollabRoom {
   // A stopped tab stays failed while it holds work; once a refusal leaves nothing unsent there is nothing to fail
   get saveState(): SaveState {
     const refusedWithNothingUnsent = !!this.blocked && !this.unsent
-    if (this.failed && !refusedWithNothingUnsent) return 'failed'
+    if (this.failed && !refusedWithNothingUnsent) {
+      return 'failed'
+    }
 
-    if (this.inFlight) return 'saving'
+    if (this.inFlight) {
+      return 'saving'
+    }
 
-    if (this.unsent) return 'unsaved'
+    if (this.unsent) {
+      return 'unsaved'
+    }
 
     return 'clean'
   }
@@ -215,10 +223,14 @@ export class Room implements CollabRoom {
 
   pull(): Promise<void> {
     const readBlocked = this.blocked === 'other_user' || this.blocked === 'lost_read'
-    if (this.closed || this.needsRebuild || readBlocked) return Promise.resolve()
+    if (this.closed || this.needsRebuild || readBlocked) {
+      return Promise.resolve()
+    }
 
     if (!this.bound) {
-      if (this.stopReason) return Promise.resolve()
+      if (this.stopReason) {
+        return Promise.resolve()
+      }
 
       return this.claimAndBind()
     }
@@ -227,7 +239,9 @@ export class Room implements CollabRoom {
   }
 
   private pullNow(): Promise<void> {
-    if (this.closed) return Promise.resolve()
+    if (this.closed) {
+      return Promise.resolve()
+    }
 
     const applyPull = (answer: Answer) => {
       if (answer.status !== 200) {
@@ -406,7 +420,9 @@ export class Room implements CollabRoom {
     }
 
     const blocked = this.classifyRefusal(reply, 'lost_edit')
-    if (blocked) return null
+    if (blocked) {
+      return null
+    }
 
     return reply.collab ?? null
   }
@@ -688,7 +704,9 @@ export class Room implements CollabRoom {
   private preparePush(keepalive?: boolean) {
     const box = this.outboxes.find((other) => other.pending.length) ?? this.ownOutbox
     const cannotSend = this.closed || !this.bound || this.judging || this.saveState === 'failed'
-    if (!box.pending.length || cannotSend) return null
+    if (!box.pending.length || cannotSend) {
+      return null
+    }
 
     const maxBytes = keepalive ? MAX_KEEPALIVE_BYTES : MAX_PUSH_BYTES
     const entries = box.nextBatch(maxBytes)
@@ -739,7 +757,9 @@ export class Room implements CollabRoom {
     }
 
     const prepared = this.preparePush(request.keepalive)
-    if (!prepared) return Promise.resolve()
+    if (!prepared) {
+      return Promise.resolve()
+    }
 
     // What was queued goes in this push
     this.cancelQueuedSend()
@@ -750,7 +770,9 @@ export class Room implements CollabRoom {
     const push = async () => {
       if (pieces) {
         const refused = await putPieces(endpoints, pieces.stage, header, pieces.update)
-        if (refused) return refused
+        if (refused) {
+          return refused
+        }
       }
 
       const pushOptions = pieces ? {} : request
@@ -885,9 +907,13 @@ export class Room implements CollabRoom {
 
   private confirmLostAccess(lostAccess: Blocked): Blocked {
     const signedIn = this.options.signedIn()
-    if (signedIn === 'Guest') return 'signed_out'
+    if (signedIn === 'Guest') {
+      return 'signed_out'
+    }
 
-    if (signedIn !== this.options.principal) return 'other_user'
+    if (signedIn !== this.options.principal) {
+      return 'other_user'
+    }
 
     return lostAccess
   }
@@ -984,9 +1010,13 @@ export class Room implements CollabRoom {
   // An editor older than the document's rows may drop what it can't show; nothing it does from now on is sent.
   // Work typed before still goes out, as the server takes older schemas
   private follow(schema = 0) {
-    if (this.newerSchema) return false
+    if (this.newerSchema) {
+      return false
+    }
 
-    if (schema <= this.options.schema) return true
+    if (schema <= this.options.schema) {
+      return true
+    }
 
     this.newerSchema = true
     this.writable = false

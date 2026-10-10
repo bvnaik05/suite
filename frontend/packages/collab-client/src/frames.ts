@@ -63,7 +63,9 @@ export function decodeFrame<Header>(bytes: Uint8Array): {
   let offset = 0
 
   const requireBytes = (length: number) => {
-    if (offset + length > bytes.byteLength) throw new RangeError('Truncated collab frame')
+    if (offset + length > bytes.byteLength) {
+      throw new RangeError('Truncated collab frame')
+    }
   }
 
   const readUint32 = () => {

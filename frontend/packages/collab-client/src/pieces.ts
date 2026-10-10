@@ -24,7 +24,9 @@ export interface Staging {
 
 export function stageFor(previous: Staging | null, { sid, from, to }: PieceHeader): Staging {
   const key = `${sid}:${from}:${to}`
-  if (previous?.key === key) return previous
+  if (previous?.key === key) {
+    return previous
+  }
 
   return { key, id: randomHex(16) }
 }
@@ -56,10 +58,14 @@ export async function putPieces(
     const body = encodePush(pieceHeader, piece)
     const answer = await endpoints.stage(stageId, pieceIndex, body)
     const reply = readReply(answer)
-    if (reply.status !== 200) return reply
+    if (reply.status !== 200) {
+      return reply
+    }
 
     // The server already committed the change, and says so again to the push
-    if (reply.dup) return null
+    if (reply.dup) {
+      return null
+    }
   }
 
   return null

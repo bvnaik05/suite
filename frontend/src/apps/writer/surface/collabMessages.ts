@@ -59,7 +59,9 @@ function savingBanner(atLimit: boolean, setAside: boolean): Banner | null {
     }
   }
 
-  if (!setAside) return null
+  if (!setAside) {
+    return null
+  }
 
   return { text: "Your last edits couldn't be saved here and were kept as a recovery copy." }
 }
@@ -103,7 +105,9 @@ export function bannerFor({
       held === 'bad_checkpoint'
         ? 'This document is in question and read-only while an admin reviews it.'
         : 'This document is read-only while an admin reviews a change to it.'
-    if (!unsent) return { text }
+    if (!unsent) {
+      return { text }
+    }
 
     if (onDevice) {
       return {

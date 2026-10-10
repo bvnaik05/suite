@@ -185,11 +185,15 @@ export class Presence {
   // A roster entry or caret state naming one of this document's rooms
   private addMember(entry: unknown) {
     const { room, pid, user } = (entry ?? {}) as RosterEntry
-    if (typeof room !== 'string' || !this.hooks.isOwnRoom(room)) return false
+    if (typeof room !== 'string' || !this.hooks.isOwnRoom(room)) {
+      return false
+    }
 
     const otherTab = typeof pid === 'number' && pid !== this.pid
     const named = typeof user === 'string'
-    if (!otherTab || !named) return false
+    if (!otherTab || !named) {
+      return false
+    }
 
     const member: Member = this.members.get(pid) ?? {
       user,
@@ -287,7 +291,9 @@ function encodeStates(accepted: Clocked[]) {
 }
 
 function objectsIn(raw: unknown): object[] {
-  if (!Array.isArray(raw)) return []
+  if (!Array.isArray(raw)) {
+    return []
+  }
 
   return raw.filter((element) => element && typeof element === 'object')
 }
@@ -297,7 +303,9 @@ function sanitizeCaret(cursor: unknown) {
   const { anchor: rawAnchor, head: rawHead } = (cursor ?? {}) as CaretRange
   const anchor = sanitizePosition(rawAnchor)
   const head = sanitizePosition(rawHead)
-  if (!anchor || !head) return null
+  if (!anchor || !head) {
+    return null
+  }
 
   return {
     anchor,
@@ -309,14 +317,20 @@ function sanitizePosition(raw: unknown) {
   const { type, tname, item, assoc } = (raw ?? {}) as Record<string, unknown>
   const itemId = sanitizeItemId(item)
   const typeId = sanitizeItemId(type)
-  if (itemId === undefined || typeId === undefined) return null
+  if (itemId === undefined || typeId === undefined) {
+    return null
+  }
 
   const strayName = tname !== undefined && tname !== null && typeof tname !== 'string'
-  if (strayName) return null
+  if (strayName) {
+    return null
+  }
 
   // No item, no parent type and no root type name leaves nothing to anchor to
   const unanchored = !itemId && !typeId && typeof tname !== 'string'
-  if (unanchored) return null
+  if (unanchored) {
+    return null
+  }
 
   return {
     type: typeId,
@@ -327,10 +341,14 @@ function sanitizePosition(raw: unknown) {
 }
 
 function sanitizeItemId(raw: unknown) {
-  if (raw === null || raw === undefined) return null
+  if (raw === null || raw === undefined) {
+    return null
+  }
 
   const { client, clock } = raw as ItemId
-  if (!Number.isInteger(client) || !Number.isInteger(clock)) return undefined
+  if (!Number.isInteger(client) || !Number.isInteger(clock)) {
+    return undefined
+  }
 
   return { client, clock }
 }

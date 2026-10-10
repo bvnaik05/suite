@@ -126,7 +126,9 @@ export class Live {
 
   // The keys still in use now
   currentKeys(): string[] {
-    if (!this.keys || this.closed) return []
+    if (!this.keys || this.closed) {
+      return []
+    }
 
     const now = Date.now() / 1000 + this.clockOffset
     const { epoch, epoch_seconds: epochSeconds, keys } = this.keys
@@ -279,13 +281,10 @@ export class Live {
 
   // A peer's caret says it has applied a row this tab has not heard
   private onPeerAhead(peerAppliedThrough: number) {
-    if (
-      !Number.isSafeInteger(peerAppliedThrough) ||
-      peerAppliedThrough <= this.hooks.appliedThrough()
-    )
-      return
-
-    if (Date.now() - this.lastCaretPullAt < CARET_PULL_MS) return
+    const validRev = Number.isSafeInteger(peerAppliedThrough)
+    const peerIsAhead = peerAppliedThrough > this.hooks.appliedThrough()
+    const pulledRecently = Date.now() - this.lastCaretPullAt < CARET_PULL_MS
+    if (!validRev || !peerIsAhead || pulledRecently) return
 
     this.lastCaretPullAt = Date.now()
     this.pullHoleLater(() => this.hooks.appliedThrough() < peerAppliedThrough)
