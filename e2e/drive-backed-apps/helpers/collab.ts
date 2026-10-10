@@ -182,38 +182,28 @@ export async function saveNamedVersion(
 
 /** Paste a 16 px PNG at the cursor, as a picture copied from another app would be. */
 export async function pastePicture(page: Page): Promise<void> {
-	await writerEditor(page).evaluate(pasteDot);
-}
-
-// Runs in the page, so it reads nothing from this module
-function pasteDot(editor: Element) {
-	const pngBase64 =
-		"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGklEQVR4nGP4z8BAEhrVMKphVMOohlENQ1UDAOWw/wF6FG3VAAAAAElFTkSuQmCC";
-	const bytes = Uint8Array.from(atob(pngBase64), (char) => char.charCodeAt(0));
-	const picture = new File([bytes], "dot.png", { type: "image/png" });
-	const clipboard = new DataTransfer();
-	clipboard.items.add(picture);
-
-	const pasteInit: ClipboardEventInit = {
-		clipboardData: clipboard,
-		bubbles: true,
-		cancelable: true,
-	};
-	const paste = new ClipboardEvent("paste", pasteInit);
-	editor.dispatchEvent(paste);
+	await writerEditor(page).evaluate(pasteClipboard, null);
 }
 
 /** Paste plain text at the end of the document, as text copied from another app would be. */
 export async function pasteText(page: Page, text: string): Promise<void> {
 	await writerEditor(page).click();
 	await page.keyboard.press("ControlOrMeta+End");
-	await writerEditor(page).evaluate(pastePlainText, text);
+	await writerEditor(page).evaluate(pasteClipboard, text);
 }
 
-// Runs in the page, so it reads nothing from this module
-function pastePlainText(editor: Element, text: string) {
+// Runs in the page, so it reads nothing from this module. Without text it pastes a 16 px PNG
+function pasteClipboard(editor: Element, text: string | null) {
 	const clipboard = new DataTransfer();
-	clipboard.setData("text/plain", text);
+	if (text === null) {
+		const pngBase64 =
+			"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGklEQVR4nGP4z8BAEhrVMKphVMOohlENQ1UDAOWw/wF6FG3VAAAAAElFTkSuQmCC";
+		const bytes = Uint8Array.from(atob(pngBase64), (char) => char.charCodeAt(0));
+		const picture = new File([bytes], "dot.png", { type: "image/png" });
+		clipboard.items.add(picture);
+	} else {
+		clipboard.setData("text/plain", text);
+	}
 
 	const pasteInit: ClipboardEventInit = {
 		clipboardData: clipboard,

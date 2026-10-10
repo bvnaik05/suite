@@ -147,11 +147,11 @@ function _insertInNewTab(editor, content, label) {
   }
 
   // createTab() adds an empty paragraph — swap it for the imported content.
-  const emptyParagraph = {
+  const tabContentRange = {
     from: tab.pos + 1,
     to: tab.pos + tab.node.nodeSize - 1,
   }
-  editor.commands.insertContentAt(emptyParagraph, content)
+  editor.commands.insertContentAt(tabContentRange, content)
 }
 
 /**
