@@ -2,7 +2,8 @@
 
 Pushes take the control row with `SKIP LOCKED` as the first statement of a fresh
 transaction, so a web thread never waits on a document: a held lock answers
-`busy` at once. Each row gets the next gap-free `rev` and extends a hash chain,
+`busy` at once. Only a hiding or closing tab's last push, which can't retry,
+waits up to two seconds for it. Each row gets the next gap-free `rev` and extends a hash chain,
 and is committed before the push answers. A push that repeats seqs already
 committed gets their original answer back, checked against each seq's sha, so a
 lost answer costs one request and never a second row.
@@ -31,6 +32,7 @@ PURGE_BATCH = 500
 # A push stamped by a newer build than this server waits out the deploy
 UPGRADING_RETRY_MS = 30_000
 SUSPECT_RETRY_MS = 5 * 60_000
+FINAL_PUSH_WAIT_S = 2
 
 
 class Refusal(Exception):
@@ -415,15 +417,20 @@ def push(
         raise Refusal(409, "poison")
 
     row_bound = capacity.row_bound(row.update, len(payload))
+    lock = f"WAIT {FINAL_PUSH_WAIT_S}" if header.get("final") is True else "SKIP LOCKED"
     # The lock must be the first statement of a fresh transaction
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    locked_rows = frappe.db.sql(
-        f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
-        `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`
-        FROM `{table(adapter, "doc")}` WHERE `id` = %s FOR UPDATE SKIP LOCKED""",
-        doc_id,
-        as_dict=True,
-    )
+    try:
+        locked_rows = frappe.db.sql(
+            f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
+            `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`
+            FROM `{table(adapter, "doc")}` WHERE `id` = %s FOR UPDATE {lock}""",
+            doc_id,
+            as_dict=True,
+        )
+    except frappe.QueryTimeoutError:
+        raise busy_refusal() from None
+
     if not locked_rows:
         raise busy_refusal()
 

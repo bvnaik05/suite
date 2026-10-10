@@ -34,6 +34,14 @@ from suite.writer.content.tests.test_collab import (
 WRITER = "writer-collab-writer@example.com"
 
 
+def as_final(body: bytes) -> bytes:
+    """The same push sent as a hiding or closing tab's last one."""
+    length = int.from_bytes(body[:4], "big")
+    header = json.loads(body[4 : 4 + length]) | {"final": True}
+    encoded = json.dumps(header).encode()
+    return len(encoded).to_bytes(4, "big") + encoded + body[4 + length :]
+
+
 class CheckpointCase(IntegrationTestCase):
     @classmethod
     def setUpClass(cls):
@@ -760,21 +768,52 @@ class TestWriterCompactionTriggers(CheckpointCase):
         enqueue.start()
         self.addCleanup(enqueue.stop)
 
-    def push_bytes(self, node: str, sizes: list[int], *, final: bool = False) -> None:
+    def typing_pushes(self, node: str, texts: list[str]) -> list[bytes]:
+        """The pushes of a new tab that types each text as its own seq."""
         sid = uuid.uuid4().hex
         session_body = json.dumps({"sid": sid}).encode()
         session = call_route(routes.sessions_post, node, body=session_body)
         client_id = answer(session)["client_id"]
         lineage = self.doc_row(node).lineage
-        updates = typed_updates(client_id, ["x" * size for size in sizes])
-        for seq, update in enumerate(updates, start=1):
-            body = body_for(node, lineage, sid, client_id, seq, update)
-            if final and seq == len(sizes):
-                length = int.from_bytes(body[:4], "big")
-                header = json.loads(body[4 : 4 + length]) | {"final": True}
-                encoded = json.dumps(header).encode()
-                body = len(encoded).to_bytes(4, "big") + encoded + body[4 + length :]
+        updates = typed_updates(client_id, texts)
+        return [
+            body_for(node, lineage, sid, client_id, seq, update)
+            for seq, update in enumerate(updates, start=1)
+        ]
+
+    def push_bytes(self, node: str, sizes: list[int], *, final: bool = False) -> None:
+        bodies = self.typing_pushes(node, ["x" * size for size in sizes])
+        if final:
+            bodies[-1] = as_final(bodies[-1])
+        for body in bodies:
             self.assertEqual(call_route(routes.updates_post, node, body=body).status_code, 200)
+
+    def hold_document(self, doc_id: str, seconds: float) -> None:
+        """Another request holds the document's control row for `seconds`, as a push being committed does."""
+        site = frappe.local.site
+        held = threading.Event()
+
+        def hold():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                frappe.db.sql("SELECT `id` FROM `__writer_content_doc` WHERE `id` = %s FOR UPDATE", doc_id)
+                held.set()
+                time.sleep(seconds)
+                frappe.db.commit()
+            finally:
+                frappe.destroy()
+
+        thread = threading.Thread(target=hold)
+        thread.start()
+        self.addCleanup(thread.join)
+        held.wait()
+
+    def timed_push(self, node: str, body: bytes) -> tuple[int, float]:
+        started = time.monotonic()
+        response = call_route(routes.updates_post, node, body=body)
+        elapsed = time.monotonic() - started
+        return response.status_code, elapsed
 
     def test_a_small_tail_asks_for_nothing_and_a_large_one_asks_once_it_is_large(self):
         node = self.new_document()
@@ -823,6 +862,45 @@ class TestWriterCompactionTriggers(CheckpointCase):
         self.push_bytes(node, [100])
         self.push_bytes(node, [100], final=True)
         self.assertEqual(self.requested, [])
+
+    def test_a_closing_tab_waits_out_a_push_holding_the_document_and_its_text_is_compacted(self):
+        node = self.new_document()
+        doc_id = self.doc_row(node).id
+        first, last = self.typing_pushes(node, ["Typed just before ", "the tab closed"])
+        self.assertEqual(call_route(routes.updates_post, node, body=first).status_code, 200)
+        self.hold_document(doc_id, 0.5)
+
+        status, _elapsed = self.timed_push(node, as_final(last))
+
+        self.assertEqual(status, 200)
+        self.assertEqual(self.requested, [doc_id])
+        self.compact(node)
+        self.assertEqual(self.text_of(self.body_of(node)), "Typed just before the tab closed")
+
+    def test_a_closing_tab_waits_no_more_than_two_seconds_and_then_answers_busy(self):
+        node = self.new_document()
+        doc_id = self.doc_row(node).id
+        first, last = self.typing_pushes(node, ["one ", "two"])
+        self.assertEqual(call_route(routes.updates_post, node, body=first).status_code, 200)
+        self.hold_document(doc_id, 4)
+
+        status, elapsed = self.timed_push(node, as_final(last))
+
+        self.assertEqual(status, 423)
+        self.assertGreaterEqual(elapsed, 1.9)
+        self.assertLess(elapsed, 3)
+
+    def test_a_push_from_an_open_tab_answers_busy_at_once_while_the_document_is_held(self):
+        node = self.new_document()
+        doc_id = self.doc_row(node).id
+        first, last = self.typing_pushes(node, ["one ", "two"])
+        self.assertEqual(call_route(routes.updates_post, node, body=first).status_code, 200)
+        self.hold_document(doc_id, 1)
+
+        status, elapsed = self.timed_push(node, last)
+
+        self.assertEqual(status, 423)
+        self.assertLess(elapsed, 0.5)
 
     def test_a_tail_ten_minutes_old_asks_on_the_next_open(self):
         node = self.new_document()
