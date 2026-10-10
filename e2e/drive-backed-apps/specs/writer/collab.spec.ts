@@ -487,7 +487,7 @@ test.describe("Writer collaboration", () => {
 			const saved = await serverBlocks(testApi, node);
 			expect(saved.map((block) => block.length)).toContain(bigPaste.length);
 			expect(saved.includes(bigPaste)).toBe(true);
-			expect([proxy.traffic.refused, proxy.traffic.largest <= 2 ** 20]).toEqual([0, true]);
+			expect([proxy.bodies.refused, proxy.bodies.largest <= 2 ** 20]).toEqual([0, true]);
 		} finally {
 			await proxy.close();
 		}
@@ -511,7 +511,7 @@ test.describe("Writer collaboration", () => {
 					"Your network is refusing uploads, so your latest changes aren't saved.",
 				);
 				await expect(refusalBanner).toBeVisible();
-				expect(proxy.traffic.refused).toBeGreaterThan(0);
+				expect(proxy.bodies.refused).toBeGreaterThan(0);
 				expect((await serverBlocks(testApi, node)).includes(bigPaste)).toBe(false);
 
 				proxy.liftLimit();

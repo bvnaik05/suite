@@ -262,10 +262,10 @@ export async function pushInPieces(
 		data: Buffer.from(sessionJson),
 	});
 	expect(sessionResponse.ok(), await sessionResponse.text()).toBe(true);
-	const sessionReply = (await sessionResponse.json()) as { client_id: number };
-	const clientId = sessionReply.client_id;
+	const session = (await sessionResponse.json()) as { client_id: number };
+	const clientId = session.client_id;
 
-	const paragraph = {
+	const paragraphForm = {
 		node,
 		client_id: String(clientId),
 		length: String(length),
@@ -273,7 +273,7 @@ export async function pushInPieces(
 	const changeResponse = await testApi.post(
 		"/api/method/suite.writer.content.e2e_api.paragraph_change",
 		{
-			form: paragraph,
+			form: paragraphForm,
 		},
 	);
 	const paragraphChange = await frappeData<ParagraphChange>(changeResponse);
@@ -335,13 +335,13 @@ export async function pushInPieces(
  * With `bareRefusal` the 413 has no body, as some load balancers send. */
 export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusal = false) {
 	const upstream = new URL(target);
-	const traffic = {
+	const bodies = {
 		largest: 0,
 		refused: 0,
 	};
 
 	const refuse = (outgoing: ServerResponse) => {
-		traffic.refused++;
+		bodies.refused++;
 		if (bareRefusal) {
 			outgoing.writeHead(413).end();
 		} else {
@@ -355,13 +355,13 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 		const chunks: Buffer[] = [];
 		const forwardBody = () => {
 			const body = Buffer.concat(chunks);
-			traffic.largest = Math.max(traffic.largest, body.length);
+			bodies.largest = Math.max(bodies.largest, body.length);
 			if (body.length > limit) {
 				refuse(outgoing);
 				return;
 			}
 
-			const upstreamRequest: RequestOptions = {
+			const upstreamOptions: RequestOptions = {
 				host: upstream.hostname,
 				port: upstream.port,
 				method: incoming.method,
@@ -372,9 +372,9 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 				outgoing.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
 				upstreamResponse.pipe(outgoing);
 			};
-			const forwarded = forward(upstreamRequest, passBack);
-			forwarded.on("error", () => outgoing.writeHead(502).end());
-			forwarded.end(body);
+			const upstreamRequest = forward(upstreamOptions, passBack);
+			upstreamRequest.on("error", () => outgoing.writeHead(502).end());
+			upstreamRequest.end(body);
 		};
 
 		incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -394,5 +394,5 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 	};
 	const close = () => new Promise<void>(shutDown);
 	const origin = `${upstream.protocol}//${upstream.hostname}:${port}`;
-	return { origin, traffic, liftLimit, close };
+	return { origin, bodies, liftLimit, close };
 }

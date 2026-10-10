@@ -1,7 +1,7 @@
 """How much a document may take: the most a row can add to the next compaction, and whether a push still fits (I19).
 
 A row's bytes alone don't bound what it adds: every existing struct it splits
-costs more state. So each row counts `nbytes + 32` for every distinct position
+costs more state. So each row counts `row_bytes + 32` for every distinct position
 it can split, and a push is admitted while the state, the tail's bound and its
 own bound stay under the cap.
 """
@@ -38,15 +38,15 @@ class Full(Exception):
         self.retry_ms = retry_ms
 
 
-def row_bound(update: updates.Update, nbytes: int) -> int:
-    """The most a row of `nbytes` holding `update` can add to the compacted state."""
+def row_bound(update: updates.Update, row_bytes: int) -> int:
+    """The most a row of `row_bytes` holding `update` can add to the compacted state."""
     own_ends = set()
     for struct in update.structs:
         if struct.kind != ingest.SKIP_KIND:
             own_ends |= {(struct.client, struct.clock), (struct.client, struct.clock + struct.length)}
 
     splits = update.split_points() - own_ends
-    return nbytes + SPLIT_COST * len(splits)
+    return row_bytes + SPLIT_COST * len(splits)
 
 
 def admit(control_row, update: updates.Update, row_bound: int, now: datetime) -> None:
@@ -63,8 +63,8 @@ def admit(control_row, update: updates.Update, row_bound: int, now: datetime) ->
     if adds_content and state_bytes >= STATE_MAX:
         raise Full("doc_full", FULL_RETRY_MS)
 
-    cap = STATE_MAX if adds_content else STATE_MAX + DELETE_ROOM
-    under_cap = state_bytes + tail_bound + row_bound <= cap
+    cap_bytes = STATE_MAX if adds_content else STATE_MAX + DELETE_ROOM
+    under_cap = state_bytes + tail_bound + row_bound <= cap_bytes
     tail_has_room = tail_rows < TAIL_ROWS_MAX
     if under_cap and tail_has_room:
         return

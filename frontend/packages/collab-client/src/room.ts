@@ -569,14 +569,14 @@ export class Room implements CollabRoom {
     }
   }
 
-  private reportSuspectAfter(ms: number) {
+  private reportSuspectAfter(delayMs: number) {
     if (this.closed) return
 
     const reportAgain = () => {
       this.reportTimer = null
       void this.reportSuspect()
     }
-    this.reportTimer = setTimeout(reportAgain, ms)
+    this.reportTimer = setTimeout(reportAgain, delayMs)
   }
 
   private async checkVerdict(header: PullHeader) {
@@ -1064,7 +1064,7 @@ export class Room implements CollabRoom {
     return `suite-collab:${this.device?.doc}:${sid}`
   }
 
-  private retryAfter(ms: number) {
+  private retryAfter(delayMs: number) {
     if (this.closed) return
 
     this.endRetry?.()
@@ -1081,7 +1081,7 @@ export class Room implements CollabRoom {
         this.endRetry?.()
         void this.send()
       }
-      this.retryTimer = setTimeout(retryNow, ms)
+      this.retryTimer = setTimeout(retryNow, delayMs)
     }
     this.retrying = new Promise<void>(waitForRetry)
   }
@@ -1115,7 +1115,7 @@ const lostReason = (verdict: string) => (verdict === 'clash' ? 'id_clash' : verd
 function recordStrike(lineage: string) {
   const now = Date.now()
   const strikeTimes = strikes.get(lineage) ?? []
-  const recent = strikeTimes.filter((at) => now - at < STRIKE_WINDOW_MS)
+  const recent = strikeTimes.filter((strikeTime) => now - strikeTime < STRIKE_WINDOW_MS)
   recent.push(now)
   strikes.set(lineage, recent)
   return recent.length

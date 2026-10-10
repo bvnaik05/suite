@@ -132,9 +132,11 @@ def check_follows(row: Row, client_id: int, committed: dict[int, int]) -> None:
                 raise Unclosed("missing_dep", client=client, clock=max(clock, known_clocks.get(client, 0)))
 
 
-def committed_clocks(adapter: str, doc_id: str, clients: set[int], start: dict[int, int]) -> dict[int, int]:
+def committed_clocks(
+    adapter: str, doc_id: str, clients: set[int], start_clocks: dict[int, int]
+) -> dict[int, int]:
     """The next clock of each of `clients` in the log: from its session, or from the start a copy began with."""
-    clocks = {client: start.get(client, 0) for client in clients}
+    clocks = {client: start_clocks.get(client, 0) for client in clients}
     sessions = frappe.db.sql(
         f"""SELECT `client_id`, `next_clock` FROM `{table(adapter, "session")}`
         WHERE `doc_id` = %s AND `client_id` IN %s""",

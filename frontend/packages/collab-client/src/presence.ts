@@ -204,8 +204,8 @@ export class Presence {
   private applyCarets(states: object[]) {
     const accepted: Clocked[] = []
     for (const entry of states) {
-      const { pid, n, state } = entry as CaretEntry
-      const counted = typeof pid === 'number' && typeof n === 'number'
+      const { pid, n: clock, state } = entry as CaretEntry
+      const counted = typeof pid === 'number' && typeof clock === 'number'
       if (!counted || !this.members.has(pid)) continue
 
       const { cursor, at } = (state ?? {}) as CaretState
@@ -221,7 +221,7 @@ export class Presence {
         user,
         cursor: sanitizeCaret(cursor),
       }
-      accepted.push([pid, n, shown])
+      accepted.push([pid, clock, shown])
     }
     if (!accepted.length) return
 
@@ -278,9 +278,9 @@ const color = (pid: number) => COLORS[pid % COLORS.length]
 function encodeStates(accepted: Clocked[]) {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, accepted.length)
-  for (const [pid, n, state] of accepted) {
+  for (const [pid, clock, state] of accepted) {
     encoding.writeVarUint(encoder, pid)
-    encoding.writeVarUint(encoder, n)
+    encoding.writeVarUint(encoder, clock)
     encoding.writeVarString(encoder, JSON.stringify(state))
   }
   return encoding.toUint8Array(encoder)

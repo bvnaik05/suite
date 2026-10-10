@@ -130,7 +130,7 @@ export class Live {
 
     const now = Date.now() / 1000 + this.clockOffset
     const { epoch, epoch_seconds: epochSeconds, keys } = this.keys
-    return keys.filter((_, at) => now < (epoch + at + 1) * epochSeconds + GRACE_S)
+    return keys.filter((_, epochOffset) => now < (epoch + epochOffset + 1) * epochSeconds + GRACE_S)
   }
 
   // A push of this tab's was committed as `rev`; its row should come back over the socket
