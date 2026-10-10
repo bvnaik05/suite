@@ -152,7 +152,7 @@ describe('Writer carets', () => {
     expect(caretAfter(editor)).toBeNull()
   })
 
-  it('shadedSelections what another person selected in their colour, and nothing for a caret alone', async () => {
+  it('shades what another person selected in their colour, and nothing for a caret alone', async () => {
     searchUsers.mockResolvedValue([])
     const { editor, awareness } = openEditor()
     const peerSays = remotePeer(awareness)
