@@ -14,10 +14,11 @@ import frappe
 import pycrdt
 from frappe.tests import IntegrationTestCase
 from frappe.utils.background_jobs import get_redis_conn
+from redis.exceptions import RedisError
 
 from suite import drive
 from suite.composition import content as routes
-from suite.suite_core.content import admission, checkpoints, compaction, documents, live, scheduling
+from suite.suite_core.content import admission, checkpoints, compaction, documents, live, log, scheduling
 from suite.suite_core.content.log import isolation_level
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
@@ -890,34 +891,62 @@ class TestWriterCompactionTriggers(CheckpointCase):
         self.assertGreaterEqual(elapsed, 1.9)
         self.assertLess(elapsed, 3)
 
-    def test_a_second_closing_tab_answers_busy_at_once_while_another_waits(self):
+    def test_while_one_closing_tab_waits_another_answers_busy_at_once_and_a_later_one_may_wait(self):
         node = self.new_document()
         doc_id, site = self.doc_row(node).id, frappe.local.site
         (first_tab_push,) = self.typing_pushes(node, ["one"])
         (second_tab_push,) = self.typing_pushes(node, ["two"])
+        (third_tab_push,) = self.typing_pushes(node, ["three"])
         self.hold_document(doc_id, 1.8)
+        waiting = threading.Event()
         answered = []
 
         def close_first_tab():
             frappe.init(site=site)
             frappe.connect()
             frappe.set_user(WRITER)
+            real_sql = frappe.db.sql
+
+            def signal_lock_wait(query, *args, **kwargs):
+                if "FOR UPDATE WAIT" in str(query):
+                    waiting.set()
+                return real_sql(query, *args, **kwargs)
+
             try:
-                response = call_route(routes.updates_post, node, body=as_final(first_tab_push))
-                answered.append(response.status_code)
+                with patch.object(frappe.db, "sql", signal_lock_wait):
+                    answered.append(self.timed_push(node, as_final(first_tab_push)))
             finally:
                 frappe.destroy()
 
         first_tab = threading.Thread(target=close_first_tab)
         first_tab.start()
-        time.sleep(0.8)
+        self.assertTrue(waiting.wait(3))
 
         status, elapsed = self.timed_push(node, as_final(second_tab_push))
         first_tab.join()
 
         self.assertEqual(status, 423)
         self.assertLess(elapsed, 0.5)
-        self.assertEqual(answered, [200])
+        [(first_status, first_elapsed)] = answered
+        self.assertEqual(first_status, 200)
+        self.assertGreaterEqual(first_elapsed, 1)
+
+        self.hold_document(doc_id, 0.5)
+        status, elapsed = self.timed_push(node, as_final(third_tab_push))
+
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(elapsed, 0.4)
+
+    def test_a_closing_tab_still_saves_while_redis_is_down(self):
+        node = self.new_document()
+        (last,) = self.typing_pushes(node, ["Typed while Redis was down"])
+
+        with patch.object(log, "get_redis_conn", side_effect=RedisError):
+            status, _elapsed = self.timed_push(node, as_final(last))
+
+        self.assertEqual(status, 200)
+        self.compact(node)
+        self.assertEqual(self.text_of(self.body_of(node)), "Typed while Redis was down")
 
     def test_a_push_from_an_open_tab_answers_busy_at_once_while_the_document_is_held(self):
         node = self.new_document()

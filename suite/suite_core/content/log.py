@@ -22,6 +22,7 @@ from collections.abc import Iterator, Sequence
 import frappe
 from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_redis_conn
+from redis.exceptions import RedisError
 
 from suite.suite_core.content import admission, capacity, ingest, live, scheduling, stage
 from suite.suite_core.content.adapters import spec_of
@@ -400,17 +401,25 @@ def lock_clause(adapter: str, doc_id: str, final: bool) -> Iterator[str]:
         yield "SKIP LOCKED"
         return
 
-    redis = get_redis_conn()
     key = f"suite:collab:final-wait:{frappe.local.site}:{adapter}:{doc_id}"
     token = secrets.token_hex(16)
-    if not redis.set(key, token, nx=True, ex=FINAL_PUSH_WAIT_S + 1):
+    # Without Redis the push still goes, only without waiting
+    try:
+        redis = get_redis_conn()
+        taken = redis.set(key, token, nx=True, ex=FINAL_PUSH_WAIT_S + 1)
+    except RedisError:
+        taken = False
+
+    if not taken:
         yield "SKIP LOCKED"
         return
 
     try:
         yield f"WAIT {FINAL_PUSH_WAIT_S}"
     finally:
-        redis.eval(admission.RELEASE_SCRIPT, 1, key, token)
+        # A key left behind expires by itself
+        with contextlib.suppress(RedisError):
+            redis.eval(admission.RELEASE_SCRIPT, 1, key, token)
 
 
 def push(
@@ -450,8 +459,8 @@ def push(
                 doc_id,
                 as_dict=True,
             )
-        # Frappe also writes an Error Log row per timeout, which one waiter per document keeps rare
         except frappe.QueryTimeoutError:
+            # Frappe also writes an Error Log row per timeout, which one waiter per document keeps rare
             raise busy_refusal() from None
 
     if not locked_rows:
