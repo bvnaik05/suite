@@ -440,6 +440,7 @@ export class Room implements CollabRoom {
       const lockName = this.lockName(session.sid)
       const release = await holdLock(lockName)
       if (!release) continue
+
       if (this.closed) {
         return release()
       }
@@ -1103,7 +1104,9 @@ export class Room implements CollabRoom {
         if (this.retryTimer) {
           clearTimeout(this.retryTimer)
         }
-        this.retryTimer = this.retrying = this.endRetry = null
+        this.retryTimer = null
+        this.retrying = null
+        this.endRetry = null
         resolve()
       }
 

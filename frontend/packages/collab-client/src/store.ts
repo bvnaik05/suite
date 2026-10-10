@@ -101,10 +101,12 @@ export function openDeviceStore(name: string, timeoutMs = 3000): Promise<DeviceS
       clearTimeout(timer)
       resolve(new IndexedDeviceStore(request.result))
     }
-    request.onerror = request.onblocked = () => {
+    const openFailed = () => {
       clearTimeout(timer)
       resolve(null)
     }
+    request.onerror = openFailed
+    request.onblocked = openFailed
   })
 }
 
@@ -305,7 +307,9 @@ class IndexedDeviceStore implements DeviceStore {
 
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve()
-      tx.onerror = tx.onabort = () => reject(tx.error ?? new Error('IndexedDB write aborted'))
+      const writeFailed = () => reject(tx.error ?? new Error('IndexedDB write aborted'))
+      tx.onerror = writeFailed
+      tx.onabort = writeFailed
     })
   }
 }
