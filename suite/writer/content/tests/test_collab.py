@@ -22,7 +22,7 @@ from suite.drive._core.principals import Principals
 from suite.suite_core.content import capacity, documents, live, scheduling
 from suite.suite_core.content.log import chain_next, chain_seed
 from suite.suite_core.content.stage import PIECE_MAX
-from suite.suite_core.content.updates import encoded_string, encoded_uint
+from suite.suite_core.content.updates import encoded_string, encoded_uint, parse
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 
@@ -293,6 +293,13 @@ class TestWriterCollab(IntegrationTestCase):
 
         self.assertEqual(chain, bytes(stored.head_chain))
 
+    def stored_text(self, node: str) -> str:
+        reader = pycrdt.Doc()
+        for _rev, payload in self.open_document(node)[1]:
+            reader.apply_update(payload)
+
+        return str(reader.get("default", type=pycrdt.XmlFragment).children[0])
+
     def test_mode_off_answers_disabled_and_writes_nothing(self):
         self.set_mode("off")
         before = {kind: self.table_count(kind) for kind in ("doc", "update", "session")}
@@ -370,11 +377,95 @@ class TestWriterCollab(IntegrationTestCase):
         self.assertEqual((status, "dup" in body, body["rev"], body["acked"]), (200, False, 2, 2))
         self.assertEqual((again[0], again[1]["dup"], again[1]["rev"], again[1]["acked"]), (200, True, 2, 2))
         self.assert_one_order(node, 2)
-        reader = pycrdt.Doc()
-        for _rev, payload in self.open_document(node)[1]:
-            reader.apply_update(payload)
+        self.assertEqual(self.stored_text(node), "first second")
 
-        self.assertEqual(str(reader.get("default", type=pycrdt.XmlFragment).children[0]), "first second")
+    def test_a_resend_grown_by_typing_that_continues_one_struct_stores_the_rest_once(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+
+        tab = pycrdt.Doc(client_id=client_id)
+        text = tab.get("default", type=pycrdt.XmlFragment).children.append(pycrdt.XmlText())
+        text.insert(0, "first")
+        a = tab.get_update()
+        committed = tab.get_state()
+        text.insert(5, " second")
+        b = tab.get_update(committed)
+        both = tab.get_update()
+        next_clock = max(struct.clock + struct.length for struct in parse(a).structs)
+        self.assertTrue(
+            any(struct.clock < next_clock < struct.clock + struct.length for struct in parse(both).structs)
+        )
+
+        self.push(node, sid, client_id, 1, a)
+        status, body = self.push(node, sid, client_id, 1, both, entries=[a, b])
+
+        self.assertEqual((status, body["rev"], body["acked"]), (200, 2, 2))
+        self.assert_one_order(node, 2)
+        self.assertEqual(self.stored_text(node), "first second")
+
+    def test_a_resend_grown_by_a_deletion_only_stores_the_deletion(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+
+        tab = pycrdt.Doc(client_id=client_id)
+        text = tab.get("default", type=pycrdt.XmlFragment).children.append(pycrdt.XmlText())
+        text.insert(0, "first second")
+        a = tab.get_update()
+        committed = tab.get_state()
+        del text[5:12]
+        b = tab.get_update(committed)
+        both = tab.get_update()
+
+        self.push(node, sid, client_id, 1, a)
+        status, body = self.push(node, sid, client_id, 1, both, entries=[a, b])
+
+        self.assertEqual((status, body["rev"], body["acked"]), (200, 2, 2))
+        self.assertEqual(parse(self.open_document(node)[1][1][1]).structs, [])
+        self.assertEqual(self.stored_text(node), "first")
+
+    def test_a_refused_grown_resend_stores_nothing_and_its_retry_stores_the_rest(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+        lineage = self.open_document(node)[0]["lineage"]
+
+        a, b = typed_updates(client_id, ["first", " second"])
+        both = pycrdt.merge_updates(a, b)
+        self.push(node, sid, client_id, 1, a)
+        ahead = push_body(lineage, sid, client_id, 1, 5, both, entries=[a, b])
+        refused = call_route(routes.updates_post, node, body=ahead)
+
+        self.assertEqual((refused.status_code, answer(refused)), (409, {"collab": "diverged"}))
+        self.assertEqual([payload for _, payload in self.open_document(node)[1]], [a])
+
+        status, body = self.push(node, sid, client_id, 1, both, entries=[a, b])
+
+        self.assertEqual((status, body["rev"], body["acked"]), (200, 2, 2))
+        self.assertEqual(self.stored_text(node), "first second")
+
+    def test_a_staged_resend_grown_by_a_big_paste_stores_the_paste_once(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+        header = self.open_document(node)[0]
+
+        paste = "p" * PIECE_MAX
+        a, b = typed_updates(client_id, ["first ", paste])
+        both = pycrdt.merge_updates(a, b)
+        self.assertGreater(len(both), PIECE_MAX)
+        self.push(node, sid, client_id, 1, a)
+        stage_id = self.stage(node, sid, both, to=2)
+        staged = push_body(header["lineage"], sid, client_id, 1, 1, b"", entries=[a, b], stage_id=stage_id)
+        response = call_route(routes.updates_post, node, body=staged)
+
+        self.assertEqual(
+            (response.status_code, answer(response)["rev"], answer(response)["acked"]), (200, 2, 2)
+        )
+        self.assert_one_order(node, 2)
+        self.assertEqual(self.stored_text(node), "first " + paste)
+        self.assertEqual(self.staged(node), 0)
 
     def test_a_resend_grown_by_more_typing_with_different_committed_bytes_is_refused(self):
         self.set_mode("on")
