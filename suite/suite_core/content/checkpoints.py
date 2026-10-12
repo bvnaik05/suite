@@ -20,7 +20,7 @@ from datetime import timedelta
 import frappe
 from frappe.utils import now_datetime
 
-from suite.suite_core.content import admission, compaction, ingest, live, quarantine, scheduling, suspect
+from suite.suite_core.content import admission, compaction, db, ingest, live, quarantine, scheduling, suspect
 from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.log import ChainBroken, chain_next, chain_seed
 from suite.suite_core.content.snapshot import Snapshot, body_row, fallback_rev, read, rows_after
@@ -322,12 +322,7 @@ class Compaction:
         log_message = f"{message}\n{detail}"
         if error:
             log_message = f"{message}\n{detail}\n{error!r}"
-        frappe.log_error(
-            title=f"Collab compaction: {reason}",
-            message=log_message,
-            reference_doctype="Suite Collab Settings",
-        )
-        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        db.alert(f"Collab compaction: {reason}", log_message)
 
 
 def insert_checkpoint(

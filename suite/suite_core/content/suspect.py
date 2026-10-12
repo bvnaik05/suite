@@ -18,7 +18,7 @@ from pathlib import Path
 import frappe
 from frappe.utils.background_jobs import get_redis_conn
 
-from suite.suite_core.content import admission, compaction, kernel, live, quarantine
+from suite.suite_core.content import admission, compaction, db, kernel, live, quarantine
 from suite.suite_core.content.log import Refusal
 from suite.suite_core.content.pushes import SUSPECT_RETRY_MS
 from suite.suite_core.content.scheduling import enqueue
@@ -31,14 +31,11 @@ REPORT_EVERY_S = 60
 
 
 def mark_suspect(adapter: str, doc_id: str, reason: str, method: str) -> None:
-    frappe.db.sql(
+    is_newly_marked = db.claim(
         f"UPDATE `{table(adapter, 'doc')}` SET `suspect` = %s WHERE `id` = %s AND `suspect` IS NULL",
         (reason, doc_id),
     )
-    newly_marked = frappe.db.sql("SELECT ROW_COUNT()")[0][0]
-    frappe.db.commit()  # nosemgrep: frappe-manual-commit
-
-    if newly_marked:
+    if is_newly_marked:
         alert(
             adapter, doc_id, f"suspect: {reason}", "The compaction could not take the rows; a job judges them"
         )
@@ -66,14 +63,12 @@ def report_row(adapter: str, doc_id: str, rev: int, method: str) -> tuple[int, d
     if control_row.suspect_held:
         raise Refusal(423, "paused", reason="suspect", retry_ms=SUSPECT_RETRY_MS)
 
-    frappe.db.sql(
+    is_report_heard = db.claim(
         f"""UPDATE `{table(adapter, "doc")}` SET `suspect_reported_at` = NOW(6) WHERE `id` = %s
         AND (`suspect_reported_at` IS NULL OR `suspect_reported_at` <= NOW(6) - INTERVAL %s SECOND)""",
         (doc_id, REPORT_EVERY_S),
     )
-    report_heard = frappe.db.sql("SELECT ROW_COUNT()")[0][0]
-    frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    if not report_heard:
+    if not is_report_heard:
         raise Refusal(423, "busy", retry_ms=REPORT_EVERY_S * 1000)
 
     mark_suspect(adapter, doc_id, "client", method)
@@ -308,14 +303,12 @@ def suspect_of(adapter: str, doc_id: str) -> str | None:
 
 def hold_document(adapter: str, doc_id: str, hold_reason: str, detail: str) -> str | None:
     """Answers None when an admin cleared the document while it was judged."""
-    frappe.db.sql(
+    is_held = db.claim(
         f"""UPDATE `{table(adapter, "doc")}` SET `suspect_held` = %s, `verdict` = 'held', `judged` = `judged` + 1
         WHERE `id` = %s AND `suspect` IS NOT NULL""",
         (hold_reason, doc_id),
     )
-    held = frappe.db.sql("SELECT ROW_COUNT()")[0][0]
-    frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    if not held:
+    if not is_held:
         return None
 
     live.publish_change(adapter, doc_id, "held")
@@ -365,9 +358,4 @@ def clear_suspect(adapter: str, doc_id: str, verdict: str, *, clean_mark: str | 
 
 
 def alert(adapter: str, doc_id: str, title: str, message: str) -> None:
-    frappe.log_error(
-        title=f"Collab document {title}",
-        message=f"{message}\n{adapter} document {doc_id}",
-        reference_doctype="Suite Collab Settings",
-    )
-    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    db.alert(f"Collab document {title}", f"{message}\n{adapter} document {doc_id}")
