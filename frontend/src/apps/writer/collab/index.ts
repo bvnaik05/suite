@@ -12,12 +12,9 @@ import { getRealtimeSocket } from '@/platform/realtime'
 import { getCookieSessionUser } from '@/platform/session'
 import { createTransport, type HttpMethod, type Operation } from '@/platform/transport'
 
-import features from '../../../../../suite/writer/content/features.json'
+import { writerAdapter } from './adapter'
 
 export { BODY_FIELD } from './field'
-
-// The schema the server's fast check reads, raised in features.json when the editor learns a new name
-export const WRITER_SCHEMA = features.schema
 
 const contentOperation = (id: string, method: HttpMethod, path: string): Operation => ({
   id,
@@ -115,7 +112,7 @@ export async function openWriterRoom(session: DocumentSession): Promise<Opened> 
   const options: OpenOptions = {
     endpoints: writerEndpoints(session, principal),
     principal,
-    schema: WRITER_SCHEMA,
+    adapter: writerAdapter,
     signedIn,
     device,
     socket: getRealtimeSocket(),

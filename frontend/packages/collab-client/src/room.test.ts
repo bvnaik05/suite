@@ -335,11 +335,17 @@ afterEach(async () => {
 
 let signedIn = 'a@x.com'
 
+// An app whose editor writes schema `schema` and draws a position as it came
+const adapterAt = (schema: number) => ({
+  features: { schema },
+  position: (raw: unknown) => raw as object,
+})
+
 async function join(endpoints: CollabEndpoints, extra: Partial<OpenOptions> = {}) {
   const opened = await openCollabRoom({
     endpoints,
     principal: 'a@x.com',
-    schema: 1,
+    adapter: adapterAt(1),
     signedIn: () => signedIn,
     pollMs: 60_000,
     ...extra,
@@ -395,7 +401,7 @@ async function device() {
 describe('collab room', () => {
   it('stamps every push with the schema of the editor that wrote it', async () => {
     const server = fakeServer()
-    const room = await join(server.endpoints(), { schema: 3 })
+    const room = await join(server.endpoints(), { adapter: adapterAt(3) })
     room.doc.getText('t').insert(0, 'one')
     await room.flush()
     room.doc.getText('t').insert(3, ' two')
@@ -1680,7 +1686,7 @@ describe('collab room', () => {
     const opened = openCollabRoom({
       endpoints,
       principal: 'a@x.com',
-      schema: 1,
+      adapter: adapterAt(1),
       signedIn: () => 'a@x.com',
     })
 
@@ -1704,7 +1710,7 @@ describe('collab room', () => {
       const opened = openCollabRoom({
         endpoints: fakeServer(state).endpoints(),
         principal: 'a@x.com',
-        schema: 1,
+        adapter: adapterAt(1),
         signedIn: () => 'a@x.com',
       })
       await expect(opened).resolves.toEqual({
@@ -2472,7 +2478,10 @@ describe('collab room live', () => {
     fakeTime()
     const server = fakeServer()
     const reader = await join(server.endpoints(), { socket: server.socket() })
-    const writer = await join(server.endpoints(), { socket: server.socket(), schema: 2 })
+    const writer = await join(server.endpoints(), {
+      socket: server.socket(),
+      adapter: adapterAt(2),
+    })
     await vi.advanceTimersByTimeAsync(0)
     server.schema.now = 2
 

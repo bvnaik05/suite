@@ -25,6 +25,7 @@ export interface LiveHooks {
   // This tab's applied_through, and whether it shows its caret
   appliedThrough(): number
   showsCaret(): boolean
+  position(raw: unknown): object | null
 }
 
 // What the realtime service answers to a join
@@ -70,6 +71,7 @@ export class Live {
       isOwnRoom: (room) => this.currentKeys().includes(room),
       appliedThrough: () => hooks.appliedThrough(),
       showsCaret: () => hooks.showsCaret(),
+      position: hooks.position,
       peerAhead: (peerAppliedThrough) => this.onPeerAhead(peerAppliedThrough),
     }
     this.presence = new Presence(socket, presenceHooks)

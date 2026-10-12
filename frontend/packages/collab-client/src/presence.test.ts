@@ -21,6 +21,11 @@ function setup({ sends = true, at = 4 } = {}) {
     appliedThrough: () => at,
     showsCaret: () => sends,
     peerAhead: (beyond: number) => ahead.push(beyond),
+    // The app reads a position as a caret only when it has both ends
+    position: (raw: unknown) => {
+      const { anchor, head } = (raw ?? {}) as { anchor?: unknown; head?: unknown }
+      return anchor && head ? { anchor, head } : null
+    },
   }
   const presence = new Presence(socket, hooks)
   const hear = (event: string, message: object) =>
@@ -108,35 +113,21 @@ describe('collab presence', () => {
     expect(presence.awareness.getLocalState()).toEqual({})
   })
 
-  it('a caret that is not a position draws nothing, and its stray fields never reach the cursor plugin', () => {
+  it('draws a peer’s position only as the app reads it', () => {
     const { hear, answer, remoteStates } = setup()
     answer([{ room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' }])
-    const malformedCursors = [
-      { anchor: { item: { client: 'x', clock: 1 } }, head: caret.anchor },
-      { anchor: { type: null, tname: null, item: null }, head: caret.anchor },
-      { anchor: caret.anchor },
-      'here',
-    ]
 
-    const drawnFor = (malformedCursor: unknown, index: number) => {
+    const drawnFor = (sent: unknown, index: number) => {
       const batch = {
         room: OWN_ROOMS[0],
-        states: [{ pid: PEER_PID, user: 'b', n: index + 1, state: { cursor: malformedCursor } }],
+        states: [{ pid: PEER_PID, user: 'b', n: index + 1, state: { cursor: sent } }],
       }
       hear('', batch)
       return remoteStates().get(PEER_PID)?.cursor
     }
-    const drawn = malformedCursors.map(drawnFor)
-    const stray = {
-      pid: PEER_PID,
-      user: 'b',
-      n: 9,
-      state: { cursor: { anchor: { ...caret.anchor, evil: 1 }, head: caret.anchor } },
-    }
-    hear('', { room: OWN_ROOMS[0], states: [stray] })
+    const sent = [{ anchor: 1 }, { anchor: 1, head: 2, stray: 3 }]
 
-    expect(drawn).toEqual([null, null, null, null])
-    expect(remoteStates().get(PEER_PID)?.cursor.anchor).toEqual(caret.anchor)
+    expect(sent.map(drawnFor)).toEqual([null, { anchor: 1, head: 2 }])
   })
 
   it('ignores a batch for another document’s room and a tab it has not heard join', () => {

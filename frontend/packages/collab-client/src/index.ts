@@ -19,6 +19,7 @@ export {
   type Blocked,
   type CollabEndpoints,
   type CollabRoom,
+  type ContentAdapter,
   type LiveSocket,
   type LiveState,
   type Opened,

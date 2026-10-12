@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { getSchema } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
 
-import { WRITER_SCHEMA } from '@/apps/writer/collab'
+import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { writerSchema } from '@/apps/writer/schema'
 
 type Features = {
@@ -64,6 +64,6 @@ describe('writer collab features', () => {
   })
 
   it('stamps pushes with the schema the server declares', () => {
-    expect(WRITER_SCHEMA).toBe(declared.schema)
+    expect(writerAdapter.features.schema).toBe(declared.schema)
   })
 })

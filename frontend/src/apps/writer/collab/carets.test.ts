@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-import { Carets, peopleOf } from './carets'
+import { caretPosition, Carets, peopleOf } from './carets'
 
 const searchUsers = vi.hoisted(() => vi.fn())
 vi.mock('@/apps/writer/drive', () => ({ searchUsers }))
@@ -184,6 +184,22 @@ describe('Writer carets', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect([typing, still, isLabelIdle(editor)]).toEqual([false, true, false])
+  })
+
+  it('reads a caret as a pair of relative positions, and nothing else', () => {
+    const end = { type: null, tname: 'default', item: { client: 7, clock: 3 }, assoc: 0 }
+    const malformed = [
+      { anchor: { item: { client: 'x', clock: 1 } }, head: end },
+      { anchor: { type: null, tname: null, item: null }, head: end },
+      { anchor: end },
+      'here',
+    ]
+
+    expect(malformed.map(caretPosition)).toEqual([null, null, null, null])
+    expect(caretPosition({ anchor: { ...end, stray: 1 }, head: end })).toEqual({
+      anchor: end,
+      head: end,
+    })
   })
 
   it('lists each signed-in person once and every guest tab apart', () => {

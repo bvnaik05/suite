@@ -29,11 +29,19 @@ export interface CollabEndpoints {
   suspect(rev: number): Promise<Answer>
 }
 
+// What an app declares in the browser. The layer gives the rest: room opening, sync, the device store,
+// offline and signed-out state, and who is here
+export interface ContentAdapter {
+  // The features file the server's fast check reads; its schema stamps every push
+  features: { schema: number }
+  // A peer's position, kept to what the app draws, or null when it is not one
+  position(raw: unknown): object | null
+}
+
 export interface OpenOptions {
   endpoints: CollabEndpoints
   principal: string
-  // The schema of the editor that writes this document; the server refuses names its rows may not hold yet
-  schema: number
+  adapter: ContentAdapter
   // Who the browser is signed in as now, or 'Guest'
   signedIn: () => string
   // Where unsent work and the last committed copy survive the tab; without it they live only in memory

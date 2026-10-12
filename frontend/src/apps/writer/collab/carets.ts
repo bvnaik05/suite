@@ -192,3 +192,62 @@ function withHeldCarets(awareness: Awareness, canPlace: (position: unknown) => b
       awareness.off(event, listener),
   } as unknown as Awareness
 }
+
+type CaretRange = { anchor?: unknown; head?: unknown }
+
+type ItemId = { client?: unknown; clock?: unknown }
+
+// A peer's caret as Writer draws it: only the numbers a relative position needs reach the cursor plugin
+export function caretPosition(cursor: unknown) {
+  const { anchor: rawAnchor, head: rawHead } = (cursor ?? {}) as CaretRange
+  const anchor = sanitizePosition(rawAnchor)
+  const head = sanitizePosition(rawHead)
+  if (!anchor || !head) {
+    return null
+  }
+
+  return {
+    anchor,
+    head,
+  }
+}
+
+function sanitizePosition(raw: unknown) {
+  const { type, tname, item, assoc } = (raw ?? {}) as Record<string, unknown>
+  const itemId = sanitizeItemId(item)
+  const typeId = sanitizeItemId(type)
+  if (itemId === undefined || typeId === undefined) {
+    return null
+  }
+
+  const strayName = tname !== undefined && tname !== null && typeof tname !== 'string'
+  if (strayName) {
+    return null
+  }
+
+  // No item, no parent type and no root type name leaves nothing to anchor to
+  const unanchored = !itemId && !typeId && typeof tname !== 'string'
+  if (unanchored) {
+    return null
+  }
+
+  return {
+    type: typeId,
+    tname: tname ?? null,
+    item: itemId,
+    assoc: typeof assoc === 'number' ? assoc : 0,
+  }
+}
+
+function sanitizeItemId(raw: unknown) {
+  if (raw === null || raw === undefined) {
+    return null
+  }
+
+  const { client, clock } = raw as ItemId
+  if (!Number.isInteger(client) || !Number.isInteger(clock)) {
+    return undefined
+  }
+
+  return { client, clock }
+}

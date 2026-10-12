@@ -167,6 +167,7 @@ export class Room implements CollabRoom {
         changed: () => this.notifyListeners(),
         appliedThrough: () => this.appliedThrough,
         showsCaret: () => this.canWrite && this.bound && !this.closed,
+        position: this.options.adapter.position,
       }
       this.realtime = new Live(this.options.socket, this.lineage, liveHooks)
       if (opening.rooms) {
@@ -363,7 +364,7 @@ export class Room implements CollabRoom {
     const following = !this.needsRebuild && !this.judging && !this.newerSchema
     if (this.closed || !this.bound || !following || readBlocked) return
 
-    if (schema > this.options.schema) {
+    if (schema > this.options.adapter.features.schema) {
       void this.pull()
       return
     }
@@ -805,7 +806,7 @@ export class Room implements CollabRoom {
       proto: 1,
       lineage: this.lineage,
       principal: this.options.principal,
-      schema: this.options.schema,
+      schema: this.options.adapter.features.schema,
       sid: box.sid,
       from: entries[0].seq,
       to: entries[entries.length - 1].seq,
@@ -1107,7 +1108,7 @@ export class Room implements CollabRoom {
       return false
     }
 
-    if (schema <= this.options.schema) {
+    if (schema <= this.options.adapter.features.schema) {
       return true
     }
 

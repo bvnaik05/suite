@@ -24,6 +24,8 @@ export interface PresenceHooks {
   appliedThrough(): number
   // Whether this tab may show its caret: writers only
   showsCaret(): boolean
+  // A peer's position as the app draws it, or null
+  position(raw: unknown): object | null
   // A peer has applied rows this tab has not
   peerAhead(peerAppliedThrough: number): void
 }
@@ -46,10 +48,6 @@ type RosterEntry = { room?: unknown; pid?: unknown; user?: unknown }
 type CaretEntry = { pid?: unknown; n?: unknown; state?: unknown }
 
 type CaretState = { cursor?: unknown; at?: unknown }
-
-type CaretRange = { anchor?: unknown; head?: unknown }
-
-type ItemId = { client?: unknown; clock?: unknown }
 
 // A peer's pid, its count and the state the cursor plugin draws
 type Clocked = [number, number, object]
@@ -223,7 +221,7 @@ export class Presence {
       }
       const shown = {
         user,
-        cursor: sanitizeCaret(cursor),
+        cursor: this.hooks.position(cursor),
       }
       accepted.push([pid, clock, shown])
     }
@@ -296,59 +294,4 @@ function objectsIn(raw: unknown): object[] {
   }
 
   return raw.filter((element) => element && typeof element === 'object')
-}
-
-// Only the numbers a relative position needs reach the cursor plugin
-function sanitizeCaret(cursor: unknown) {
-  const { anchor: rawAnchor, head: rawHead } = (cursor ?? {}) as CaretRange
-  const anchor = sanitizePosition(rawAnchor)
-  const head = sanitizePosition(rawHead)
-  if (!anchor || !head) {
-    return null
-  }
-
-  return {
-    anchor,
-    head,
-  }
-}
-
-function sanitizePosition(raw: unknown) {
-  const { type, tname, item, assoc } = (raw ?? {}) as Record<string, unknown>
-  const itemId = sanitizeItemId(item)
-  const typeId = sanitizeItemId(type)
-  if (itemId === undefined || typeId === undefined) {
-    return null
-  }
-
-  const strayName = tname !== undefined && tname !== null && typeof tname !== 'string'
-  if (strayName) {
-    return null
-  }
-
-  // No item, no parent type and no root type name leaves nothing to anchor to
-  const unanchored = !itemId && !typeId && typeof tname !== 'string'
-  if (unanchored) {
-    return null
-  }
-
-  return {
-    type: typeId,
-    tname: tname ?? null,
-    item: itemId,
-    assoc: typeof assoc === 'number' ? assoc : 0,
-  }
-}
-
-function sanitizeItemId(raw: unknown) {
-  if (raw === null || raw === undefined) {
-    return null
-  }
-
-  const { client, clock } = raw as ItemId
-  if (!Number.isInteger(client) || !Number.isInteger(clock)) {
-    return undefined
-  }
-
-  return { client, clock }
 }
