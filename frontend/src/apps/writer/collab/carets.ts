@@ -1,41 +1,55 @@
-import type { Peer, RoomPresence } from '@suite/collab-client'
-import { Extension } from '@tiptap/core'
+import type { RoomPresence } from '@suite/collab-client'
+import { Extension, type Editor } from '@tiptap/core'
 import { Plugin } from '@tiptap/pm/state'
 import { relativePositionToAbsolutePosition, yCursorPlugin, ySyncPluginKey } from '@tiptap/y-tiptap'
 import type { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-import { fullName, lookUp } from '@/apps/writer/composables/useUsers'
+import { peerName, whenNamed } from './peers'
 
-// A guest is named by its tab, so two guests in one document read apart
-export function peerName(user: string, peerId: number) {
-  if (user === 'Guest') {
-    return `Guest ${peerId.toString(36).slice(-4).toUpperCase()}`
+type CaretUser = { id: string; color: string }
+
+// Whether a peer's position points at text this tab has
+function canPlace(editor: Editor, position: unknown) {
+  const syncState = ySyncPluginKey.getState(editor.state)
+  if (!syncState?.binding) {
+    return false
   }
 
-  return fullName(user)
+  const relative = Y.createRelativePositionFromJSON(position)
+  const absolute = relativePositionToAbsolutePosition(
+    syncState.doc,
+    syncState.type,
+    relative,
+    syncState.binding.mapping,
+  )
+  return absolute !== null
 }
 
-// One entry per person; every guest tab is its own person
-export function peopleOf(peers: Peer[]) {
-  const seen = new Set<string>()
-  const newPerson = (peer: Peer) => {
-    const key = peer.user === 'Guest' ? `${peer.pid}` : peer.user
-    if (seen.has(key)) {
-      return []
-    }
+function caretDrawer(labelFader: NameFader) {
+  return (user: CaretUser, peerId: number) => {
+    const caret = document.createElement('span')
+    caret.classList.add('collaboration-carets__caret')
+    caret.style.borderColor = user.color
 
-    seen.add(key)
-    const person = {
-      clientId: peer.pid,
-      id: peer.user,
-      name: peerName(peer.user, peer.pid),
-      color: peer.color,
-    }
-    return [person]
+    const label = document.createElement('div')
+    label.classList.add('collaboration-carets__label')
+    label.style.backgroundColor = user.color
+    label.textContent = peerName(user.id, peerId)
+    labelFader.track(peerId, label)
+
+    // The plugin keeps a caret's element while the pid stays, so a name that arrives later is filled in
+    whenNamed(user.id, () => (label.textContent = peerName(user.id, peerId)))
+
+    caret.append(label)
+    return caret
   }
-  return peers.flatMap(newPerson)
 }
+
+const shadeSelection = (user: { color: string }) => ({
+  class: 'collaboration-carets__selection',
+  style: `background-color: ${user.color}${SHADE_ALPHA}`,
+})
 
 // Other people's carets, drawn from the room's presence. This tab's own state is client 0, which the
 // default filter would draw because it compares against the document's clientID
@@ -49,55 +63,17 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
 
     const editor = this.editor
     const awareness = this.options.presence.awareness
-    const canPlace = (position: unknown) => {
-      const syncState = ySyncPluginKey.getState(editor.state)
-      if (!syncState?.binding) {
-        return false
-      }
-
-      const relative = Y.createRelativePositionFromJSON(position)
-      const absolute = relativePositionToAbsolutePosition(
-        syncState.doc,
-        syncState.type,
-        relative,
-        syncState.binding.mapping,
-      )
-      return absolute !== null
-    }
-
     const labelFader = nameFader(awareness)
-    const drawCaret = (user: { id: string; color: string }, peerId: number) => {
-      const caret = document.createElement('span')
-      caret.classList.add('collaboration-carets__caret')
-      caret.style.borderColor = user.color
-
-      const label = document.createElement('div')
-      label.classList.add('collaboration-carets__label')
-      label.style.backgroundColor = user.color
-      label.textContent = peerName(user.id, peerId)
-      labelFader.track(peerId, label)
-
-      // The plugin keeps a caret's element while the pid stays, so a name that arrives later is filled in
-      if (user.id !== 'Guest') {
-        void lookUp(user.id).then(() => (label.textContent = peerName(user.id, peerId)))
-      }
-
-      caret.append(label)
-      return caret
-    }
-    const shadeSelection = (user: { color: string }) => ({
-      class: 'collaboration-carets__selection',
-      style: `background-color: ${user.color}${SHADE_ALPHA}`,
-    })
     const cursorOptions = {
       awarenessStateFilter: (_: number, id: number) => id !== 0,
-      cursorBuilder: drawCaret,
+      cursorBuilder: caretDrawer(labelFader),
       selectionBuilder: shadeSelection,
     }
 
-    const placedAwareness = withHeldCarets(awareness, canPlace)
+    const placedAwareness = withHeldCarets(awareness, (position) => canPlace(editor, position))
+    // The plugin reads only the members a held awareness has
     return [
-      yCursorPlugin(placedAwareness, cursorOptions),
+      yCursorPlugin(placedAwareness as Awareness, cursorOptions),
       new Plugin({ view: () => ({ destroy: labelFader.destroy }) }),
     ]
   },
@@ -106,6 +82,8 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
 // Alpha appended to a peer's #rrggbb colour, light enough to read the text through two overlapping shades
 const SHADE_ALPHA = '33'
 const NAME_SHOWN_MS = 3000
+
+type NameFader = ReturnType<typeof nameFader>
 
 // A caret's name shows while its peer moves or types, and fades once they have been still a while
 function nameFader(awareness: Awareness) {
@@ -159,9 +137,18 @@ function nameFader(awareness: Awareness) {
 
 type Caret = { anchor: unknown; head: unknown }
 
+// The members of an awareness the cursor plugin uses
+type HeldAwareness = Pick<
+  Awareness,
+  'getStates' | 'getLocalState' | 'setLocalStateField' | 'on' | 'off'
+>
+
 // A peer's caret can point into text whose row hasn't reached this tab, and the plugin draws no caret it can't
 // place. Until it can, the caret stays where it last was placed, which this tab's own edits keep valid
-function withHeldCarets(awareness: Awareness, canPlace: (position: unknown) => boolean) {
+function withHeldCarets(
+  awareness: Awareness,
+  canPlace: (position: unknown) => boolean,
+): HeldAwareness {
   const heldCarets = new Map<number, Caret>()
   return {
     getStates() {
@@ -172,7 +159,7 @@ function withHeldCarets(awareness: Awareness, canPlace: (position: unknown) => b
         }
       }
 
-      const shownStates = new Map<number, object>()
+      const shownStates = new Map<number, Record<string, unknown>>()
       for (const [id, state] of states) {
         const cursor = state.cursor as Caret | null | undefined
         if (cursor && canPlace(cursor.anchor) && canPlace(cursor.head)) {
@@ -185,12 +172,10 @@ function withHeldCarets(awareness: Awareness, canPlace: (position: unknown) => b
       return shownStates
     },
     getLocalState: () => awareness.getLocalState(),
-    setLocalStateField: (field: string, value: unknown) =>
-      awareness.setLocalStateField(field, value),
-    on: (event: 'change', listener: (...args: unknown[]) => void) => awareness.on(event, listener),
-    off: (event: 'change', listener: (...args: unknown[]) => void) =>
-      awareness.off(event, listener),
-  } as unknown as Awareness
+    setLocalStateField: (field, value) => awareness.setLocalStateField(field, value),
+    on: (event, listener) => awareness.on(event, listener),
+    off: (event, listener) => awareness.off(event, listener),
+  }
 }
 
 type CaretRange = { anchor?: unknown; head?: unknown }

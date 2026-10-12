@@ -24,7 +24,7 @@ import { computed, onBeforeUnmount, provide, ref, shallowRef } from 'vue'
 import * as Y from 'yjs'
 
 import { writerAdapter } from '@/apps/writer/collab/adapter'
-import { peopleOf } from '@/apps/writer/collab/carets'
+import { peopleOf } from '@/apps/writer/collab/peers'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
 

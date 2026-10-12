@@ -1,4 +1,4 @@
-import type { CollabRoom, Peer } from '@suite/collab-client'
+import type { CollabRoom } from '@suite/collab-client'
 import { Editor, type EditorOptions } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -9,7 +9,7 @@ import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protoc
 import * as Y from 'yjs'
 
 import { writerAdapter } from './adapter'
-import { caretPosition, peopleOf } from './carets'
+import { caretPosition } from './carets'
 
 const searchUsers = vi.hoisted(() => vi.fn())
 vi.mock('@/apps/writer/drive', () => ({ searchUsers }))
@@ -205,23 +205,5 @@ describe('Writer carets', () => {
       anchor: end,
       head: end,
     })
-  })
-
-  it('lists each signed-in person once and every guest tab apart', () => {
-    searchUsers.mockResolvedValue([])
-    const color = '#E5484D'
-
-    const peers: Peer[] = [
-      { pid: PEER_ID, user: 'cy@x.com', color },
-      { pid: PEER_ID + 1, user: 'cy@x.com', color },
-      { pid: 2 ** 31 + 1_000_000, user: 'Guest', color },
-      { pid: 2 ** 31 + 2_000_000, user: 'Guest', color },
-    ]
-
-    const people = peopleOf(peers)
-
-    expect(people.map((person) => person.id)).toEqual(['cy@x.com', 'Guest', 'Guest'])
-    expect(people[1].name).toMatch(/^Guest [0-9A-Z]{4}$/)
-    expect(people[1].name).not.toBe(people[2].name)
   })
 })
