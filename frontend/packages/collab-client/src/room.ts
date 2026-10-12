@@ -16,6 +16,7 @@ import {
   isRecoverable,
   type Blocked,
   type CollabRoom,
+  type Held,
   type LiveState,
   type OpenOptions,
   type SaveState,
@@ -32,7 +33,7 @@ export class Room implements CollabRoom {
   readonly doc: Y.Doc
   blocked: Blocked | null = null
   paused: string | null = null
-  held: string | null = null
+  held: Held | null = null
   newerSchema = false
   appliedThrough = 0
   limits: Limits | null = null
@@ -302,7 +303,7 @@ export class Room implements CollabRoom {
   }
 
   // A held document's pushes wait minutes between tries, so its release sends at once
-  setHeld(held: string | null) {
+  setHeld(held: Held | null) {
     if (this.held === held) return
 
     const released = !held

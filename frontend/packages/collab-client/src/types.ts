@@ -93,6 +93,9 @@ export type SaveState = 'clean' | 'saving' | 'unsaved' | 'failed'
 export type Blocked =
   'signed_out' | 'locked' | 'offline' | 'stale_session' | 'other_user' | 'lost_edit' | 'lost_read'
 
+// Why the document waits for an admin: one change, or its saved content
+export type Held = 'change' | 'bad_checkpoint'
+
 export const isRecoverable = (blocked: Blocked) =>
   blocked === 'signed_out' || blocked === 'locked' || blocked === 'offline'
 
@@ -104,8 +107,8 @@ export interface CollabRoom {
   readonly paused: string | null
   // Why this tab's work can never be committed; its unsent work went to recovery
   readonly stopped: string | null
-  // The document waits for an admin, so nobody edits it: `change` or `bad_checkpoint`
-  readonly held: string | null
+  // The document waits for an admin, so nobody edits it
+  readonly held: Held | null
   // A newer editor wrote to the document; this tab follows and sends nothing more until reloaded
   readonly newerSchema: boolean
   // This copy may hold a change the server has since quarantined; it follows nothing more and is to be opened again

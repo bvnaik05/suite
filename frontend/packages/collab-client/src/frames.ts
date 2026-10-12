@@ -1,3 +1,5 @@
+import type { Held } from './types'
+
 // `disabled`: collaboration is off on this site. `unconverted`: the document is not collaborative
 export type OpenState = 'live' | 'disabled' | 'unconverted'
 
@@ -44,7 +46,7 @@ export interface PullHeader extends DocumentHeader {
   judged?: number
   verdict?: string
   // The document waits for an admin: `change` for one change, `bad_checkpoint` for its saved content
-  held?: string
+  held?: Held
 }
 
 // One session's seqs `from` through `to`, as one change
