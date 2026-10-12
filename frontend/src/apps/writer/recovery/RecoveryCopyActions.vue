@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { Button, Dialog, toast } from 'frappe-ui'
+import { Button, Dialog } from 'frappe-ui'
 import { computed, ref } from 'vue'
+
+import { confirm, toast } from '@/platform/feedback'
 
 import { copyToClipboard, discardCopy, downloadCopy, type RecoveryCopy } from './copies'
 
@@ -8,7 +10,6 @@ const props = defineProps<{ copy: RecoveryCopy }>()
 const emit = defineEmits<{ discarded: [] }>()
 
 const viewing = ref(false)
-const confirmingDiscard = ref(false)
 
 const viewTitle = computed(() => props.copy.title || 'Untitled document')
 // Follows the viewer's light or dark scheme, since the copy carries no styles of its own
@@ -16,16 +17,9 @@ const viewedPage = computed(() => {
   const style = '<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif}</style>'
   return `${style}${props.copy.html}`
 })
-const discardActions = [
-  { label: 'Discard', variant: 'solid' as const, theme: 'red' as const, onClick: discard },
-]
 
 function view() {
   viewing.value = true
-}
-
-function askToDiscard() {
-  confirmingDiscard.value = true
 }
 
 async function copyText() {
@@ -44,8 +38,17 @@ function download() {
 }
 
 async function discard() {
+  const isConfirmed = await confirm({
+    title: 'Discard unsaved work?',
+    message: "This deletes the copy from this device. It can't be brought back.",
+    confirmLabel: 'Discard',
+    destructive: true,
+  })
+  if (!isConfirmed) {
+    return
+  }
+
   await discardCopy(props.copy)
-  confirmingDiscard.value = false
   emit('discarded')
 }
 </script>
@@ -55,7 +58,7 @@ async function discard() {
     <Button size="sm" variant="ghost" label="View" @click="view" />
     <Button size="sm" variant="ghost" label="Copy" @click="copyText" />
     <Button size="sm" variant="ghost" label="Download" @click="download" />
-    <Button size="sm" variant="ghost" theme="red" label="Discard" @click="askToDiscard" />
+    <Button size="sm" variant="ghost" theme="red" label="Discard" @click="discard" />
   </div>
   <Dialog v-model:open="viewing" :title="viewTitle" size="3xl">
     <iframe
@@ -65,10 +68,4 @@ async function discard() {
       :srcdoc="viewedPage"
     />
   </Dialog>
-  <Dialog
-    v-model:open="confirmingDiscard"
-    title="Discard unsaved work?"
-    message="This deletes the copy from this device. It can't be brought back."
-    :actions="discardActions"
-  />
 </template>
