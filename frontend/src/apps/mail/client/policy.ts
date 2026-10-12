@@ -260,14 +260,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-// A write names its account, or names none because it spans every account (clearing an All accounts
-// folder): that one reaches every account's reads, not none of them.
+// A write names its account, or a `folder` across every account (clearing an All accounts folder):
+// that one reaches every account's reads, not none of them. A write naming neither (a delete by
+// account-qualified names) still reaches no account's reads, so it can't touch another account's.
 function matchingAccount(input: unknown, queryInput: unknown): boolean {
   return (
     !isRecord(input) ||
     !isRecord(queryInput) ||
     !('account' in queryInput) ||
-    !input.account ||
+    (!input.account && typeof input.folder === 'string') ||
     input.account === queryInput.account
   )
 }

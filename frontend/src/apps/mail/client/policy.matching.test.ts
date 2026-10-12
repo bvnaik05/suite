@@ -21,6 +21,12 @@ describe('mail cache policy', () => {
     expect(matches(allAccounts, { account: 'b', mailbox: 'inbox' })).toBe(true)
   })
 
+  it("keeps a delete by names away from another account's lists", () => {
+    const { matches } = effectsOf('messages.delete')
+    const byNames = { names: ['a|m1'] }
+    expect(matches(byNames, { account: 'b', mailbox: 'inbox' })).toBe(false)
+  })
+
   it('keeps a one-account clear to that account', () => {
     const { matches } = effectsOf('messages.clearList')
     const oneAccount = { action: 'read', account: 'a', mailbox: 'inbox' }
