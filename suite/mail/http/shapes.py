@@ -44,6 +44,7 @@ class UserInfo(TypedDict):
     is_system_manager: bool
     is_jmap_configured: bool
     max_attachment_size: int
+    inbox_tabs: list[Literal["primary", "updates", "forums", "promotions", "social"]]
     is_suite_cloud_configured: bool
     accounts: list[UserAccount]
 

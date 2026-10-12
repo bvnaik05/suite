@@ -783,6 +783,7 @@ export type GetUserInfoOutputUserInfo = {
   is_system_manager: boolean
   is_jmap_configured: boolean
   max_attachment_size: number
+  inbox_tabs: Array<'primary' | 'updates' | 'forums' | 'promotions' | 'social'>
   is_suite_cloud_configured: boolean
   accounts: Array<GetUserInfoOutputUserAccount>
 }
@@ -5219,6 +5220,7 @@ export type GetThreadsInput = {
   limit: number
   start?: number
   filter_by?: string | null
+  category?: string | null
   mailbox: string
 }
 
@@ -5353,6 +5355,7 @@ export type GetUnifiedThreadsInput = {
   limit: number
   start?: number
   filter_by?: string | null
+  category?: string | null
   folder: string
 }
 
@@ -5383,6 +5386,64 @@ const operationGetUnifiedThreads: PageRef<
   entity: null,
   errors: ['PermissionError', 'ValidationError'],
   loadValidators: async () => (await import('./validators')).operationGetUnifiedThreads,
+}
+
+export type GetTabCountsOutputTabCount = {
+  category: 'primary' | 'updates' | 'forums' | 'promotions' | 'social'
+  unread_threads: number
+}
+
+export type GetTabCountsInput = { account: string; mailbox: string }
+
+export type GetTabCountsOutput = Array<GetTabCountsOutputTabCount>
+
+export type GetTabCountsError = 'PermissionError' | 'ValidationError'
+
+const operationGetTabCounts: QueryRef<GetTabCountsInput, GetTabCountsOutput, GetTabCountsError> = {
+  id: 'get_tab_counts',
+  owner: 'mail',
+  kind: 'query',
+  publicName: 'tabs.counts',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.get_tab_counts',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationGetTabCounts,
+}
+
+export type GetUnifiedTabCountsOutputTabCount = {
+  category: 'primary' | 'updates' | 'forums' | 'promotions' | 'social'
+  unread_threads: number
+}
+
+export type GetUnifiedTabCountsInput = { folder: string }
+
+export type GetUnifiedTabCountsOutput = Array<GetUnifiedTabCountsOutputTabCount>
+
+export type GetUnifiedTabCountsError = 'PermissionError' | 'ValidationError'
+
+const operationGetUnifiedTabCounts: QueryRef<
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput,
+  GetUnifiedTabCountsError
+> = {
+  id: 'get_unified_tab_counts',
+  owner: 'mail',
+  kind: 'query',
+  publicName: 'unified.tabCounts',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.get_unified_tab_counts',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationGetUnifiedTabCounts,
 }
 
 export type GetThreadOutputAttachment = {
@@ -6804,6 +6865,7 @@ export const api = {
   unified: {
     folders: operationGetUnifiedFolders,
     threads: operationGetUnifiedThreads,
+    tabCounts: operationGetUnifiedTabCounts,
   },
   participantIdentities: {
     list: operationGetParticipantIdentities,
@@ -6859,6 +6921,9 @@ export const api = {
   threads: {
     list: operationGetThreads,
     get: operationGetThread,
+  },
+  tabs: {
+    counts: operationGetTabCounts,
   },
   messages: {
     search: operationSearchMails,

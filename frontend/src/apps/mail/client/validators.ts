@@ -223,6 +223,8 @@ import type {
   GetSignupSettingsOutput,
   GetSubmissionsInput,
   GetSubmissionsOutput,
+  GetTabCountsInput,
+  GetTabCountsOutput,
   GetThreadInput,
   GetThreadOutput,
   GetThreadsInput,
@@ -235,6 +237,8 @@ import type {
   GetTlsSummaryOutput,
   GetUnifiedFoldersInput,
   GetUnifiedFoldersOutput,
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput,
   GetUnifiedThreadsInput,
   GetUnifiedThreadsOutput,
   GetUserForResetPasswordKeyInput,
@@ -1454,6 +1458,14 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               is_system_manager: { title: 'Is System Manager', type: 'boolean' },
               is_jmap_configured: { title: 'Is Jmap Configured', type: 'boolean' },
               max_attachment_size: { title: 'Max Attachment Size', type: 'integer' },
+              inbox_tabs: {
+                items: {
+                  enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                  type: 'string',
+                },
+                title: 'Inbox Tabs',
+                type: 'array',
+              },
               is_suite_cloud_configured: { title: 'Is Suite Cloud Configured', type: 'boolean' },
               accounts: {
                 items: { $ref: '#/$defs/UserAccount' },
@@ -1482,6 +1494,7 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'is_system_manager',
               'is_jmap_configured',
               'max_attachment_size',
+              'inbox_tabs',
               'is_suite_cloud_configured',
               'accounts',
             ],
@@ -6785,6 +6798,7 @@ export const operationGetThreads: Validators<GetThreadsInput, GetThreadsOutput> 
           limit: { title: 'Limit', type: 'integer' },
           start: { title: 'Start', type: 'integer' },
           filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
           mailbox: { title: 'Mailbox', type: 'string' },
         },
         required: ['account', 'limit', 'mailbox'],
@@ -7050,6 +7064,7 @@ export const operationGetUnifiedThreads: Validators<
           limit: { title: 'Limit', type: 'integer' },
           start: { title: 'Start', type: 'integer' },
           filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
           folder: { title: 'Folder', type: 'string' },
         },
         required: ['limit', 'folder'],
@@ -7297,6 +7312,94 @@ export const operationGetUnifiedThreads: Validators<
         type: 'object',
       },
       'get_unified_threads output',
+    )
+  },
+}
+
+export const operationGetTabCounts: Validators<GetTabCountsInput, GetTabCountsOutput> = {
+  validateInput(value: unknown): asserts value is GetTabCountsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          mailbox: { title: 'Mailbox', type: 'string' },
+        },
+        required: ['account', 'mailbox'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_tab_counts input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetTabCountsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          TabCount: {
+            properties: {
+              category: {
+                enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                title: 'Category',
+                type: 'string',
+              },
+              unread_threads: { title: 'Unread Threads', type: 'integer' },
+            },
+            required: ['category', 'unread_threads'],
+            title: 'TabCount',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/TabCount' },
+        type: 'array',
+      },
+      'get_tab_counts output',
+    )
+  },
+}
+
+export const operationGetUnifiedTabCounts: Validators<
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput
+> = {
+  validateInput(value: unknown): asserts value is GetUnifiedTabCountsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { folder: { title: 'Folder', type: 'string' } },
+        required: ['folder'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_unified_tab_counts input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetUnifiedTabCountsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          TabCount: {
+            properties: {
+              category: {
+                enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                title: 'Category',
+                type: 'string',
+              },
+              unread_threads: { title: 'Unread Threads', type: 'integer' },
+            },
+            required: ['category', 'unread_threads'],
+            title: 'TabCount',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/TabCount' },
+        type: 'array',
+      },
+      'get_unified_tab_counts output',
     )
   },
 }

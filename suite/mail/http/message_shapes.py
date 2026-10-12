@@ -102,6 +102,11 @@ class UnifiedThreadPage(TypedDict):
     has_more: bool
 
 
+class TabCount(TypedDict):
+    category: Literal["primary", "updates", "forums", "promotions", "social"]
+    unread_threads: int
+
+
 class SearchRow(AccountTag):
     name: str
     id: str

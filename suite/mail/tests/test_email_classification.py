@@ -7,7 +7,9 @@ import json
 import unittest
 from unittest import mock
 
+import frappe
 import httpx
+from jmap import MethodError
 from jmap.auth import BasicAuth
 from jmap.core.retry import RetryPolicy
 from jmap.testing.fake import FakeJMAPServer
@@ -657,3 +659,99 @@ class CategoryFilter(unittest.TestCase):
         for filter_by in ("category_spam", "$seen", None):
             with self.subTest(filter_by=filter_by):
                 self.assertEqual(self.filter(filter_by), {"inMailbox": "inbox"})
+
+
+def lists(filter: dict, keywords: set[str]) -> bool:
+    """Whether a message carrying `keywords` matches a JMAP keyword `filter`, as RFC 8621 reads one."""
+
+    if "operator" in filter:
+        matches = [lists(condition, keywords) for condition in filter["conditions"]]
+        return {"AND": all(matches), "OR": any(matches), "NOT": not any(matches)}[filter["operator"]]
+    if "hasKeyword" in filter:
+        return filter["hasKeyword"] in keywords
+    if "notKeyword" in filter:
+        return filter["notKeyword"] not in keywords
+    raise AssertionError(f"Not a keyword filter: {filter}")
+
+
+class InboxTabs(unittest.TestCase):
+    """The Inbox is split into tabs by category: Primary, Updates, Forums and Promotions."""
+
+    def setUp(self):
+        patch = mock.patch.object(classification, "is_enabled", return_value=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def tab_filter(self, tab: str) -> dict:
+        """What `get_threads` adds to its inbox filter for `tab`."""
+
+        with (
+            mock.patch.object(mail_api, "fetch_threads", return_value={}) as fetch_threads,
+            mock.patch.object(mail_api, "get_cached_mailboxes", return_value=MAILBOXES),
+            mock.patch.object(mail_api, "add_user_images_to_emails"),
+        ):
+            mail_api.get_threads(ACCOUNT, "inbox", limit=20, category=tab)
+
+        inbox, tab_filter = fetch_threads.call_args.args[1]["conditions"]
+        self.assertEqual(inbox, {"inMailbox": "inbox"})
+        return tab_filter
+
+    def test_a_tab_lists_the_mail_of_its_category(self):
+        for tab in ("updates", "forums", "promotions"):
+            with self.subTest(tab=tab):
+                self.assertTrue(lists(self.tab_filter(tab), {f"category_{tab}", "$seen"}))
+                self.assertFalse(lists(self.tab_filter(tab), {"category_primary"}))
+
+    def test_primary_lists_what_no_other_tab_does(self):
+        primary = self.tab_filter("primary")
+
+        self.assertTrue(lists(primary, {"category_primary"}))
+        # Social has no tab of its own, and mail not classified yet has no category at all.
+        self.assertTrue(lists(primary, {"category_social"}))
+        self.assertTrue(lists(primary, set()))
+        for tab in ("updates", "forums", "promotions"):
+            with self.subTest(tab=tab):
+                self.assertFalse(lists(primary, {f"category_{tab}"}))
+
+    def test_a_category_without_a_tab_is_refused(self):
+        for category in ("social", "spam"):
+            with self.subTest(category=category), self.assertRaises(frappe.ValidationError):
+                self.tab_filter(category)
+
+    def test_an_inbox_whose_mail_is_not_classified_has_no_tabs(self):
+        with mock.patch.object(classification, "is_enabled", return_value=False):
+            self.assertEqual(mail_api.get_tab_counts(ACCOUNT, "inbox"), [])
+            with self.assertRaises(frappe.ValidationError):
+                self.tab_filter("primary")
+
+    def test_all_accounts_add_up_their_tabs_leaving_out_an_account_that_fails(self):
+        counts = {
+            "a": {Category.PRIMARY: 2, Category.UPDATES: 5},
+            "b": {Category.PRIMARY: 1, Category.FORUMS: 3},
+        }
+
+        def count(account, _mailboxes):
+            if account == "broken":
+                raise MethodError("serverFail", "c0", {})
+            return counts[account]
+
+        with (
+            mock.patch.object(
+                mail_api,
+                "get_user_jmap_accounts",
+                return_value=[{"name": "a"}, {"name": "broken"}, {"name": "b"}],
+            ),
+            mock.patch.object(mail_api, "get_cached_mailboxes", return_value=MAILBOXES),
+            mock.patch.object(mail_api, "count_unread_by_tab", side_effect=count),
+        ):
+            totals = mail_api.get_unified_tab_counts("inbox")
+
+        self.assertEqual(
+            totals,
+            [
+                {"category": "primary", "unread_threads": 3},
+                {"category": "updates", "unread_threads": 5},
+                {"category": "forums", "unread_threads": 3},
+                {"category": "promotions", "unread_threads": 0},
+            ],
+        )

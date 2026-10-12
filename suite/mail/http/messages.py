@@ -17,6 +17,7 @@ from suite.mail.http.message_shapes import (
     SearchPage,
     SubmissionDetail,
     SubmissionPage,
+    TabCount,
     ThreadPage,
     UnifiedThreadPage,
 )
@@ -31,6 +32,7 @@ class Window(TypedDict):
     limit: int
     start: NotRequired[int]
     filter_by: NotRequired[str | None]
+    category: NotRequired[str | None]
 
 
 class ThreadsInput(AccountInput, Window):
@@ -38,6 +40,14 @@ class ThreadsInput(AccountInput, Window):
 
 
 class UnifiedThreadsInput(Window):
+    folder: str
+
+
+class TabCountsInput(AccountInput):
+    mailbox: str
+
+
+class UnifiedTabCountsInput(TypedDict):
     folder: str
 
 
@@ -250,6 +260,15 @@ _OPERATIONS: tuple[
         UnifiedThreadsInput,
         UnifiedThreadPage,
         {"offset": "start", "rows": "rows", "more": "has_more"},
+    ),
+    (mail.get_tab_counts, "query", "tabs.counts", TabCountsInput, list[TabCount], None),
+    (
+        mail.get_unified_tab_counts,
+        "query",
+        "unified.tabCounts",
+        UnifiedTabCountsInput,
+        list[TabCount],
+        None,
     ),
     (mail.get_thread, "query", "threads.get", ThreadInput, list[Message], None),
     (

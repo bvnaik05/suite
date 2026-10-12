@@ -22,18 +22,21 @@ from frappe import _
 from jmap import MethodError
 from jmap.batch import ReadOnlyAccountError
 
-from suite.mail.classification.category import Category, get_category
+from suite.mail.classification.category import INBOX_TABS, Category, get_category, tab_filter
 from suite.mail.classification.headers import classify_by_headers
 from suite.mail.jmap import SetResult, SuiteJMAPClient, chunked_set
 from suite.mail.utils import get_config, log_mail_error
 
 __all__ = [
     "EMAIL_PROPERTIES",
+    "INBOX_TABS",
     "Category",
     "classify",
     "classify_emails",
     "get_category",
+    "inbox_tabs",
     "is_enabled",
+    "tab_filter",
     "take_echoes",
 ]
 
@@ -60,6 +63,15 @@ def is_enabled() -> bool:
     """Whether Mail Settings has incoming mail classified."""
 
     return bool(get_config("enable_email_classification"))
+
+
+def inbox_tabs() -> tuple[Category, ...]:
+    """The categories the Inbox is split into, in the order of their tabs, Primary first.
+
+    None when mail isn't classified: there is nothing to split the Inbox by.
+    """
+
+    return INBOX_TABS if is_enabled() else ()
 
 
 def classify(email: dict) -> Category:

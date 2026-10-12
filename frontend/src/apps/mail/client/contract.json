@@ -2629,6 +2629,20 @@
                 "title": "Max Attachment Size",
                 "type": "integer"
               },
+              "inbox_tabs": {
+                "items": {
+                  "enum": [
+                    "primary",
+                    "updates",
+                    "forums",
+                    "promotions",
+                    "social"
+                  ],
+                  "type": "string"
+                },
+                "title": "Inbox Tabs",
+                "type": "array"
+              },
               "is_suite_cloud_configured": {
                 "title": "Is Suite Cloud Configured",
                 "type": "boolean"
@@ -2662,6 +2676,7 @@
               "is_system_manager",
               "is_jmap_configured",
               "max_attachment_size",
+              "inbox_tabs",
               "is_suite_cloud_configured",
               "accounts"
             ],
@@ -14526,6 +14541,17 @@
             ],
             "title": "Filter By"
           },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
           "mailbox": {
             "title": "Mailbox",
             "type": "string"
@@ -15311,6 +15337,17 @@
             ],
             "title": "Filter By"
           },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
           "folder": {
             "title": "Folder",
             "type": "string"
@@ -16045,6 +16082,141 @@
         ],
         "title": "UnifiedThreadPage",
         "type": "object"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "get_tab_counts",
+      "kind": "query",
+      "publicName": "tabs.counts",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.get_tab_counts",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "mailbox": {
+            "title": "Mailbox",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "mailbox"
+        ],
+        "title": "TabCountsInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "TabCount": {
+            "properties": {
+              "category": {
+                "enum": [
+                  "primary",
+                  "updates",
+                  "forums",
+                  "promotions",
+                  "social"
+                ],
+                "title": "Category",
+                "type": "string"
+              },
+              "unread_threads": {
+                "title": "Unread Threads",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "category",
+              "unread_threads"
+            ],
+            "title": "TabCount",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/TabCount"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "get_unified_tab_counts",
+      "kind": "query",
+      "publicName": "unified.tabCounts",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.get_unified_tab_counts",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder"
+        ],
+        "title": "UnifiedTabCountsInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "TabCount": {
+            "properties": {
+              "category": {
+                "enum": [
+                  "primary",
+                  "updates",
+                  "forums",
+                  "promotions",
+                  "social"
+                ],
+                "title": "Category",
+                "type": "string"
+              },
+              "unread_threads": {
+                "title": "Unread Threads",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "category",
+              "unread_threads"
+            ],
+            "title": "TabCount",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/TabCount"
+        },
+        "type": "array"
       },
       "errors": [
         "PermissionError",

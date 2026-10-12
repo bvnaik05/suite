@@ -14,13 +14,14 @@ from frappe.utils import add_to_date, cint, now, random_string
 from jmap import MethodError
 from werkzeug.wrappers import Response
 
+from suite.mail import classification
 from suite.mail.api.contacts import (
     create_contacts_if_not_exists,
     enrich_contacts_with_user_images,
     get_contacts,
 )
 from suite.mail.api.utils import get_avatar_url
-from suite.mail.classification import Category
+from suite.mail.classification import Category, tab_filter
 from suite.mail.doctype.mail_message.mail_message import (
     add_messages_to_mailbox,
     delete_messages,
@@ -257,8 +258,18 @@ def add_user_images_to_emails(account: str, mails: list[dict], is_thread: bool =
 
 
 @frappe.whitelist()
-def get_threads(account: str, mailbox: str, limit: int, start: int = 0, filter_by: str | None = None) -> dict:
-    """Returns a page of threads from the selected mailbox for the account."""
+def get_threads(
+    account: str,
+    mailbox: str,
+    limit: int,
+    start: int = 0,
+    filter_by: str | None = None,
+    category: str | None = None,
+) -> dict:
+    """Returns a page of threads from the selected mailbox for the account.
+
+    `category` narrows the list to one of the Inbox's tabs (see `classification.inbox_tabs`).
+    """
 
     if mailbox == "starred":
         conditions = [
@@ -282,6 +293,8 @@ def get_threads(account: str, mailbox: str, limit: int, start: int = 0, filter_b
     }
     if filter_by in filter_map and not (mailbox == "starred" and filter_by == "starred"):
         conditions.append(filter_map[filter_by])
+    if category:
+        conditions.append(tab_filter(validate_tab(category)))
 
     if len(conditions) == 1:
         filter = conditions[0]
@@ -472,7 +485,9 @@ def is_listed_mailbox(mailbox: dict) -> bool:
 
 
 @frappe.whitelist()
-def get_unified_threads(folder: str, limit: int, start: int = 0, filter_by: str | None = None) -> dict:
+def get_unified_threads(
+    folder: str, limit: int, start: int = 0, filter_by: str | None = None, category: str | None = None
+) -> dict:
     """Returns a merged, newest-first page of a folder's threads across all of the user's accounts.
 
     `folder` is a slug (see mailbox_slug) or "starred". Each account contributes the threads of every
@@ -513,7 +528,7 @@ def get_unified_threads(folder: str, limit: int, start: int = 0, filter_by: str 
         # in both — it is listed once, from the first.
         seen: set[str] = set()
         for view_mailbox in view_mailboxes:
-            threads = get_threads(account_id, view_mailbox, per_account_limit, 0, filter_by)["rows"]
+            threads = get_threads(account_id, view_mailbox, per_account_limit, 0, filter_by, category)["rows"]
             for thread in threads:
                 if thread["thread_id"] in seen:
                     continue
@@ -528,6 +543,88 @@ def get_unified_threads(folder: str, limit: int, start: int = 0, filter_by: str 
     merged.sort(key=lambda thread: thread["received_at"], reverse=True)
     rows = merged[start : start + limit]
     return {"rows": rows, "has_more": len(rows) == limit and start + limit < ALL_INBOX_MAX_FETCH}
+
+
+def validate_tab(category: str) -> Category:
+    """The Inbox tab `category` names, or a ValidationError if it names none."""
+
+    tab = next((tab for tab in classification.inbox_tabs() if tab.value == category), None)
+    if not tab:
+        frappe.throw(_("{0} is not a tab of the Inbox.").format(category), frappe.ValidationError)
+    return tab
+
+
+def count_unread_by_tab(account: str, mailboxes: list[str]) -> dict[Category, int]:
+    """How many threads in an account's `mailboxes` are unread, per Inbox tab.
+
+    A thread is unread when a message of it in one of the mailboxes is; one batch asks for every tab.
+    """
+
+    tabs = classification.inbox_tabs()
+    if not tabs or not mailboxes:
+        return {}
+
+    in_mailboxes = (
+        {"inMailbox": mailboxes[0]}
+        if len(mailboxes) == 1
+        else {"operator": "OR", "conditions": [{"inMailbox": mailbox} for mailbox in mailboxes]}
+    )
+    client = get_account_client(account)
+    with client.batch() as b:
+        queries = {
+            tab: b.mail.email.query(
+                filter={
+                    "operator": "AND",
+                    "conditions": [in_mailboxes, {"notKeyword": "$seen"}, tab_filter(tab)],
+                },
+                collapseThreads=True,
+                calculate_total=True,
+                limit=0,
+            )
+            for tab in tabs
+        }
+    return {tab: query.result.total or 0 for tab, query in queries.items()}
+
+
+@frappe.whitelist()
+def get_tab_counts(account: str, mailbox: str) -> list[dict]:
+    """The Inbox's tabs, in order, each with how many of its threads in `mailbox` are unread.
+
+    Empty when the Inbox isn't split into tabs.
+    """
+
+    unread = count_unread_by_tab(account, [mailbox])
+    return [
+        {"category": tab.value, "unread_threads": unread.get(tab, 0)} for tab in classification.inbox_tabs()
+    ]
+
+
+@frappe.whitelist()
+def get_unified_tab_counts(folder: str) -> list[dict]:
+    """The Inbox's tabs, in order, each with how many of its threads are unread across the user's accounts.
+
+    `folder` is a slug, as for `get_unified_threads`. An account that answers with an error is left out
+    rather than failing the rest.
+    """
+
+    unread: dict[Category, int] = {}
+    for account in get_user_jmap_accounts():
+        account_id = account["name"]
+        mailboxes = [
+            m["id"]
+            for m in get_cached_mailboxes(account_id)
+            if is_listed_mailbox(m) and mailbox_slug(m) == folder
+        ]
+        try:
+            counts = count_unread_by_tab(account_id, mailboxes)
+        except MethodError:
+            continue
+        for tab, count in counts.items():
+            unread[tab] = unread.get(tab, 0) + count
+
+    return [
+        {"category": tab.value, "unread_threads": unread.get(tab, 0)} for tab in classification.inbox_tabs()
+    ]
 
 
 @frappe.whitelist()

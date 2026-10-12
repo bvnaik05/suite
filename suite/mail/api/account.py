@@ -235,6 +235,8 @@ def get_user_info() -> dict | None:
     data.max_attachment_size = MAX_ATTACHMENT_SIZE
     # Whether mail is being sorted into categories, and so whether the lists offer them as filters.
     data.email_classification = classification.is_enabled()
+    # The categories the Inbox is split into, in the order of their tabs; none, no tabs.
+    data.inbox_tabs = [tab.value for tab in classification.inbox_tabs()]
     # The Admin Dashboard is offered only on a site connected to a Suite Cloud, and only admins
     # are told whether it is.
     data.is_suite_cloud_configured = (
