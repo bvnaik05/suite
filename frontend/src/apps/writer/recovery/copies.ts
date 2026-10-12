@@ -48,8 +48,7 @@ export async function listCopies(node?: string): Promise<RecoveryCopy[]> {
 export async function countCopies() {
   const store = await writerDeviceStore()
   const records = (await store?.allRecovery().catch(() => [])) ?? []
-  const pageKeys = Object.keys(localStorage).filter((key) => key.startsWith(PAGE_PREFIX))
-  return records.length + pageKeys.length
+  return records.length + pageKeys().length
 }
 
 export async function discardCopy(copy: RecoveryCopy) {
@@ -101,8 +100,17 @@ function fromRecord(record: RecoveryRecord): RecoveryCopy {
 }
 
 function pageCopies(node?: string) {
-  const keys = Object.keys(localStorage).filter((key) => isPageCopyOf(key, node))
+  const keys = pageKeys().filter((key) => isPageCopyOf(key, node))
   return keys.map(readPageCopy).filter((copy): copy is RecoveryCopy => copy !== null)
+}
+
+// A browser that blocks site data throws on reading it, and keeps no page copies
+function pageKeys() {
+  try {
+    return Object.keys(localStorage).filter((key) => key.startsWith(PAGE_PREFIX))
+  } catch {
+    return []
+  }
 }
 
 // A copy from before page loads were told apart is keyed by its document alone

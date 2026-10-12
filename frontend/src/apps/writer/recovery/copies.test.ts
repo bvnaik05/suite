@@ -79,6 +79,18 @@ describe('Writer recovery copies', () => {
     await Promise.all(records.map((record) => store.discard(record.id)))
   })
 
+  it('lists and counts the device store’s copies where the browser blocks this page’s storage', async () => {
+    await keepInStore('node-1', 'typed while live', 'Plan')
+    const blocked = vi.spyOn(globalThis, 'localStorage', 'get').mockImplementation(() => {
+      throw new DOMException('Blocked', 'SecurityError')
+    })
+
+    const listed = await listCopies()
+    const counted = await countCopies()
+    blocked.mockRestore()
+    expect([summary(listed), counted]).toEqual([[['node-1', 'Plan', 'typed while live']], 1])
+  })
+
   it('keeps a copy from before page loads were told apart', async () => {
     const copy = { savedAt: '2026-09-29T10:05:00.000Z', html: '<p>older copy</p>' }
     localStorage.setItem('suite:writer-recovery:node-1', JSON.stringify(copy))
