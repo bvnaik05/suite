@@ -13,6 +13,7 @@ is cleared as unjudged, so a report alone never pauses saving.
 """
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import frappe
@@ -28,6 +29,17 @@ from suite.suite_core.content.tables import table
 # The compaction failures that come from the CRDT library itself, not from the rows' shape or the host
 REASONS = frozenset({"unreadable", "content_mismatch", "reencode_mismatch", "not_contained", "fallback"})
 REPORT_EVERY_S = 60
+
+
+@dataclass(frozen=True)
+class Judging:
+    """One judge run's document and what it judges the rows with."""
+
+    adapter: str
+    doc_id: str
+    roots: Mapping[str, type]
+    bundle: Path
+    owner_of: Callable[[str], str | None]
 
 
 def mark_suspect(adapter: str, doc_id: str, reason: str, method: str) -> None:
@@ -97,46 +109,36 @@ def judge(
     if place is None:
         return "busy"
 
+    judging = Judging(adapter, doc_id, roots, bundle, owner_of)
     try:
         redis.delete(rejudge_redis_key)
-        verdict = verdict_of(adapter, doc_id, suspect_reason, roots, bundle, owner_of)
+        verdict = verdict_of(judging, suspect_reason)
         while redis.delete(rejudge_redis_key) and (suspect_reason := suspect_of(adapter, doc_id)):
-            verdict = verdict_of(adapter, doc_id, suspect_reason, roots, bundle, owner_of)
+            verdict = verdict_of(judging, suspect_reason)
         return verdict
     finally:
         admission.free_place(place)
 
 
-def verdict_of(
-    adapter: str,
-    doc_id: str,
-    suspect_reason: str,
-    roots: Mapping[str, type],
-    bundle: Path,
-    owner_of: Callable[[str], str | None],
-) -> str | None:
+def verdict_of(judging: Judging, suspect_reason: str) -> str | None:
     try:
-        return judge_rows(adapter, doc_id, suspect_reason, roots, bundle, owner_of)
+        return judge_rows(judging, suspect_reason)
     except BaseException as error:  # pycrdt panics derive from BaseException
         if isinstance(error, KeyboardInterrupt | SystemExit):
             raise
 
         frappe.db.rollback()
-        return unsettled(adapter, doc_id, suspect_reason, "judge_failed", type(error).__name__)
+        return unsettled(
+            judging.adapter, judging.doc_id, suspect_reason, "judge_failed", type(error).__name__
+        )
 
 
 def rejudge_key(adapter: str, doc_id: str) -> str:
     return f"suite:collab:rejudge:{frappe.local.site}:{adapter}:{doc_id}"
 
 
-def judge_rows(
-    adapter: str,
-    doc_id: str,
-    suspect_reason: str,
-    roots: Mapping[str, type],
-    bundle: Path,
-    owner_of: Callable[[str], str | None],
-) -> str | None:
+def judge_rows(judging: Judging, suspect_reason: str) -> str | None:
+    adapter, doc_id, roots = judging.adapter, judging.doc_id, judging.roots
     snapshot = read(adapter, doc_id, integrated=True)
     if snapshot is None:
         return None
@@ -145,7 +147,7 @@ def judge_rows(
     revs = [rev for rev, _payload in snapshot.rows]
     rows = snapshot.payloads()
     try:
-        verdict = kernel.judge(bundle, checkpoint, rows)
+        verdict = kernel.judge(judging.bundle, checkpoint, rows)
     except kernel.KernelFailed as error:
         return unsettled(adapter, doc_id, suspect_reason, "kernel_failed", repr(error))
 
@@ -171,7 +173,7 @@ def judge_rows(
 
     if index is not None:
         try:
-            quarantine.quarantine(adapter, doc_id, {revs[index]}, reason, owner_of)
+            quarantine.quarantine(adapter, doc_id, {revs[index]}, reason, judging.owner_of)
         except RuntimeError as error:
             return hold_document(adapter, doc_id, "unowned_row", repr(error))
 
