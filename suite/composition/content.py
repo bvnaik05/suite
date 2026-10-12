@@ -16,7 +16,7 @@ from werkzeug.wrappers import Response
 from suite import drive
 from suite.composition.http import HttpOwner, Route
 from suite.suite_core import content
-from suite.suite_core.content import adapters, documents
+from suite.suite_core.content import adapters, documents, touches
 from suite.suite_core.content.adapters import ContentAdapterSpec, NodeHooks
 
 # Every row reads or writes its own bytes, so each is a stream; a POST answers JSON
@@ -214,7 +214,7 @@ def push_rows(node: str) -> Response:
         if refusal.body["collab"] == "compacting":
             documents.consider_compaction(adapter, doc.id, refused=True)
         raise
-    documents.touch(adapter, doc.id)
+    touches.touch(adapter, doc.id)
     final_from = header.sid if header.is_final else None
     documents.consider_compaction(adapter, doc.id, final_from=final_from)
     return json_response(200, answer)

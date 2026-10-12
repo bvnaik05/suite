@@ -20,7 +20,7 @@ from suite.drive._core.nodes import _trash, purge
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import restore_version
 from suite.suite_core import content
-from suite.suite_core.content import documents, log, scheduling
+from suite.suite_core.content import documents, log, scheduling, touches
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
 from suite.writer.content.tests.test_checkpoints import WRITER, CheckpointCase
@@ -655,7 +655,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
     def frozen_clock(self, at: datetime):
         """The time the content layer and Drive read while a document is touched."""
         with (
-            patch.object(documents, "now_datetime", return_value=at),
+            patch.object(touches, "now_datetime", return_value=at),
             patch.object(drive_content, "now_datetime", return_value=at),
         ):
             yield
