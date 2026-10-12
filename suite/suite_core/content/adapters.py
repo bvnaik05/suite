@@ -15,7 +15,8 @@ class ContentAdapterSpec:
     the doctype whose row holds each document's latest checked body, base64, in `body_field`, found by
     its node in `node_field`; `roots` names every root type it writes; `kernel` is the Node bundle that
     judges suspect documents. `codec` names the update format of its state, `max_state` the most a compacted
-    document may hold and `max_change` the most one change may, in bytes."""
+    document may hold and `max_change` the most one change may, in bytes. `check_copy(state, html, text)` says
+    whether a readable copy a browser rendered holds what the state does."""
 
     name: str
     content_type: str
@@ -27,6 +28,10 @@ class ContentAdapterSpec:
     codec: str
     max_state: int
     max_change: int
+    check_copy: Callable[[bytes, str, str], bool]
+    # The state an old body holds. It decides none of the conversion rules (when, whether for good, what is
+    # kept), which wait for the second grill and ticket 29
+    convert: Callable[[str], bytes]
 
 
 @dataclass(frozen=True)

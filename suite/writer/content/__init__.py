@@ -9,6 +9,7 @@ import pycrdt
 
 from suite.suite_core import content
 from suite.suite_core.content.adapters import ContentAdapterSpec
+from suite.writer.content.readable_copy import check_copy
 
 ADAPTER = "writer"
 # The editor's fragment, and tab labels
@@ -30,6 +31,11 @@ SCHEMA = content.EditorSchema(
 )
 
 
+def convert(old_body: str) -> bytes:
+    """`Writer Document.content` holds the state base64."""
+    return base64.b64decode(old_body)
+
+
 SPEC = ContentAdapterSpec(
     name=ADAPTER,
     content_type="Writer Document",
@@ -41,6 +47,8 @@ SPEC = ContentAdapterSpec(
     codec="yjs1",
     max_state=4 * 2**20,
     max_change=4 * 2**20,
+    check_copy=check_copy,
+    convert=convert,
 )
 
 
