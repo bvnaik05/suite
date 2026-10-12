@@ -20,9 +20,16 @@ vi.mock('vue-router', () => ({ useRoute: () => state.route }))
 vi.mock('@/apps/mail/stores/user', () => ({ userStore: () => state.store }))
 const saved = vi.hoisted(() => [] as unknown[])
 const toasts = vi.hoisted(() => [] as string[])
+// Saves resolve at once, unless a test holds them to see what happens while they are pending.
+const held = vi.hoisted(() => ({ on: false, release: [] as (() => void)[] }))
 vi.mock('@/api', () => ({
   api: { mail: { settings: { updatePreferences: {} } } },
-  client: { mutation: async (_reference: unknown, input: unknown) => saved.push(input) },
+  client: {
+    mutation: async (_reference: unknown, input: unknown) => {
+      saved.push(input)
+      if (held.on) await new Promise<void>((resolve) => held.release.push(resolve))
+    },
+  },
 }))
 vi.mock('@/apps/mail/utils', () => ({ raiseToast: (message: string) => toasts.push(message) }))
 vi.mock('@/apps/mail/utils/composables', () => ({
@@ -135,5 +142,21 @@ describe('the Inbox tabs', () => {
 
     expect(saved).toEqual([{ split_inbox: 0 }])
     expect(toasts).toEqual(['Categories are off.'])
+  })
+
+  it('build each switch on the last, while the earlier saves are still on their way', async () => {
+    held.on = true
+    const { setTab } = useTabChoice()
+
+    const first = setTab('social', true)
+    const second = setTab('forums', false)
+    held.on = false
+    held.release.forEach((release) => release())
+    await Promise.all([first, second])
+
+    expect(saved).toEqual([
+      { inbox_tabs: ['primary', 'updates', 'forums', 'promotions', 'social'] },
+      { inbox_tabs: ['primary', 'updates', 'promotions', 'social'] },
+    ])
   })
 })

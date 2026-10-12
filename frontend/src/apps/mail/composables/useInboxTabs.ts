@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, shallowRef } from 'vue'
 import { useRoute, type RouteLocationNamedRaw } from 'vue-router'
 
 import { api, client, type InputOf } from '@/api'
@@ -68,6 +68,12 @@ export const useInboxTabs = (
 /** The categories a person can give a tab or not: all but Primary, which is the Inbox's own. */
 const CHOOSABLE: InboxCategory[] = ['updates', 'forums', 'promotions', 'social']
 
+// The choice on its way to the server, ahead of the user info that will confirm it. A switch flipped
+// while another save is pending builds on it, rather than on the choice from before both (and so
+// undoing the first). Shared by every place the choice is made. Shallow, so a save can tell its own
+// choice from a later one by identity.
+const pendingTabs = shallowRef<InboxCategory[] | null>(null)
+
 /**
  * The person's categories: offered when the site sorts mail into them at all; whether their Inbox is
  * split into them; and which have a tab when it is, a choice kept while the split is off. At least
@@ -83,7 +89,7 @@ export const useTabChoice = () => {
 
   const offered = computed(() => !!store.userResource.data?.email_classification)
   const split = computed(() => !!store.userResource.data?.split_inbox)
-  const chosen = computed(() => store.userResource.data?.inbox_tabs ?? [])
+  const chosen = computed(() => pendingTabs.value ?? store.userResource.data?.inbox_tabs ?? [])
   const choices = computed(() =>
     CHOOSABLE.map((category) => ({
       category,
@@ -98,7 +104,16 @@ export const useTabChoice = () => {
     const on = CHOOSABLE.filter((category) => categories.includes(category))
     return on.length ? ['primary', ...on] : []
   }
-  const saveTabs = (categories: InboxCategory[]) => save({ inbox_tabs: tabsFor(categories) })
+  const saveTabs = async (categories: InboxCategory[]) => {
+    const tabs = tabsFor(categories)
+    pendingTabs.value = tabs
+    try {
+      await save({ inbox_tabs: tabs })
+    } finally {
+      // A later switch's choice stays pending until its own save lands.
+      if (pendingTabs.value === tabs) pendingTabs.value = null
+    }
+  }
   const setTab = (category: InboxCategory, on: boolean) =>
     saveTabs(
       choices.value
