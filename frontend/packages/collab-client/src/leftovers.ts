@@ -7,17 +7,14 @@ import { holdLock } from './locks'
 import { ADOPT } from './origins'
 import { Outbox } from './outbox'
 import type { Room } from './room'
-import type { StoredEntry } from './store'
+import type { StoredEntry, StoredSession } from './store'
 import type { Answer, Claim } from './types'
 
 export const lostReason = (verdict: string) => (verdict === 'clash' ? 'id_clash' : verdict)
 
 // Asks the server for a clientID chosen offline. `null` when the claim got no verdict this time; a refusal with a reason is final
 export async function claimClientId(room: Room, box: Outbox): Promise<string | null> {
-  const claim: Claim = {
-    cid: box.cid,
-    lineage: room.lineage,
-  }
+  const claim: Claim = { cid: box.cid, lineage: room.lineage }
   let answer: Answer
   try {
     answer = await room.options.endpoints.session(box.sid, claim)
@@ -28,15 +25,8 @@ export async function claimClientId(room: Room, box: Outbox): Promise<string | n
 
   const reply = readReply(answer)
   if (reply.status === 200 && typeof reply.claim === 'string') {
-    if (reply.claim === 'ok' && room.device) {
-      const session = {
-        doc: room.device.doc,
-        sid: box.sid,
-        lineage: room.lineage,
-        cid: box.cid,
-        bound: true,
-      }
-      await room.device.saveSession(session)
+    if (reply.claim === 'ok') {
+      await bindOnDevice(room, box)
     }
     return reply.claim
   }
@@ -47,6 +37,15 @@ export async function claimClientId(room: Room, box: Outbox): Promise<string | n
   }
 
   return reply.collab ?? null
+}
+
+async function bindOnDevice(room: Room, box: Outbox) {
+  if (!room.device) {
+    return
+  }
+
+  const session = { doc: room.device.doc, sid: box.sid, lineage: room.lineage, cid: box.cid }
+  await room.device.saveSession({ ...session, bound: true })
 }
 
 // The device copy with the work on top, when the copy is still the history the work was typed on
@@ -67,52 +66,92 @@ export async function adoptLeftovers(room: Room) {
 
   const sessions = await device.sessions()
   for (const session of sessions) {
-    if (room.outboxes.some((box) => box.sid === session.sid)) continue
-    if (!session.bound && !room.bound) continue
-
-    const lockName = room.lockName(session.sid)
-    const release = await holdLock(lockName)
-    if (!release) continue
-
-    if (room.closed) {
-      return release()
+    const isOpen = await adoptSession(room, device, session)
+    if (!isOpen) {
+      return
     }
-
-    const entries = await device.entries(session.sid)
-    if (!entries.length) {
-      await device.release(session.sid)
-      release()
-      continue
-    }
-
-    const box = new Outbox(session.sid, session.cid, release, true, entries)
-    let claimVerdict: string | null = 'ok'
-    if (session.lineage !== room.lineage) {
-      claimVerdict = 'lineage'
-    } else if (!session.bound) {
-      claimVerdict = await claimClientId(room, box)
-    }
-    if (room.closed) {
-      return release()
-    }
-
-    if (claimVerdict !== 'ok') {
-      if (claimVerdict) {
-        const reason = lostReason(claimVerdict)
-        const state = await readableState(device, session.lineage, entries)
-        await device.recover([session.sid], reason, [], state)
-      }
-      release()
-      continue
-    }
-
-    const pendingUpdates = box.pending.map((entry) => entry.bytes)
-    const adoptedWork = Y.mergeUpdates(pendingUpdates)
-    Y.applyUpdate(room.doc, adoptedWork, ADOPT)
-    room.outboxes.splice(-1, 0, box)
   }
+
   room.onUnsentChanged()
   if (room.unsent && room.bound) {
     room.sender.scheduleSend()
   }
+}
+
+function isAdoptable(room: Room, session: StoredSession) {
+  const isHeldHere = room.outboxes.some((box) => box.sid === session.sid)
+  return !isHeldHere && (session.bound || room.bound)
+}
+
+// One tab's leftover work, once no live tab holds it; false once the room closed meanwhile
+async function adoptSession(room: Room, device: Device, session: StoredSession) {
+  if (!isAdoptable(room, session)) {
+    return true
+  }
+
+  const release = await holdLock(room.lockName(session.sid))
+  if (!release) {
+    return true
+  }
+
+  if (room.closed) {
+    release()
+    return false
+  }
+
+  return takeOver(room, device, session, release)
+}
+
+// The work joins this tab's outboxes, or is kept aside when its claim is refused
+async function takeOver(room: Room, device: Device, session: StoredSession, release: () => void) {
+  const entries = await device.entries(session.sid)
+  if (!entries.length) {
+    await device.release(session.sid)
+    release()
+    return true
+  }
+
+  const box = new Outbox(session.sid, session.cid, release, true, entries)
+  const claimVerdict = await claimVerdictOf(room, session, box)
+  if (room.closed) {
+    release()
+    return false
+  }
+
+  if (claimVerdict !== 'ok') {
+    await keepAside(device, session, claimVerdict, entries)
+    release()
+    return true
+  }
+
+  Y.applyUpdate(room.doc, Y.mergeUpdates(box.pending.map((entry) => entry.bytes)), ADOPT)
+  room.outboxes.splice(-1, 0, box)
+  return true
+}
+
+async function claimVerdictOf(room: Room, session: StoredSession, box: Outbox) {
+  if (session.lineage !== room.lineage) {
+    return 'lineage'
+  }
+
+  if (session.bound) {
+    return 'ok'
+  }
+
+  return claimClientId(room, box)
+}
+
+// A refused claim keeps the work as a recovery copy; no verdict leaves it for a later tab
+async function keepAside(
+  device: Device,
+  session: StoredSession,
+  claimVerdict: string | null,
+  entries: StoredEntry[],
+) {
+  if (!claimVerdict) {
+    return
+  }
+
+  const state = await readableState(device, session.lineage, entries)
+  await device.recover([session.sid], lostReason(claimVerdict), [], state)
 }
