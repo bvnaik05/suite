@@ -37,7 +37,6 @@
     ref="row"
     class="shrink-0 sm:border-l sm:border-l-transparent"
     data-testid="inbox-tabs"
-    @transitionend="settleWhenStill"
   >
     <Tabs :model-value="active">
       <!-- As tall as the toolbar below, with the gutter inside the rail, so the first tab lines up
@@ -45,7 +44,9 @@
            under the menu at the row's end: the menu sits outside the tab list, whose keyboard
            handling would otherwise move focus from it onto a tab, opening that tab. -->
       <div class="flex h-12 items-center border-b border-outline-gray-1 px-3 sm:px-5">
-        <!-- Each tab underlines itself (below) in place of the list's one sliding indicator: that one
+        <!-- When even icons and the open tab's name don't fit, the list scrolls sideways rather than
+           squeezing its tabs into each other; pb-px keeps each tab's underline inside what scrolls.
+           Each tab underlines itself (below) in place of the list's one sliding indicator: that one
            measures the open tab once, as it is clicked, so it lags behind a name still opening. A
            narrow row sets its tabs 16px apart rather than 24, room for the open tab's whole name
            in the split view's list: a name that only just doesn't fit would end its opening by
@@ -53,7 +54,7 @@
         <TabList
           variant="underline"
           size="md"
-          class="h-full min-w-0 flex-1 overflow-x-clip data-[slot=tab-list]:border-b-0 [&>[data-slot=tab-indicator]]:hidden"
+          class="h-full min-w-0 flex-1 overflow-x-auto pb-px [scrollbar-width:none] data-[slot=tab-list]:border-b-0 [&>[data-slot=tab-indicator]]:hidden"
           :class="[
             narrow && 'data-[slot=tab-list]:gap-4',
             animated &&
@@ -63,8 +64,7 @@
           <!-- A list too narrow for every name names only the open tab; the rest show an icon and a
              count, and name themselves in a tooltip. A name opens and closes rather than snapping,
              so the tab draws its own icon, name and count (the label frappe-ui draws can only
-             appear or vanish). Only a named tab gives way to a still narrower list, by truncating.
-             A closed name stays in the tab for screen readers. The tooltip is never disabled, only
+             appear or vanish). No tab shrinks: a list too narrow even for that scrolls. A closed name stays in the tab for screen readers. The tooltip is never disabled, only
              emptied: disabling it re-creates the tab, and a re-created tab can't animate. -->
           <Tooltip v-for="tab in tabs" :key="tab.category" :text="iconOnly(tab) ? tab.label : ''">
             <TabTrigger
@@ -72,7 +72,7 @@
               :route="routeFor(tab.category)"
               class="relative items-center self-stretch after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-[var(--outline-gray-8)] after:opacity-0 data-[state=active]:after:opacity-100"
               :class="[
-                iconOnly(tab) || resizing ? 'shrink-0' : 'min-w-0 [&>[data-state]]:min-w-0',
+                'shrink-0',
                 animated &&
                   'after:transition-opacity after:duration-300 motion-reduce:after:transition-none',
               ]"
@@ -90,12 +90,8 @@
                       'transition-[grid-template-columns,margin,opacity] duration-300 ease-in-out motion-reduce:transition-none',
                   ]"
                 >
-                  <!-- Clipped, not ellipsed, while it opens or closes: an ellipsis is for a name that
-                     won't fit, not one still growing. -->
-                  <span
-                    class="min-w-0 overflow-hidden whitespace-nowrap"
-                    :class="settling ? 'text-clip' : 'text-ellipsis'"
-                  >
+                  <!-- Clipped while it opens or closes; at rest a name always fits, never ellipsed. -->
+                  <span class="min-w-0 overflow-hidden whitespace-nowrap text-clip">
                     {{ tab.label }}
                   </span>
                 </span>
@@ -168,40 +164,15 @@ const narrow = computed(
 
 const iconOnly = (tab: InboxTab) => narrow.value && tab.category !== active
 
-// While names open and close (300ms, as their transition), none is ellipsed: it is still growing.
-const settling = ref(false)
-// When the row turns narrow (a thread opens beside the list), the open tab keeps its name while the
-// others close. For that moment the row needs more room than it has, and the open tab, the only one
-// that may shrink, would be squeezed to nothing and back: so none shrinks, and the row clips what
-// runs past its edge. A tab switch needs none of that: the opening name starts from nothing and grows
-// into the room the closing one gives up.
-const resizing = ref(false)
-// Settled when the names have stopped moving, not on a timer: the transitions start a frame after
-// the change and ease out, so a timer of their length ends while a name is still a fraction of a pixel
-// short of its width, and its last letters flash an ellipsis. The timer is only a backstop.
-let backstop: ReturnType<typeof setTimeout> | undefined
-const settled = () => {
-  clearTimeout(backstop)
-  settling.value = resizing.value = false
-}
-const settle = (dueToResize: boolean) => {
-  if (!animated.value) return
-  settling.value = true
-  resizing.value = dueToResize
-  clearTimeout(backstop)
-  backstop = setTimeout(settled, 1000)
-}
-const settleWhenStill = () => {
-  if (!settling.value) return
-  const moving = row.value
-    ?.getAnimations({ subtree: true })
-    .some((animation) => animation.playState === 'running')
-  if (!moving) settled()
-}
-watch(narrow, () => settle(true))
+// A list that scrolls keeps the open tab in view.
 watch(
   () => active,
-  () => settle(false),
+  () =>
+    requestAnimationFrame(() =>
+      row.value
+        ?.querySelector('[data-slot=tab-list] [data-state=active]')
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
+    ),
 )
 
 // A switch per category (Primary has none, being the Inbox's own), the last one on held on, and a
