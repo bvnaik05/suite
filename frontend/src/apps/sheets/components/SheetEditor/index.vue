@@ -1591,133 +1591,11 @@
       </Dialog>
 
       <!-- Data validation dialog -->
-      <Dialog v-model:open="validationDialog.open" title="Data validation" size="sm">
-        <template #default>
-          <div class="sn-form-stack">
-            <!-- Type -->
-            <FormControl
-              v-model="validationDialog.type"
-              type="select"
-              label="Type"
-              :options="[
-                { label: 'Checkbox', value: 'checkbox' },
-                { label: 'List of items', value: 'list' },
-                { label: 'Number', value: 'number' },
-                { label: 'Text length', value: 'text_length' },
-              ]"
-            />
-
-            <!-- List — one row per item: a colour swatch, the label, and remove.
-               Paste a comma/newline list into any field to split it into rows. -->
-            <div v-if="validationDialog.type === 'list'" ref="vdListEl" class="sn-vd-list">
-              <label class="sn-vd-list-label">Items</label>
-              <div v-for="(item, i) in validationDialog.listItems" :key="i" class="sn-vd-item">
-                <ColorPicker
-                  :model-value="item.color || ''"
-                  allow-default
-                  default-label="Automatic colour"
-                  :fallback="autoChipColor(i)"
-                  title="Label colour"
-                  @update:model-value="item.color = $event"
-                >
-                  <template #trigger="{ toggle, open }">
-                    <button
-                      type="button"
-                      class="sn-vd-swatch"
-                      :class="{ 'is-open': open }"
-                      :style="{ background: item.color || autoChipColor(i) }"
-                      title="Label colour"
-                      @click="toggle()"
-                    />
-                  </template>
-                </ColorPicker>
-                <input
-                  v-model="item.label"
-                  class="sn-vd-item-input"
-                  placeholder="Item"
-                  @keydown.enter.prevent="addListItem(i)"
-                  @paste="onListPaste($event, i)"
-                />
-                <button
-                  type="button"
-                  class="sn-vd-item-x"
-                  title="Remove item"
-                  @click="removeListItem(i)"
-                >
-                  <FeatherIcon name="x" class="sn-vd-item-xg" />
-                </button>
-              </div>
-              <button type="button" class="sn-vd-add" @click="addListItem()">
-                <FeatherIcon name="plus" class="sn-vd-add-g" /> Add item
-              </button>
-            </div>
-
-            <!-- Operator (number / text_length) -->
-            <FormControl
-              v-if="['number', 'text_length'].includes(validationDialog.type)"
-              v-model="validationDialog.operator"
-              type="select"
-              label="Condition"
-              :options="[
-                { label: 'Between', value: 'between' },
-                { label: 'Not between', value: 'not_between' },
-                { label: 'Greater than', value: 'gt' },
-                { label: 'Greater than or equal', value: 'gte' },
-                { label: 'Less than', value: 'lt' },
-                { label: 'Less than or equal', value: 'lte' },
-                { label: 'Equal to', value: 'eq' },
-                { label: 'Not equal to', value: 'neq' },
-              ]"
-            />
-
-            <!-- Values -->
-            <div
-              v-if="['number', 'text_length'].includes(validationDialog.type)"
-              class="sn-vd-vals"
-            >
-              <FormControl
-                v-model="validationDialog.val1"
-                type="number"
-                :label="
-                  ['between', 'not_between'].includes(validationDialog.operator) ? 'Min' : 'Value'
-                "
-              />
-              <FormControl
-                v-if="['between', 'not_between'].includes(validationDialog.operator)"
-                v-model="validationDialog.val2"
-                type="number"
-                label="Max"
-              />
-            </div>
-
-            <!-- Custom error message -->
-            <FormControl
-              v-model="validationDialog.message"
-              label="Error message (optional)"
-              placeholder="This value is not allowed"
-            />
-
-            <!-- On invalid: block the edit, or allow it with a warning -->
-            <FormControl
-              v-if="validationDialog.type !== 'checkbox'"
-              v-model="validationDialog.severity"
-              type="select"
-              label="When the value is invalid"
-              :options="[
-                { label: 'Reject the input', value: 'reject' },
-                { label: 'Allow, but show a warning', value: 'warn' },
-              ]"
-            />
-          </div>
-        </template>
-        <template #actions>
-          <div class="flex flex-row-reverse gap-2">
-            <Button variant="solid" @click="confirmValidation">Apply</Button>
-            <Button variant="ghost" theme="red" @click="removeValidation">Remove rule</Button>
-            <Button @click="validationDialog.open = false">Cancel</Button>
-          </div>
-        </template>
-      </Dialog>
+      <ValidationDialog
+        ref="validationDialogRef"
+        @apply="_applyValidation"
+        @remove="removeValidation"
+      />
 
       <!-- Insert N rows / columns dialog -->
       <Dialog
@@ -2004,7 +1882,7 @@ import { appPageMeta } from '@/platform/page-meta'
 import { useRootStore } from '@/stores/root'
 import { confirmLeave } from '@/utils/confirmLeave'
 
-import { chipColor, chipPaletteColor } from '../../canvas/chip-geometry'
+import { chipColor } from '../../canvas/chip-geometry'
 import { COL_HEADER_H, ROW_HEADER_W } from '../../canvas/constants'
 import { createGrid } from '../../canvas/index'
 import { createChartEngine } from '../../engine/charts.js'
@@ -2065,6 +1943,7 @@ import { useSmartFill } from './useSmartFill.js'
 import { useSplitText } from './useSplitText.js'
 import { useToolbar } from './useToolbar.js'
 import { useWorkbook } from './useWorkbook.js'
+import ValidationDialog from './ValidationDialog.vue'
 
 const props = defineProps({
   id: {
@@ -2416,21 +2295,6 @@ const dropdownPanel = reactive({
   y: 0,
   w: 120,
 })
-const vdListEl = ref(null)
-const validationDialog = reactive({
-  open: false,
-  type: 'list',
-  // 'list' | 'number' | 'text_length'
-  operator: 'between',
-  // 'between' | 'not_between' | 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
-  val1: '',
-  val2: '',
-  listItems: [],
-  // [{ label, color }] — color '' means auto (palette by position)
-  message: '',
-  severity: 'reject', // 'reject' blocks the edit; 'warn' allows it but flags the cell
-})
-
 const cellHistory = reactive({
   open: false,
   cell: '',
@@ -5964,131 +5828,17 @@ function fromContextMenu(action) {
 }
 
 // ── Data validation ───────────────────────────────────────────────────────────
+// The rule form is ValidationDialog.vue; it hands back a rule, and this
+// applies it to the selection.
 
+const validationDialogRef = ref(null)
 function openValidationDialog() {
-  const e = validation.get(activeCell.value, currentSheet.value)
-  validationDialog.type = e?.type || 'list'
-  validationDialog.operator = e?.operator || 'between'
-  validationDialog.val1 = String(e?.min ?? '')
-  validationDialog.val2 = String(e?.max ?? '')
-  const opts = e?.options || []
-  const colors = e?.colors || {}
-  validationDialog.listItems = opts.length
-    ? opts.map((o) => ({
-        label: o,
-        color: colors[o] || '',
-      }))
-    : [
-        {
-          label: '',
-          color: '',
-        },
-      ] // start with one empty row to type into
-  validationDialog.message = e?.message || ''
-  validationDialog.severity = e?.severity || 'reject'
-  validationDialog.open = true
+  validationDialogRef.value?.open(validation.get(activeCell.value, currentSheet.value))
 }
-
-// The auto (unset) chip colour for the item at position `i` — matches how the
-// painter slots colours by option order, so the dialog previews the real thing.
-function autoChipColor(i) {
-  return chipPaletteColor(i)
-}
-function addListItem(afterIdx) {
-  const row = {
-    label: '',
-    color: '',
-  }
-  if (afterIdx == null) validationDialog.listItems.push(row)
-  else validationDialog.listItems.splice(afterIdx + 1, 0, row)
-  focusListItem(afterIdx == null ? validationDialog.listItems.length - 1 : afterIdx + 1)
-}
-function removeListItem(i) {
-  validationDialog.listItems.splice(i, 1)
-  if (!validationDialog.listItems.length)
-    validationDialog.listItems.push({
-      label: '',
-      color: '',
-    })
-}
-
-// Paste a comma/newline-separated list into a row → split it across rows, so
-// bulk entry ("Yes, No, Maybe") still works alongside per-item editing.
-function onListPaste(ev, i) {
-  const text = ev.clipboardData?.getData('text') || ''
-  if (!/[,\n]/.test(text)) return // single value → let the default paste happen
-  ev.preventDefault()
-  const parts = text
-    .split(/[,\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-  if (!parts.length) return
-  validationDialog.listItems[i].label = parts[0]
-  validationDialog.listItems.splice(
-    i + 1,
-    0,
-    ...parts.slice(1).map((label) => ({
-      label,
-      color: '',
-    })),
-  )
-}
-async function focusListItem(i) {
-  await nextTick()
-  vdListEl.value?.querySelectorAll('.sn-vd-item-input')?.[i]?.focus()
-}
-async function confirmValidation() {
+async function _applyValidation(rule) {
   const ids = selectionIds()
   const sn = currentSheet.value
-  const msg = validationDialog.message.trim() || undefined
-  // 'warn' only differs from the default when the value fails, and a checkbox
-  // is TRUE/FALSE-only where "allow anyway" makes no sense — so scope it out.
-  const severity =
-    validationDialog.type === 'checkbox'
-      ? undefined
-      : validationDialog.severity === 'warn'
-        ? 'warn'
-        : undefined
-  let rule
-  if (validationDialog.type === 'checkbox') {
-    rule = {
-      type: 'checkbox',
-      message: msg,
-    }
-  } else if (validationDialog.type === 'list') {
-    // De-dupe by label (first wins), keeping only rows that have a colour set.
-    const options = []
-    const colors = {}
-    for (const it of validationDialog.listItems) {
-      const label = it.label.trim()
-      if (!label || options.includes(label)) continue
-      options.push(label)
-      if (it.color) colors[label] = it.color
-    }
-    rule = {
-      type: 'list',
-      options,
-      message: msg,
-      severity,
-    }
-    if (Object.keys(colors).length) rule.colors = colors
-  } else {
-    const op = validationDialog.operator
-    const v1 = parseFloat(validationDialog.val1)
-    const v2 = parseFloat(validationDialog.val2)
-    const min = isNaN(v1) ? undefined : v1
-    const max = ['between', 'not_between'].includes(op) && !isNaN(v2) ? v2 : undefined
-    rule = {
-      type: validationDialog.type,
-      operator: op,
-      min,
-      max,
-      message: msg,
-      severity,
-    }
-  }
-  validationDialog.open = false
-  if (validationDialog.type !== 'checkbox') {
+  if (rule.type !== 'checkbox') {
     for (const id of ids) validation.set(id, rule, sn)
     grid?.render()
     history.push()
@@ -6136,7 +5886,6 @@ function removeValidation() {
   const ids = selectionIds()
   const sn = currentSheet.value
   for (const id of ids) validation.clear(id, sn)
-  validationDialog.open = false
   grid?.render()
   history.push()
   isDirty.value = true
