@@ -12,6 +12,7 @@ stopped. Each check takes one of the bench's compaction places.
 """
 
 import hashlib
+import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -59,7 +60,7 @@ def cursor_key(adapter: str) -> str:
 
 def run(adapter: str, roots: Mapping[str, type], bundle: Path) -> None:
     """Trim every document that has rows to trim, from the cursor on, until the time budget runs out."""
-    started = time.monotonic()
+    deadline = time.monotonic() + BUDGET_S
     cursor = frappe.cache.get_value(cursor_key(adapter)) or ""
     doc_table = table(adapter, "doc")
     candidates = frappe.db.sql(
@@ -68,41 +69,52 @@ def run(adapter: str, roots: Mapping[str, type], bundle: Path) -> None:
         cursor,
     )
     for (doc_id,) in candidates:
-        if time.monotonic() - started > BUDGET_S:
+        if time.monotonic() > deadline or not trim(adapter, doc_id, roots, bundle, deadline):
             return
 
-        trim(adapter, doc_id, roots, bundle)
         frappe.cache.set_value(cursor_key(adapter), doc_id)
 
     frappe.cache.delete_value(cursor_key(adapter))
 
 
-def trim(adapter: str, doc_id: str, roots: Mapping[str, type], bundle: Path) -> None:
-    """Delete the document's rows past the window, a chunk at a time, each checked first."""
+def trim(
+    adapter: str, doc_id: str, roots: Mapping[str, type], bundle: Path, deadline: float = math.inf
+) -> bool:
+    """Delete the document's rows past the window, a chunk at a time; answer False if `deadline` passed first."""
     bound = trim_bound(adapter, doc_id, now_datetime())
     while bound is not None:
         chunk = next_chunk(adapter, doc_id, bound)
-        if chunk is None:
-            return
-
-        place = admission.take_place(adapter, doc_id)
-        if place is None:
-            return
-
-        try:
-            check(chunk, roots, bundle)
-        except Mismatch as mismatch:
-            first_kept = chunk.after + 1
-            db.alert(
-                f"Collab trimming: {mismatch.reason}",
-                f"Kept rows {first_kept} to {chunk.through}\n{adapter} document {doc_id}",
-            )
-            return
-        finally:
-            admission.free_place(place)
+        if chunk is None or not passes_check(adapter, doc_id, chunk, roots, bundle):
+            return True
 
         if not delete(adapter, doc_id, chunk):
-            return
+            return True
+
+        if time.monotonic() > deadline:
+            return False
+
+    return True
+
+
+def passes_check(adapter: str, doc_id: str, chunk: Chunk, roots: Mapping[str, type], bundle: Path) -> bool:
+    """Check the chunk under a compaction place; alert and answer False on a mismatch, False too if none is free."""
+    place = admission.take_place(adapter, doc_id)
+    if place is None:
+        return False
+
+    try:
+        check(chunk, roots, bundle)
+    except Mismatch as mismatch:
+        first_kept = chunk.after + 1
+        db.alert(
+            f"Collab trimming: {mismatch.reason}",
+            f"Kept rows {first_kept} to {chunk.through}\n{adapter} document {doc_id}",
+        )
+        return False
+    finally:
+        admission.free_place(place)
+
+    return True
 
 
 def trim_bound(adapter: str, doc_id: str, now: datetime) -> tuple[int, int] | None:

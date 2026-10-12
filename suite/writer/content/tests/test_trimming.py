@@ -339,6 +339,8 @@ class TestWriterTrimming(CheckpointCase):
             if doc_id == second:
                 raise SystemExit
 
+            return True
+
         with patch.object(trimming, "trim", side_effect=killed_at_second), self.assertRaises(SystemExit):
             trimming.run(writer_content.ADAPTER, writer_content.ROOTS, writer_content.KERNEL)
 
@@ -351,6 +353,30 @@ class TestWriterTrimming(CheckpointCase):
         self.assertEqual(resumed[0], second)
         self.assertNotIn(first, resumed)
         self.assertIsNone(frappe.cache.get_value(cursor))
+
+    def test_a_document_stops_after_the_chunk_that_runs_past_the_deadline(self):
+        node = self.compacted_document(["a", "b", "c", "d", "e", "f"])
+        self.age_rows(node)
+
+        with patch.object(trimming, "CHUNK_ROWS", 2):
+            finished = trimming.trim(
+                writer_content.ADAPTER, self.doc_row(node).id, writer_content.ROOTS, writer_content.KERNEL, 0
+            )
+
+        self.assertEqual(
+            (finished, self.revs_of(node), self.doc_row(node).trimmed_rev), (False, [3, 4, 5, 6], 2)
+        )
+
+    def test_a_run_out_of_time_inside_a_document_resumes_at_that_document(self):
+        cursor = trimming.cursor_key(writer_content.ADAPTER)
+        frappe.cache.delete_value(cursor)
+        self.addCleanup(frappe.cache.delete_value, cursor)
+        first, second = sorted(self.doc_row(self.compacted_document(["one ", "two"])).id for _ in range(2))
+
+        with patch.object(trimming, "trim", side_effect=lambda adapter, doc_id, *args: doc_id != second):
+            trimming.run(writer_content.ADAPTER, writer_content.ROOTS, writer_content.KERNEL)
+
+        self.assertTrue(first <= frappe.cache.get_value(cursor) < second)
 
     def test_a_tab_behind_the_trimmed_rows_is_told_to_rebuild(self):
         node = self.new_document()
