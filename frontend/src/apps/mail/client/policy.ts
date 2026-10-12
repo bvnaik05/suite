@@ -120,7 +120,14 @@ export const registration: OwnerRegistration = {
     if (reference.id === 'update_preferences')
       return {
         effects: {
-          invalidates: ['mail.get_user_info'],
+          // The Inbox's tabs are a preference: a category turned off moves its mail into Primary.
+          invalidates: [
+            'mail.get_user_info',
+            'mail.get_threads',
+            'mail.get_unified_threads',
+            'mail.get_tab_counts',
+            'mail.get_unified_tab_counts',
+          ],
           optimisticReads: {
             references: ['mail.get_user_info'],
             update(input, _query, data) {

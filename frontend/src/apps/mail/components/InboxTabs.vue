@@ -6,7 +6,7 @@
     class="shrink-0 overflow-x-auto px-4 pb-3 [scrollbar-width:none]"
     data-testid="inbox-tabs"
   >
-    <Tabs :model-value="active">
+    <Tabs :model-value="active" class="flex items-center gap-1">
       <TabList variant="ghost" size="md">
         <TabTrigger
           v-for="tab in tabs"
@@ -21,6 +21,13 @@
           </template>
         </TabTrigger>
       </TabList>
+      <Dropdown :options="choiceMenu">
+        <Button variant="ghost" :aria-label="__('Choose categories')">
+          <template #icon>
+            <span class="lucide-settings-2 icon" aria-hidden="true" />
+          </template>
+        </Button>
+      </Dropdown>
     </Tabs>
   </div>
 
@@ -93,6 +100,22 @@
             </span>
           </TabTrigger>
         </Tooltip>
+        <!-- Which categories get a tab, and categories off altogether, in place (as in Mail settings). -->
+        <!-- Pulled out by as much as the toolbar's own buttons, so it lines up with Refresh below. -->
+        <div class="-mr-1.5 ml-auto flex shrink-0 items-center pl-2">
+          <Dropdown :options="choiceMenu" align="end">
+            <!-- Drawn as the toolbar's Refresh is, with Mail's .icon, so the two match. -->
+            <Button
+              variant="ghost"
+              :tooltip="__('Choose categories')"
+              :aria-label="__('Choose categories')"
+            >
+              <template #icon>
+                <span class="lucide-settings-2 icon" aria-hidden="true" />
+              </template>
+            </Button>
+          </Dropdown>
+        </div>
       </TabList>
     </Tabs>
   </div>
@@ -100,11 +123,15 @@
 
 <script setup lang="ts">
 import { useElementSize } from '@vueuse/core'
-import { Badge, TabList, Tabs, TabTrigger, Tooltip } from 'frappe-ui'
+import { Badge, Button, Dropdown, TabList, Tabs, TabTrigger, Tooltip } from 'frappe-ui'
 import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 
-import type { InboxCategory, InboxTab } from '@/apps/mail/composables/useInboxTabs'
+import {
+  useTabChoice,
+  type InboxCategory,
+  type InboxTab,
+} from '@/apps/mail/composables/useInboxTabs'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 
 const { tabs, active, routeFor } = defineProps<{
@@ -115,7 +142,7 @@ const { tabs, active, routeFor } = defineProps<{
 
 const { isMobile } = useScreenSize()
 
-// About what a tab needs to show its name and count, beside the row's gutters.
+// About what a tab needs to show its name and count, beside the row's gutters and its tab menu.
 const NAMED_TAB_WIDTH = 140
 const row = useTemplateRef<HTMLElement>('row')
 const { width } = useElementSize(row)
@@ -130,7 +157,7 @@ onMounted(() => {
 })
 const rowWidth = computed(() => width.value || mountedWidth.value)
 const narrow = computed(
-  () => rowWidth.value > 0 && rowWidth.value < NAMED_TAB_WIDTH * tabs.length + 40,
+  () => rowWidth.value > 0 && rowWidth.value < NAMED_TAB_WIDTH * tabs.length + 80,
 )
 
 const iconOnly = (tab: InboxTab) => narrow.value && tab.category !== active
@@ -170,6 +197,36 @@ watch(
   () => active,
   () => settle(false),
 )
+
+// A switch per category (Primary has none, being the Inbox's own), the last one on held on, and a
+// way to turn categories off altogether.
+const { choices, setTab, setSplit } = useTabChoice()
+const choiceMenu = computed(() => {
+  const onCount = choices.value.filter((choice) => choice.on).length
+  return [
+    {
+      group: __('Categories'),
+      options: choices.value.map((choice) => ({
+        label: choice.label,
+        icon: choice.icon,
+        switch: true as const,
+        switchValue: choice.on,
+        disabled: choice.on && onCount === 1,
+        onClick: (on: boolean) => void setTab(choice.category, on),
+      })),
+    },
+    {
+      group: '',
+      options: [
+        {
+          label: __('Turn off categories'),
+          icon: 'lucide-eye-off',
+          onClick: () => void setSplit(false),
+        },
+      ],
+    },
+  ]
+})
 
 // Primary's unread is the Inbox's own, counted beside it in the sidebar.
 const countShown = (tab: InboxTab) => tab.category !== 'primary' && tab.unread > 0

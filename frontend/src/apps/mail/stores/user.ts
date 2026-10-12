@@ -130,7 +130,10 @@ export const userStore = defineStore('mail-user', () => {
 
   // The categories the Inbox is split into, in the order of their tabs (none, no tabs), and each tab's
   // unread count: in the active account's Inbox, and across every account's.
-  const inboxTabs = computed(() => userResource.data?.inbox_tabs ?? [])
+  const inboxTabs = computed(() => {
+    const data = userResource.data
+    return data?.email_classification && data.split_inbox ? data.inbox_tabs : []
+  })
   const tabCounts = useQuery(api.mail.tabs.counts, () =>
     accountId.value && mailboxIds.value.inbox && inboxTabs.value.length
       ? { account: accountId.value, mailbox: mailboxIds.value.inbox }

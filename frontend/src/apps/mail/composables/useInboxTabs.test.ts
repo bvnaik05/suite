@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 
-import { useInboxTabs, type InboxCategory } from './useInboxTabs'
+import { useInboxTabs, useTabChoice, type InboxCategory } from './useInboxTabs'
 
 type Counts = { category: InboxCategory; unread_threads: number }[]
 
@@ -11,10 +11,23 @@ const state = vi.hoisted(() => ({
     inboxTabs: InboxCategory[]
     tabCounts: { data: Counts | null }
     unifiedTabCounts: { data: Counts | null }
+    userResource: {
+      data: { email_classification: boolean; split_inbox: 0 | 1; inbox_tabs: InboxCategory[] }
+    }
   },
 }))
 vi.mock('vue-router', () => ({ useRoute: () => state.route }))
 vi.mock('@/apps/mail/stores/user', () => ({ userStore: () => state.store }))
+const saved = vi.hoisted(() => [] as unknown[])
+const toasts = vi.hoisted(() => [] as string[])
+vi.mock('@/api', () => ({
+  api: { mail: { settings: { updatePreferences: {} } } },
+  client: { mutation: async (_reference: unknown, input: unknown) => saved.push(input) },
+}))
+vi.mock('@/apps/mail/utils', () => ({ raiseToast: (message: string) => toasts.push(message) }))
+vi.mock('@/apps/mail/utils/composables', () => ({
+  useSettings: () => ({ openSettings: () => {} }),
+}))
 
 const INBOX = { name: 'mail-mailbox', params: { accountId: 'ih', mailbox: 'inbox' } }
 
@@ -28,7 +41,16 @@ describe('the Inbox tabs', () => {
   beforeEach(() => {
     vi.stubGlobal('__', (text: string) => text)
     state.route = reactive({ query: {} })
+    saved.length = 0
+    toasts.length = 0
     state.store = reactive({
+      userResource: {
+        data: {
+          email_classification: true,
+          split_inbox: 1,
+          inbox_tabs: ['primary', 'updates', 'forums', 'promotions'],
+        },
+      },
       inboxTabs: ['primary', 'updates', 'forums', 'promotions'],
       tabCounts: {
         data: [
@@ -85,5 +107,33 @@ describe('the Inbox tabs', () => {
 
     expect(routeFor('updates')).toEqual({ ...INBOX, query: { category: 'updates' } })
     expect(routeFor('primary')).toEqual({ ...INBOX, query: {} })
+  })
+
+  it('are chosen by turning categories on and off, Primary leading any that are on', async () => {
+    const { choices, setTab } = useTabChoice()
+    expect(choices.value.map((choice) => [choice.category, choice.on])).toEqual([
+      ['updates', true],
+      ['forums', true],
+      ['promotions', true],
+      ['social', false],
+    ])
+
+    await setTab('social', true)
+    await setTab('forums', false)
+
+    expect(saved).toEqual([
+      { inbox_tabs: ['primary', 'updates', 'forums', 'promotions', 'social'] },
+      { inbox_tabs: ['primary', 'updates', 'promotions'] },
+    ])
+    expect(toasts).toEqual([])
+  })
+
+  it('turn off altogether, saying how to get them back', async () => {
+    const { setSplit } = useTabChoice()
+
+    await setSplit(false)
+
+    expect(saved).toEqual([{ split_inbox: 0 }])
+    expect(toasts).toEqual(['Categories are off.'])
   })
 })
