@@ -1,4 +1,5 @@
-"""Ask a product's Node kernel which row breaks a document, with the browsers' Yjs and the editor's schema.
+"""Ask a product's Node kernel which row breaks a document, or whether a body holds rows, with the browsers'
+Yjs and the editor's schema.
 
 Node is optional: without Node 24 or later, or without the product's built bundle, there is no
 verdict and the caller keeps the document suspect. The child runs only from background jobs. It
@@ -48,6 +49,43 @@ class KernelFailed(Exception):
 
 
 def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict | None:
+    checkpoint_text = encoded(checkpoint) if checkpoint else None
+    answer = ask(bundle, {"checkpoint": checkpoint_text, "rows": [encoded(row) for row in rows]})
+    if answer is None:
+        return None
+
+    try:
+        if answer["verdict"] == "clean":
+            return Verdict(None)
+
+        index = answer["index"]
+        if type(index) is not int or not -1 <= index < len(rows):
+            raise ValueError("the index names no row")
+
+        return Verdict(index, plain_reason(str(answer["reason"])))
+    except (ValueError, KeyError, TypeError) as error:
+        raise KernelFailed(repr(error)) from error
+
+
+def covers(bundle: Path, body: bytes, rows: list[bytes]) -> bool | None:
+    """Whether `body` holds every change in `rows`, by the browsers' Yjs; None without a usable Node."""
+    request = {"mode": "covers", "checkpoint": encoded(body), "rows": [encoded(row) for row in rows]}
+    answer = ask(bundle, request)
+    if answer is None:
+        return None
+
+    covered = answer.get("covered")
+    if type(covered) is not bool:
+        raise KernelFailed("the answer names no cover")
+
+    return covered
+
+
+def encoded(part: bytes) -> str:
+    return base64.b64encode(part).decode()
+
+
+def ask(bundle: Path, request: dict) -> dict | None:
     if not getattr(frappe.local, "job", None):
         raise RuntimeError("the collab kernel runs only in background jobs")
 
@@ -57,12 +95,6 @@ def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict 
 
     # Node checks the read permission against the real path
     bundle = bundle.resolve()
-    checkpoint_text = base64.b64encode(checkpoint).decode() if checkpoint else None
-    request = {
-        "checkpoint": checkpoint_text,
-        "rows": [base64.b64encode(row).decode() for row in rows],
-    }
-    request_text = json.dumps(request)
     command = [
         node_path,
         "--permission",
@@ -73,7 +105,7 @@ def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict 
     try:
         completed = subprocess.run(
             command,
-            input=request_text,
+            input=json.dumps(request),
             capture_output=True,
             text=True,
             timeout=TIMEOUT_S,
@@ -81,19 +113,14 @@ def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict 
             check=True,
         )
         answer = json.loads(completed.stdout)
-        if answer["verdict"] == "clean":
-            return Verdict(None)
+        if not isinstance(answer, dict):
+            raise ValueError("the answer is not an object")
 
-        index = answer["index"]
-        if type(index) is not int or not -1 <= index < len(rows):
-            raise ValueError("the index names no row")
-
-        reason = plain_reason(str(answer["reason"]))
-        return Verdict(index, reason)
+        return answer
     except subprocess.CalledProcessError as error:
         last_stderr_line = error.stderr.strip().rsplit("\n", 1)[-1]
         raise KernelFailed(f"exit {error.returncode}: {plain_reason(last_stderr_line)}") from error
-    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
         raise KernelFailed(repr(error)) from error
 
 

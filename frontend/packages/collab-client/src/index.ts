@@ -9,6 +9,7 @@ export {
   type Row,
 } from './frames'
 export { CollabOpenError } from './answers'
+export { covers } from './covers'
 export { judge, type Fault, type Verdict } from './judge'
 export { sizeCheck } from './limits'
 export { openCollabRoom } from './open'

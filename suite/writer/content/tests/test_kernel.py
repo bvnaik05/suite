@@ -80,6 +80,24 @@ class TestKernel(UnitTestCase):
         self.assertEqual(verdict.index, 1)
         self.assertTrue(verdict.reason.startswith("throws: "), verdict.reason)
 
+    def test_a_body_holds_the_rows_merged_into_it(self):
+        rows = typed_rows(append_node(paragraph("abc")), append_node(paragraph("def")))
+        body = pycrdt.merge_updates(*rows)
+        self.assertTrue(kernel.covers(BUNDLE, body, rows))
+
+    def test_a_body_does_not_hold_a_row_after_it(self):
+        rows = typed_rows(append_node(paragraph("abc")), append_node(paragraph("def")))
+        self.assertFalse(kernel.covers(BUNDLE, rows[0], rows))
+
+    def test_a_body_does_not_hold_a_row_yjs_cannot_read(self):
+        rows = typed_rows(append_node(paragraph("abc")))
+        self.assertFalse(kernel.covers(BUNDLE, rows[0], [b"\xff\xff\xff"]))
+
+    def test_gives_no_cover_answer_without_node_24(self):
+        rows = typed_rows(append_node(paragraph("abc")))
+        with patch.object(kernel, "node_version", return_value="v22.12.0"):
+            self.assertIsNone(kernel.covers(BUNDLE, rows[0], rows))
+
     def test_runs_only_in_background_jobs(self):
         with patch.object(frappe.local, "job", None):
             with self.assertRaises(RuntimeError):

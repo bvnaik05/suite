@@ -1,4 +1,4 @@
-import { judge } from '@suite/collab-client'
+import { covers, judge } from '@suite/collab-client'
 
 import { writerFault } from '@/apps/writer/collab/fault'
 
@@ -9,12 +9,13 @@ for (const name of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']) {
 }
 
 type KernelInput = {
+  mode?: 'covers'
   checkpoint: string | null
   rows: string[]
 }
 
 // The Node child the server runs on demand: {checkpoint, rows} in base64 on stdin, a verdict
-// and the bundled Yjs version on stdout
+// and the bundled Yjs version on stdout; in `covers` mode, whether the checkpoint holds the rows
 const stdinChunks: Buffer[] = []
 
 const judgeInput = () => {
@@ -25,10 +26,13 @@ const judgeInput = () => {
   const fromBase64 = (base64: string) => new Uint8Array(Buffer.from(base64, 'base64'))
   const checkpoint = input.checkpoint ? fromBase64(input.checkpoint) : null
   const rows = input.rows.map(fromBase64)
-  const verdict = judge(checkpoint, rows, writerFault)
+  const answer =
+    input.mode === 'covers'
+      ? { covered: covers(checkpoint!, rows) }
+      : judge(checkpoint, rows, writerFault)
 
   const reply = {
-    ...verdict,
+    ...answer,
     yjs: __KERNEL_YJS__,
   }
   process.stdout.write(JSON.stringify(reply))
