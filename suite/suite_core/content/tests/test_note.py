@@ -26,6 +26,11 @@ def typed(client_id: int, text: str) -> bytes:
     return doc.get_update()
 
 
+def drop_owned_tables() -> None:
+    for name in OWNED:
+        frappe.db.sql_ddl(f"DROP TABLE IF EXISTS `{name}`")
+
+
 def text_of(state: bytes) -> str:
     doc = pycrdt.Doc()
     doc.apply_update(state)
@@ -48,15 +53,16 @@ class TestNoteAdapter(IntegrationTestCase):
         cls.others = {name: content.mode(name) for name in adapters()}
         cls.hooks = patch.object(frappe, "get_hooks", get_hooks)
         cls.hooks.start()
-        # Teardown drops these, so a site that already has any of them is refused before anything is made
+        cls.addClassCleanup(cls.hooks.stop)
+        # Cleanup drops these, so a site that already has any of them is refused before anything is made
         taken = frappe.db.sql(
             "SELECT `table_name` FROM information_schema.tables WHERE `table_schema` = DATABASE() AND `table_name` IN %s",
             [OWNED],
         )
         if taken:
-            cls.hooks.stop()
             raise RuntimeError(f"The note adapter's tables already exist: {taken}")
 
+        cls.addClassCleanup(drop_owned_tables)
         frappe.db.sql_ddl(
             f"""CREATE TABLE `{APP_TABLE}` (`name` varchar(140) NOT NULL, `node` varchar(140),
             `body` longtext, `modified` datetime(6), PRIMARY KEY (`name`))"""
@@ -71,9 +77,6 @@ class TestNoteAdapter(IntegrationTestCase):
         for name, mode in cls.others.items():
             content.set_mode(name, mode)
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
-        cls.hooks.stop()
-        for name in OWNED:
-            frappe.db.sql_ddl(f"DROP TABLE IF EXISTS `{name}`")
         super().tearDownClass()
 
     def setUp(self):
