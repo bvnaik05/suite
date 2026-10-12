@@ -1,9 +1,10 @@
 import * as Y from 'yjs'
 
-import { classifyRefusal } from './access'
+import { classifyRefusal, type AccessRoom } from './access'
 import { readReply, type Reply } from './answers'
 import { backoffMs } from './backoff'
 import { encodePush, type PushHeader } from './frames'
+import type { Live } from './live'
 import {
   KEEPALIVE_QUOTA,
   MAX_HEADER_BYTES,
@@ -12,8 +13,30 @@ import {
   type Outbox,
 } from './outbox'
 import { PIECE_BYTES, putPieces, stageFor, type Staging } from './pieces'
-import type { Room } from './room'
-import { isRecoverable } from './types'
+import { isRecoverable, type Held, type SaveState } from './types'
+import type { SuspectReport } from './verdict'
+
+/** What sending this tab's work reads and changes on the room. */
+export interface SenderRoom extends AccessRoom {
+  readonly lineage: string
+  readonly bound: boolean
+  readonly closed: boolean
+  readonly held: Held | null
+  readonly appliedThrough: number
+  readonly saveState: SaveState
+  readonly ownOutbox: Outbox
+  readonly outboxes: readonly Outbox[]
+  readonly realtime: Pick<Live, 'live' | 'pushed' | 'pullHoleLater'> | null
+  readonly suspect: Pick<SuspectReport, 'isJudging'>
+  pull(): Promise<void>
+  acknowledge(box: Outbox, through: number): void
+  setPaused(reason: string | null): void
+  setHeld(held: Held | null): void
+  markNeedsRebuild(): void
+  stopForGood(reason: string): Promise<void>
+  onServerHeard(): void
+  onUnreachable(): void
+}
 
 // The gap between pushes until the server names its own
 const DEFAULT_PACE_MS = 500
@@ -45,7 +68,7 @@ export class Sender {
   private endRetry: (() => void) | null = null
   private staging: Staging | null = null
 
-  constructor(private readonly room: Room) {}
+  constructor(private readonly room: SenderRoom) {}
 
   // A hidden or departing page may never run its send timer, its retry, or hear back from a save on its way
   sendNow = () => {

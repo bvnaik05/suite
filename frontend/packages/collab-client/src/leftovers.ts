@@ -1,19 +1,34 @@
 import * as Y from 'yjs'
 
-import { classifyRefusal } from './access'
+import { classifyRefusal, type AccessRoom } from './access'
 import { readReply } from './answers'
 import type { Device } from './device'
 import { holdLock } from './locks'
 import { ADOPT } from './origins'
 import { Outbox } from './outbox'
-import type { Room } from './room'
 import type { StoredEntry, StoredSession } from './store'
 import type { Answer, Claim } from './types'
+
+/** What claiming an ID and adopting other tabs' work use of the room. */
+export interface LeftoverRoom extends AccessRoom {
+  readonly doc: Y.Doc
+  readonly device: Device | null
+  readonly lineage: string
+  readonly bound: boolean
+  readonly closed: boolean
+  readonly stopReason: string | null
+  // Adopted outboxes go in ahead of this tab's own
+  readonly outboxes: Outbox[]
+  readonly sender: { scheduleSend(): void }
+  lockName(sid: string): string
+  onUnreachable(): void
+  onUnsentChanged(): void
+}
 
 export const lostReason = (verdict: string) => (verdict === 'clash' ? 'id_clash' : verdict)
 
 // Asks the server for a clientID chosen offline. `null` when the claim got no verdict this time; a refusal with a reason is final
-export async function claimClientId(room: Room, box: Outbox): Promise<string | null> {
+export async function claimClientId(room: LeftoverRoom, box: Outbox): Promise<string | null> {
   const claim: Claim = { cid: box.cid, lineage: room.lineage }
   let answer: Answer
   try {
@@ -39,7 +54,7 @@ export async function claimClientId(room: Room, box: Outbox): Promise<string | n
   return reply.collab ?? null
 }
 
-async function bindOnDevice(room: Room, box: Outbox) {
+async function bindOnDevice(room: LeftoverRoom, box: Outbox) {
   if (!room.device) {
     return
   }
@@ -60,7 +75,7 @@ async function readableState(device: Device, lineage: string, entries: StoredEnt
 }
 
 // Unsent work other tabs of this document left on the device, once no live tab holds it
-export async function adoptLeftovers(room: Room) {
+export async function adoptLeftovers(room: LeftoverRoom) {
   const device = room.device
   if (!device || room.stopReason) return
 
@@ -78,13 +93,13 @@ export async function adoptLeftovers(room: Room) {
   }
 }
 
-function isAdoptable(room: Room, session: StoredSession) {
+function isAdoptable(room: LeftoverRoom, session: StoredSession) {
   const isHeldHere = room.outboxes.some((box) => box.sid === session.sid)
   return !isHeldHere && (session.bound || room.bound)
 }
 
 // One tab's leftover work, once no live tab holds it; false once the room closed meanwhile
-async function adoptSession(room: Room, device: Device, session: StoredSession) {
+async function adoptSession(room: LeftoverRoom, device: Device, session: StoredSession) {
   if (!isAdoptable(room, session)) {
     return true
   }
@@ -99,11 +114,6 @@ async function adoptSession(room: Room, device: Device, session: StoredSession) 
     return false
   }
 
-  return takeOver(room, device, session, release)
-}
-
-// The work joins this tab's outboxes, or is kept aside when its claim is refused
-async function takeOver(room: Room, device: Device, session: StoredSession, release: () => void) {
   const entries = await device.entries(session.sid)
   if (!entries.length) {
     await device.release(session.sid)
@@ -111,6 +121,17 @@ async function takeOver(room: Room, device: Device, session: StoredSession, rele
     return true
   }
 
+  return takeOver(room, device, session, release, entries)
+}
+
+// The work joins this tab's outboxes, or is kept aside when its claim is refused
+async function takeOver(
+  room: LeftoverRoom,
+  device: Device,
+  session: StoredSession,
+  release: () => void,
+  entries: StoredEntry[],
+) {
   const box = new Outbox(session.sid, session.cid, release, true, entries)
   const claimVerdict = await claimVerdictOf(room, session, box)
   if (room.closed) {
@@ -129,7 +150,7 @@ async function takeOver(room: Room, device: Device, session: StoredSession, rele
   return true
 }
 
-async function claimVerdictOf(room: Room, session: StoredSession, box: Outbox) {
+async function claimVerdictOf(room: LeftoverRoom, session: StoredSession, box: Outbox) {
   if (session.lineage !== room.lineage) {
     return 'lineage'
   }

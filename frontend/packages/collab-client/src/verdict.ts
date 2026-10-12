@@ -1,9 +1,21 @@
-import { classifyRefusal, isDisabled } from './access'
+import { classifyRefusal, isDisabled, type AccessRoom } from './access'
 import { readReply, type Reply } from './answers'
 import { backoffMs } from './backoff'
 import type { PullHeader } from './frames'
-import type { Room } from './room'
-import { isRecoverable } from './types'
+import { isRecoverable, type Held } from './types'
+
+/** What a suspect report reads and changes on the room. */
+export interface VerdictRoom extends AccessRoom {
+  readonly lineage: string
+  readonly closed: boolean
+  readonly held: Held | null
+  readonly sender: { scheduleSend(): void }
+  setPaused(reason: string | null): void
+  setHeld(held: Held | null): void
+  markNeedsRebuild(): void
+  stopForGood(reason: string): Promise<void>
+  onUnreachable(): void
+}
 
 const STRIKE_WINDOW_MS = 10 * 60_000
 const MAX_STRIKES = 3
@@ -26,7 +38,7 @@ export class SuspectReport {
   private judging: { rev: number; seen: number | null } | null = null
   private reportTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private readonly room: Room) {}
+  constructor(private readonly room: VerdictRoom) {}
 
   get isJudging() {
     return this.judging !== null

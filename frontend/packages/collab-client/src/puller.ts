@@ -1,12 +1,38 @@
 import * as Y from 'yjs'
 
-import { classifyRefusal, isDisabled } from './access'
+import { classifyRefusal, isDisabled, type AccessRoom } from './access'
 import { readReply } from './answers'
-import { decodeFrame, parseHeld, type PullHeader, type Row } from './frames'
+import type { Device } from './device'
+import { decodeFrame, parseHeld, type Limits, type PullHeader, type Row } from './frames'
+import type { Live } from './live'
 import type { Opening } from './opening'
 import { REMOTE } from './origins'
-import type { Room } from './room'
-import type { Answer } from './types'
+import type { Answer, Held } from './types'
+import type { SuspectReport } from './verdict'
+
+/** What taking the server's rows reads and changes on the room. */
+export interface PullerRoom extends AccessRoom {
+  readonly doc: Y.Doc
+  readonly device: Device | null
+  readonly lineage: string
+  readonly epoch: number
+  readonly bound: boolean
+  readonly closed: boolean
+  readonly needsRebuild: boolean
+  readonly newerSchema: boolean
+  readonly readBlocked: boolean
+  appliedThrough: number
+  readonly realtime: Pick<Live, 'pullHoleLater' | 'setRoomKeys'> | null
+  readonly suspect: Pick<SuspectReport, 'isJudging' | 'mark' | 'check'>
+  pull(): Promise<void>
+  follow(schema?: number): boolean
+  setHeld(held: Held | null): void
+  updateLimits(limits: Limits): void
+  markNeedsRebuild(): void
+  stopForGood(reason: string): Promise<void>
+  onServerHeard(): void
+  onUnreachable(): void
+}
 
 // Rows heard ahead of a missing one wait for it, up to this many
 const WAITING_MAX = 256
@@ -16,7 +42,7 @@ export class Puller {
   private pulling: Promise<void> | null = null
   private readonly waitingRows = new Map<number, Row>()
 
-  constructor(private readonly room: Room) {}
+  constructor(private readonly room: PullerRoom) {}
 
   pullNow(): Promise<void> {
     if (this.room.closed) {

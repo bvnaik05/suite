@@ -1,6 +1,16 @@
 import { isStaleSession, signInChange, type Reply } from './answers'
-import type { Room } from './room'
-import { isRecoverable, type Blocked } from './types'
+import { isRecoverable, type Blocked, type OpenOptions } from './types'
+
+/** What a refusal changes on the room. */
+export interface AccessRoom {
+  blocked: Blocked | null
+  writable: boolean
+  failed: boolean
+  readonly options: OpenOptions
+  readonly unsent: number
+  moveToRecovery(reason: string): Promise<void>
+  notifyListeners(): void
+}
 
 // The right a 403 or 404 takes away: to edit, refused a push or a claim, or to read, refused a pull or a report
 export type LostAccess = 'lost_edit' | 'lost_read'
@@ -19,7 +29,7 @@ function replaces(next: Blocked, current: Blocked) {
 }
 
 // A lost right keeps the unsent work only as a recovery copy; another person's or a stale sign-in leaves it for a later tab
-export function block(room: Room, reason: Blocked) {
+export function block(room: AccessRoom, reason: Blocked) {
   const sameReason = room.blocked === reason
   const outranked = !!room.blocked && !replaces(reason, room.blocked)
   if (sameReason || outranked) return
@@ -38,7 +48,11 @@ export function block(room: Room, reason: Blocked) {
 }
 
 // A refusal about who is asking, or a lost right once the signed-in person is confirmed unchanged
-export function classifyRefusal(room: Room, reply: Reply, lostAccess: LostAccess): Blocked | null {
+export function classifyRefusal(
+  room: AccessRoom,
+  reply: Reply,
+  lostAccess: LostAccess,
+): Blocked | null {
   let blocked: Blocked | null = null
   if (reply.status === 401 && (reply.collab === 'signed_out' || reply.collab === 'locked')) {
     blocked = reply.collab

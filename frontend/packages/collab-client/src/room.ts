@@ -28,7 +28,7 @@ const PERSIST_AFTER_MS = 60_000
 const QUIET_TICKS = 6
 const CO_EDITING_MS = 60_000
 
-// The collaborators below read and change this state directly
+// Each collaborator below reads and changes this state through its own narrow interface
 export class Room implements CollabRoom {
   readonly doc: Y.Doc
   blocked: Blocked | null = null
@@ -55,9 +55,9 @@ export class Room implements CollabRoom {
   othersUnsent = 0
   device: Device | null
   realtime: Live | null = null
-  readonly sender = new Sender(this)
+  readonly sender: Sender = new Sender(this)
   readonly puller = new Puller(this)
-  readonly suspect = new SuspectReport(this)
+  readonly suspect: SuspectReport = new SuspectReport(this)
   private connecting: Promise<void> | null = null
   private unsentSince = 0
   private pollTimer: ReturnType<typeof setInterval> | null = null
