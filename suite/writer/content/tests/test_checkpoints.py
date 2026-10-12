@@ -72,6 +72,19 @@ class TestWriterCheckpoints(CheckpointCase):
         self.assertEqual(self.doc_row(node).body_rev, 3)
         self.assertEqual(self.text_of(self.body_of(node)), "one two three")
 
+    def test_a_compaction_keeps_the_highest_schema_its_rows_reached(self):
+        node = self.new_document()
+        self.type_into(node, ["one", " two"])
+        # As if a newer editor wrote rev 2
+        self.set_doc(node, schema_steps=json.dumps([[0, 1], [2, 2]]))
+
+        self.compact(node)
+
+        self.assertEqual(self.text_of(self.body_of(node)), "one two")
+        self.assertEqual(json.loads(self.doc_row(node).schema_steps), [[0, 1], [2, 2]])
+        opened, _checkpoint, _rows = read_open(call_route(routes.document_get, node).get_data())
+        self.assertEqual(opened["schema"], 2)
+
     def test_the_writer_row_is_modified_as_of_the_newest_edit_it_holds(self):
         node = self.new_document()
         self.type_into(node, ["one"])
