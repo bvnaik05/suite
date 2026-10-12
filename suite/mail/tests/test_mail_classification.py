@@ -121,14 +121,14 @@ class TestInboxTabs(StalwartIntegrationTestCase):
             lambda: thread["subject"] in self.subjects("primary"),
             message="A colleague's mail is missing from the Primary tab.",
         )
-        for tab in ("updates", "forums", "promotions"):
+        for tab in ("updates", "forums", "promotions", "social"):
             with self.subTest(tab=tab):
                 self.assertNotIn(thread["subject"], self.subjects(tab))
 
     def test_a_tab_counts_its_unread_threads(self):
         thread = self.deliver_mail(self.sender, self.receiver)
         before = self.unread()
-        self.assertEqual(list(before), ["primary", "updates", "forums", "promotions"])
+        self.assertEqual(list(before), ["primary", "updates", "forums", "promotions", "social"])
 
         with self.set_user(self.receiver.email):
             set_mails_seen(self.account, [thread["id"]], True)

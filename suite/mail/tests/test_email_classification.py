@@ -675,7 +675,7 @@ def lists(filter: dict, keywords: set[str]) -> bool:
 
 
 class InboxTabs(unittest.TestCase):
-    """The Inbox is split into tabs by category: Primary, Updates, Forums and Promotions."""
+    """The Inbox is split into tabs by category: Primary, Updates, Forums, Promotions and Social."""
 
     def setUp(self):
         patch = mock.patch.object(classification, "is_enabled", return_value=True)
@@ -697,7 +697,7 @@ class InboxTabs(unittest.TestCase):
         return tab_filter
 
     def test_a_tab_lists_the_mail_of_its_category(self):
-        for tab in ("updates", "forums", "promotions"):
+        for tab in ("updates", "forums", "promotions", "social"):
             with self.subTest(tab=tab):
                 self.assertTrue(lists(self.tab_filter(tab), {f"category_{tab}", "$seen"}))
                 self.assertFalse(lists(self.tab_filter(tab), {"category_primary"}))
@@ -706,15 +706,14 @@ class InboxTabs(unittest.TestCase):
         primary = self.tab_filter("primary")
 
         self.assertTrue(lists(primary, {"category_primary"}))
-        # Social has no tab of its own, and mail not classified yet has no category at all.
-        self.assertTrue(lists(primary, {"category_social"}))
+        # Mail not classified yet has no category at all.
         self.assertTrue(lists(primary, set()))
-        for tab in ("updates", "forums", "promotions"):
+        for tab in ("updates", "forums", "promotions", "social"):
             with self.subTest(tab=tab):
                 self.assertFalse(lists(primary, {f"category_{tab}"}))
 
     def test_a_category_without_a_tab_is_refused(self):
-        for category in ("social", "spam"):
+        for category in ("spam", "category_social"):
             with self.subTest(category=category), self.assertRaises(frappe.ValidationError):
                 self.tab_filter(category)
 
@@ -758,5 +757,6 @@ class InboxTabs(unittest.TestCase):
                 {"category": "updates", "unread_threads": 5},
                 {"category": "forums", "unread_threads": 3},
                 {"category": "promotions", "unread_threads": 0},
+                {"category": "social", "unread_threads": 0},
             ],
         )
