@@ -43,7 +43,8 @@ class TestCollabSelfTest(IntegrationTestCase):
         with patch.object(kernel, "usable_node", return_value=None):
             selftest.self_test()
 
-        self.assertIs(self.recorded()[1]["node_checks"], False)
+        _passed, report = self.recorded()
+        self.assertIs(report["node_checks"], False)
 
     def test_another_pycrdt_version_fails_the_run(self):
         with patch.object(pycrdt, "__version__", "0.15.0"):

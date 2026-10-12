@@ -89,7 +89,7 @@ class TestWriterTrimming(CheckpointCase):
 
     def test_rows_past_the_newest_window_bytes_go_however_new(self):
         node = self.compacted_document(["one ", "two ", "three ", "four ", "five"])
-        newest_two = sum(len(payload) for rev, payload in self.rows_of(node) if rev >= 4)
+        newest_two = sum(len(payload) for _rev, payload in self.rows_of(node)[-2:])
         self.set_doc(node, state_bytes=0)
 
         with patch.object(trimming, "WINDOW_BYTES", newest_two):
@@ -153,7 +153,8 @@ class TestWriterTrimming(CheckpointCase):
     def test_a_body_missing_a_row_keeps_every_row(self):
         node = self.compacted_document(["one ", "two ", "three"])
         self.age_rows(node)
-        short_body = compaction.load_doc([self.rows_of(node)[0][1]]).get_update()
+        (_rev, first_row), *_later = self.rows_of(node)
+        short_body = compaction.load_doc([first_row]).get_update()
         frappe.db.set_value(
             "Writer Document", {"node": node}, "content", base64.b64encode(short_body).decode()
         )
@@ -182,18 +183,22 @@ class TestWriterTrimming(CheckpointCase):
                 self.assertEqual(self.revs_of(node), [1, 2, 3])
                 self.assertEqual(frappe.db.count("Error Log", logged), 1)
 
-    def test_a_kernel_that_disagrees_or_fails_keeps_every_row(self):
-        for reason, answer in (("kernel_not_held", False), ("kernel_failed", kernel.KernelFailed("exit 1"))):
-            with self.subTest(reason=reason):
-                node = self.compacted_document(["one ", "two ", "three"])
-                self.age_rows(node)
-                logged = self.alerted(reason)
+    def assert_kept_when_the_kernel_answers(self, answer, reason: str):
+        node = self.compacted_document(["one ", "two ", "three"])
+        self.age_rows(node)
+        logged = self.alerted(reason)
 
-                with patch.object(kernel, "covers", side_effect=[answer]):
-                    self.trim(node)
+        with patch.object(kernel, "covers", side_effect=[answer]):
+            self.trim(node)
 
-                self.assertEqual(self.revs_of(node), [1, 2, 3])
-                self.assertEqual(frappe.db.count("Error Log", logged), 1)
+        self.assertEqual(self.revs_of(node), [1, 2, 3])
+        self.assertEqual(frappe.db.count("Error Log", logged), 1)
+
+    def test_a_kernel_that_disagrees_keeps_every_row(self):
+        self.assert_kept_when_the_kernel_answers(False, "kernel_not_held")
+
+    def test_a_kernel_that_fails_keeps_every_row(self):
+        self.assert_kept_when_the_kernel_answers(kernel.KernelFailed("exit 1"), "kernel_failed")
 
     def test_without_node_pycrdt_alone_decides(self):
         node = self.compacted_document(["one ", "two ", "three"])
@@ -251,11 +256,13 @@ class TestWriterTrimming(CheckpointCase):
 
         self.assertEqual(self.revs_of(node), [3])
         principals = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
-        texts = []
+        texts: list[str] = []
         for seq in (first, second):
             with read_version(principals, node, seq) as stream:
                 payload = json.loads(stream.read())
+
             texts.append(self.text_of(gzip.decompress(base64.b64decode(payload["state"]))))
+
         self.assertEqual(texts, ["one ", "one two three"])
 
     def test_a_killed_run_resumes_after_the_last_document_it_finished(self):

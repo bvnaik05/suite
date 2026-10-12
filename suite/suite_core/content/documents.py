@@ -145,6 +145,7 @@ def compact(adapter: str, doc_id: str) -> None:
 
 
 def trim(adapter: str) -> None:
+    """Run one app's trimming, as its queued job."""
     spec = spec_of(adapter)
     trimming.run(adapter, spec.roots, spec.kernel)
 

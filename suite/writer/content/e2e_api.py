@@ -52,8 +52,9 @@ def compact_now(node: str) -> dict:
 def trim_now(node: str) -> dict:
     """Age `node`'s edit rows past the evidence window and queue its trimming, as the hourly run would."""
     doc_id = find_log(node)["id"]
+    update_table = table(writer_content.ADAPTER, "update")
     frappe.db.sql(
-        f"""UPDATE `{table(writer_content.ADAPTER, "update")}`
+        f"""UPDATE `{update_table}`
         SET `created` = `created` - INTERVAL 25 HOUR WHERE `doc_id` = %s""",
         doc_id,
     )
@@ -71,6 +72,7 @@ def trim_now(node: str) -> dict:
 
 @whitelist_for_tests(methods=["GET", "POST"])
 def trimmed_rev(node: str) -> int:
+    """Answer the rev through which `node`'s edit rows may be gone."""
     return int(find_log(node)["trimmed_rev"])
 
 

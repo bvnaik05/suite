@@ -13,7 +13,7 @@ stopped. Each check takes one of the bench's compaction places.
 
 import hashlib
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -34,7 +34,7 @@ TIMEOUT = 1500
 
 
 class Mismatch(Exception):
-    def __init__(self, reason: str):
+    def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
 
@@ -53,6 +53,7 @@ class Chunk:
 
 
 def cursor_key(adapter: str) -> str:
+    """Name the cache key that holds where an app's last run stopped."""
     return f"suite:collab:trim-cursor:{adapter}"
 
 
@@ -60,8 +61,9 @@ def run(adapter: str, roots: Mapping[str, type], bundle: Path) -> None:
     """Trim every document that has rows to trim, from the cursor on, until the time budget runs out."""
     started = time.monotonic()
     cursor = frappe.cache.get_value(cursor_key(adapter)) or ""
+    doc_table = table(adapter, "doc")
     candidates = frappe.db.sql(
-        f"""SELECT `id` FROM `{table(adapter, "doc")}` WHERE `id` > %s AND `mode` != 'purged'
+        f"""SELECT `id` FROM `{doc_table}` WHERE `id` > %s AND `mode` != 'purged'
         AND `suspect` IS NULL AND `body_rev` > `trimmed_rev` + 1 ORDER BY `id`""",
         cursor,
     )
@@ -77,7 +79,11 @@ def run(adapter: str, roots: Mapping[str, type], bundle: Path) -> None:
 
 def trim(adapter: str, doc_id: str, roots: Mapping[str, type], bundle: Path) -> None:
     """Delete the document's rows past the window, a chunk at a time, each checked first."""
-    while chunk := next_chunk(adapter, doc_id, now_datetime()):
+    while True:
+        chunk = next_chunk(adapter, doc_id, now_datetime())
+        if chunk is None:
+            return
+
         place = admission.take_place(adapter, doc_id)
         if place is None:
             return
@@ -85,9 +91,10 @@ def trim(adapter: str, doc_id: str, roots: Mapping[str, type], bundle: Path) -> 
         try:
             check(chunk, roots, bundle)
         except Mismatch as mismatch:
+            first_kept = chunk.after + 1
             db.alert(
                 f"Collab trimming: {mismatch.reason}",
-                f"Kept rows {chunk.after + 1} to {chunk.through}\n{adapter} document {doc_id}",
+                f"Kept rows {first_kept} to {chunk.through}\n{adapter} document {doc_id}",
             )
             return
         finally:
@@ -98,53 +105,88 @@ def trim(adapter: str, doc_id: str, roots: Mapping[str, type], bundle: Path) -> 
 
 
 def next_chunk(adapter: str, doc_id: str, now: datetime) -> Chunk | None:
-    """The next rows to trim, read from one snapshot, or None when none is past the window."""
-    update_table = table(adapter, "update")
+    """Read the next rows to trim from one snapshot, or None when none is past the window."""
     with repeatable_read():
-        control_rows = frappe.db.sql(
-            f"""SELECT `node`, `body_rev`, `body_chain`, `body_sha`, `state_bytes`, `trimmed_rev`
-            FROM `{table(adapter, "doc")}` WHERE `id` = %s AND `mode` != 'purged' AND `suspect` IS NULL""",
-            doc_id,
-            as_dict=True,
-        )
-        if not control_rows:
+        doc = control_row(adapter, doc_id)
+        if doc is None:
             return None
 
-        doc = control_rows[0]
-        after, body_rev = int(doc.trimmed_rev), int(doc.body_rev)
-        covered = frappe.db.sql(
-            f"""SELECT `rev`, `created`, LENGTH(`payload`) FROM `{update_table}`
-            WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s ORDER BY `rev`""",
-            (doc_id, after, body_rev),
-        )
-        window_from = window_start(covered, int(doc.state_bytes), now)
-        through = chunk_end(covered, min(window_from - 1, body_rev - 1))
+        span = trim_span(adapter, doc, now)
         app_row = body_row(adapter, doc.node)
-        if through <= after or app_row is None:
+        if span is None or app_row is None:
             return None
 
-        rows = frappe.db.sql(
-            f"""SELECT `payload` FROM `{update_table}` WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s
-            AND `state` = 'ok' ORDER BY `rev`""",
-            (doc_id, after, through),
-        )
-        stamp = frappe.db.sql(
-            f"SELECT `chain` FROM `{update_table}` WHERE `doc_id` = %s AND `rev` = %s", (doc_id, body_rev)
+        after, through = span
+        return Chunk(
+            after=after,
+            through=through,
+            body=app_row.body,
+            body_sha=bytes(doc.body_sha or b""),
+            body_chain=bytes(doc.body_chain or b""),
+            stamp_chain=row_chain(adapter, doc_id, int(doc.body_rev)),
+            rows=ok_payloads(adapter, doc_id, after, through),
         )
 
-    return Chunk(
-        after=after,
-        through=through,
-        body=app_row.body,
-        body_sha=bytes(doc.body_sha or b""),
-        body_chain=bytes(doc.body_chain or b""),
-        stamp_chain=bytes(stamp[0][0]) if stamp else None,
-        rows=[bytes(payload) for (payload,) in rows],
+
+def ok_payloads(adapter: str, doc_id: str, after: int, through: int) -> list[bytes]:
+    """Read the payloads of the rows after `after` through `through` that are not quarantined."""
+    update_table = table(adapter, "update")
+    rows = frappe.db.sql(
+        f"""SELECT `payload` FROM `{update_table}` WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s
+        AND `state` = 'ok' ORDER BY `rev`""",
+        (doc_id, after, through),
     )
+    return [bytes(payload) for (payload,) in rows]
 
 
-def window_start(covered, state_bytes: int, now: datetime) -> int:
-    """The lowest rev in the evidence window: rows under a day old, among the newest `max(4 MiB, 2 * state)` bytes."""
+def row_chain(adapter: str, doc_id: str, rev: int) -> bytes | None:
+    """Read the chain stamped on the row at `rev`, or None when that row is gone."""
+    update_table = table(adapter, "update")
+    found = frappe.db.sql(
+        f"SELECT `chain` FROM `{update_table}` WHERE `doc_id` = %s AND `rev` = %s", (doc_id, rev)
+    )
+    if not found:
+        return None
+
+    return bytes(found[0][0])
+
+
+def control_row(adapter: str, doc_id: str) -> frappe._dict | None:
+    """Read the control row of a document trimming may touch: neither purged nor suspect."""
+    doc_table = table(adapter, "doc")
+    found = frappe.db.sql(
+        f"""SELECT `id`, `node`, `body_rev`, `body_chain`, `body_sha`, `state_bytes`, `trimmed_rev`
+        FROM `{doc_table}` WHERE `id` = %s AND `mode` != 'purged' AND `suspect` IS NULL""",
+        doc_id,
+        as_dict=True,
+    )
+    if not found:
+        return None
+
+    return found[0]
+
+
+def trim_span(adapter: str, doc: frappe._dict, now: datetime) -> tuple[int, int] | None:
+    """Answer the revs after which and through which the next chunk runs, or None when it is empty."""
+    after = int(doc.trimmed_rev)
+    body_rev = int(doc.body_rev)
+    update_table = table(adapter, "update")
+    covered = frappe.db.sql(
+        f"""SELECT `rev`, `created`, LENGTH(`payload`) FROM `{update_table}`
+        WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s ORDER BY `rev`""",
+        (doc.id, after, body_rev),
+    )
+    # The row at `body_rev` stays, so the body's chain can be checked against it
+    last_trimmable = min(window_start(covered, int(doc.state_bytes), now) - 1, body_rev - 1)
+    through = chunk_end(covered, last_trimmable)
+    if through <= after:
+        return None
+
+    return after, through
+
+
+def window_start(covered: Sequence[tuple], state_bytes: int, now: datetime) -> int:
+    """Answer the lowest rev in the evidence window: under a day old, among the newest `max(4 MiB, 2 * state)` bytes."""
     window_bytes = max(WINDOW_BYTES, 2 * state_bytes)
     newer_bytes = 0
     start = None
@@ -155,25 +197,35 @@ def window_start(covered, state_bytes: int, now: datetime) -> int:
         newer_bytes += int(nbytes)
         start = int(rev)
 
+    if start is not None:
+        return start
+
+    if not covered:
+        return 0
+
     # With every row past the window, it starts after the newest
-    return start if start is not None else int(covered[-1][0]) + 1 if covered else 0
+    return int(covered[-1][0]) + 1
 
 
-def chunk_end(covered, through: int) -> int:
-    """The last rev of the first chunk of `covered` through `through`."""
-    end, count, nbytes = 0, 0, 0
+def chunk_end(covered: Sequence[tuple], through: int) -> int:
+    """Answer the last rev of the first chunk of `covered` through `through`."""
+    end = 0
+    count = 0
+    nbytes = 0
     for rev, _created, row_bytes in covered:
         too_big = count and nbytes + int(row_bytes) > CHUNK_BYTES
         if int(rev) > through or count >= CHUNK_ROWS or too_big:
             break
 
-        end, count, nbytes = int(rev), count + 1, nbytes + int(row_bytes)
+        end = int(rev)
+        count += 1
+        nbytes += int(row_bytes)
 
     return end
 
 
 def check(chunk: Chunk, roots: Mapping[str, type], bundle: Path) -> None:
-    """Raises `Mismatch` unless the body is the one stamped and both pycrdt and Node find it holds every row."""
+    """Raise `Mismatch` unless the body is the one stamped and both pycrdt and Node find it holds every row."""
     if hashlib.sha256(chunk.body).digest() != chunk.body_sha:
         raise Mismatch("body_sha")
 
@@ -201,31 +253,34 @@ def check(chunk: Chunk, roots: Mapping[str, type], bundle: Path) -> None:
 
 
 def delete(adapter: str, doc_id: str, chunk: Chunk) -> bool:
-    """Delete the chunk's rows in one transaction under the control row's lock, if the body and the trim
-    point are still the ones checked. Quarantined rows stay until they are resolved."""
+    """Delete the chunk's 'ok' rows under the control row's lock, if its body and trim point are unchanged."""
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    if not still_as_checked(adapter, doc_id, chunk):
+        frappe.db.rollback()
+        return False
+
+    doc_table = table(adapter, "doc")
+    update_table = table(adapter, "update")
+    frappe.db.sql(
+        f"""DELETE FROM `{update_table}` WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s
+        AND `state` = 'ok'""",
+        (doc_id, chunk.after, chunk.through),
+    )
+    frappe.db.sql(f"UPDATE `{doc_table}` SET `trimmed_rev` = %s WHERE `id` = %s", (chunk.through, doc_id))
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    return True
+
+
+def still_as_checked(adapter: str, doc_id: str, chunk: Chunk) -> bool:
+    """Lock the control row and answer whether its body and trim point are the ones the chunk was checked on."""
+    doc_table = table(adapter, "doc")
     locked = frappe.db.sql(
-        f"""SELECT `body_sha`, `trimmed_rev` FROM `{table(adapter, "doc")}`
+        f"""SELECT `body_sha`, `trimmed_rev` FROM `{doc_table}`
         WHERE `id` = %s AND `mode` != 'purged' FOR UPDATE""",
         doc_id,
         as_dict=True,
     )
-    unchanged = (
-        locked
-        and bytes(locked[0].body_sha or b"") == chunk.body_sha
-        and int(locked[0].trimmed_rev) == chunk.after
-    )
-    if not unchanged:
-        frappe.db.rollback()
+    if not locked:
         return False
 
-    frappe.db.sql(
-        f"""DELETE FROM `{table(adapter, "update")}` WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s
-        AND `state` = 'ok'""",
-        (doc_id, chunk.after, chunk.through),
-    )
-    frappe.db.sql(
-        f"UPDATE `{table(adapter, 'doc')}` SET `trimmed_rev` = %s WHERE `id` = %s", (chunk.through, doc_id)
-    )
-    frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    return True
+    return bytes(locked[0].body_sha or b"") == chunk.body_sha and int(locked[0].trimmed_rev) == chunk.after

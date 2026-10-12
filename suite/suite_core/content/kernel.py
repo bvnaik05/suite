@@ -49,7 +49,10 @@ class KernelFailed(Exception):
 
 
 def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict | None:
-    checkpoint_text = encoded(checkpoint) if checkpoint else None
+    checkpoint_text = None
+    if checkpoint:
+        checkpoint_text = encoded(checkpoint)
+
     answer = ask(bundle, {"checkpoint": checkpoint_text, "rows": [encoded(row) for row in rows]})
     if answer is None:
         return None
@@ -82,10 +85,12 @@ def covers(bundle: Path, body: bytes, rows: list[bytes]) -> bool | None:
 
 
 def encoded(part: bytes) -> str:
+    """Encode one part of a request in base64 text."""
     return base64.b64encode(part).decode()
 
 
 def ask(bundle: Path, request: dict) -> dict | None:
+    """Run the kernel on one request and answer its reply, or None without a usable Node or bundle."""
     if not getattr(frappe.local, "job", None):
         raise RuntimeError("the collab kernel runs only in background jobs")
 
@@ -93,18 +98,9 @@ def ask(bundle: Path, request: dict) -> dict | None:
     if not node_path or not bundle.is_file():
         return None
 
-    # Node checks the read permission against the real path
-    bundle = bundle.resolve()
-    command = [
-        node_path,
-        "--permission",
-        f"--allow-fs-read={bundle}",
-        f"--max-old-space-size={HEAP_MB}",
-        str(bundle),
-    ]
     try:
         completed = subprocess.run(
-            command,
+            node_command(node_path, bundle),
             input=json.dumps(request),
             capture_output=True,
             text=True,
@@ -122,6 +118,19 @@ def ask(bundle: Path, request: dict) -> dict | None:
         raise KernelFailed(f"exit {error.returncode}: {plain_reason(last_stderr_line)}") from error
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         raise KernelFailed(repr(error)) from error
+
+
+def node_command(node_path: str, bundle: Path) -> list[str]:
+    """Build the command that runs the bundle with reads allowed only from it."""
+    # Node checks the read permission against the real path
+    bundle = bundle.resolve()
+    return [
+        node_path,
+        "--permission",
+        f"--allow-fs-read={bundle}",
+        f"--max-old-space-size={HEAP_MB}",
+        str(bundle),
+    ]
 
 
 def plain_reason(text: str) -> str:

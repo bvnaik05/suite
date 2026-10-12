@@ -12,6 +12,7 @@ export function covers(body: Uint8Array, rows: Uint8Array[]): boolean {
     for (const row of rows) {
       Y.applyUpdate(doc, row)
     }
+
     const nothingPending = doc.store.pendingStructs === null && doc.store.pendingDs === null
     return nothingPending && Y.equalSnapshots(before, Y.snapshot(doc))
   } catch {

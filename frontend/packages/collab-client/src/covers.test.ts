@@ -11,6 +11,7 @@ function typing(...words: string[]) {
   for (const word of words) {
     text.insert(text.length, word)
   }
+
   return { doc, rows }
 }
 

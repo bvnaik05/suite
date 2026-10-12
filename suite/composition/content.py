@@ -173,6 +173,7 @@ def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
     if seen_epoch is not None and seen_epoch < epoch:
         # The tab may hold a row now quarantined
         return state_reply("rebuild", q_epoch=epoch)
+
     if since_rev < int(doc.trimmed_rev):
         # Rows the tab still needs are gone; the body holds them
         return state_reply("rebuild", q_epoch=epoch)
