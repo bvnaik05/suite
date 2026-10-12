@@ -332,8 +332,12 @@ const {
 const openTabLabel = computed(
   () => inboxTabs.value.find((tab) => tab.category === inboxTab.value)?.label ?? '',
 )
+// Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline rather
+// than the whole view giving way to the spinner.
+const tabSwitched = ref(false)
 watch(inboxTab, (tab, previous) => {
-  if (tab && previous && tab !== previous) resetThreads()
+  tabSwitched.value = !!(tab && previous && tab !== previous)
+  if (tabSwitched.value) resetThreads()
 })
 
 // The engine owns loaded windows and refreshes their rows together.
@@ -345,7 +349,9 @@ const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
   category: inboxTab.value,
 }))
 const threadRows = computed(() => threads.rows.map((row) => threadRow(row, store.accountId)))
-const isLoading = computed(() => threads.status === 'pending')
+const isLoading = computed(
+  () => threads.status === 'pending' && !(tabSwitched.value && inboxTab.value),
+)
 
 // After an action, refresh the sidebar counts: the active account's per-mailbox counts, which via the
 // store's mailboxes watcher also refreshes the unified folders' counts.

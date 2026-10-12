@@ -1061,8 +1061,12 @@ const {
   () => mailbox === mailboxIds.inbox && 'account',
   () => ({ name: 'mail-mailbox', params: { accountId, mailbox: route.params.mailbox } }),
 )
+// Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline, as a
+// search does, rather than the whole view giving way to the spinner.
+const tabSwitched = ref(false)
 watch(inboxTab, (tab, previous) => {
-  if (tab && previous && tab !== previous) resetThreads(false)
+  tabSwitched.value = !!(tab && previous && tab !== previous)
+  if (tabSwitched.value) resetThreads(false)
 })
 
 // Reset resource for a mailbox: the window starts at the top and runs as deep as the composable asks
@@ -1111,6 +1115,7 @@ const isLoading = computed(() => {
   // across query changes — loading shows inline in the list area, never as the full spinner.
   // Checked first: entering the route resets isMailboxLoaded, which must not blank the view.
   if (mailbox === 'search') return false
+  if (tabSwitched.value && inboxTab.value) return false
   if (!isMailboxLoaded.value) return true
   if (emptyMailbox.isPending) return true
   if (refillPending.value) return true
@@ -1186,6 +1191,7 @@ watch(
     // every account, so a mere account switch mustn't reset it — keep the results and scroll position.
     if (isAllAccountsSearch.value && mailbox === 'search' && old?.[0] === 'search') return
     isMailboxLoaded.value = false
+    tabSwitched.value = false
     reloadFilter()
     focusedRowKey.value = undefined
     collapsedGroups.value = []
