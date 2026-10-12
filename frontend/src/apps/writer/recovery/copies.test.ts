@@ -64,6 +64,21 @@ describe('Writer recovery copies', () => {
     expect(await countCopies()).toBe(3)
   })
 
+  it('lists the other copies when one record on the device cannot be read', async () => {
+    await keepInStore('node-1', 'readable work', 'Plan')
+    const store = (await writerDeviceStore())!
+    const garbled = { doc: 'node-1', sid: 'g', seq: 1, bytes: new Uint8Array([1, 2, 3]), sha: '' }
+    await store.saveSession({ doc: 'node-1', sid: 'g', lineage: 'L', cid: 2, bound: true })
+    await store.recover('node-1', ['g'], 'schema', [garbled], {
+      state: new Uint8Array([255, 255]),
+      title: 'Plan',
+    })
+
+    expect(summary(await listCopies('node-1'))).toEqual([['node-1', 'Plan', 'readable work']])
+    const records = await store.allRecovery()
+    await Promise.all(records.map((record) => store.discard(record.id)))
+  })
+
   it('keeps a copy from before page loads were told apart', async () => {
     const copy = { savedAt: '2026-09-29T10:05:00.000Z', html: '<p>older copy</p>' }
     localStorage.setItem('suite:writer-recovery:node-1', JSON.stringify(copy))

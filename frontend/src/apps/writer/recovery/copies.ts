@@ -69,7 +69,16 @@ async function storeCopies(node?: string) {
   }
 
   const records = await recordsOf(store, node).catch(() => [])
-  return records.map(fromRecord)
+  return records.flatMap(readableCopy)
+}
+
+// A record that can't be read stays on the device, so the others still list
+function readableCopy(record: RecoveryRecord): RecoveryCopy[] {
+  try {
+    return [fromRecord(record)]
+  } catch {
+    return []
+  }
 }
 
 function recordsOf(store: DeviceStore, node?: string) {
