@@ -5,7 +5,7 @@ import frappe
 import pycrdt
 from frappe.tests import IntegrationTestCase
 
-from suite.suite_core.content import compaction, selftest
+from suite.suite_core.content import compaction, kernel, selftest
 from suite.tests.utils import ensure_user
 
 
@@ -38,6 +38,12 @@ class TestCollabSelfTest(IntegrationTestCase):
         self.assertNotIn("absent", (database["innodb_flush_log_at_trx_commit"], database["version"]))
         self.assertTrue({database["tx_isolation"], database["transaction_isolation"]} - {"absent"})
         self.assertIn("node", report)
+
+    def test_a_host_without_a_usable_node_is_recorded(self):
+        with patch.object(kernel, "usable_node", return_value=None):
+            selftest.self_test()
+
+        self.assertIs(self.recorded()[1]["node_checks"], False)
 
     def test_another_pycrdt_version_fails_the_run(self):
         with patch.object(pycrdt, "__version__", "0.15.0"):

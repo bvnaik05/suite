@@ -40,10 +40,13 @@ def run_self_test() -> None:
 
 
 def self_test() -> dict:
+    from suite.suite_core.content import kernel
+
     report = {
         "pycrdt": pycrdt.__version__,
         "compaction": compaction_check(),
         "node": node_version(),
+        "node_checks": kernel.usable_node() is not None,
         "database": {name: database_variable(name) for name in DATABASE_VARIABLES},
         "cgroup_readable": all(
             os.access(f"/sys/fs/cgroup/{name}", os.R_OK) for name in ("memory.max", "memory.stat")
