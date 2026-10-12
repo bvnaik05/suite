@@ -1,6 +1,6 @@
-import { decodeBase64 } from './bytes'
 import type { RoomKeys, Row } from './frames'
 import { Hub, type HubMember } from './hub'
+import { lineageOf, parseRow, type JoinAnswer } from './payloads'
 import { Presence, type PresenceHooks } from './presence'
 import type { LiveSocket, LiveState } from './types'
 
@@ -28,12 +28,6 @@ export interface LiveHooks {
   showsCaret(): boolean
   position(raw: unknown): object | null
 }
-
-// What the realtime service answers to a join
-type JoinAnswer = { pid?: unknown; count?: number } | null
-
-// A row as the realtime service relays it
-type HeardRow = Partial<Record<'lineage' | 'rev' | 'schema' | 'u', unknown>> | null
 
 // One pending timer at most; setting it again replaces the one waiting
 class TimerSlot {
@@ -197,19 +191,17 @@ export class Live implements HubMember {
     this.repairTimer.set(() => this.hooks.pull(), Math.random() * spread)
   }
 
-  answered(rawAnswer: unknown, rooms: string[]) {
-    const answer = rawAnswer as JoinAnswer
+  answered(answer: JoinAnswer | null, rooms: string[]) {
     const ownKeys = this.currentKeys()
-    const joined = !!answer && typeof answer.pid === 'number'
     const inAllRooms = ownKeys.length > 0 && ownKeys.every((key) => rooms.includes(key))
 
-    this.joinAccepted = joined && inAllRooms
-    if (this.joinAccepted) {
-      this.memberCount = 1 + (answer!.count ?? 0)
+    this.joinAccepted = !!answer && inAllRooms
+    if (answer && inAllRooms) {
+      this.memberCount = 1 + answer.count
     }
 
-    if (joined) {
-      this.presence.answered(rawAnswer, rooms)
+    if (answer) {
+      this.presence.answered(answer, rooms)
     } else {
       this.presence.clear()
     }
@@ -255,11 +247,10 @@ export class Live implements HubMember {
   }
 
   private onRowHeard = (heard: unknown) => {
-    const message = heard as HeardRow
-    const ours = message?.lineage === this.lineage
-    if (this.closed || !ours || typeof message?.rev !== 'number') return
+    const row = parseRow(heard, this.lineage)
+    if (this.closed || !row) return
 
-    const rev = message.rev
+    const rev = row.rev
 
     this.heardRevs.add(rev)
     if (this.heardRevs.size > HEARD_MAX) {
@@ -274,15 +265,8 @@ export class Live implements HubMember {
     }
 
     // A row without its bytes, or with bytes that aren't base64, is pulled instead
-    let bytes: Uint8Array | null = null
-    if (typeof message.u === 'string' && typeof message.schema === 'number') {
-      try {
-        bytes = decodeBase64(message.u)
-      } catch {}
-    }
-
-    if (bytes) {
-      this.hooks.heardRows([{ rev, bytes }], message.schema as number)
+    if (row.content) {
+      this.hooks.heardRows([{ rev, bytes: row.content.bytes }], row.content.schema)
     } else {
       this.repair()
     }
@@ -290,8 +274,7 @@ export class Live implements HubMember {
 
   // A quarantine, a hold or its release, or room a compaction freed: the pull says what changed
   private onControl = (heard: unknown) => {
-    const message = heard as { lineage?: unknown } | null
-    if (this.closed || message?.lineage !== this.lineage) return
+    if (this.closed || lineageOf(heard) !== this.lineage) return
 
     this.repair()
   }

@@ -1,3 +1,4 @@
+import { parseJoinAnswer, type JoinAnswer } from './payloads'
 import type { LiveSocket } from './types'
 
 // Must match ROOMS_MAX in realtime/collab.js, which refuses a larger set
@@ -8,7 +9,7 @@ export interface HubMember {
   currentKeys(): string[]
   connected(): void
   dropped(): void
-  answered(rawAnswer: unknown, rooms: string[]): void
+  answered(answer: JoinAnswer | null, rooms: string[]): void
 }
 
 // A socket's room set belongs to every document open on it, so it is sent whole
@@ -52,8 +53,9 @@ export class Hub {
     const answered = (rawAnswer: unknown) => {
       if (version !== this.roomSetVersion) return
 
+      const answer = parseJoinAnswer(rawAnswer)
       for (const member of this.members) {
-        member.answered(rawAnswer, rooms)
+        member.answered(answer, rooms)
       }
     }
     this.socket.emit('suite_collab_rooms', { rooms }, answered)

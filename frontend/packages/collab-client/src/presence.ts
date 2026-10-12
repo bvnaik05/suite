@@ -2,6 +2,14 @@ import * as encoding from 'lib0/encoding'
 import { applyAwarenessUpdate, Awareness, removeAwarenessStates } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
+import {
+  parseCaret,
+  parseCaretBatch,
+  parseDeparture,
+  parseMember,
+  type HeardCaret,
+  type JoinAnswer,
+} from './payloads'
 import type { LiveSocket, Peer } from './types'
 
 // Carets go out trailing-edge, at most ten a second
@@ -32,22 +40,6 @@ export interface PresenceHooks {
 
 // Another tab, by the user the realtime service verified and the rooms it shares with this one
 type Member = { user: string; rooms: Set<string> }
-
-// What the realtime service answers to this socket's room set
-type RosterAnswer = { pid?: unknown; roster?: unknown; carets?: unknown } | null
-
-// Caret states the realtime service relays for one room
-type CaretBatch = { room?: unknown; states?: unknown } | null
-
-// A tab leaving one room
-type Departure = { room?: unknown; pid?: unknown } | null
-
-type RosterEntry = { room?: unknown; pid?: unknown; user?: unknown }
-
-// One tab's caret state, clocked by the service's count `n`
-type CaretEntry = { pid?: unknown; n?: unknown; state?: unknown }
-
-type CaretState = { cursor?: unknown; at?: unknown }
 
 // A peer's pid, its count and the state the cursor plugin draws
 type Clocked = [number, number, object]
@@ -93,9 +85,8 @@ export class Presence {
   }
 
   // The answer to this socket's room set: who is already here, and their carets
-  answered(rawAnswer: unknown, rooms: string[]) {
-    const answer = rawAnswer as RosterAnswer
-    if (typeof answer?.pid !== 'number') {
+  answered(answer: JoinAnswer | null, rooms: string[]) {
+    if (!answer) {
       this.clear()
       return
     }
@@ -105,13 +96,13 @@ export class Presence {
 
     const previousPids = new Set(this.members.keys())
     this.members.clear()
-    for (const entry of objectsIn(answer.roster)) {
+    for (const entry of answer.roster) {
       this.addMember(entry)
     }
     const departed = [...previousPids].filter((pid) => !this.members.has(pid))
     this.removeCarets(departed)
 
-    this.applyCarets(objectsIn(answer.carets))
+    this.applyCarets(answer.carets)
     this.sendCaret()
     this.notifyListeners()
   }
@@ -142,16 +133,14 @@ export class Presence {
   private onCaretBatch = (heard: unknown) => {
     if (this.closed) return
 
-    const message = heard as CaretBatch
-    const room = message?.room
-    const forThisDocument = typeof room === 'string' && this.hooks.isOwnRoom(room)
-    if (!forThisDocument) return
+    const batch = parseCaretBatch(heard)
+    if (!batch || !this.hooks.isOwnRoom(batch.room)) return
 
     const inRoom = (state: object) => ({
       ...state,
-      room,
+      room: batch.room,
     })
-    const states = objectsIn(message!.states).map(inRoom)
+    const states = batch.states.map(inRoom)
     for (const state of states) {
       this.addMember(state)
     }
@@ -166,33 +155,29 @@ export class Presence {
   }
 
   private onGone = (heard: unknown) => {
-    const message = heard as Departure
-    if (this.closed || typeof message?.pid !== 'number') return
+    const departure = parseDeparture(heard)
+    if (this.closed || !departure) return
 
-    const member = this.members.get(message.pid)
-    if (!member || typeof message.room !== 'string') return
+    const member = this.members.get(departure.pid)
+    if (!member) return
 
-    member.rooms.delete(message.room)
+    member.rooms.delete(departure.room)
     if (member.rooms.size) return
 
-    this.members.delete(message.pid)
-    this.removeCarets([message.pid])
+    this.members.delete(departure.pid)
+    this.removeCarets([departure.pid])
     this.notifyListeners()
   }
 
   // A roster entry or caret state naming one of this document's rooms
   private addMember(entry: unknown) {
-    const { room, pid, user } = (entry ?? {}) as RosterEntry
-    if (typeof room !== 'string' || !this.hooks.isOwnRoom(room)) {
+    const heardMember = parseMember(entry)
+    const isOtherTab = heardMember?.pid !== this.pid
+    if (!heardMember || !isOtherTab || !this.hooks.isOwnRoom(heardMember.room)) {
       return false
     }
 
-    const otherTab = typeof pid === 'number' && pid !== this.pid
-    const named = typeof user === 'string'
-    if (!otherTab || !named) {
-      return false
-    }
-
+    const { room, pid, user } = heardMember
     const member: Member = this.members.get(pid) ?? {
       user,
       rooms: new Set<string>(),
@@ -205,13 +190,11 @@ export class Presence {
   // One awareness update for the whole batch, clocked by the service's count
   private applyCarets(states: object[]) {
     const accepted: Clocked[] = []
-    for (const entry of states) {
-      const { pid, n: clock, state } = entry as CaretEntry
-      const counted = typeof pid === 'number' && typeof clock === 'number'
-      if (!counted || !this.members.has(pid)) continue
+    const carets = states.map(parseCaret).filter((caret): caret is HeardCaret => !!caret)
+    for (const { pid, clock, cursor, at } of carets) {
+      if (!this.members.has(pid)) continue
 
-      const { cursor, at } = (state ?? {}) as CaretState
-      if (typeof at === 'number') {
+      if (at !== null) {
         this.hooks.peerAhead(at)
       }
 
@@ -286,12 +269,4 @@ function encodeStates(accepted: Clocked[]) {
     encoding.writeVarString(encoder, JSON.stringify(state))
   }
   return encoding.toUint8Array(encoder)
-}
-
-function objectsIn(raw: unknown): object[] {
-  if (!Array.isArray(raw)) {
-    return []
-  }
-
-  return raw.filter((element) => element && typeof element === 'object')
 }
