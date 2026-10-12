@@ -4,7 +4,7 @@ import frappe
 import pycrdt
 
 from suite.suite_core import content
-from suite.suite_core.content import checkpoints, compaction, scheduling, suspect, touches, updates
+from suite.suite_core.content import checkpoints, compaction, scheduling, suspect, touches, trimming, updates
 from suite.suite_core.content.adapters import adapters, node_hooks, spec_of
 from suite.suite_core.content.snapshot import Snapshot
 from suite.suite_core.content.tables import table
@@ -12,6 +12,7 @@ from suite.suite_core.content.tables import table
 COMPACT = "suite.suite_core.content.documents.compact"
 JUDGE = "suite.suite_core.content.documents.judge"
 DELETE_PURGED = "suite.suite_core.content.documents.delete_purged"
+TRIM = "suite.suite_core.content.documents.trim"
 
 
 def ensure_tables() -> None:
@@ -141,6 +142,24 @@ def delete_purged(adapter: str, doc_id: str) -> None:
 def compact(adapter: str, doc_id: str) -> None:
     spec = spec_of(adapter)
     checkpoints.run(adapter, doc_id, spec.roots, JUDGE, node_hooks().owner)
+
+
+def trim(adapter: str) -> None:
+    spec = spec_of(adapter)
+    trimming.run(adapter, spec.roots, spec.kernel)
+
+
+def trim_logs() -> None:
+    """Hourly: one trimming job per app, which resumes where the last one stopped."""
+    for adapter in adapters():
+        frappe.enqueue(
+            TRIM,
+            queue="long",
+            timeout=trimming.TIMEOUT,
+            job_id=f"suite-collab-trim-{adapter}",
+            deduplicate=True,
+            adapter=adapter,
+        )
 
 
 def judge(adapter: str, doc_id: str) -> None:

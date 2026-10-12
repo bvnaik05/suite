@@ -306,6 +306,8 @@ scheduler_events = {
         "suite.calendar.doctype.calendar_exchange.calendar_exchange.clean_calendar_import_export_directories",
     ],
     "hourly": [
+        # content
+        "suite.suite_core.content.documents.trim_logs",
         # drive
         "suite.drive.webdav.locks.purge_expired_locks",
         # mail

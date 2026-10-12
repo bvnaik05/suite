@@ -15,10 +15,11 @@ class ContentAdapterSpec:
     """One app's plug-in. `name` is also its table prefix; `content_type` is its Drive content type and
     the doctype whose row holds each document's latest checked body, base64, in `body_field`, found by
     its node in `node_field`; `roots` names every root type it writes; `kernel` is the Node bundle that
-    judges suspect documents. `codec` names the update format of its state, `max_state` the most a compacted
-    document may hold and `max_change` the most one change may, in bytes. `check_copy(state, html, text)` says
-    whether a readable copy a browser rendered holds what the state does. `file_values(state)` names the Drive
-    nodes a state uses, and `rewrite_files(mapping)` is how a stored value names a copy's nodes instead."""
+    judges suspect documents and checks what trimming deletes. `codec` names the update format of its
+    state, `max_state` the most a compacted document may hold and `max_change` the most one change may,
+    in bytes. `check_copy(state, html, text)` says whether a readable copy a browser rendered holds what
+    the state does. `file_values(state)` names the Drive nodes a state uses, and `rewrite_files(mapping)`
+    is how a stored value names a copy's nodes instead."""
 
     name: str
     content_type: str
