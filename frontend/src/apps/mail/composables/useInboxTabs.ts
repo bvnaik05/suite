@@ -72,10 +72,7 @@ export const useInboxTabs = (
     if (switched.value) onSwitch?.()
   })
 
-  // A split Inbox counts its Primary tab: the rest of its unread mail is counted on the other tabs.
-  const primaryUnread = computed(() => tabs.value.find((tab) => tab.category === 'primary')?.unread)
-
-  return { tabs, active, routeFor, switched, primaryUnread }
+  return { tabs, active, routeFor, switched }
 }
 
 /** The categories a person can give a tab or not: all but Primary, which is the Inbox's own. */

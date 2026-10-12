@@ -17,7 +17,7 @@
           :label="tab.label"
         >
           <template #suffix>
-            <Badge v-if="countShown(tab)" size="sm">{{ tab.unread }}</Badge>
+            <Badge v-if="countShown(tab)" size="sm">{{ countOf(tab) }}</Badge>
           </template>
         </TabTrigger>
       </TabList>
@@ -93,7 +93,7 @@
                   </span>
                 </span>
                 <Badge v-if="countShown(tab)" size="sm" class="ml-2 shrink-0">{{
-                  tab.unread
+                  countOf(tab)
                 }}</Badge>
               </span>
             </TabTrigger>
@@ -202,6 +202,8 @@ const choiceMenu = computed(() => {
   ]
 })
 
-// Primary's unread is the Inbox's own, counted beside it in the sidebar.
-const countShown = (tab: InboxTab) => tab.category !== 'primary' && tab.unread > 0
+// Every tab counts its unread, Primary too; the sidebar's Inbox counts all of them together.
+const countShown = (tab: InboxTab) => tab.unread > 0
+// A tab's count stops at 99+: past that the number only widens the tab.
+const countOf = (tab: InboxTab) => (tab.unread > 99 ? '99+' : String(tab.unread))
 </script>

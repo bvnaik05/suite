@@ -803,7 +803,6 @@ const {
   active: inboxTab,
   routeFor: routeForTab,
   switched: tabSwitched,
-  primaryUnread,
 } = useInboxTabs(
   () => mailbox === mailboxIds.inbox && 'account',
   () => ({ name: 'mail-mailbox', params: { accountId, mailbox: route.params.mailbox } }),
@@ -1285,9 +1284,7 @@ const mailboxName = computed(() => {
       return mailboxObj.value?._name ?? ''
   }
 })
-const unreadThreads = computed(() =>
-  inboxTab.value ? primaryUnread.value : mailboxObj.value?.unread_threads,
-)
+const unreadThreads = computed(() => mailboxObj.value?.unread_threads)
 const unreadThreadsPrefix = computed(() => (unreadThreads.value ? `(${unreadThreads.value})` : ''))
 const currentThread = computed(() =>
   threadRows.value?.find((t: Thread) => t.thread_id === threadID),

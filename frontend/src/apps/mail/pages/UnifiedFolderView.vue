@@ -406,7 +406,6 @@ const {
   active: inboxTab,
   routeFor: routeForTab,
   switched: tabSwitched,
-  primaryUnread,
 } = useInboxTabs(
   () => folder === INBOX_FOLDER && 'unified',
   () => unifiedFolderRoute(folder),
@@ -1398,11 +1397,9 @@ watch(
   },
 )
 
-const unreadCount = computed(() =>
-  inboxTab.value
-    ? (primaryUnread.value ?? 0)
-    : (store.unifiedFolders.data?.find((f: UnifiedFolder) => f.slug === folder)?.unread_threads ??
-      0),
+const unreadCount = computed(
+  () =>
+    store.unifiedFolders.data?.find((f: UnifiedFolder) => f.slug === folder)?.unread_threads ?? 0,
 )
 
 // An open thread names itself, as in a single account's list; otherwise the folder and its unread.
