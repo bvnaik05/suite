@@ -5,10 +5,21 @@ import { randomHex } from './bytes'
 import { decodeFrame, type OpenHeader } from './frames'
 import { REMOTE, Room, type Opening, type RoomInit } from './room'
 import type { DeviceCopy, StoredSession } from './store'
-import type { Opened, OpenOptions } from './types'
+import type { DeviceDoc, Opened, OpenOptions } from './types'
 
 // Server-issued clientIDs sit below this; a tab offline picks its own above it
 const DEVICE_ID_FLOOR = 2 ** 30
+// Tries at a clientID before the offline open gives up, each lost only to another tab picking the same one
+const PICK_ATTEMPTS = 3
+
+// What an offline tab needs to pick and save its own clientID
+interface DevicePick {
+  doc: Y.Doc
+  device: DeviceDoc
+  lineage: string
+  sid: string
+  openFailure: unknown
+}
 
 export async function openCollabRoom(options: OpenOptions): Promise<Opened> {
   const { endpoints, device } = options
@@ -26,7 +37,7 @@ export async function openCollabRoom(options: OpenOptions): Promise<Opened> {
       throw error
     }
 
-    const room = await openOffline(copy, options, error)
+    const room = await openOffline(copy, device, options, error)
     return { state: 'live', room }
   }
 
@@ -77,12 +88,24 @@ export async function openCollabRoom(options: OpenOptions): Promise<Opened> {
 }
 
 // The device copy, bound only once the server accepts the claim
-async function openOffline(copy: DeviceCopy, options: OpenOptions, openFailure: unknown) {
+async function openOffline(
+  copy: DeviceCopy,
+  device: DeviceDoc,
+  options: OpenOptions,
+  openFailure: unknown,
+) {
   const doc = new Y.Doc()
   Y.applyUpdate(doc, copy.bytes, REMOTE)
   const sid = randomHex(16)
   if (copy.canWrite) {
-    doc.clientID = await claimClientId(doc, copy, options, sid, openFailure)
+    const pick: DevicePick = {
+      doc,
+      device,
+      lineage: copy.lineage,
+      sid,
+      openFailure,
+    }
+    doc.clientID = await pickClientId(pick)
   }
 
   // A viewer has nothing to claim
@@ -106,17 +129,17 @@ async function openOffline(copy: DeviceCopy, options: OpenOptions, openFailure: 
 }
 
 // A clientID no session of this document has used, saved as this tab's session
-async function claimClientId(
-  doc: Y.Doc,
-  copy: DeviceCopy,
-  options: OpenOptions,
-  sid: string,
-  openFailure: unknown,
-): Promise<number> {
-  const { store, doc: docName } = options.device!
+async function pickClientId({
+  doc,
+  device,
+  lineage,
+  sid,
+  openFailure,
+}: DevicePick): Promise<number> {
+  const { store, doc: docName } = device
 
   // Another tab took the same clientID between reading the sessions and saving this one
-  for (let attempt = 0; ; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     const usedClientIds = new Set(Y.decodeStateVector(Y.encodeStateVector(doc)).keys())
     for (const session of await store.sessions(docName)) {
       usedClientIds.add(session.cid)
@@ -130,7 +153,7 @@ async function claimClientId(
     const session: StoredSession = {
       doc: docName,
       sid,
-      lineage: copy.lineage,
+      lineage,
       cid: clientId,
       bound: false,
     }
@@ -138,7 +161,7 @@ async function claimClientId(
       await store.saveSession(session)
       return clientId
     } catch (error) {
-      if ((error as Error)?.name !== 'ConstraintError' || attempt === 2) {
+      if ((error as Error)?.name !== 'ConstraintError' || attempt === PICK_ATTEMPTS) {
         throw openFailure
       }
     }

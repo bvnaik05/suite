@@ -1,6 +1,6 @@
 import * as Y from 'yjs'
 
-import { isStaleSession, readReply, type Reply } from './answers'
+import { isStaleSession, readReply, signInChange, type Reply } from './answers'
 import {
   decodeFrame,
   encodePush,
@@ -20,13 +20,14 @@ import {
   Outbox,
 } from './outbox'
 import { PIECE_BYTES, putPieces, stageFor, type Staging } from './pieces'
-import type { DeviceStore, StoredSession } from './store'
+import type { StoredSession } from './store'
 import {
   isRecoverable,
   type Answer,
   type Blocked,
   type Claim,
   type CollabRoom,
+  type DeviceDoc,
   type LiveState,
   type OpenOptions,
   type SaveState,
@@ -116,7 +117,7 @@ export class Room implements CollabRoom {
   private failed = false
   private unheard = false
   private persisted = false
-  private device: { store: DeviceStore; doc: string } | null
+  private device: DeviceDoc | null
   // A row failed to apply here: the rev reported, and the `judged` count its verdict comes after
   private judging: { rev: number; seen: number | null } | null = null
   private reportTimer: ReturnType<typeof setTimeout> | null = null
@@ -1000,16 +1001,7 @@ export class Room implements CollabRoom {
   }
 
   private confirmLostAccess(lostAccess: Blocked): Blocked {
-    const signedIn = this.options.signedIn()
-    if (signedIn === 'Guest') {
-      return 'signed_out'
-    }
-
-    if (signedIn !== this.options.principal) {
-      return 'other_user'
-    }
-
-    return lostAccess
+    return signInChange(this.options) ?? lostAccess
   }
 
   // A lost right keeps the unsent work only as a recovery copy; another person's or a stale sign-in leaves it for a later tab

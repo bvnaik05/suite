@@ -42,6 +42,12 @@ export interface ContentAdapter<Binding = unknown> {
   bind(room: CollabRoom): Binding
 }
 
+// A device store and the name this document has in it
+export interface DeviceDoc {
+  store: DeviceStore
+  doc: string
+}
+
 export interface OpenOptions {
   endpoints: CollabEndpoints
   principal: string
@@ -49,7 +55,7 @@ export interface OpenOptions {
   // Who the browser is signed in as now, or 'Guest'
   signedIn: () => string
   // Where unsent work and the last committed copy survive the tab; without it they live only in memory
-  device?: { store: DeviceStore; doc: string } | null
+  device?: DeviceDoc | null
   // The realtime socket rows and presence arrive on; without one the room polls
   socket?: LiveSocket | null
   pollMs?: number

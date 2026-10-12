@@ -48,6 +48,20 @@ export class CollabOpenError extends Error {
   }
 }
 
+// A refusal can mean the tab's user signed out or changed since it opened
+export function signInChange(options: OpenOptions): 'signed_out' | 'other_user' | null {
+  const signedIn = options.signedIn()
+  if (signedIn === 'Guest') {
+    return 'signed_out'
+  }
+
+  if (signedIn !== options.principal) {
+    return 'other_user'
+  }
+
+  return null
+}
+
 export function toOpenError(answer: Answer, options: OpenOptions) {
   const reply = readReply(answer)
   if (isStaleSession(reply)) {
@@ -59,13 +73,12 @@ export function toOpenError(answer: Answer, options: OpenOptions) {
     return new CollabOpenError(reply.status, reason)
   }
 
-  // A refusal can mean the tab's user signed out or changed since it opened
-  const signedIn = options.signedIn()
-  if (signedIn === 'Guest') {
+  const change = signInChange(options)
+  if (change === 'signed_out') {
     return new CollabOpenError(401, 'signed_out')
   }
 
-  if (signedIn !== options.principal) {
+  if (change === 'other_user') {
     return new CollabOpenError(reply.status, 'principal_changed')
   }
 
