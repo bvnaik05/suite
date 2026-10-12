@@ -5,7 +5,7 @@ import * as Y from 'yjs'
 import { CollabOpenError } from './answers'
 import { hex } from './bytes'
 import { openCollabRoom } from './open'
-import { REMOTE } from './room'
+import { REMOTE } from './origins'
 import { openDeviceStore, type DeviceStore } from './store'
 import type { Answer, CollabEndpoints, CollabRoom, OpenOptions } from './types'
 
