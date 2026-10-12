@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
+import { Device } from './device'
 import {
   breaksOn,
   device,
@@ -354,6 +355,23 @@ describe('collab room on a device', () => {
       'saved refused late',
     ])
     expect(room.copiesKept).toBe(2)
+  })
+
+  it('a change on the device reaches every listener in another tab, until one stops listening', async () => {
+    const kept = await device()
+    const writer = new Device(kept)
+    const reader = new Device(kept)
+    const heard: string[] = []
+    reader.onChanged(() => heard.push('room'))
+    const stop = reader.onChanged(() => heard.push('second'))
+
+    writer.changed()
+    await vi.waitFor(() => expect(heard).toEqual(['room', 'second']))
+    stop()
+    writer.changed()
+    await vi.waitFor(() => expect(heard).toEqual(['room', 'second', 'room']))
+    writer.close()
+    reader.close()
   })
 
   it('a recovery copy the device could not write is never counted as kept', async () => {

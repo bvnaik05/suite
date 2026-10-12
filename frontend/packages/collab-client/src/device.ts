@@ -82,10 +82,11 @@ export class Device {
     this.notices?.postMessage(null)
   }
 
+  // Returns the function that stops listening
   onChanged(listener: () => void) {
-    if (this.notices) {
-      this.notices.onmessage = listener
-    }
+    const notices = this.notices
+    notices?.addEventListener('message', listener)
+    return () => notices?.removeEventListener('message', listener)
   }
 
   close() {
