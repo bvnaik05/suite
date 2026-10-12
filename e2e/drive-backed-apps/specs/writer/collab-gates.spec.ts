@@ -23,9 +23,10 @@ import {
 
 test.describe("Writer collaboration", () => {
 	let node = "";
+	let title = "";
 
 	test.beforeEach(async ({ owner, collaborator, run, testApi }, testInfo) => {
-		const title = uniqueWriterTitle(run.run_id, `collab ${testInfo.title}`);
+		title = uniqueWriterTitle(run.run_id, `collab ${testInfo.title}`);
 		node = (await createWriterDocument(owner.page.request, title)).name;
 		await openForCollab(testApi, owner.page.request, node, collaborator.user.user);
 	});
@@ -206,6 +207,41 @@ test.describe("Writer collaboration", () => {
 		const stored = await serverBlocks(testApi, node);
 		expect(stored).toContain("Saved line");
 		expect(stored).not.toContain("Typed after the switch");
+	});
+
+	test("an old editor's refused save keeps its work on this device", async ({
+		owner,
+		testApi,
+	}) => {
+		await disableCollab(testApi, node);
+		await openWriterDocument(owner.page, node);
+		await typeParagraph(owner.page, "Typed in the old editor");
+
+		await expect(
+			owner.page.getByText(
+				"This document now saves as you edit, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.",
+			),
+		).toBeVisible();
+		await expect(writerEditor(owner.page)).toHaveAttribute("contenteditable", "false");
+		expect(await serverBlocks(testApi, node)).not.toContain("Typed in the old editor");
+
+		const kept = owner.page.getByRole("status").filter({ hasText: "This device has unsaved work from" });
+		await kept.getByRole("button", { name: "View" }).click();
+		await expect(
+			owner.page.frameLocator('iframe[title="Unsaved work"]').locator("body"),
+		).toContainText("Typed in the old editor");
+		await owner.page.keyboard.press("Escape");
+
+		const downloaded = owner.page.waitForEvent("download");
+		await kept.getByRole("button", { name: "Download" }).click();
+		expect((await downloaded).suggestedFilename()).toBe(`${title} (recovered).html`);
+
+		await owner.page.goto("/drive/unsaved-work");
+		const row = owner.page.getByRole("listitem").filter({ hasText: title });
+		await expect(row).toBeVisible();
+		await row.getByRole("button", { name: "Discard" }).click();
+		await owner.page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+		await expect(owner.page.getByText("No unsaved documents on this device.")).toBeVisible();
 	});
 
 	test("a document from before collaboration takes its title from its first line in the old editor", async ({
