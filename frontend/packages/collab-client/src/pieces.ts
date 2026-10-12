@@ -2,19 +2,11 @@ import { digest } from 'lib0/hash/sha256'
 
 import { readReply, type Reply } from './answers'
 import { hex, randomHex } from './bytes'
-import { encodePush } from './frames'
+import { encodePush, type PieceHeader, type PushHeader } from './frames'
 import type { CollabEndpoints } from './types'
 
 // The most update bytes one request carries; a larger change is staged in pieces of exactly this size, the last one shorter
 export const PIECE_BYTES = 256 * 1024
-
-export interface PieceHeader {
-  lineage: string
-  principal: string
-  sid: string
-  from: number
-  to: number
-}
 
 // A resent change goes to the stage it went to before, so pieces the server already holds cost nothing
 export interface Staging {
@@ -22,7 +14,7 @@ export interface Staging {
   id: string
 }
 
-export function stageFor(previous: Staging | null, { sid, from, to }: PieceHeader): Staging {
+export function stageFor(previous: Staging | null, { sid, from, to }: PushHeader): Staging {
   const key = `${sid}:${from}:${to}`
   if (previous?.key === key) {
     return previous
@@ -35,11 +27,11 @@ export function stageFor(previous: Staging | null, { sid, from, to }: PieceHeade
 export async function putPieces(
   endpoints: CollabEndpoints,
   stageId: string,
-  header: PieceHeader,
+  header: PushHeader,
   update: Uint8Array,
 ): Promise<Reply | null> {
   const { lineage, principal, sid, from, to } = header
-  const pieceHeader = {
+  const pieceHeader: PieceHeader = {
     lineage,
     principal,
     sid,

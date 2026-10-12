@@ -18,14 +18,9 @@ export interface RoomKeys {
   server_time: number
 }
 
-export interface OpenHeader {
-  state: OpenState
+// What both an open and a pull answer carry about the document
+interface DocumentHeader {
   proto: number
-  lineage?: string
-  can_write?: boolean
-  pace_ms?: number
-  // The rev the checkpoint covers; rows follow it
-  base?: number
   q_epoch?: number
   // The highest editor schema the document's rows were written with
   schema?: number
@@ -33,19 +28,50 @@ export interface OpenHeader {
   rooms?: RoomKeys
 }
 
-export interface PullHeader {
+export interface OpenHeader extends DocumentHeader {
+  state: OpenState
+  lineage?: string
+  can_write?: boolean
+  pace_ms?: number
+  // The rev the checkpoint covers; rows follow it
+  base?: number
+}
+
+export interface PullHeader extends DocumentHeader {
   // `rebuild`: the tab may hold a change quarantined since
   state: 'live' | 'rebuild'
-  proto: number
-  q_epoch?: number
   // Rises with every verdict on a suspect document; `verdict` is the last one
   judged?: number
   verdict?: string
   // The document waits for an admin: `change` for one change, `bad_checkpoint` for its saved content
   held?: string
-  schema?: number
-  limits?: Limits
-  rooms?: RoomKeys
+}
+
+// One session's seqs `from` through `to`, as one change
+export interface PushHeader {
+  proto: number
+  lineage: string
+  principal: string
+  schema: number
+  sid: string
+  from: number
+  to: number
+  cid: number
+  seen_rev: number
+  shas: string[]
+  // The tab is hiding or closing, so the server may compact now
+  final: boolean
+  // Names the staged pieces that hold the change, which then travels empty
+  stage_id?: string
+}
+
+// One staged piece of a push's change, with the length and sha the whole is checked against
+export interface PieceHeader extends Pick<
+  PushHeader,
+  'lineage' | 'principal' | 'sid' | 'from' | 'to'
+> {
+  total_len: number
+  sha_total: string
 }
 
 export interface Row {
@@ -106,7 +132,7 @@ export function decodeFrame<Header>(bytes: Uint8Array): {
 }
 
 export function encodePush(
-  header: Record<string, unknown>,
+  header: PushHeader | PieceHeader,
   update: Uint8Array,
 ): Uint8Array<ArrayBuffer> {
   const headerBytes = new TextEncoder().encode(JSON.stringify(header))

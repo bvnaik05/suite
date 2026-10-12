@@ -6,6 +6,7 @@ import {
   encodePush,
   type Limits,
   type PullHeader,
+  type PushHeader,
   type RoomKeys,
   type Row,
 } from './frames'
@@ -802,7 +803,7 @@ export class Room implements CollabRoom {
       return null
     }
 
-    const header = {
+    const header: PushHeader = {
       proto: 1,
       lineage: this.lineage,
       principal: this.options.principal,
@@ -813,7 +814,6 @@ export class Room implements CollabRoom {
       cid: box.cid,
       seen_rev: this.appliedThrough,
       shas: entries.map((entry) => entry.sha),
-      // The tab is hiding or closing, so the server may compact now
       final: !!keepalive,
     }
     const batchUpdates = entries.map((entry) => entry.bytes)
@@ -825,7 +825,7 @@ export class Room implements CollabRoom {
 
     // Staged pieces take several requests, which a departing page can't count on
     this.staging = stageFor(this.staging, header)
-    const staged = {
+    const staged: PushHeader = {
       ...header,
       final: false,
       stage_id: this.staging.id,
