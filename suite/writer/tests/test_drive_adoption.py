@@ -53,6 +53,7 @@ from suite.drive._core.principals import Principals
 from suite.drive._core.roots import create_root, purge_root, update_root
 from suite.drive._core.versions import restore_version
 from suite.drive.framework import refuse_governed_share, validate_content_registry
+from suite.suite_core import content as collab
 from suite.tests.utils import ensure_user
 from suite.writer import drive as writer
 from suite.writer.doctype.writer_document.writer_document import WriterDocument
@@ -461,10 +462,10 @@ class TestWriterInDrive(IntegrationTestCase):
         activation.__enter__()
         self.addCleanup(activation.__exit__, None, None, None)
         # These tests keep the body in the document row, so no document may start a collab log
-        saved_mode = frappe.db.get_single_value("Suite Collab Settings", "mode") or "off"
+        saved_mode = collab.mode("writer")
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(frappe.db.set_single_value, "Suite Collab Settings", "mode", saved_mode)
-        frappe.db.set_single_value("Suite Collab Settings", "mode", "off")
+        self.addCleanup(collab.set_mode, "writer", saved_mode)
+        collab.set_mode("writer", "off")
 
         # Registered before the first row exists, so a `setUp` that dies half
         # way still hands its roots back.

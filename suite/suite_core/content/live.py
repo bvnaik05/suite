@@ -79,7 +79,9 @@ def publish(adapter: str, doc_id: str, lineage: str, event: str, message: dict) 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def joinable() -> bool:
-    """Whether the realtime service may let sockets into collab rooms: only while collaboration is on."""
+    """Whether the realtime service may let sockets into collab rooms: only while some app's collaboration
+    is on. A tab learns a room only from an app that is on."""
+    from suite.suite_core.content.adapters import adapters
     from suite.suite_core.content.log import enabled
 
-    return enabled()
+    return any(enabled(adapter) for adapter in adapters())

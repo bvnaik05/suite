@@ -217,18 +217,18 @@ class TestWriterCollab(IntegrationTestCase):
 
     def setUp(self):
         super().setUp()
-        self.saved_mode = frappe.db.get_single_value("Suite Collab Settings", "mode")
+        self.saved_mode = routes.content.mode(writer_content.ADAPTER)
         self.addCleanup(self.restore_mode)
         frappe.set_user(WRITER)
         self.addCleanup(frappe.set_user, "Administrator")
         self.texts_by_client = {}
 
     def restore_mode(self):
-        frappe.db.set_single_value("Suite Collab Settings", "mode", self.saved_mode or "off")
+        routes.content.set_mode(writer_content.ADAPTER, self.saved_mode)
         frappe.db.commit()
 
     def set_mode(self, mode: str):
-        frappe.db.set_single_value("Suite Collab Settings", "mode", mode)
+        routes.content.set_mode(writer_content.ADAPTER, mode)
         frappe.db.commit()
 
     def new_document(self) -> str:
@@ -307,13 +307,16 @@ class TestWriterCollab(IntegrationTestCase):
 
         header, rows = self.open_document(node)
         self.assertEqual((header["state"], rows), ("disabled", []))
-        for handler in (
-            routes.sessions_post,
-            routes.updates_post,
-            routes.updates_get,
-            routes.suspect_post,
+        sid = uuid.uuid4().hex
+        session = json.dumps({"sid": sid}).encode()
+        push = push_body(uuid.uuid4().hex, sid, 1, 1, 0, self.typed_update(1, 1, "x"))
+        for handler, body in (
+            (routes.sessions_post, session),
+            (routes.updates_post, push),
+            (routes.updates_get, session),
+            (routes.suspect_post, session),
+            (lambda node: routes.stage_put(node, uuid.uuid4().hex, "0"), b"x"),
         ):
-            body = json.dumps({"sid": uuid.uuid4().hex}).encode()
             response = call_route(handler, node, body=body)
             self.assertEqual((response.status_code, answer(response)), (409, {"collab": "disabled"}))
         self.assertEqual({kind: self.table_count(kind) for kind in before}, before)
@@ -1634,8 +1637,20 @@ class TestWriterCollab(IntegrationTestCase):
     def test_the_realtime_service_may_let_sockets_into_rooms_only_while_collaboration_is_on(self):
         frappe.set_user("Guest")
         answers = {}
-        for mode in ("off", "draining", "on"):
+        for mode in ("off", "on"):
             self.set_mode(mode)
             answers[mode] = live.joinable()
 
-        self.assertEqual(answers, {"off": False, "draining": False, "on": True})
+        self.assertEqual(answers, {"off": False, "on": True})
+
+    def test_the_switch_takes_one_row_for_each_app_that_keeps_its_documents_in_the_layer(self):
+        frappe.set_user("Administrator")
+        settings = frappe.get_single("Suite Collab Settings")
+        settings.set("apps", [{"adapter": "spreadsheet", "mode": "on"}])
+        with self.assertRaisesRegex(frappe.ValidationError, "No app named spreadsheet"):
+            settings.save()
+
+        settings = frappe.get_single("Suite Collab Settings")
+        settings.set("apps", [{"adapter": "writer", "mode": "on"}, {"adapter": "writer", "mode": "off"}])
+        with self.assertRaisesRegex(frappe.ValidationError, "writer has more than one row"):
+            settings.save()

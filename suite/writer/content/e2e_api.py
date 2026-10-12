@@ -23,8 +23,8 @@ def find_log(node: str) -> dict:
 
 @whitelist_for_tests(methods=["POST"])
 def enable_collab(node: str) -> dict:
-    """Turn collaboration on for the site and make `node`'s Writer document collaborative."""
-    frappe.db.set_single_value("Suite Collab Settings", "mode", "on")
+    """Turn Writer's collaboration on and make `node`'s Writer document collaborative."""
+    content.set_mode(writer_content.ADAPTER, "on")
     frappe.db.set_value("Writer Document", {"node": node}, "collab", 1)
     if content.find(writer_content.ADAPTER, node) is None:
         content.create(writer_content.ADAPTER, node)

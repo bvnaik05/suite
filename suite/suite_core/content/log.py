@@ -48,16 +48,35 @@ class Refusal(Exception):
         self.body = {"collab": collab, **extra}
 
 
-def enabled() -> bool:
-    return frappe.db.get_single_value("Suite Collab Settings", "mode") == "on"
+def mode(adapter: str) -> str:
+    """The app's switch: "on", or "off" when it has no row."""
+    filters = {
+        "parent": "Suite Collab Settings",
+        "parentfield": "apps",
+        "adapter": adapter,
+    }
+    return frappe.db.get_value("Suite Collab App", filters, "mode") or "off"
+
+
+def set_mode(adapter: str, new_mode: str) -> None:
+    settings = frappe.get_single("Suite Collab Settings")
+    row = next((row for row in settings.apps if row.adapter == adapter), None)
+    if row is None:
+        row = settings.append("apps", {"adapter": adapter})
+    row.mode = new_mode
+    settings.save(ignore_permissions=True)
+
+
+def enabled(adapter: str) -> bool:
+    return mode(adapter) == "on"
 
 
 class ChainBroken(Exception):
     reason = "chain_break"
 
 
-def require_enabled() -> None:
-    if not enabled():
+def require_enabled(adapter: str) -> None:
+    if not enabled(adapter):
         raise Refusal(409, "disabled")
 
 

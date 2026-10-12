@@ -133,12 +133,12 @@ def unknown() -> None:
 
 
 def open_document(node: str) -> Response:
-    if not content.enabled():
+    principal = frappe.get_request_header(PRINCIPAL_HEADER)
+    adapter = authorize_node(node, drive.READ, principal)
+    if not content.enabled(adapter):
         disabled = {"state": "disabled", "proto": content.PROTOCOL_VERSION}
         return frame_response(disabled)
 
-    principal = frappe.get_request_header(PRINCIPAL_HEADER)
-    adapter = authorize_node(node, drive.READ, principal)
     doc = content.find(adapter, node)
     if doc is None:
         unconverted = {"state": "unconverted", "proto": content.PROTOCOL_VERSION}
@@ -165,9 +165,9 @@ def open_document(node: str) -> Response:
 
 
 def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
-    content.require_enabled()
     principal = frappe.get_request_header(PRINCIPAL_HEADER)
     adapter = authorize_node(node, drive.READ, principal)
+    content.require_enabled(adapter)
     # The epoch is read before the rows, so a quarantine between them shows on the next pull
     doc = require_log(adapter, node)
     try:
@@ -203,10 +203,10 @@ def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
 
 
 def push_rows(node: str) -> Response:
-    content.require_enabled()
     body = frappe.request.get_data()
     header, payload = content.parse_push(body)
     adapter = authorize_node(node, drive.EDIT, header.get("principal"))
+    content.require_enabled(adapter)
     doc = require_log(adapter, node)
     try:
         schema = adapters.spec_of(adapter).schema
@@ -222,9 +222,9 @@ def push_rows(node: str) -> Response:
 
 
 def stage_piece(node: str, stage_id: str, idx: str) -> Response:
-    content.require_enabled()
     principal = frappe.get_request_header(PRINCIPAL_HEADER)
     adapter = authorize_node(node, drive.EDIT, principal)
+    content.require_enabled(adapter)
     body = frappe.request.get_data()
     header, index, piece = content.parse_piece(body, stage_id, idx)
     doc = require_log(adapter, node)
@@ -234,9 +234,9 @@ def stage_piece(node: str, stage_id: str, idx: str) -> Response:
 
 def report_suspect(node: str) -> Response:
     """A tab's row threw when it applied it; anyone who can read the document may say so."""
-    content.require_enabled()
     principal = frappe.get_request_header(PRINCIPAL_HEADER)
     adapter = authorize_node(node, drive.READ, principal)
+    content.require_enabled(adapter)
     doc = require_log(adapter, node)
     try:
         body_bytes = frappe.request.get_data() or b"{}"
@@ -252,9 +252,9 @@ def report_suspect(node: str) -> Response:
 
 
 def start_session(node: str) -> Response:
-    content.require_enabled()
     principal = frappe.get_request_header(PRINCIPAL_HEADER)
     adapter = authorize_node(node, drive.EDIT, principal)
+    content.require_enabled(adapter)
     doc = require_log(adapter, node)
     try:
         body_bytes = frappe.request.get_data() or b"{}"

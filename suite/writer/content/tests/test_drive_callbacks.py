@@ -194,7 +194,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
     def test_with_collaboration_off_a_version_is_still_the_logs_state(self):
         node = self.new_document()
         self.type_into(node, ["one"])
-        frappe.db.set_single_value("Suite Collab Settings", "mode", "off")
+        content.set_mode(writer_content.ADAPTER, "off")
         frappe.db.commit()
 
         version = version_of(self.docname_of(node))
@@ -259,7 +259,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         node = self.new_document()
         self.type_into(node, ["one"])
         version_seq = drive.take_version(node, kind="named", label="one")
-        frappe.db.set_single_value("Suite Collab Settings", "mode", "off")
+        content.set_mode(writer_content.ADAPTER, "off")
         frappe.db.commit()
         fields = ("content", "html", "collab")
         before = frappe.db.get_value("Writer Document", self.docname_of(node), fields)
@@ -364,7 +364,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         self.push_edit(
             node, lambda body: body.children.append(pycrdt.XmlElement("image", {"src": embed(picture)}))
         )
-        frappe.db.set_single_value("Suite Collab Settings", "mode", "off")
+        content.set_mode(writer_content.ADAPTER, "off")
         frappe.db.commit()
 
         copied = self.copy_of(node)
@@ -543,7 +543,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         document = frappe.get_doc("Writer Document", self.docname_of(node))
 
         for mode in ("on", "off"):
-            frappe.db.set_single_value("Suite Collab Settings", "mode", mode)
+            content.set_mode(writer_content.ADAPTER, mode)
             frappe.db.commit()
             for save in (
                 lambda: document.save_doc("AAA=", html="<p>older</p>"),

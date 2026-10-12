@@ -4,7 +4,7 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "mode",
+  "apps",
   "self_test_section",
   "self_test_at",
   "self_test_passed",
@@ -12,12 +12,11 @@
  ],
  "fields": [
   {
-   "default": "off",
-   "description": "While off, collaboration answers every request as disabled and writes nothing",
-   "fieldname": "mode",
-   "fieldtype": "Select",
-   "label": "Mode",
-   "options": "off\non"
+   "description": "One row per app; an app without a row is off",
+   "fieldname": "apps",
+   "fieldtype": "Table",
+   "label": "Apps",
+   "options": "Suite Collab App"
   },
   {
    "fieldname": "self_test_section",
@@ -47,7 +46,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-04 02:00:00.000000",
+ "modified": "2026-10-12 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Suite Core",
  "name": "Suite Collab Settings",

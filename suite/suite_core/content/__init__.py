@@ -24,6 +24,7 @@ from suite.suite_core.content.log import (
     issue_session,
     limits,
     mark_purged,
+    mode,
     open_header,
     parse_piece,
     parse_push,
@@ -32,6 +33,7 @@ from suite.suite_core.content.log import (
     read,
     require_enabled,
     rows_after,
+    set_mode,
     with_tombstones,
 )
 from suite.suite_core.content.tables import ensure_tables
@@ -52,6 +54,7 @@ __all__ = [
     "issue_session",
     "limits",
     "mark_purged",
+    "mode",
     "open_header",
     "parse_piece",
     "parse_push",
@@ -62,5 +65,6 @@ __all__ = [
     "require_enabled",
     "rooms",
     "rows_after",
+    "set_mode",
     "with_tombstones",
 ]

@@ -28,7 +28,7 @@ def ensure_tables() -> None:
 
 def start_log(adapter: str, node: str) -> None:
     """Make a new document collaborative from its first edit, while collaboration is on."""
-    if content.enabled():
+    if content.enabled(adapter):
         content.create(adapter, node)
 
 

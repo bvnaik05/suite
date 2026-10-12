@@ -53,8 +53,8 @@ class CheckpointCase(IntegrationTestCase):
 
     def setUp(self):
         super().setUp()
-        self.saved_mode = frappe.db.get_single_value("Suite Collab Settings", "mode")
-        frappe.db.set_single_value("Suite Collab Settings", "mode", "on")
+        self.saved_mode = log.mode(writer_content.ADAPTER)
+        log.set_mode(writer_content.ADAPTER, "on")
         frappe.db.commit()
         scheduling.paused_until = 0.0
         self.addCleanup(setattr, scheduling, "paused_until", 0.0)
@@ -72,7 +72,7 @@ class CheckpointCase(IntegrationTestCase):
         )
 
     def restore_mode(self):
-        frappe.db.set_single_value("Suite Collab Settings", "mode", self.saved_mode or "off")
+        log.set_mode(writer_content.ADAPTER, self.saved_mode)
         frappe.db.commit()
 
     def new_document(self) -> str:
