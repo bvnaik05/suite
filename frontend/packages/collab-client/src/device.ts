@@ -50,12 +50,17 @@ export class Device {
     return this.store.commit(this.doc, copy, bytes).catch(() => {})
   }
 
-  // `state` is the whole document holding the work, so the copy reads on its own
+  // `state` is the whole document holding the work, so the copy reads on its own. Resolves whether it was written
   async recover(sids: string[], reason: string, extra?: StoredEntry[], state?: Uint8Array) {
     const snapshot = state && { state, title: this.title?.() }
-    const recovered = this.store.recover(this.doc, sids, reason, extra, snapshot)
-    await recovered.catch(() => {})
-    this.changed()
+    try {
+      await this.store.recover(this.doc, sids, reason, extra, snapshot)
+      return true
+    } catch {
+      return false
+    } finally {
+      this.changed()
+    }
   }
 
   async release(sid: string) {

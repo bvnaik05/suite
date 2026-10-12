@@ -12,7 +12,15 @@ export interface Banner {
 
 export type BannerState = Pick<
   CollabRoom,
-  'blocked' | 'stopped' | 'held' | 'newerSchema' | 'paused' | 'atLimit' | 'onDevice' | 'unsent'
+  | 'blocked'
+  | 'stopped'
+  | 'held'
+  | 'newerSchema'
+  | 'paused'
+  | 'atLimit'
+  | 'onDevice'
+  | 'unsent'
+  | 'copyFailed'
 > & {
   // The person may edit the document in an editor that can show it
   canEdit: boolean
@@ -43,7 +51,15 @@ const PAUSE_MESSAGES: Record<string, string> = {
 }
 
 function recoveryNote(state: BannerState) {
-  return state.recoveryKept ? ' Unsent changes were kept as a recovery copy.' : ''
+  if (state.recoveryKept) {
+    return ' Unsent changes were kept as a recovery copy.'
+  }
+
+  if (state.copyFailed) {
+    return " Unsent changes couldn't be kept on this device, so keep this tab open."
+  }
+
+  return ''
 }
 
 // Without a device store the unsent changes live only in this tab

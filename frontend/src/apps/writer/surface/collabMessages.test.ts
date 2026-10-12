@@ -27,6 +27,7 @@ const defaultState = {
   atLimit: false,
   onDevice: true,
   recoveryKept: false,
+  copyFailed: false,
   setAside: false,
   unsent: 1,
   polling: false,
@@ -97,6 +98,15 @@ describe('collab banner copy', () => {
     )
     expect(bannerText({ blocked: 'other_user', onDevice: false, recoveryKept: true })).toBe(
       'Someone else is now signed in here. Unsent changes were kept as a recovery copy. Reload to continue.',
+    )
+  })
+
+  it('never claims a recovery copy the device could not write, and asks to keep the tab open', () => {
+    expect(bannerText({ failed: true, stopped: 'seq', copyFailed: true })).toBe(
+      "Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open. Reload to keep editing.",
+    )
+    expect(bannerText({ blocked: 'lost_edit', copyFailed: true })).toBe(
+      "You can no longer edit this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
     )
   })
 

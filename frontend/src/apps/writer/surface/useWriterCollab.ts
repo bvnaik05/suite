@@ -16,6 +16,7 @@ const STATUS_FIELDS = [
   'paused',
   'stopped',
   'copiesKept',
+  'copyFailed',
   'held',
   'newerSchema',
   'unsent',
@@ -88,7 +89,7 @@ export function useWriterCollab(
   // Mirrors the room's state for the page, or rebuilds the room once it asks for that
   function syncRoomStatus(liveRoom: CollabRoom) {
     if (liveRoom.needsRebuild) {
-      const unsentNowhereElse = liveRoom.unsent && !liveRoom.onDevice
+      const unsentNowhereElse = liveRoom.unsent && (!liveRoom.onDevice || liveRoom.copyFailed)
       if (unsentNowhereElse && !recoveryKept.value) {
         recoveryKept.value = retainRecovery()
       }
@@ -182,7 +183,7 @@ export function useWriterCollab(
       ...roomStatus,
       canEdit: mayEdit(),
       failed: roomStatus.saveState === 'failed',
-      recoveryKept: recoveryKept.value || roomStatus.copiesKept > 0,
+      recoveryKept: recoveryKept.value || (roomStatus.copiesKept > 0 && !roomStatus.copyFailed),
       setAside: setAside.value,
       polling: roomStatus.live === 'polling',
     }

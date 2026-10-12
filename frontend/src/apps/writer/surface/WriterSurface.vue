@@ -249,7 +249,7 @@ async function closePreview() {
 
 function retainRecovery(): boolean {
   // The device store keeps a live tab's work, so a page copy would only repeat it
-  if (room.value?.onDevice) {
+  if (room.value?.onDevice && !room.value.copyFailed) {
     return false
   }
 

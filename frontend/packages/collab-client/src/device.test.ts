@@ -356,6 +356,21 @@ describe('collab room on a device', () => {
     expect(room.copiesKept).toBe(2)
   })
 
+  it('a recovery copy the device could not write is never counted as kept', async () => {
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    kept.store.recover = () =>
+      Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'))
+    server.access.refuse = reply(409, { collab: 'seq_conflict' })
+
+    room.doc.getText('t').insert(0, 'refused')
+    await room.flush()
+    await idle()
+
+    expect([room.saveState, room.copiesKept, room.copyFailed]).toEqual(['failed', 0, true])
+  })
+
   it('a change from a session the server closed is kept aside and the tab asks to be rebuilt', async () => {
     const server = fakeServer()
     const kept = await device()

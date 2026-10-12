@@ -111,6 +111,8 @@ export interface CollabRoom {
   readonly stopped: string | null
   // How many times this tab has written its recovery copy to the device
   readonly copiesKept: number
+  // The latest recovery copy could not be written to the device, so the work is only in this tab
+  readonly copyFailed: boolean
   // The document waits for an admin, so nobody edits it
   readonly held: Held | null
   // A newer editor wrote to the document; this tab follows and sends nothing more until reloaded

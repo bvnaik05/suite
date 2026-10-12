@@ -49,6 +49,7 @@ export class Room implements CollabRoom {
   // Set once this tab's work can never be committed; the reason it was kept as a recovery copy
   stopReason: string | null = null
   copiesKept = 0
+  copyFailed = false
   failed = false
   unheard = false
   // Changes other tabs of this document keep on the device and have yet to see committed
@@ -263,8 +264,12 @@ export class Room implements CollabRoom {
   }
 
   private async keepCopy(device: Device, sids: string[], reason: string, stored: StoredEntry[]) {
-    await device.recover(sids, reason, stored, Y.encodeStateAsUpdate(this.doc))
-    this.copiesKept++
+    const isKept = await device.recover(sids, reason, stored, Y.encodeStateAsUpdate(this.doc))
+    this.copyFailed = !isKept
+    if (isKept) {
+      this.copiesKept++
+    }
+
     this.notifyListeners()
   }
 
