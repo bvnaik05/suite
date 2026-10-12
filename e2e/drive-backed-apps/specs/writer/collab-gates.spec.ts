@@ -204,6 +204,7 @@ test.describe("Writer collaboration", () => {
 			),
 		).toBeVisible();
 		await expect(writerEditor(owner.page)).toHaveAttribute("contenteditable", "false");
+		await expect(owner.page.getByText("This device has unsaved work from")).toBeVisible();
 		const stored = await serverBlocks(testApi, node);
 		expect(stored).toContain("Saved line");
 		expect(stored).not.toContain("Typed after the switch");
