@@ -23,9 +23,9 @@ import { toast } from 'frappe-ui'
 import { computed, onBeforeUnmount, provide, ref, shallowRef } from 'vue'
 import * as Y from 'yjs'
 
-import { withinTenSeconds } from '@/apps/writer/collab'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { peopleOf } from '@/apps/writer/collab/carets'
+import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
 
 import CoreEditor from './CoreEditor.vue'

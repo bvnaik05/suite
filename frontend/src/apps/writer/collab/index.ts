@@ -35,6 +35,8 @@ const STAGE: Operation = {
   pathParams: ['node', 'stage_id', 'idx'],
 }
 
+const jsonBody = (value: object) => new TextEncoder().encode(JSON.stringify(value))
+
 // Every request names who the tab expects to be, so the server can tell a lapsed sign-in from lost access
 export function writerEndpoints(session: DocumentSession, principal: string): CollabEndpoints {
   const transport = createTransport({
@@ -70,22 +72,14 @@ export function writerEndpoints(session: DocumentSession, principal: string): Co
     },
     session: (sessionId, claim) => {
       const sessionClaim = claim ? { sid: sessionId, claim } : { sid: sessionId }
-      const json = JSON.stringify(sessionClaim)
-      const body = new TextEncoder().encode(json)
+      const body = jsonBody(sessionClaim)
       return transport.requestBytes(SESSION, { node }, { body, headers })
     },
     suspect: (rev) => {
-      const json = JSON.stringify({ rev })
-      const body = new TextEncoder().encode(json)
+      const body = jsonBody({ rev })
       return transport.requestBytes(SUSPECT, { node }, { body, headers })
     },
   }
-}
-
-// Waits for slow work, but never longer than a person should be held up
-export const withinTenSeconds = (work: Promise<void>) => {
-  const tenSeconds = new Promise<void>((resolve) => setTimeout(resolve, 10_000))
-  return Promise.race([work, tenSeconds])
 }
 
 const signedIn = () => getCookieSessionUser() ?? 'Guest'
@@ -95,11 +89,13 @@ const deviceStores = new Map<string, Promise<DeviceStore | null>>()
 
 function deviceStore(principal: string) {
   const storeKey = principal === 'Guest' ? 'guest' : principal
-  if (!deviceStores.has(storeKey)) {
-    deviceStores.set(storeKey, openDeviceStore(`suite-writer-collab:${location.host}:${storeKey}`))
+  let store = deviceStores.get(storeKey)
+  if (!store) {
+    store = openDeviceStore(`suite-writer-collab:${location.host}:${storeKey}`)
+    deviceStores.set(storeKey, store)
   }
 
-  return deviceStores.get(storeKey)!
+  return store
 }
 
 export async function openWriterRoom(session: DocumentSession): Promise<Opened> {

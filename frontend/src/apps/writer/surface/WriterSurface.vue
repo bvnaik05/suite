@@ -24,7 +24,7 @@ import {
   type DocumentPanel,
   type DocumentSession,
 } from '@/apps/drive'
-import { withinTenSeconds } from '@/apps/writer/collab'
+import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import CollabTextEditor from '@/apps/writer/components/CollabTextEditor.vue'
 import NonCollabEditor from '@/apps/writer/components/NonCollabEditor.vue'
 import TextEditor from '@/apps/writer/components/TextEditor.vue'

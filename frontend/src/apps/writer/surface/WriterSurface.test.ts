@@ -71,7 +71,6 @@ const rooms = vi.hoisted(() => ({ next: null as object | null }))
 vi.mock('@/apps/writer/collab', () => ({
   BODY_FIELD: 'default',
   openWriterRoom: async () => (rooms.next ? { state: 'live', room: rooms.next } : { state: 'off' }),
-  withinTenSeconds: (promise: Promise<void>) => promise,
 }))
 
 vi.mock('@/apps/writer/components/NonCollabEditor.vue', async () => {
