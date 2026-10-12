@@ -42,7 +42,9 @@
       </div>
     </div>
 
-    <template v-else-if="threadRows.length || filter || mailbox === 'search' || inboxTab">
+    <template
+      v-else-if="threadRows.length || filter || filterChanged || mailbox === 'search' || inboxTab"
+    >
       <ThreadPane
         :thread-open="!!threadID"
         @touch-start="onThreadTouchStart"
@@ -322,7 +324,9 @@
             <p v-else class="text-ink-gray-5">
               {{
                 mailbox !== 'search'
-                  ? __('No mails found for the selected filter.')
+                  ? filter
+                    ? __('No mails found for the selected filter.')
+                    : __('You have no mails in this folder.')
                   : hasSearchQuery
                     ? __('No results found for the given query.')
                     : __('Search your mail')
@@ -1056,11 +1060,17 @@ watch(
 // Trash, nor inside the Starred list itself, where it would filter a list to itself.
 const { filter, reloadFilter, FILTER_OPTIONS, filterTitle } = useStoredFilter({
   scope: () => mailbox,
-  onChange: () => resetThreads(false),
+  onChange: () => {
+    filterChanged.value = true
+    resetThreads(false)
+  },
   starrable: () => ![mailboxIds.trash, 'starred'].includes(mailbox),
   screenable: () => mailbox === mailboxIds.inbox && screener.active.value,
 })
 const isMailboxLoaded = ref(false)
+// A filter changed on a list already showing: the list, its tabs and toolbar stay up while the
+// filtered list loads inline, rather than the whole view giving way to the spinner.
+const filterChanged = ref(false)
 
 // The Inbox's category tabs; `inboxTab` is the open one, and undefined in any other list or when the
 // Inbox isn't split. Opening another refetches the first window, as a filter change does.
@@ -1075,12 +1085,14 @@ const {
 // Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline, as a
 // search does, rather than the whole view giving way to the spinner.
 const tabSwitched = ref(false)
-// What the list's menu clears: the open tab of a split Inbox, else the whole folder. Not offered where
+// What the list's menu clears: the open tab of a split Inbox, else the whole folder, as far as the
+// list's filter shows it. Not offered where
 // there is no folder to clear (Starred, a search) or nothing unread to clear (Sent, Drafts).
 const clearScope = computed<ClearScope | undefined>(() => {
   if (['search', 'starred', mailboxIds.sent, mailboxIds.drafts].includes(mailbox)) return undefined
-  if (inboxTab.value) return { category: inboxTab.value, name: tabName(inboxTab.value) }
-  return { name: mailboxName.value }
+  if (inboxTab.value)
+    return { category: inboxTab.value, name: tabName(inboxTab.value), filter: filter.value }
+  return { name: mailboxName.value, filter: filter.value }
 })
 watch(inboxTab, (tab, previous) => {
   tabSwitched.value = !!(tab && previous && tab !== previous)
@@ -1134,6 +1146,8 @@ const isLoading = computed(() => {
   // Checked first: entering the route resets isMailboxLoaded, which must not blank the view.
   if (mailbox === 'search') return false
   if (tabSwitched.value && inboxTab.value) return false
+  // A new filter is a new query, pending as a mailbox's first is: checked before that.
+  if (filterChanged.value) return false
   if (!isMailboxLoaded.value) return true
   if (emptyMailbox.isPending) return true
   if (refillPending.value) return true
@@ -1213,6 +1227,7 @@ watch(
     if (isAllAccountsSearch.value && mailbox === 'search' && old?.[0] === 'search') return
     isMailboxLoaded.value = false
     tabSwitched.value = false
+    filterChanged.value = false
     reloadFilter()
     focusedRowKey.value = undefined
     collapsedGroups.value = []

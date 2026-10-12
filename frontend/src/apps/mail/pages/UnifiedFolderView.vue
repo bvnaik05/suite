@@ -27,7 +27,7 @@
       </div>
     </div>
 
-    <template v-else-if="threadRows.length || inboxTab">
+    <template v-else-if="threadRows.length || inboxTab || filter || filterChanged">
       <ThreadPane
         :thread-open="!!threadID"
         @touch-start="onThreadTouchStart"
@@ -63,12 +63,16 @@
 
           <!-- Mail list -->
           <div ref="mailList" class="h-full overflow-y-auto overscroll-contain max-sm:pb-20">
-            <!-- An empty tab keeps its tabs, to leave it by. -->
+            <!-- An empty tab keeps its tabs, and an empty filtered list its filter, to leave it by. -->
             <p
               v-if="!threadRows.length && !threads.isFetching"
               class="text-ink-gray-5 px-3 py-10 text-center text-p-sm sm:px-5"
             >
-              {{ __('No mails in {0}.', [openTabLabel]) }}
+              {{
+                filter
+                  ? __('No mails found for the selected filter.')
+                  : __('No mails in {0}.', [inboxTab ? openTabLabel : folderLabel])
+              }}
             </p>
             <div v-for="(rows, key) in groupedRows" :key="key">
               <MailGroupHeader
@@ -324,7 +328,10 @@ const {
   reloadFilter,
 } = useStoredFilter({
   scope: () => `unified:${folder}`,
-  onChange: () => resetThreads(),
+  onChange: () => {
+    filterChanged.value = true
+    resetThreads()
+  },
   starrable: () => folder !== STARRED_FOLDER && !isTrashFolder.value,
   // The merged Inbox, when any of the accounts screens new senders.
   screenable: () =>
@@ -347,12 +354,16 @@ const openTabLabel = computed(
 // Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline rather
 // than the whole view giving way to the spinner.
 const tabSwitched = ref(false)
-// What the list's menu clears: the open tab of a split Inbox, else the whole folder. Not offered where
+// So too a filter changed on a list already showing.
+const filterChanged = ref(false)
+// What the list's menu clears: the open tab of a split Inbox, else the whole folder, as far as the
+// list's filter shows it. Not offered where
 // there is no folder to clear (Starred) or nothing unread to clear (Sent, Drafts).
 const clearScope = computed<ClearScope | undefined>(() => {
   if (folder === STARRED_FOLDER || isOutgoingFolder.value) return undefined
-  if (inboxTab.value) return { category: inboxTab.value, name: tabName(inboxTab.value) }
-  return { name: folderLabel.value }
+  if (inboxTab.value)
+    return { category: inboxTab.value, name: tabName(inboxTab.value), filter: filter.value }
+  return { name: folderLabel.value, filter: filter.value }
 })
 watch(inboxTab, (tab, previous) => {
   tabSwitched.value = !!(tab && previous && tab !== previous)
@@ -369,7 +380,8 @@ const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
 }))
 const threadRows = computed(() => threads.rows.map((row) => threadRow(row, store.accountId)))
 const isLoading = computed(
-  () => threads.status === 'pending' && !(tabSwitched.value && inboxTab.value),
+  () =>
+    threads.status === 'pending' && !(tabSwitched.value && inboxTab.value) && !filterChanged.value,
 )
 
 // After an action, refresh the sidebar counts: the active account's per-mailbox counts, which via the
@@ -1172,6 +1184,7 @@ const handleDelete = (rows: Thread[]) => {
 watch(
   () => folder,
   () => {
+    filterChanged.value = false
     reloadFilter()
     resetThreads()
   },
