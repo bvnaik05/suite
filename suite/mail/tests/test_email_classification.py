@@ -724,11 +724,16 @@ class InboxTabs(unittest.TestCase):
             with self.assertRaises(frappe.ValidationError):
                 self.tab_filter("primary")
 
-    def test_all_accounts_add_up_their_tabs_leaving_out_an_account_that_fails(self):
+    def test_all_accounts_add_up_their_tabs_leaving_out_accounts_that_fail(self):
         counts = {
             "a": {Category.PRIMARY: 2, Category.UPDATES: 5},
             "b": {Category.PRIMARY: 1, Category.FORUMS: 3},
         }
+
+        def mailboxes(account):
+            if account == "revoked":
+                raise MethodError("accountNotFound", "c0", {})
+            return MAILBOXES
 
         def count(account, _mailboxes):
             if account == "broken":
@@ -739,9 +744,9 @@ class InboxTabs(unittest.TestCase):
             mock.patch.object(
                 mail_api,
                 "get_user_jmap_accounts",
-                return_value=[{"name": "a"}, {"name": "broken"}, {"name": "b"}],
+                return_value=[{"name": "a"}, {"name": "broken"}, {"name": "revoked"}, {"name": "b"}],
             ),
-            mock.patch.object(mail_api, "get_cached_mailboxes", return_value=MAILBOXES),
+            mock.patch.object(mail_api, "get_cached_mailboxes", side_effect=mailboxes),
             mock.patch.object(mail_api, "count_unread_by_tab", side_effect=count),
         ):
             totals = mail_api.get_unified_tab_counts("inbox")

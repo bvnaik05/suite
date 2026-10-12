@@ -610,12 +610,12 @@ def get_unified_tab_counts(folder: str) -> list[dict]:
     unread: dict[Category, int] = {}
     for account in get_user_jmap_accounts():
         account_id = account["name"]
-        mailboxes = [
-            m["id"]
-            for m in get_cached_mailboxes(account_id)
-            if is_listed_mailbox(m) and mailbox_slug(m) == folder
-        ]
         try:
+            mailboxes = [
+                m["id"]
+                for m in get_cached_mailboxes(account_id)
+                if is_listed_mailbox(m) and mailbox_slug(m) == folder
+            ]
             counts = count_unread_by_tab(account_id, mailboxes)
         except MethodError:
             continue
