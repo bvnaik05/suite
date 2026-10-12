@@ -9,7 +9,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { frappeData } from "../../shared/frappe";
-import { writerEditor } from "./writer";
+import { shareWriterDocument, writerEditor } from "./writer";
 
 /** Where a document's collab log stands, from `suite.writer.content.e2e_api.state`. */
 export interface CollabState {
@@ -35,8 +35,19 @@ async function callTestHook<T>(testApi: APIRequestContext, name: string, node: s
 }
 
 /** Turn collaboration on for the site and give `node` a collab log. Call before the document opens. */
-export const enableCollab = (testApi: APIRequestContext, node: string) =>
+const enableCollab = (testApi: APIRequestContext, node: string) =>
 	callTestHook<CollabState>(testApi, "enable_collab", node);
+
+/** Give `node` a collab log and share it with `collaborator` for editing. */
+export async function openForCollab(
+	testApi: APIRequestContext,
+	owner: APIRequestContext,
+	node: string,
+	collaborator: string,
+): Promise<void> {
+	await enableCollab(testApi, node);
+	await shareWriterDocument(owner, node, { user: collaborator, read: true, write: true });
+}
 
 /** Turn Writer's collaboration off; the next test's `enableCollab` turns it on again. */
 export const disableCollab = (testApi: APIRequestContext, node: string) =>
