@@ -2,16 +2,7 @@
 import type { CollabRoom } from '@suite/collab-client'
 import type { Editor } from '@tiptap/core'
 import { Badge, Button, Skeleton, toast } from 'frappe-ui'
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  provide,
-  ref,
-  shallowRef,
-  watch,
-} from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue'
 
 import { api, useMutation } from '@/api'
 import {
@@ -28,6 +19,7 @@ import UsersBar from '@/apps/writer/components/UsersBar.vue'
 import type { CollaborationUser } from '@/apps/writer/composables/useCollaborationUsers'
 import emitter from '@/apps/writer/emitter'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
+import { downloadCopy, keepPageCopy, listCopies } from '@/apps/writer/recovery/copies'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { belowMinBuild } from '@/platform/build'
 
@@ -38,7 +30,6 @@ import {
   type DocumentSaveState,
   type LeaveGuardOptions,
 } from './navigation'
-import { clearRecovery, downloadRecovery, keepRecovery, readRecovery } from './recovery'
 import { versionLabel } from './useDocumentPanel'
 import { useWriterCollab } from './useWriterCollab'
 import VersionPreview from './VersionPreview.vue'
@@ -75,7 +66,7 @@ const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const panel = ref<DocumentPanel | null>(null)
 const previewedVersion = ref<DocumentVersion | null>(null)
 
-const hasRecovery = ref(readRecovery(props.session.nodeId) !== null)
+const hasRecovery = ref(false)
 
 const {
   mode: collabMode,
@@ -216,16 +207,6 @@ provide(RENAME_DOCUMENT, async (title) => {
 
 provide(DOCUMENT_MEDIA, (id) => props.session.media(id))
 
-// A save that lands with edit access makes the recovery copy stale.
-watch(saving, (now, before) => {
-  if (!before || now || saveFailed.value || !writes.writable.value || !hasRecovery.value) {
-    return
-  }
-
-  clearRecovery(props.session.nodeId)
-  hasRecovery.value = false
-})
-
 async function closePreview() {
   const pressedVersionButton = document.querySelector<HTMLElement>(
     'aside button[aria-pressed="true"]',
@@ -246,7 +227,7 @@ function retainRecovery(): boolean {
   }
 
   try {
-    keepRecovery(props.session.nodeId, html)
+    keepPageCopy(props.session.nodeId, props.session.title.value, html)
   } catch {
     return false
   }
@@ -255,12 +236,19 @@ function retainRecovery(): boolean {
   return true
 }
 
-function downloadChanges() {
-  const downloaded = downloadRecovery(props.session.nodeId, props.session.title.value)
-  hasRecovery.value = false
-  if (!downloaded) {
+async function findRecovery() {
+  const copies = await listCopies(props.session.nodeId)
+  hasRecovery.value = copies.length > 0
+}
+
+async function downloadChanges() {
+  const [latest] = await listCopies(props.session.nodeId)
+  if (!latest) {
     toast.error('No recovery copy is kept for this document.')
+    return
   }
+
+  downloadCopy(latest)
 }
 
 function flush(): Promise<void> {
@@ -303,6 +291,7 @@ onMounted(() => {
   window.addEventListener('offline', setOffline)
   window.addEventListener('beforeunload', warnBeforeUnload)
   void openCollab()
+  void findRecovery()
 })
 
 onBeforeUnmount(() => {

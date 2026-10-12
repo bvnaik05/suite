@@ -98,6 +98,11 @@ function deviceStore(principal: string) {
   return store
 }
 
+// The signed-in person's store on this device, or null where the browser keeps none
+export function writerDeviceStore() {
+  return deviceStore(signedIn())
+}
+
 export async function openWriterRoom(session: DocumentSession): Promise<Opened> {
   const principal = signedIn()
   const store = await deviceStore(principal)
