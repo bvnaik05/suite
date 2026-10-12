@@ -72,6 +72,19 @@ describe('Writer recovery copies', () => {
     expect(summary(await listCopies())).toEqual([['node-1', '', 'older copy']])
   })
 
+  it('lists only the copies of the document asked for, not of one whose id starts the same', async () => {
+    const older = { savedAt: '2026-09-29T10:05:00.000Z', html: '<p>older copy</p>' }
+    localStorage.setItem('suite:writer-recovery:node-1', JSON.stringify(older))
+    localStorage.setItem('suite:writer-recovery:node-10', JSON.stringify(older))
+    keepPageCopy('node-1', 'Plan', '<p>plan</p>')
+    keepPageCopy('node-10', 'Notes', '<p>notes</p>')
+
+    expect(summary(await listCopies('node-1')).sort()).toEqual([
+      ['node-1', '', 'older copy'],
+      ['node-1', 'Plan', 'plan'],
+    ])
+  })
+
   it('a later keep in the same page replaces its copy, never another page’s', async () => {
     const earlier = { savedAt: '2026-09-29T10:05:00.000Z', html: '<p>earlier tab</p>' }
     localStorage.setItem('suite:writer-recovery:node-1', JSON.stringify(earlier))

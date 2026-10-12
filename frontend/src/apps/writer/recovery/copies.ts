@@ -92,10 +92,18 @@ function fromRecord(record: RecoveryRecord): RecoveryCopy {
 }
 
 function pageCopies(node?: string) {
-  const ofNode = node ?? ''
-  const prefix = `${PAGE_PREFIX}${ofNode}`
-  const keys = Object.keys(localStorage).filter((key) => key.startsWith(prefix))
+  const keys = Object.keys(localStorage).filter((key) => isPageCopyOf(key, node))
   return keys.map(readPageCopy).filter((copy): copy is RecoveryCopy => copy !== null)
+}
+
+// A copy from before page loads were told apart is keyed by its document alone
+function isPageCopyOf(key: string, node?: string) {
+  if (node === undefined) {
+    return key.startsWith(PAGE_PREFIX)
+  }
+
+  const nodeKey = `${PAGE_PREFIX}${node}`
+  return key === nodeKey || key.startsWith(`${nodeKey}:`)
 }
 
 function readPageCopy(key: string): RecoveryCopy | null {
