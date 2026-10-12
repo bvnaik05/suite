@@ -136,13 +136,11 @@ def open_document(node: str) -> Response:
     principal = frappe.get_request_header(PRINCIPAL_HEADER)
     adapter = authorize_node(node, drive.READ, principal)
     if not content.enabled(adapter):
-        disabled = {"state": "disabled", "proto": content.PROTOCOL_VERSION}
-        return frame_response(disabled)
+        return state_reply("disabled")
 
     doc = content.find(adapter, node)
     if doc is None:
-        unconverted = {"state": "unconverted", "proto": content.PROTOCOL_VERSION}
-        return frame_response(unconverted)
+        return state_reply("unconverted")
 
     can_write = frappe.session.user != "Guest" and can_access(node, drive.EDIT)
     try:
@@ -151,8 +149,7 @@ def open_document(node: str) -> Response:
         frappe.log_error(title="Collab open: chain_break", message=f"{adapter} document {doc.id}")
         raise content.Refusal(503, "chain_break") from None
     if snapshot is None:
-        unconverted = {"state": "unconverted", "proto": content.PROTOCOL_VERSION}
-        return frame_response(unconverted)
+        return state_reply("unconverted")
 
     documents.consider_compaction(adapter, doc.id)
     header = {
@@ -165,11 +162,8 @@ def open_document(node: str) -> Response:
 
 
 def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
-    principal = frappe.get_request_header(PRINCIPAL_HEADER)
-    adapter = authorize_node(node, drive.READ, principal)
-    content.require_enabled(adapter)
     # The epoch is read before the rows, so a quarantine between them shows on the next pull
-    doc = require_log(adapter, node)
+    adapter, doc = resolved(node, drive.READ, frappe.get_request_header(PRINCIPAL_HEADER))
     try:
         since_rev = int(since or 0)
         seen_epoch = int(q_epoch) if q_epoch is not None else None
@@ -178,8 +172,7 @@ def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
     epoch = int(doc.q_epoch)
     if seen_epoch is not None and seen_epoch < epoch:
         # The tab may hold a row now quarantined
-        rebuild = {"state": "rebuild", "proto": content.PROTOCOL_VERSION, "q_epoch": epoch}
-        return frame_response(rebuild)
+        return state_reply("rebuild", q_epoch=epoch)
 
     rows = content.rows_after(adapter, doc.id, max(since_rev, 0))
     documents.consider_compaction(adapter, doc.id)
@@ -205,9 +198,7 @@ def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
 def push_rows(node: str) -> Response:
     body = frappe.request.get_data()
     header, payload = content.parse_push(body)
-    adapter = authorize_node(node, drive.EDIT, header.principal)
-    content.require_enabled(adapter)
-    doc = require_log(adapter, node)
+    adapter, doc = resolved(node, drive.EDIT, header.principal)
     try:
         answer = content.push(adapter, doc.id, header, payload, frappe.session.user)
     except content.Refusal as refusal:
@@ -233,16 +224,8 @@ def stage_piece(node: str, stage_id: str, idx: str) -> Response:
 
 def report_suspect(node: str) -> Response:
     """A tab's row threw when it applied it; anyone who can read the document may say so."""
-    principal = frappe.get_request_header(PRINCIPAL_HEADER)
-    adapter = authorize_node(node, drive.READ, principal)
-    content.require_enabled(adapter)
-    doc = require_log(adapter, node)
-    try:
-        body_bytes = frappe.request.get_data() or b"{}"
-        body = json.loads(body_bytes)
-        rev = body.get("rev")
-    except (ValueError, AttributeError):
-        rev = None
+    adapter, doc = resolved(node, drive.READ, frappe.get_request_header(PRINCIPAL_HEADER))
+    rev = json_body().get("rev")
     if type(rev) is not int:
         raise content.Refusal(400, "malformed")
 
@@ -251,19 +234,11 @@ def report_suspect(node: str) -> Response:
 
 
 def start_session(node: str) -> Response:
-    principal = frappe.get_request_header(PRINCIPAL_HEADER)
-    adapter = authorize_node(node, drive.EDIT, principal)
-    content.require_enabled(adapter)
-    doc = require_log(adapter, node)
-    try:
-        body_bytes = frappe.request.get_data() or b"{}"
-        body = json.loads(body_bytes)
-        sid = body.get("sid")
-        claim = body.get("claim")
-    except (ValueError, AttributeError):
-        sid = claim = None
-    well_formed_sid = isinstance(sid, str) and len(sid) == 32 and sid.isalnum()
-    if not well_formed_sid:
+    adapter, doc = resolved(node, drive.EDIT, frappe.get_request_header(PRINCIPAL_HEADER))
+    body = json_body()
+    sid = body.get("sid")
+    claim = body.get("claim")
+    if not isinstance(sid, str) or len(sid) != 32 or not sid.isalnum():
         raise content.Refusal(400, "malformed")
 
     if claim is not None:
@@ -280,6 +255,27 @@ def require_log(adapter: str, node: str):
         raise content.Refusal(409, "unconverted")
 
     return doc
+
+
+def resolved(node: str, role: int, principal: object) -> tuple[str, frappe._dict]:
+    """The node's adapter and log, refused in order: access, collaboration off, no log."""
+    adapter = authorize_node(node, role, principal)
+    content.require_enabled(adapter)
+    doc = require_log(adapter, node)
+    return adapter, doc
+
+
+def json_body() -> dict:
+    """The request's JSON object; empty when the body is missing, unreadable or not an object."""
+    try:
+        body = json.loads(frappe.request.get_data() or b"{}")
+    except ValueError:
+        return {}
+
+    if not isinstance(body, dict):
+        return {}
+
+    return body
 
 
 def authorize_node(node: str, role: int, principal) -> str:
@@ -342,6 +338,11 @@ def respond_or_refuse(build_response) -> Response:
 def frame_response(header: dict, rows=(), checkpoint: bytes | None = None) -> Response:
     body = content.encode_frame(header, rows, checkpoint)
     return Response(body, status=200, mimetype="application/octet-stream")
+
+
+def state_reply(state: str, **extra: int) -> Response:
+    """A frame with no rows that tells the tab what state the document is in."""
+    return frame_response({"state": state, "proto": content.PROTOCOL_VERSION, **extra})
 
 
 def json_response(status: int, body: dict) -> Response:
