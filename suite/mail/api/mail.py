@@ -260,10 +260,14 @@ def add_user_images_to_emails(account: str, mails: list[dict], is_thread: bool =
     return mails
 
 
-def list_filter(filter_by: str | None) -> dict | None:
-    """The condition a list's filter (`filter_by`) adds to what it shows, if any."""
+def list_filter(filter_by: str | None, skip: tuple[str, ...] = ()) -> dict | None:
+    """The condition a list's filter (`filter_by`) adds to what it shows, if any.
 
-    return {
+    `filter_by` is one key or several, comma-joined: each narrows the list further. A key in `skip`
+    is left out (Starred inside the Starred list), and an unknown one is ignored.
+    """
+
+    conditions_by_key = {
         "starred": {"someInThreadHaveKeyword": "$flagged"},
         "unread": {"notKeyword": "$seen"},
         "has_attachments": {"hasAttachment": True},
@@ -271,7 +275,15 @@ def list_filter(filter_by: str | None) -> dict | None:
         "unscreened": {"hasKeyword": UNSCREENED_KEYWORD},
         # A category is asked for by its keyword: "category_promotions".
         **{category.keyword: {"hasKeyword": category.keyword} for category in Category},
-    }.get(filter_by or "")
+    }
+    conditions = [
+        conditions_by_key[key]
+        for key in dict.fromkeys((filter_by or "").split(","))
+        if key in conditions_by_key and key not in skip
+    ]
+    if len(conditions) > 1:
+        return {"operator": "AND", "conditions": conditions}
+    return conditions[0] if conditions else None
 
 
 @frappe.whitelist()
@@ -301,7 +313,7 @@ def get_threads(
     else:
         conditions = [{"inMailbox": mailbox}]
 
-    if (condition := list_filter(filter_by)) and not (mailbox == "starred" and filter_by == "starred"):
+    if condition := list_filter(filter_by, skip=("starred",) if mailbox == "starred" else ()):
         conditions.append(condition)
     if category:
         conditions.append(tab_filter(validate_tab(category), classification.inbox_tabs()))

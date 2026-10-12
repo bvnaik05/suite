@@ -5,8 +5,8 @@
 	     block. So the row owns neither — pass `loading` only where the caller isn't
 	     already rendering a bar of its own. -->
   <div v-if="isMobile" class="relative flex h-12 items-center px-4">
-    <!-- The selector label carries the active filter ("Unread Mails", …); picking
-		     "All" in the sheet clears it, so no dismissal chip needed. -->
+    <!-- The selector label carries the active filters ("Unread", "Filtered · 2");
+		     unticking them in the sheet clears them, so no dismissal chip needed. -->
     <AdaptiveDropdown :options="filterOptions" :title="__('Filter')">
       <button class="flex min-w-0 items-center gap-1.5 text-base !font-medium">
         <span class="truncate">{{ title }}</span>

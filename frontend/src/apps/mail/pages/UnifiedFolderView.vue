@@ -291,7 +291,7 @@ import {
   useSwipeNav,
   useUndo,
 } from '@/apps/mail/utils/composables'
-import { useStoredFilter } from '@/apps/mail/utils/listFilter'
+import { useListFilter } from '@/apps/mail/utils/listFilter'
 import {
   hasCursor,
   isNavigationKey,
@@ -384,14 +384,13 @@ const {
 })
 
 // The remembered All/Unread/Starred/Has-attachments choice, its menu, and its title (see
-// useStoredFilter) — all shared with the mailbox list, and remembered per folder as it is there.
+// useListFilter) — all shared with the mailbox list, and remembered per folder as it is there.
 const {
   filter,
   FILTER_OPTIONS,
   filterTitle: title,
   reloadFilter,
-} = useStoredFilter({
-  scope: () => `unified:${folder}`,
+} = useListFilter({
   onChange: () => {
     filterChanged.value = true
     resetThreads()

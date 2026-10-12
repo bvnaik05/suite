@@ -661,6 +661,27 @@ class CategoryFilter(unittest.TestCase):
             {"operator": "AND", "conditions": [{"inMailbox": "inbox"}, {"hasKeyword": "unscreened"}]},
         )
 
+    def test_filters_combine_each_narrowing_the_list(self):
+        self.assertEqual(
+            self.filter("unread,starred"),
+            {
+                "operator": "AND",
+                "conditions": [
+                    {"inMailbox": "inbox"},
+                    {
+                        "operator": "AND",
+                        "conditions": [{"notKeyword": "$seen"}, {"someInThreadHaveKeyword": "$flagged"}],
+                    },
+                ],
+            },
+        )
+
+    def test_an_unknown_key_among_several_is_ignored(self):
+        self.assertEqual(
+            self.filter("unread,nonsense"),
+            {"operator": "AND", "conditions": [{"inMailbox": "inbox"}, {"notKeyword": "$seen"}]},
+        )
+
     def test_a_keyword_that_is_no_category_is_not_filtered_by(self):
         for filter_by in ("category_spam", "$seen", None):
             with self.subTest(filter_by=filter_by):

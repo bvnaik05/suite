@@ -1,23 +1,19 @@
-import { Mail as MailIcon, Mails, Paperclip, Star, UserRoundSearch } from 'lucide-vue-next'
-import { computed, ref, type Component } from 'vue'
+import { Checkbox } from 'frappe-ui'
+import { computed, h, ref } from 'vue'
 
-import { userStore } from '@/apps/mail/stores/user'
-
-/** One entry of the filter menu — what the toolbar hands to Dropdown/AdaptiveDropdown. */
+/**
+ * One entry of the filter menu — what the toolbar hands to Dropdown/AdaptiveDropdown. A checkbox
+ * row: its box is the prefix, and `keepOpen` (with the click's own preventDefault on desktop)
+ * leaves the menu up, so several can be ticked in a row.
+ */
 export interface FilterOption {
   label: string
-  icon: Component
-  onClick: () => void
-  selected: boolean
+  slots: { prefix: () => ReturnType<typeof h> }
+  onClick: (event?: Event) => void
+  keepOpen: true
   condition?: () => boolean
 }
-
-interface StoredFilterOptions {
-  /**
-   * What the remembered choice is remembered FOR — a mailbox id, or 'unified:<folder>' for a merged
-   * list. A getter, since the mailbox view switches mailbox without remounting.
-   */
-  scope: () => string
+interface ListFilterOptions {
   /** Apply the new filter: refetch the first window. */
   onChange: () => void
   /**
@@ -33,85 +29,69 @@ interface StoredFilterOptions {
 }
 
 /**
- * The list filter — All / Unread / Starred / Has attachments / Unknown senders — remembered per list, its menu, and the
- * title the toolbar shows for it. All three were duplicated verbatim between the mailbox list and the
- * merged All Inboxes list, down to the localStorage key's shape.
+ * The list filter — Unread, Starred, Has attachments, Unknown senders — its menu, and the title the
+ * toolbar shows for it. Filters combine: each one ticked narrows the list further, and none ticked is
+ * all of it. Sent to the server as one `filter_by` of comma-joined keys. Not remembered: a list opens
+ * unfiltered, and another list starts clear, so mail is never hidden by a filter set long ago.
  */
-export const useStoredFilter = ({
-  scope,
+export const useListFilter = ({
   onChange,
   starrable = () => true,
   screenable = () => false,
-}: StoredFilterOptions) => {
-  const { userResource } = userStore()
+}: ListFilterOptions) => {
+  const stored = ref<string[]>([])
 
-  const storageKey = () => `user:${userResource.data?.name}:filter:${scope()}`
+  // Each filter in the order the menu lists it, with whether this list offers it.
+  const FILTERS = [
+    { key: 'unread', label: () => __('Unread'), offered: () => true },
+    { key: 'starred', label: () => __('Starred'), offered: starrable },
+    { key: 'has_attachments', label: () => __('Has attachments'), offered: () => true },
+    { key: 'unscreened', label: () => __('Unknown senders'), offered: screenable },
+  ]
 
-  const filter = ref<string | null>(localStorage.getItem(storageKey()) || null)
+  /** The filters in effect: those ticked that this list offers, in menu order. */
+  const active = computed(() => FILTERS.filter((f) => f.offered() && stored.value.includes(f.key)))
 
-  const setFilter = (value: string | null) => {
-    filter.value = value
-    localStorage.setItem(storageKey(), value ?? '')
+  /** What the list asks the server for: the filters in effect, comma-joined, or none. */
+  const filter = computed(() => active.value.map((f) => f.key).join(',') || null)
+
+  const toggle = (key: string) => {
+    stored.value = stored.value.includes(key)
+      ? stored.value.filter((k) => k !== key)
+      : FILTERS.map((f) => f.key).filter((k) => k === key || stored.value.includes(k))
     onChange()
   }
 
-  /** Re-read the remembered choice after the scope changed (a mailbox switch). */
-  const reloadFilter = () => (filter.value = localStorage.getItem(storageKey()) || null)
+  /** Start clear: another list (a mailbox switch) opens unfiltered. */
+  const reloadFilter = () => (stored.value = [])
 
-  // Computed, not a constant array: `selected` is the menu's own boolean field (frappe-ui
-  // reads it as `Boolean(option.selected)`, so it can't be a getter), and it has to be
-  // re-evaluated whenever the filter changes.
-  const FILTER_OPTIONS = computed<FilterOption[]>(() => [
-    {
-      label: __('All'),
-      icon: Mails,
-      onClick: () => setFilter(null),
-      selected: filter.value === null,
-    },
-    {
-      label: __('Unread'),
-      icon: MailIcon,
-      onClick: () => setFilter('unread'),
-      selected: filter.value === 'unread',
-    },
-    {
-      label: __('Starred'),
-      icon: Star,
-      onClick: () => setFilter('starred'),
-      condition: starrable,
-      selected: filter.value === 'starred',
-    },
-    {
-      label: __('Has attachments'),
-      icon: Paperclip,
-      onClick: () => setFilter('has_attachments'),
-      selected: filter.value === 'has_attachments',
-    },
-    {
-      label: __('Unknown senders'),
-      icon: UserRoundSearch,
-      onClick: () => setFilter('unscreened'),
-      condition: screenable,
-      selected: filter.value === 'unscreened',
-    },
-  ])
+  // Computed, not a constant array: each row's box has to follow what is ticked.
+  const FILTER_OPTIONS = computed<FilterOption[]>(() =>
+    FILTERS.map((f) => {
+      const ticked = stored.value.includes(f.key)
+      return {
+        label: f.label(),
+        slots: {
+          prefix: () => h(Checkbox, { modelValue: ticked, class: 'pointer-events-none' }),
+        },
+        keepOpen: true as const,
+        onClick: (event?: Event) => {
+          event?.preventDefault()
+          toggle(f.key)
+        },
+        condition: f.offered,
+      }
+    }),
+  )
 
-  /** What the toolbar's filter selector reads. Callers may show something else instead — a
-   *  selection count, a result count — but this is the filter's own name for itself. */
+  /** What the toolbar's filter selector reads: the ticked filter's own label, as the menu shows
+   *  it. Callers may show something else instead — a selection count, a result count. */
   const filterTitle = computed(() => {
-    switch (filter.value) {
-      case 'unread':
-        return __('Unread Mails')
-      case 'starred':
-        return __('Starred Mails')
-      case 'has_attachments':
-        return __('With Attachments')
-      case 'unscreened':
-        return __('Unknown Senders')
-      default:
-        return __('All Mails')
-    }
+    if (!active.value.length) return __('All Mails')
+    // Several at once are counted; the menu's ticks say which.
+    if (active.value.length > 1) return __('Filtered · {0}', [String(active.value.length)])
+    return active.value[0].label()
   })
 
-  return { filter, setFilter, reloadFilter, FILTER_OPTIONS, filterTitle }
+  return { filter, reloadFilter, FILTER_OPTIONS, filterTitle }
 }

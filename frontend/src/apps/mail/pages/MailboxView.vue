@@ -401,7 +401,7 @@ import {
   useUndo,
 } from '@/apps/mail/utils/composables'
 import { utcDayEnd, utcDayStart } from '@/apps/mail/utils/datetime'
-import { useStoredFilter } from '@/apps/mail/utils/listFilter'
+import { useListFilter } from '@/apps/mail/utils/listFilter'
 import {
   hasCursor,
   isNavigationKey,
@@ -781,10 +781,9 @@ watch(
 // Main data
 
 // The remembered All/Unread/Starred/Has-attachments choice, its menu, and its own title (see
-// useStoredFilter) — all shared with the merged All Inboxes list. Starred is not offered inside
+// useListFilter) — all shared with the merged All Inboxes list. Starred is not offered inside
 // Trash, nor inside the Starred list itself, where it would filter a list to itself.
-const { filter, reloadFilter, FILTER_OPTIONS, filterTitle } = useStoredFilter({
-  scope: () => mailbox,
+const { filter, reloadFilter, FILTER_OPTIONS, filterTitle } = useListFilter({
   onChange: () => {
     filterChanged.value = true
     resetThreads(false)

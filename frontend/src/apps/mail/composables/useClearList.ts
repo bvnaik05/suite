@@ -26,8 +26,10 @@ export const listScope = (
 
 type ClearAction = 'read' | 'archive' | 'trash'
 
-/** What a clearing takes, as its toasts name it: the scope's mail, as far as the list's filter shows. */
+/** What a clearing takes, as its toasts name it: the scope's mail, as far as the list's filter shows.
+ *  Filters combine (comma-joined); more than one is just "Filtered mail", not spelled out. */
 const mailOf = ({ name, filter }: ClearScope) => {
+  if (filter?.includes(',')) return __('Filtered mail')
   switch (filter) {
     case 'unread':
       return __('Unread {0} mail', [name])
