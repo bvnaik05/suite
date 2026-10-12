@@ -36,6 +36,8 @@ export interface ContentAdapter {
   features: { schema: number }
   // A peer's position, kept to what the app draws, or null when it is not one
   position(raw: unknown): object | null
+  // The readable copy search, export, preview and publishing use
+  render(doc: Y.Doc): { html: string; text: string }
 }
 
 export interface OpenOptions {
