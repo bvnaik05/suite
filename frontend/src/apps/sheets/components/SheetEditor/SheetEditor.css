@@ -735,33 +735,6 @@
   text-overflow: ellipsis;
 }
 
-/* "Filter by values" mode — every interactive element is a Frappe UI primitive
-   (Button, Checkbox, FormControl), so the per-class rules here only handle
-   layout and the value-list row chrome. */
-.sn-fp-vlinks {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.sn-fp-value-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  cursor: pointer;
-  font-size: 13px;
-  letter-spacing: 0.01em;
-  color: var(--ink-gray-8);
-}
-.sn-fp-value-row:hover {
-  background: var(--surface-gray-2);
-}
-.sn-fp-value-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ── Bottom · tabs + stats ───────────────────────────────────────────────── */
 .sn-bottom {
   display: flex;
@@ -1074,54 +1047,6 @@
   gap: 8px;
 }
 
-/* Slicers — floating value-filter controls */
-.sn-slicer {
-  position: fixed;
-  z-index: 8400;
-  width: 220px;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-elevation-2);
-  border-radius: 10px;
-  box-shadow:
-    0 0 1px rgba(0, 0, 0, 0.35),
-    0 6px 8px -4px rgba(0, 0, 0, 0.1);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sn-slicer-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: move;
-  user-select: none;
-}
-.sn-slicer-colsel {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.sn-slicer-colsel :deep(button) {
-  width: 100%;
-  justify-content: space-between;
-  font-weight: 600;
-}
-.sn-slicer-colsel :deep(button > span) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sn-slicer-actions {
-  margin: -2px 0;
-}
-.sn-slicer-values {
-  max-height: 220px;
-  overflow-y: auto;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  padding: 4px 0;
-  background: var(--surface-base);
-}
 .sn-comment-header {
   display: flex;
   align-items: center;
