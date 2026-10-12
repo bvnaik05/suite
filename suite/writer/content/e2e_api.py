@@ -186,8 +186,8 @@ def server_text(node: str) -> list[str]:
     if stored is None:
         raise frappe.DoesNotExistError(f"{node} has no collab log")
 
-    checkpoints = [stored["checkpoint"]] if stored["checkpoint"] else []
-    rows = [row for _rev, row in stored["rows"]]
+    checkpoints = [stored.checkpoint] if stored.checkpoint else []
+    rows = stored.payloads()
     parts = checkpoints + rows
     loaded_doc = compaction.load_doc(parts)
     fragment = loaded_doc.get("default", type=pycrdt.XmlFragment)

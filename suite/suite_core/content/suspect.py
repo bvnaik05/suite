@@ -146,9 +146,9 @@ def judge_rows(
     if snapshot is None:
         return None
 
-    checkpoint = snapshot["checkpoint"]
-    revs = [rev for rev, _payload in snapshot["rows"]]
-    rows = [payload for _rev, payload in snapshot["rows"]]
+    checkpoint = snapshot.checkpoint
+    revs = [rev for rev, _payload in snapshot.rows]
+    rows = snapshot.payloads()
     try:
         verdict = kernel.judge(bundle, checkpoint, rows)
     except kernel.KernelFailed as error:
@@ -182,8 +182,8 @@ def judge_rows(
 
         reread = read(adapter, doc_id, integrated=True)
         if reread:
-            after_rows = [payload for _rev, payload in reread["rows"]]
-            if pycrdt_refuses(reread["checkpoint"], after_rows, roots):
+            after_rows = reread.payloads()
+            if pycrdt_refuses(reread.checkpoint, after_rows, roots):
                 return hold_document(
                     adapter, doc_id, "still_refused", f"rev {revs[index]} quarantined, pycrdt still refuses"
                 )

@@ -15,6 +15,24 @@ from suite.suite_core.content.log import ChainBroken, chain_next, chain_seed
 from suite.suite_core.content.tables import table
 
 
+@dataclass(frozen=True)
+class Snapshot:
+    """A log read: the base, every row after it through the head, and the revs quarantined."""
+
+    lineage: str
+    head_rev: int
+    head_chain: bytes
+    schema: int
+    base: int
+    checkpoint: bytes | None
+    rows: list[tuple[int, bytes]]
+    quarantined: list[int]
+    q_epoch: int
+
+    def payloads(self) -> list[bytes]:
+        return [payload for _rev, payload in self.rows]
+
+
 def start_clocks(doc: frappe._dict) -> dict[int, int]:
     clocks = json.loads(doc.start_clocks or "{}")
     return {int(client): clock for client, clock in clocks.items()}
@@ -29,10 +47,10 @@ def rows_after(adapter: str, doc_id: str, since: int) -> list[tuple[int, bytes]]
     return [(int(rev), bytes(payload)) for rev, payload in stored_rows]
 
 
-def with_tombstones(log_read: dict) -> list[tuple[int, bytes]]:
+def with_tombstones(log_read: Snapshot) -> list[tuple[int, bytes]]:
     """A read's rows with each quarantined rev as an empty row, which no real row is, in rev order."""
-    tombstones = [(rev, b"") for rev in log_read["quarantined"]]
-    return sorted([*log_read["rows"], *tombstones])
+    tombstones = [(rev, b"") for rev in log_read.quarantined]
+    return sorted([*log_read.rows, *tombstones])
 
 
 def isolation_level() -> str | None:
@@ -144,7 +162,7 @@ def walk_chain(stored: Sequence, chain: bytes) -> tuple[list[tuple[int, bytes]],
     return rows, quarantined, chain
 
 
-def read_once(adapter: str, doc_id: str, integrated: bool, own_snapshot: bool) -> dict | None:
+def read_once(adapter: str, doc_id: str, integrated: bool, own_snapshot: bool) -> Snapshot | None:
     """Raises `ChainBroken` when the rows don't continue the base to the head."""
     with repeatable_read() if own_snapshot else contextlib.nullcontext():
         control_rows = frappe.db.sql(
@@ -173,20 +191,22 @@ def read_once(adapter: str, doc_id: str, integrated: bool, own_snapshot: bool) -
         raise ChainBroken
 
     steps = json.loads(doc.schema_steps)
-    return {
-        "lineage": doc.lineage,
-        "head_rev": int(doc.head_rev),
-        "head_chain": chain,
-        "schema": steps[-1][1],
-        "base": base.rev,
-        "checkpoint": base.checkpoint,
-        "rows": rows,
-        "quarantined": quarantined,
-        "q_epoch": int(doc.q_epoch),
-    }
+    return Snapshot(
+        lineage=doc.lineage,
+        head_rev=int(doc.head_rev),
+        head_chain=chain,
+        schema=steps[-1][1],
+        base=base.rev,
+        checkpoint=base.checkpoint,
+        rows=rows,
+        quarantined=quarantined,
+        q_epoch=int(doc.q_epoch),
+    )
 
 
-def read(adapter: str, doc_id: str, *, integrated: bool = False, own_snapshot: bool = True) -> dict | None:
+def read(
+    adapter: str, doc_id: str, *, integrated: bool = False, own_snapshot: bool = True
+) -> Snapshot | None:
     """The base and every row after it through the head, from one snapshot, chain checked.
     The base is the app row's checked body, or a fallback newer than it unless `integrated`.
     `rows` leaves out quarantined rows; `quarantined` lists their revs. None when the log is

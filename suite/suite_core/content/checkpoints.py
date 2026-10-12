@@ -23,7 +23,7 @@ from frappe.utils import now_datetime
 from suite.suite_core.content import admission, compaction, ingest, live, quarantine, scheduling, suspect
 from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.log import ChainBroken, chain_next, chain_seed
-from suite.suite_core.content.snapshot import body_row, fallback_rev, read, rows_after
+from suite.suite_core.content.snapshot import Snapshot, body_row, fallback_rev, read, rows_after
 from suite.suite_core.content.tables import table
 
 PACED_FROM = 512 * 2**10
@@ -77,13 +77,13 @@ class Compaction:
 
             admission.limit_memory()
             snapshot = self.fit_snapshot()
-            if snapshot is None or snapshot["head_rev"] == snapshot["base"]:
+            if snapshot is None or snapshot.head_rev == snapshot.base:
                 frappe.db.rollback()
                 self.clear_attempt()
                 return
 
-            rows = [payload for _rev, payload in snapshot["rows"]]
-            compacted = compaction.compact(snapshot["checkpoint"], rows, self.roots)
+            rows = snapshot.payloads()
+            compacted = compaction.compact(snapshot.checkpoint, rows, self.roots)
             compacted.ms = int((time.monotonic() - started) * 1000)
             self.install(snapshot, compacted)
         except Exception as error:
@@ -96,15 +96,15 @@ class Compaction:
             if reason in suspect.REASONS:
                 suspect.mark_suspect(self.adapter, self.doc_id, reason, self.judge_method)
 
-    def fit_snapshot(self) -> dict | None:
+    def fit_snapshot(self) -> Snapshot | None:
         """A snapshot after quarantining, one at a time, each row a compaction must not take."""
         while True:
             snapshot = read(self.adapter, self.doc_id, integrated=True)
             if snapshot is None:
                 return None
 
-            rows = [payload for _rev, payload in snapshot["rows"]]
-            unfit_row = quarantine.first_unfit(snapshot["checkpoint"], rows, set(self.roots))
+            rows = snapshot.payloads()
+            unfit_row = quarantine.first_unfit(snapshot.checkpoint, rows, set(self.roots))
             if not unfit_row:
                 return snapshot
 
@@ -113,12 +113,12 @@ class Compaction:
                 raise compaction.CompactionFailed(reason)
 
             frappe.db.rollback()
-            unfit_rev = snapshot["rows"][index][0]
+            unfit_rev = snapshot.rows[index][0]
             quarantined = quarantine.quarantine(self.adapter, self.doc_id, {unfit_rev}, reason, self.owner_of)
             if not quarantined:
                 raise compaction.CompactionFailed(reason)
 
-    def install(self, snapshot: dict, result: compaction.Compacted) -> None:
+    def install(self, snapshot: Snapshot, result: compaction.Compacted) -> None:
         """Write a checked body into the app's row, or keep a result it can't check as the fallback.
 
         Nothing changes if a newer compaction or another lineage got there first. A
@@ -141,10 +141,10 @@ class Compaction:
             self.alert("fallback", "The compaction kept the merged rows as an open base only")
             suspect.mark_suspect(self.adapter, self.doc_id, "fallback", self.judge_method)
 
-    def install_body(self, snapshot: dict, result: compaction.Compacted) -> bool:
+    def install_body(self, snapshot: Snapshot, result: compaction.Compacted) -> bool:
         """One transaction: lock the control row, then the app's row; write the body, its stamp and
         the newest covered edit's time, and delete the fallbacks it covers. Pushes answer busy meanwhile."""
-        through_rev = snapshot["head_rev"]
+        through_rev = snapshot.head_rev
         control_row = self.lock_control_row()
         if control_row is None or control_row.mode == "purged":
             raise compaction.CompactionFailed("purged")
@@ -153,7 +153,7 @@ class Compaction:
         if app_row is None:
             raise compaction.CompactionFailed("purged")
 
-        other_lineage = control_row.lineage != snapshot["lineage"]
+        other_lineage = control_row.lineage != snapshot.lineage
         body_up_to_date = int(control_row.body_rev) >= through_rev
         if other_lineage or body_up_to_date:
             frappe.db.rollback()
@@ -178,7 +178,7 @@ class Compaction:
         frappe.db.sql(
             f"""UPDATE `{self.table("doc")}` SET `body_rev` = %s, `body_chain` = UNHEX(%s), `body_sha` = UNHEX(%s)
             WHERE `id` = %s""",
-            (through_rev, snapshot["head_chain"].hex(), state_sha, self.doc_id),
+            (through_rev, snapshot.head_chain.hex(), state_sha, self.doc_id),
         )
         tail_base = max(through_rev, fallback_rev(self.adapter, self.doc_id))
         self.record_compaction(tail_base, result)
@@ -187,15 +187,15 @@ class Compaction:
         self.announce_room(control_row)
         return True
 
-    def keep_fallback(self, snapshot: dict, result: compaction.Compacted) -> bool:
+    def keep_fallback(self, snapshot: Snapshot, result: compaction.Compacted) -> bool:
         """Keep a result the compaction can't check as the document's one fallback, if it is newer than
         the body and any fallback; the app's row is not touched."""
-        through_rev = snapshot["head_rev"]
+        through_rev = snapshot.head_rev
         control_row = self.lock_control_row()
         if control_row is None or control_row.mode == "purged":
             raise compaction.CompactionFailed("purged")
 
-        other_lineage = control_row.lineage != snapshot["lineage"]
+        other_lineage = control_row.lineage != snapshot.lineage
         body_up_to_date = int(control_row.body_rev) >= through_rev
         if other_lineage or body_up_to_date or fallback_rev(self.adapter, self.doc_id) >= through_rev:
             frappe.db.rollback()
@@ -208,7 +208,7 @@ class Compaction:
             self.adapter,
             self.doc_id,
             through_rev,
-            snapshot["head_chain"],
+            snapshot.head_chain,
             state_sha,
             result.state,
             False,

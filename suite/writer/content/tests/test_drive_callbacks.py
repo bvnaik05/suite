@@ -219,7 +219,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         node = self.new_document()
         self.type_into(node, ["one ", "two"])
         snapshot = content.read("writer", self.doc_row(node).id)
-        size = len(snapshot["checkpoint"] or b"") + sum(len(payload) for _rev, payload in snapshot["rows"])
+        size = len(snapshot.checkpoint or b"") + sum(len(payload) for payload in snapshot.payloads())
         parent = frappe.db.get_value("Drive Node", node, "parent_node")
 
         smaller = replace(writer_content.SPEC, max_state=size - 1)

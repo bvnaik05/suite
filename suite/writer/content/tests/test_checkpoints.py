@@ -312,8 +312,8 @@ class TestWriterCheckpoints(CheckpointCase):
         self.compact(node)
         modified = frappe.db.get_value("Writer Document", {"node": node}, "modified")
 
-        rows = [payload for _rev, payload in older_snapshot["rows"]]
-        compacted = compaction.compact(older_snapshot["checkpoint"], rows, writer_content.ROOTS)
+        rows = older_snapshot.payloads()
+        compacted = compaction.compact(older_snapshot.checkpoint, rows, writer_content.ROOTS)
         self.compaction_job(doc_id).install(older_snapshot, compacted)
 
         self.assertEqual(self.doc_row(node).body_rev, 3)
@@ -325,7 +325,7 @@ class TestWriterCheckpoints(CheckpointCase):
         self.type_into(node, ["one ", "two"])
         doc_id = self.doc_row(node).id
         snapshot = routes.content.read("writer", doc_id)
-        rows = [payload for _rev, payload in snapshot["rows"]]
+        rows = snapshot.payloads()
         compacted = compaction.compact(None, rows, writer_content.ROOTS)
         other_lineage = {**snapshot, "lineage": "0" * 32}
 
@@ -409,8 +409,8 @@ class TestWriterCheckpoints(CheckpointCase):
     def compacted(self, node: str, *, integrated: bool = True) -> tuple[dict, compaction.Compacted]:
         """A compaction of the document through its head, not yet installed."""
         snapshot = routes.content.read("writer", self.doc_row(node).id)
-        rows = [payload for _rev, payload in snapshot["rows"]]
-        compacted = compaction.compact(snapshot["checkpoint"], rows, writer_content.ROOTS)
+        rows = snapshot.payloads()
+        compacted = compaction.compact(snapshot.checkpoint, rows, writer_content.ROOTS)
         if not integrated:
             merged = compaction.pycrdt.merge_updates(*rows)
             compacted = compaction.Compacted(merged, integrated=False)
@@ -658,7 +658,7 @@ class TestWriterCheckpoints(CheckpointCase):
         doc_id = self.doc_row(node).id
         snapshot = routes.content.read("writer", doc_id)
         body = self.body_of(node)
-        state = compaction.pycrdt.merge_updates(body, *(payload for _rev, payload in snapshot["rows"]))
+        state = compaction.pycrdt.merge_updates(body, *snapshot.payloads())
         fallback = compaction.Compacted(state, integrated=False)
         self.compaction_job(doc_id).keep_fallback(snapshot, fallback)
 
@@ -682,7 +682,7 @@ class TestWriterCheckpoints(CheckpointCase):
         doc_id = self.doc_row(node).id
         snapshot = routes.content.read("writer", doc_id)
         body = self.body_of(node)
-        state = compaction.pycrdt.merge_updates(body, *(payload for _rev, payload in snapshot["rows"]))
+        state = compaction.pycrdt.merge_updates(body, *snapshot.payloads())
         fallback = compaction.Compacted(state, integrated=False)
         self.compaction_job(doc_id).keep_fallback(snapshot, fallback)
         older_body_gz = gzip.compress(body).hex()

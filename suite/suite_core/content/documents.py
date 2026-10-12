@@ -10,6 +10,7 @@ from frappe.utils import now_datetime
 from suite.suite_core import content
 from suite.suite_core.content import checkpoints, compaction, scheduling, suspect, updates
 from suite.suite_core.content.adapters import adapters, node_hooks, spec_of
+from suite.suite_core.content.snapshot import Snapshot
 from suite.suite_core.content.tables import table
 
 COMPACT = "suite.suite_core.content.documents.compact"
@@ -42,13 +43,13 @@ def live_state(adapter: str, node: str) -> pycrdt.Doc | None:
     if log_read is None:
         return None
 
-    checkpoint_part = [log_read["checkpoint"]] if log_read["checkpoint"] else []
-    row_parts = [payload for _rev, payload in log_read["rows"]]
+    checkpoint_part = [log_read.checkpoint] if log_read.checkpoint else []
+    row_parts = log_read.payloads()
     parts = checkpoint_part + row_parts
     return compaction.load_doc(parts)
 
 
-def live_checkpoint(adapter: str, node: str) -> tuple[dict, bytes] | None:
+def live_checkpoint(adapter: str, node: str) -> tuple[Snapshot, bytes] | None:
     """The document's read and its state now, or None when the node has no log.
 
     Read whether collaboration is on or not. The state is compacted with pycrdt in
@@ -60,19 +61,19 @@ def live_checkpoint(adapter: str, node: str) -> tuple[dict, bytes] | None:
     if log_read is None:
         return None
 
-    rows = [payload for _rev, payload in log_read["rows"]]
+    rows = log_read.payloads()
     if not rows:
-        return log_read, log_read["checkpoint"] or pycrdt.Doc().get_update()
+        return log_read, log_read.checkpoint or pycrdt.Doc().get_update()
 
     # pycrdt cannot be interrupted, so a web worker only takes on what a compaction job would
-    total_bytes = len(log_read["checkpoint"] or b"") + sum(len(row) for row in rows)
+    total_bytes = len(log_read.checkpoint or b"") + sum(len(row) for row in rows)
     too_big = total_bytes > spec_of(adapter).max_state
     too_many_rows = len(rows) > scheduling.TAIL_ROWS
     if too_big or too_many_rows:
         raise compaction.CompactionFailed("too_large")
 
     roots = spec_of(adapter).roots
-    compacted = compaction.compact(log_read["checkpoint"], rows, roots)
+    compacted = compaction.compact(log_read.checkpoint, rows, roots)
     if not compacted.integrated:
         raise compaction.CompactionFailed("fallback")
 
@@ -87,7 +88,7 @@ def copy_log(adapter: str, source_node: str, node: str) -> bool:
 
     log_read, state = source_checkpoint
     doc_id = content.create(adapter, node)
-    content.replace_start(adapter, doc_id, state, log_read["schema"])
+    content.replace_start(adapter, doc_id, state, log_read.schema)
     return True
 
 
@@ -106,7 +107,11 @@ def remap_log(adapter: str, node: str, rewrite) -> None:
         return
 
     roots = spec_of(adapter).roots
-    state = log_read["checkpoint"]
+    state = log_read.checkpoint
+    # copy_log starts every copied log from a body
+    if state is None:
+        raise compaction.CompactionFailed("remap_mismatch")
+
     remapped = updates.rewrite_values(state, rewrite)
     if remapped == state:
         return
@@ -121,7 +126,7 @@ def remap_log(adapter: str, node: str, rewrite) -> None:
     ):
         raise compaction.CompactionFailed("remap_mismatch")
 
-    content.replace_start(adapter, doc.id, remapped, log_read["schema"])
+    content.replace_start(adapter, doc.id, remapped, log_read.schema)
 
 
 def purge_log(adapter: str, node: str) -> None:

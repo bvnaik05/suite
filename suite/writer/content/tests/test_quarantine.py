@@ -67,7 +67,7 @@ class Tab:
 
     def catch_up(self):
         snapshot = routes.content.read(writer_content.ADAPTER, self.case.doc_row(self.node).id)
-        for _rev, payload in snapshot["rows"]:
+        for _rev, payload in snapshot.rows:
             self.ydoc.apply_update(payload)
 
 
@@ -80,7 +80,7 @@ class TestQuarantine(CheckpointCase):
     def stored_text(self, node: str) -> str:
         read = routes.content.read(writer_content.ADAPTER, self.doc_row(node).id)
         doc = pycrdt.Doc()
-        for payload in [read["checkpoint"], *(payload for _rev, payload in read["rows"])]:
+        for payload in [read.checkpoint, *read.payloads()]:
             if payload:
                 doc.apply_update(payload)
 
@@ -122,7 +122,7 @@ class TestQuarantine(CheckpointCase):
         self.assertEqual(self.quarantine(node, {3}, "cut_surrogate"), [3, 4])
 
         read = routes.content.read(writer_content.ADAPTER, self.doc_row(node).id)
-        self.assertEqual(([rev for rev, _ in read["rows"]], read["quarantined"]), ([1, 2], [3, 4]))
+        self.assertEqual(([rev for rev, _ in read.rows], read.quarantined), ([1, 2], [3, 4]))
         self.assertEqual(self.stored_text(node), "beta alpha")
         self.assertEqual(
             self.recovery_copies(node),

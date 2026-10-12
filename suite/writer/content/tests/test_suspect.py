@@ -152,8 +152,8 @@ class TestSuspect(CheckpointCase):
         reasons = [reason for _rev, _owner, reason, _payload in self.recovery_copies(node)]
         self.assertEqual(reasons, ["editor_schema"] * 2)
         snapshot = routes.content.read(writer_content.ADAPTER, self.doc_row(node).id)
-        payloads = [payload for _rev, payload in snapshot["rows"]]
-        verdict = kernel.judge(BUNDLE, snapshot["checkpoint"], payloads)
+        payloads = snapshot.payloads()
+        verdict = kernel.judge(BUNDLE, snapshot.checkpoint, payloads)
         self.assertEqual(verdict, kernel.Verdict(None))
         self.assertIsNone(self.doc_row(node).suspect)
 

@@ -109,7 +109,7 @@ class TestNoteAdapter(IntegrationTestCase):
     def test_a_note_takes_a_push_and_reads_back_as_written(self):
         self.assertEqual(self.push(typed(self.client_id, "hello"))["rev"], 1)
 
-        rows = content.read(note.SPEC.name, self.doc_id)["rows"]
+        rows = content.read(note.SPEC.name, self.doc_id).rows
         doc = pycrdt.Doc()
         for _rev, payload in rows:
             doc.apply_update(payload)

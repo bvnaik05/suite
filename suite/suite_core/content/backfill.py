@@ -22,15 +22,15 @@ def backfill_clocks(adapter: str, owner_of: Callable[[str], str | None]) -> None
             if log is None:
                 continue
 
-            unreadable = {rev for rev, payload in log["rows"] if quarantine.parse_or_none(payload) is None}
+            unreadable = {rev for rev, payload in log.rows if quarantine.parse_or_none(payload) is None}
             if unreadable:
                 quarantine.quarantine(adapter, doc_id, unreadable, "malformed_row", owner_of)
                 log = read(adapter, doc_id)
                 if log is None:
                     continue
 
-            checkpoint_payloads = [log["checkpoint"]] if log["checkpoint"] else []
-            row_payloads = [payload for _rev, payload in log["rows"]]
+            checkpoint_payloads = [log.checkpoint] if log.checkpoint else []
+            row_payloads = log.payloads()
             clocks = ingest.next_clocks(checkpoint_payloads + row_payloads)
         except (ChainBroken, ValueError, RuntimeError):
             frappe.log_error(f"Collab clocks not read for {adapter} log {doc_id}")

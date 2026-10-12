@@ -25,7 +25,7 @@ from suite.suite_core.content.log import (
 )
 from suite.suite_core.content.pushes import push, put_piece
 from suite.suite_core.content.sessions import claim_session, issue_session
-from suite.suite_core.content.snapshot import read, rows_after, with_tombstones
+from suite.suite_core.content.snapshot import Snapshot, read, rows_after, with_tombstones
 from suite.suite_core.content.tables import ensure_tables
 from suite.suite_core.content.wire import (
     PROTOCOL_VERSION,

@@ -55,16 +55,16 @@ SPEC = ContentAdapterSpec(
 )
 
 
-def version_payload(snapshot: dict, state: bytes) -> dict:
+def version_payload(snapshot: content.Snapshot, state: bytes) -> dict:
     """`state` as a `writer-document/2` version. The readable copy is not built yet, so `html` is null."""
     compressed = gzip.compress(state)
     encoded_state = base64.b64encode(compressed).decode("ascii")
     return {
         "schema": "writer-document/2",
         "codec": SPEC.codec,
-        "lineage": snapshot["lineage"],
-        "through_rev": snapshot["head_rev"],
-        "chain": snapshot["head_chain"].hex(),
+        "lineage": snapshot.lineage,
+        "through_rev": snapshot.head_rev,
+        "chain": snapshot.head_chain.hex(),
         "state": encoded_state,
         "html": None,
     }

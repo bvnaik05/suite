@@ -11,6 +11,7 @@ import frappe
 from suite.suite_core.content import capacity, stage
 from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.log import Refusal
+from suite.suite_core.content.snapshot import Snapshot
 
 PROTOCOL_VERSION = 1
 PACE_MS = 500
@@ -56,16 +57,16 @@ def encode_frame(
     return b"".join(parts)
 
 
-def open_header(log_read: dict, *, can_write: bool) -> dict:
+def open_header(log_read: Snapshot, *, can_write: bool) -> dict:
     return {
         "state": "live",
         "proto": PROTOCOL_VERSION,
-        "lineage": log_read["lineage"],
-        "base": log_read["base"],
+        "lineage": log_read.lineage,
+        "base": log_read.base,
         "can_write": can_write,
         "pace_ms": PACE_MS,
-        "q_epoch": log_read["q_epoch"],
-        "schema": log_read["schema"],
+        "q_epoch": log_read.q_epoch,
+        "schema": log_read.schema,
     }
 
 

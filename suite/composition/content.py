@@ -161,7 +161,7 @@ def open_document(node: str) -> Response:
         "rooms": content.rooms(adapter, doc.id, doc.lineage),
     }
     rows = content.with_tombstones(snapshot)
-    return frame_response(header, rows, snapshot["checkpoint"])
+    return frame_response(header, rows, snapshot.checkpoint)
 
 
 def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
