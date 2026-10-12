@@ -15,7 +15,7 @@
         class="-ml-0.5"
       />
     </div>
-    <HeaderActions />
+    <HeaderActions split-toggle />
   </header>
 
   <div class="relative flex h-[calc(100dvh-3.05rem)] max-sm:min-h-0 max-sm:flex-1 max-sm:!h-auto">

@@ -37,9 +37,8 @@
     <p v-else class="pb-0.5">{{ title }}</p>
 
     <div class="-mr-1.5 ml-auto flex items-center space-x-2">
-      <!-- Both hide while rows are selected, where the slot's bulk actions take the
-			     cluster over: refreshing mid-selection would drop the selection, and the
-			     layout switch is noise next to a pending action. -->
+      <!-- Hides while rows are selected, where the slot's bulk actions take the
+			     cluster over: refreshing mid-selection would drop the selection. -->
       <template v-if="showActions">
         <Button
           variant="ghost"
@@ -51,7 +50,6 @@
             <RefreshCw class="icon" />
           </template>
         </Button>
-        <SplitViewToggle />
       </template>
       <slot name="actions" />
     </div>
@@ -66,7 +64,6 @@ import { Button, Dropdown } from 'frappe-ui'
 import { ChevronDown, RefreshCw } from 'lucide-vue-next'
 
 import LoadingBar from '@/apps/mail/components/LoadingBar.vue'
-import SplitViewToggle from '@/apps/mail/components/SplitViewToggle.vue'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import type { FilterOption } from '@/apps/mail/utils/listFilter'
 import AdaptiveDropdown from '@/components/AdaptiveDropdown.vue'

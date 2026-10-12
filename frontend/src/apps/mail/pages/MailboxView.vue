@@ -16,7 +16,7 @@
         ]"
       />
     </div>
-    <HeaderActions />
+    <HeaderActions split-toggle />
   </header>
 
   <!-- On mobile this banner renders below the title header instead (inside the mobile
