@@ -3,8 +3,8 @@ import { useRoute, type RouteLocationNamedRaw } from 'vue-router'
 
 import { api, client, type InputOf } from '@/api'
 import { userStore } from '@/apps/mail/stores/user'
-import { raiseToast } from '@/apps/mail/utils'
-import { useSettings } from '@/apps/mail/utils/composables'
+import { raiseOptimisticToast, raiseToast } from '@/apps/mail/utils'
+import { useSettings, useUndo } from '@/apps/mail/utils/composables'
 
 export type InboxCategory = 'primary' | 'updates' | 'forums' | 'promotions' | 'social'
 
@@ -86,6 +86,7 @@ export const useTabChoice = () => {
   const save = (input: InputOf<typeof api.mail.settings.updatePreferences>) =>
     client.mutation(api.mail.settings.updatePreferences, input)
   const { openSettings } = useSettings()
+  const { setUndoAction, undo } = useUndo()
 
   const offered = computed(() => !!store.userResource.data?.email_classification)
   const split = computed(() => !!store.userResource.data?.split_inbox)
@@ -123,15 +124,17 @@ export const useTabChoice = () => {
 
   const setSplit = async (on: boolean) => {
     await save({ split_inbox: on ? 1 : 0 })
-    // Off takes the tabs, and their menu with them: say how to get them back.
-    if (!on)
-      raiseToast(
-        __('Categories are off.'),
-        'success',
-        { label: __('Undo'), onClick: () => void setSplit(true) },
-        undefined,
-        { label: __('Settings'), onClick: () => openSettings('mail.layout') },
-      )
+    if (on) return
+    // Off takes the tabs, and their menu with them: say how to get them back. Undo is Mail's one undo
+    // slot, so the toast's button and Cmd/Ctrl+Z do the same, even after the toast has gone.
+    setUndoAction(() => raiseOptimisticToast(save({ split_inbox: 1 }), __('Categories turned on.')))
+    raiseToast(
+      __('Categories turned off.'),
+      'success',
+      { label: __('Undo'), onClick: undo },
+      undefined,
+      { label: __('Settings'), onClick: () => openSettings('mail.layout') },
+    )
   }
 
   return {
@@ -141,5 +144,140 @@ export const useTabChoice = () => {
     tabsFor,
     setTab,
     setSplit,
+  }
+}
+
+/** Where a list is being cleared: an account's mailbox, or a folder across every account. */
+export type ClearTarget = { account: string; mailbox: string } | { folder: string }
+
+/**
+ * What the list's menu clears: an Inbox tab, or a whole folder (no `category`: another folder, or an
+ * Inbox not split into tabs), and its name, for the menu and the toasts.
+ */
+export type ClearScope = { category?: InboxCategory; name: string }
+
+/** The name a tab goes by in the list's menu and toasts. */
+export const tabName = (category: InboxCategory) => TAB_LOOK[category].label()
+
+/**
+ * Clearing a list in one go, on the server: every unread message in it marked read, or an Inbox tab's
+ * every message archived or moved to Trash. Each says so with Undo (its toast's button or
+ * Cmd/Ctrl+Z), which puts back exactly what it changed and says so once it has.
+ */
+export const useClearTab = (target: () => ClearTarget) => {
+  const { setUndoAction, undo } = useUndo()
+
+  /** What a clearing changed, by account and the mailbox it came from; the empty left out. */
+  const cleared = async (done: Promise<{ account: string; mailbox: string; ids: string[] }[]>) =>
+    (await done).filter((mail) => mail.ids.length)
+
+  const ofAccount = async (
+    clear: (where: { account: string; mailbox: string }) => Promise<string[]>,
+    where: { account: string; mailbox: string },
+  ) => [{ ...where, ids: await clear(where) }]
+
+  const offerUndo = (message: string, undone: string, putBack: () => Promise<unknown>[]) => {
+    setUndoAction(() => raiseOptimisticToast(Promise.all(putBack()), undone))
+    raiseToast(message, 'success', { label: __('Undo'), onClick: undo })
+  }
+
+  /** Marks every unread message in the scope read; Undo marks exactly those unread again. */
+  const markAllRead = async ({ category, name }: ClearScope) => {
+    const where = target()
+    const done = await cleared(
+      'folder' in where
+        ? client.mutation(api.mail.messages.markUnifiedTabRead, { folder: where.folder, category })
+        : ofAccount(
+            (at) => client.mutation(api.mail.messages.markTabRead, { ...at, category }),
+            where,
+          ),
+    )
+    if (!done.length) return raiseToast(__('Nothing unread in {0}.', [name]))
+    offerUndo(
+      __('Everything in {0} marked as read.', [name]),
+      __('{0} mail marked as unread.', [name]),
+      () =>
+        done.map((mail) =>
+          client.mutation(api.mail.messages.seen, {
+            account: mail.account,
+            ids: mail.ids,
+            seen: false,
+          }),
+        ),
+    )
+  }
+
+  /** Archives or trashes a tab's mail; Undo moves it back to the mailbox it came from. */
+  const moveAll = async (clearing: 'archive' | 'trash', category: InboxCategory) => {
+    const where = target()
+    const name = tabName(category)
+    const [onAccount, onEvery] =
+      clearing === 'archive'
+        ? [api.mail.messages.archiveTab, api.mail.messages.archiveUnifiedTab]
+        : [api.mail.messages.trashTab, api.mail.messages.trashUnifiedTab]
+    const done = await cleared(
+      'folder' in where
+        ? client.mutation(onEvery, { folder: where.folder, category })
+        : ofAccount((at) => client.mutation(onAccount, { ...at, category }), where),
+    )
+    if (!done.length) return raiseToast(__('Nothing in {0}.', [name]))
+    offerUndo(
+      clearing === 'archive'
+        ? __('Everything in {0} archived.', [name])
+        : __('Everything in {0} moved to Trash.', [name]),
+      __('{0} mail moved back to the Inbox.', [name]),
+      () =>
+        done.map((mail) =>
+          client.mutation(api.mail.messages.move, {
+            account: mail.account,
+            ids: mail.ids,
+            mailbox: mail.mailbox,
+          }),
+        ),
+    )
+  }
+
+  const archiveAll = (category: InboxCategory) => moveAll('archive', category)
+  const trashAll = (category: InboxCategory) => moveAll('trash', category)
+
+  return { markAllRead, archiveAll, trashAll }
+}
+
+/**
+ * The list's menu for clearing what it shows, as one group: Mark all as read anywhere; Archive and
+ * Move to Trash only on an Inbox tab of bulk mail, never Primary or a whole folder. The toasts name
+ * what was cleared.
+ */
+export const useTabClearMenu = (target: () => ClearTarget) => {
+  const { markAllRead, archiveAll, trashAll } = useClearTab(target)
+  return (scope: ClearScope) => {
+    const { category } = scope
+    const bulkTab = category && category !== 'primary' ? category : undefined
+    return [
+      {
+        group: '',
+        options: [
+          {
+            label: __('Mark all as read'),
+            icon: 'lucide-mail-open',
+            onClick: () => void markAllRead(scope),
+          },
+          ...(bulkTab
+            ? [
+                {
+                  label: __('Archive all'),
+                  icon: 'lucide-archive',
+                  onClick: () => void archiveAll(bulkTab),
+                },
+                {
+                  label: __('Move all to Trash'),
+                  icon: 'lucide-trash-2',
+                  onClick: () => void trashAll(bulkTab),
+                },
+              ]
+            : []),
+        ],
+      },
+    ]
   }
 }

@@ -117,7 +117,11 @@
               v-else-if="mailbox !== 'search'"
               :title="title"
               :filter-options="FILTER_OPTIONS"
-            />
+            >
+              <template v-if="clearScope" #mobile-actions>
+                <TabClearActions :scope="clearScope" :target="{ account: accountId, mailbox }" />
+              </template>
+            </MailListToolbar>
 
             <!-- Loading bar -->
             <LoadingBar v-if="activeThreads.isFetching" />
@@ -159,6 +163,11 @@
             </template>
 
             <template #actions>
+              <TabClearActions
+                v-if="clearScope && !selections.length"
+                :scope="clearScope"
+                :target="{ account: accountId, mailbox }"
+              />
               <template v-if="selections.length">
                 <Dropdown v-if="showReadingPane" :options="selectActions">
                   <Button variant="ghost" :tooltip="__('Actions')">
@@ -471,8 +480,9 @@ import MailThread from '@/apps/mail/components/MailThread.vue'
 import MobileTitleHeader from '@/apps/mail/components/mobile/MobileTitleHeader.vue'
 import SearchResultsHeader from '@/apps/mail/components/SearchResultsHeader.vue'
 import StackListItem from '@/apps/mail/components/StackListItem.vue'
+import TabClearActions from '@/apps/mail/components/TabClearActions.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
-import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
+import { tabName, useInboxTabs, type ClearScope } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows, type NavRow } from '@/apps/mail/composables/useListRows'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
 import { useScreener } from '@/apps/mail/composables/useScreener'
@@ -1064,6 +1074,13 @@ const {
 // Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline, as a
 // search does, rather than the whole view giving way to the spinner.
 const tabSwitched = ref(false)
+// What the list's menu clears: the open tab of a split Inbox, else the whole folder. Not offered where
+// there is no folder to clear (Starred, a search) or nothing unread to clear (Sent, Drafts).
+const clearScope = computed<ClearScope | undefined>(() => {
+  if (['search', 'starred', mailboxIds.sent, mailboxIds.drafts].includes(mailbox)) return undefined
+  if (inboxTab.value) return { category: inboxTab.value, name: tabName(inboxTab.value) }
+  return { name: mailboxName.value }
+})
 watch(inboxTab, (tab, previous) => {
   tabSwitched.value = !!(tab && previous && tab !== previous)
   if (tabSwitched.value) resetThreads(false)
@@ -1119,6 +1136,9 @@ const isLoading = computed(() => {
   if (!isMailboxLoaded.value) return true
   if (emptyMailbox.isPending) return true
   if (refillPending.value) return true
+  // A split Inbox keeps its tabs up while an emptied tab refills (an Undo, a refresh): the list loads
+  // inline rather than the whole view giving way to the spinner.
+  if (inboxTab.value) return false
   return !threadRows.value.length && activeThreads.value.isFetching
 })
 

@@ -5450,6 +5450,168 @@ const operationGetUnifiedTabCounts: QueryRef<
   loadValidators: async () => (await import('./validators')).operationGetUnifiedTabCounts,
 }
 
+export type MarkTabReadInput = { account: string; mailbox: string; category?: string | null }
+
+export type MarkTabReadOutput = Array<string>
+
+export type MarkTabReadError = 'PermissionError' | 'ValidationError'
+
+const operationMarkTabRead: MutationRef<MarkTabReadInput, MarkTabReadOutput, MarkTabReadError> = {
+  id: 'mark_tab_read',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.markTabRead',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.mark_tab_read',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationMarkTabRead,
+}
+
+export type ArchiveTabInput = { account: string; mailbox: string; category: string }
+
+export type ArchiveTabOutput = Array<string>
+
+export type ArchiveTabError = 'PermissionError' | 'ValidationError'
+
+const operationArchiveTab: MutationRef<ArchiveTabInput, ArchiveTabOutput, ArchiveTabError> = {
+  id: 'archive_tab',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.archiveTab',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.archive_tab',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationArchiveTab,
+}
+
+export type TrashTabInput = { account: string; mailbox: string; category: string }
+
+export type TrashTabOutput = Array<string>
+
+export type TrashTabError = 'PermissionError' | 'ValidationError'
+
+const operationTrashTab: MutationRef<TrashTabInput, TrashTabOutput, TrashTabError> = {
+  id: 'trash_tab',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.trashTab',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.trash_tab',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationTrashTab,
+}
+
+export type MarkUnifiedTabReadOutputClearedMail = {
+  account: string
+  mailbox: string
+  ids: Array<string>
+}
+
+export type MarkUnifiedTabReadInput = { folder: string; category?: string | null }
+
+export type MarkUnifiedTabReadOutput = Array<MarkUnifiedTabReadOutputClearedMail>
+
+export type MarkUnifiedTabReadError = 'PermissionError' | 'ValidationError'
+
+const operationMarkUnifiedTabRead: MutationRef<
+  MarkUnifiedTabReadInput,
+  MarkUnifiedTabReadOutput,
+  MarkUnifiedTabReadError
+> = {
+  id: 'mark_unified_tab_read',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.markUnifiedTabRead',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.mark_unified_tab_read',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationMarkUnifiedTabRead,
+}
+
+export type ArchiveUnifiedTabOutputClearedMail = {
+  account: string
+  mailbox: string
+  ids: Array<string>
+}
+
+export type ArchiveUnifiedTabInput = { folder: string; category: string }
+
+export type ArchiveUnifiedTabOutput = Array<ArchiveUnifiedTabOutputClearedMail>
+
+export type ArchiveUnifiedTabError = 'PermissionError' | 'ValidationError'
+
+const operationArchiveUnifiedTab: MutationRef<
+  ArchiveUnifiedTabInput,
+  ArchiveUnifiedTabOutput,
+  ArchiveUnifiedTabError
+> = {
+  id: 'archive_unified_tab',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.archiveUnifiedTab',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.archive_unified_tab',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationArchiveUnifiedTab,
+}
+
+export type TrashUnifiedTabOutputClearedMail = {
+  account: string
+  mailbox: string
+  ids: Array<string>
+}
+
+export type TrashUnifiedTabInput = { folder: string; category: string }
+
+export type TrashUnifiedTabOutput = Array<TrashUnifiedTabOutputClearedMail>
+
+export type TrashUnifiedTabError = 'PermissionError' | 'ValidationError'
+
+const operationTrashUnifiedTab: MutationRef<
+  TrashUnifiedTabInput,
+  TrashUnifiedTabOutput,
+  TrashUnifiedTabError
+> = {
+  id: 'trash_unified_tab',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.trashUnifiedTab',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.trash_unified_tab',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationTrashUnifiedTab,
+}
+
 export type GetThreadOutputAttachment = {
   filename: string | null
   type: string
@@ -6930,6 +7092,12 @@ export const api = {
     counts: operationGetTabCounts,
   },
   messages: {
+    markTabRead: operationMarkTabRead,
+    archiveTab: operationArchiveTab,
+    trashTab: operationTrashTab,
+    markUnifiedTabRead: operationMarkUnifiedTabRead,
+    archiveUnifiedTab: operationArchiveUnifiedTab,
+    trashUnifiedTab: operationTrashUnifiedTab,
     search: operationSearchMails,
     mime: operationGetMimeMessage,
     deliveryStatus: operationGetDeliveryStatus,

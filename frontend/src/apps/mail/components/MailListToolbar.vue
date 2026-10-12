@@ -13,6 +13,8 @@
         <ChevronDown class="text-ink-gray-5 h-4 w-4 shrink-0" />
       </button>
     </AdaptiveDropdown>
+    <!-- Actions on the list as a whole, such as clearing an Inbox tab. -->
+    <div class="-mr-1.5 ml-auto flex items-center"><slot name="mobile-actions" /></div>
     <LoadingBar v-if="loading" />
   </div>
 
@@ -37,6 +39,9 @@
     <p v-else class="pb-0.5">{{ title }}</p>
 
     <div class="-mr-1.5 ml-auto flex items-center space-x-2">
+      <!-- The caller's actions come first, so Refresh keeps the far end whatever they are and
+			     nothing shifts as they come and go (an Inbox tab's own menu, say). -->
+      <slot name="actions" />
       <!-- Hides while rows are selected, where the slot's bulk actions take the
 			     cluster over: refreshing mid-selection would drop the selection. -->
       <template v-if="showActions">
@@ -51,7 +56,6 @@
           </template>
         </Button>
       </template>
-      <slot name="actions" />
     </div>
 
     <!-- Subtle loading bar: a segment sliding across the bottom outline (no layout shift) -->

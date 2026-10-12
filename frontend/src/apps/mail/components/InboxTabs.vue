@@ -41,70 +41,76 @@
   >
     <Tabs :model-value="active">
       <!-- As tall as the toolbar below, with the gutter inside the rail, so the first tab lines up
-           with the toolbar's checkbox. -->
-      <!-- Each tab underlines itself (below) in place of the list's one sliding indicator: that one
+           with the toolbar's checkbox. The rail is the row's, not the tab list's, so it runs on
+           under the menu at the row's end: the menu sits outside the tab list, whose keyboard
+           handling would otherwise move focus from it onto a tab, opening that tab. -->
+      <div class="flex h-12 items-center border-b border-outline-gray-1 px-3 sm:px-5">
+        <!-- Each tab underlines itself (below) in place of the list's one sliding indicator: that one
            measures the open tab once, as it is clicked, so it lags behind a name still opening. A
            narrow row sets its tabs 16px apart rather than 24, room for the open tab's whole name
            in the split view's list: a name that only just doesn't fit would end its opening by
            trading its clipped end for an ellipsis. -->
-      <TabList
-        variant="underline"
-        size="md"
-        class="h-12 w-full overflow-x-clip px-3 sm:px-5 [&>[data-slot=tab-indicator]]:hidden"
-        :class="[
-          narrow && 'data-[slot=tab-list]:gap-4',
-          animated &&
-            'transition-[column-gap] duration-300 ease-in-out motion-reduce:transition-none',
-        ]"
-      >
-        <!-- A list too narrow for every name names only the open tab; the rest show an icon and a
+        <TabList
+          variant="underline"
+          size="md"
+          class="h-full min-w-0 flex-1 overflow-x-clip data-[slot=tab-list]:border-b-0 [&>[data-slot=tab-indicator]]:hidden"
+          :class="[
+            narrow && 'data-[slot=tab-list]:gap-4',
+            animated &&
+              'transition-[column-gap] duration-300 ease-in-out motion-reduce:transition-none',
+          ]"
+        >
+          <!-- A list too narrow for every name names only the open tab; the rest show an icon and a
              count, and name themselves in a tooltip. A name opens and closes rather than snapping,
              so the tab draws its own icon, name and count (the label frappe-ui draws can only
              appear or vanish). Only a named tab gives way to a still narrower list, by truncating.
              A closed name stays in the tab for screen readers. The tooltip is never disabled, only
              emptied: disabling it re-creates the tab, and a re-created tab can't animate. -->
-        <Tooltip v-for="tab in tabs" :key="tab.category" :text="iconOnly(tab) ? tab.label : ''">
-          <TabTrigger
-            :value="tab.category"
-            :route="routeFor(tab.category)"
-            class="relative items-center self-stretch after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-[var(--outline-gray-8)] after:opacity-0 data-[state=active]:after:opacity-100"
-            :class="[
-              iconOnly(tab) || resizing ? 'shrink-0' : 'min-w-0 [&>[data-state]]:min-w-0',
-              animated &&
-                'after:transition-opacity after:duration-300 motion-reduce:after:transition-none',
-            ]"
-          >
-            <span class="flex min-w-0 items-center">
-              <span :class="[tab.icon, 'size-4 shrink-0']" aria-hidden="true" />
-              <!-- A grid column eases between nothing and the name's own width. -->
-              <span
-                class="grid min-w-0"
-                :class="[
-                  iconOnly(tab)
-                    ? 'ml-0 grid-cols-[0fr] opacity-0'
-                    : 'ml-2 grid-cols-[1fr] opacity-100',
-                  animated &&
-                    'transition-[grid-template-columns,margin,opacity] duration-300 ease-in-out motion-reduce:transition-none',
-                ]"
-              >
-                <!-- Clipped, not ellipsed, while it opens or closes: an ellipsis is for a name that
-                     won't fit, not one still growing. -->
+          <Tooltip v-for="tab in tabs" :key="tab.category" :text="iconOnly(tab) ? tab.label : ''">
+            <TabTrigger
+              :value="tab.category"
+              :route="routeFor(tab.category)"
+              class="relative items-center self-stretch after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-[var(--outline-gray-8)] after:opacity-0 data-[state=active]:after:opacity-100"
+              :class="[
+                iconOnly(tab) || resizing ? 'shrink-0' : 'min-w-0 [&>[data-state]]:min-w-0',
+                animated &&
+                  'after:transition-opacity after:duration-300 motion-reduce:after:transition-none',
+              ]"
+            >
+              <span class="flex min-w-0 items-center">
+                <span :class="[tab.icon, 'size-4 shrink-0']" aria-hidden="true" />
+                <!-- A grid column eases between nothing and the name's own width. -->
                 <span
-                  class="min-w-0 overflow-hidden whitespace-nowrap"
-                  :class="settling ? 'text-clip' : 'text-ellipsis'"
+                  class="grid min-w-0"
+                  :class="[
+                    iconOnly(tab)
+                      ? 'ml-0 grid-cols-[0fr] opacity-0'
+                      : 'ml-2 grid-cols-[1fr] opacity-100',
+                    animated &&
+                      'transition-[grid-template-columns,margin,opacity] duration-300 ease-in-out motion-reduce:transition-none',
+                  ]"
                 >
-                  {{ tab.label }}
+                  <!-- Clipped, not ellipsed, while it opens or closes: an ellipsis is for a name that
+                     won't fit, not one still growing. -->
+                  <span
+                    class="min-w-0 overflow-hidden whitespace-nowrap"
+                    :class="settling ? 'text-clip' : 'text-ellipsis'"
+                  >
+                    {{ tab.label }}
+                  </span>
                 </span>
+                <Badge v-if="countShown(tab)" size="sm" class="ml-2 shrink-0">{{
+                  tab.unread
+                }}</Badge>
               </span>
-              <Badge v-if="countShown(tab)" size="sm" class="ml-2 shrink-0">{{ tab.unread }}</Badge>
-            </span>
-          </TabTrigger>
-        </Tooltip>
-        <!-- Which categories get a tab, and categories off altogether, in place (as in Mail settings). -->
-        <!-- Pulled out by as much as the toolbar's own buttons, so it lines up with Refresh below. -->
-        <div class="-mr-1.5 ml-auto flex shrink-0 items-center pl-2">
+            </TabTrigger>
+          </Tooltip>
+        </TabList>
+        <!-- Which categories get a tab, and categories off altogether, in place (as in Mail
+             settings). Pulled out by as much as the toolbar's own buttons, so it lines up with
+             Refresh below, and drawn as Refresh is, with Mail's .icon. -->
+        <div class="-mr-1.5 flex shrink-0 items-center pl-2">
           <Dropdown :options="choiceMenu" align="end">
-            <!-- Drawn as the toolbar's Refresh is, with Mail's .icon, so the two match. -->
             <Button
               variant="ghost"
               :tooltip="__('Choose categories')"
@@ -116,7 +122,7 @@
             </Button>
           </Dropdown>
         </div>
-      </TabList>
+      </div>
     </Tabs>
   </div>
 </template>

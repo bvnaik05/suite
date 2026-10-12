@@ -51,6 +51,29 @@ class UnifiedTabCountsInput(TypedDict):
     folder: str
 
 
+class TabClearInput(TabCountsInput):
+    category: str
+
+
+class UnifiedTabClearInput(UnifiedTabCountsInput):
+    category: str
+
+
+class MarkReadInput(TabCountsInput):
+    # A tab of the Inbox; none, the whole mailbox.
+    category: NotRequired[str | None]
+
+
+class UnifiedMarkReadInput(UnifiedTabCountsInput):
+    category: NotRequired[str | None]
+
+
+class ClearedMail(TypedDict):
+    account: str
+    mailbox: str
+    ids: list[str]
+
+
 class SearchInput(AccountInput):
     filter: NotRequired[SearchFilter | None]
     limit: NotRequired[int]
@@ -268,6 +291,33 @@ _OPERATIONS: tuple[
         "unified.tabCounts",
         UnifiedTabCountsInput,
         list[TabCount],
+        None,
+    ),
+    (mail.mark_tab_read, "mutation", "messages.markTabRead", MarkReadInput, list[str], None),
+    (mail.archive_tab, "mutation", "messages.archiveTab", TabClearInput, list[str], None),
+    (mail.trash_tab, "mutation", "messages.trashTab", TabClearInput, list[str], None),
+    (
+        mail.mark_unified_tab_read,
+        "mutation",
+        "messages.markUnifiedTabRead",
+        UnifiedMarkReadInput,
+        list[ClearedMail],
+        None,
+    ),
+    (
+        mail.archive_unified_tab,
+        "mutation",
+        "messages.archiveUnifiedTab",
+        UnifiedTabClearInput,
+        list[ClearedMail],
+        None,
+    ),
+    (
+        mail.trash_unified_tab,
+        "mutation",
+        "messages.trashUnifiedTab",
+        UnifiedTabClearInput,
+        list[ClearedMail],
         None,
     ),
     (mail.get_thread, "query", "threads.get", ThreadInput, list[Message], None),

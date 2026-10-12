@@ -52,7 +52,14 @@
             :fetching="isFetching"
             :loading="threads.isFetching"
             @refresh="refreshThreads()"
-          />
+          >
+            <template v-if="clearScope" #actions>
+              <TabClearActions :scope="clearScope" :target="{ folder }" />
+            </template>
+            <template v-if="clearScope" #mobile-actions>
+              <TabClearActions :scope="clearScope" :target="{ folder }" />
+            </template>
+          </MailListToolbar>
 
           <!-- Mail list -->
           <div ref="mailList" class="h-full overflow-y-auto overscroll-contain max-sm:pb-20">
@@ -202,9 +209,10 @@ import MailListToolbar from '@/apps/mail/components/MailListToolbar.vue'
 import MailThread from '@/apps/mail/components/MailThread.vue'
 import MobileTitleHeader from '@/apps/mail/components/mobile/MobileTitleHeader.vue'
 import StackListItem from '@/apps/mail/components/StackListItem.vue'
+import TabClearActions from '@/apps/mail/components/TabClearActions.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
 import { closeComposeWindowFor } from '@/apps/mail/composables/useComposeWindow'
-import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
+import { tabName, useInboxTabs, type ClearScope } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows } from '@/apps/mail/composables/useListRows'
 import { useMailRemoval } from '@/apps/mail/composables/useMailRemoval'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
@@ -335,6 +343,13 @@ const openTabLabel = computed(
 // Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline rather
 // than the whole view giving way to the spinner.
 const tabSwitched = ref(false)
+// What the list's menu clears: the open tab of a split Inbox, else the whole folder. Not offered where
+// there is no folder to clear (Starred) or nothing unread to clear (Sent, Drafts).
+const clearScope = computed<ClearScope | undefined>(() => {
+  if (folder === STARRED_FOLDER || isOutgoingFolder.value) return undefined
+  if (inboxTab.value) return { category: inboxTab.value, name: tabName(inboxTab.value) }
+  return { name: folderLabel.value }
+})
 watch(inboxTab, (tab, previous) => {
   tabSwitched.value = !!(tab && previous && tab !== previous)
   if (tabSwitched.value) resetThreads()

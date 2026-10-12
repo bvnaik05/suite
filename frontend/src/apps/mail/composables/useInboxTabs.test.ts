@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 
-import { useInboxTabs, useTabChoice, type InboxCategory } from './useInboxTabs'
+import { useInboxTabs, useTabChoice, useTabClearMenu, type InboxCategory } from './useInboxTabs'
 
 type Counts = { category: InboxCategory; unread_threads: number }[]
 
@@ -31,9 +31,21 @@ vi.mock('@/api', () => ({
     },
   },
 }))
-vi.mock('@/apps/mail/utils', () => ({ raiseToast: (message: string) => toasts.push(message) }))
+vi.mock('@/apps/mail/utils', () => ({
+  raiseToast: (message: string) => toasts.push(message),
+  raiseOptimisticToast: async (done: Promise<unknown>, message: string) => {
+    await done
+    toasts.push(message)
+  },
+}))
+// Mail's one undo slot, as the toast's Undo and Cmd/Ctrl+Z both reach it.
+const undoSlot = vi.hoisted(() => ({ action: undefined as (() => unknown) | undefined }))
 vi.mock('@/apps/mail/utils/composables', () => ({
   useSettings: () => ({ openSettings: () => {} }),
+  useUndo: () => ({
+    setUndoAction: (action?: () => unknown) => (undoSlot.action = action),
+    undo: () => undoSlot.action?.(),
+  }),
 }))
 
 const INBOX = { name: 'mail-mailbox', params: { accountId: 'ih', mailbox: 'inbox' } }
@@ -135,13 +147,17 @@ describe('the Inbox tabs', () => {
     expect(toasts).toEqual([])
   })
 
-  it('turn off altogether, saying how to get them back', async () => {
+  it('turn off altogether, saying how to get them back, and Undo turns them on again', async () => {
     const { setSplit } = useTabChoice()
 
     await setSplit(false)
-
     expect(saved).toEqual([{ split_inbox: 0 }])
-    expect(toasts).toEqual(['Categories are off.'])
+    expect(toasts).toEqual(['Categories turned off.'])
+
+    // What the toast's Undo and Cmd/Ctrl+Z both run.
+    await undoSlot.action?.()
+    expect(saved).toEqual([{ split_inbox: 0 }, { split_inbox: 1 }])
+    expect(toasts).toEqual(['Categories turned off.', 'Categories turned on.'])
   })
 
   it('build each switch on the last, while the earlier saves are still on their way', async () => {
@@ -157,6 +173,20 @@ describe('the Inbox tabs', () => {
     expect(saved).toEqual([
       { inbox_tabs: ['primary', 'updates', 'forums', 'promotions', 'social'] },
       { inbox_tabs: ['primary', 'updates', 'promotions', 'social'] },
+    ])
+  })
+
+  it('clear any list by marking all of it read, and only a bulk tab by archiving or trashing it', () => {
+    const menuFor = useTabClearMenu(() => ({ account: 'ih', mailbox: 'inbox' }))
+    const labels = (scope: Parameters<typeof menuFor>[0]) =>
+      menuFor(scope).flatMap((group) => group.options.map((option) => option.label))
+
+    expect(labels({ category: 'primary', name: 'Primary' })).toEqual(['Mark all as read'])
+    expect(labels({ name: 'Archive' })).toEqual(['Mark all as read'])
+    expect(labels({ category: 'updates', name: 'Updates' })).toEqual([
+      'Mark all as read',
+      'Archive all',
+      'Move all to Trash',
     ])
   })
 })

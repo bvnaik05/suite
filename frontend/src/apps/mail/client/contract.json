@@ -16264,6 +16264,375 @@
       "bytes": false
     },
     {
+      "id": "mark_tab_read",
+      "kind": "mutation",
+      "publicName": "messages.markTabRead",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.mark_tab_read",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "mailbox": {
+            "title": "Mailbox",
+            "type": "string"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          }
+        },
+        "required": [
+          "account",
+          "mailbox"
+        ],
+        "title": "MarkReadInput",
+        "type": "object"
+      },
+      "output": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "archive_tab",
+      "kind": "mutation",
+      "publicName": "messages.archiveTab",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.archive_tab",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "mailbox": {
+            "title": "Mailbox",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "mailbox",
+          "category"
+        ],
+        "title": "TabClearInput",
+        "type": "object"
+      },
+      "output": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "trash_tab",
+      "kind": "mutation",
+      "publicName": "messages.trashTab",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.trash_tab",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "mailbox": {
+            "title": "Mailbox",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "mailbox",
+          "category"
+        ],
+        "title": "TabClearInput",
+        "type": "object"
+      },
+      "output": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "mark_unified_tab_read",
+      "kind": "mutation",
+      "publicName": "messages.markUnifiedTabRead",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.mark_unified_tab_read",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          }
+        },
+        "required": [
+          "folder"
+        ],
+        "title": "UnifiedMarkReadInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ClearedMail": {
+            "properties": {
+              "account": {
+                "title": "Account",
+                "type": "string"
+              },
+              "mailbox": {
+                "title": "Mailbox",
+                "type": "string"
+              },
+              "ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Ids",
+                "type": "array"
+              }
+            },
+            "required": [
+              "account",
+              "mailbox",
+              "ids"
+            ],
+            "title": "ClearedMail",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/ClearedMail"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "archive_unified_tab",
+      "kind": "mutation",
+      "publicName": "messages.archiveUnifiedTab",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.archive_unified_tab",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder",
+          "category"
+        ],
+        "title": "UnifiedTabClearInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ClearedMail": {
+            "properties": {
+              "account": {
+                "title": "Account",
+                "type": "string"
+              },
+              "mailbox": {
+                "title": "Mailbox",
+                "type": "string"
+              },
+              "ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Ids",
+                "type": "array"
+              }
+            },
+            "required": [
+              "account",
+              "mailbox",
+              "ids"
+            ],
+            "title": "ClearedMail",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/ClearedMail"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "trash_unified_tab",
+      "kind": "mutation",
+      "publicName": "messages.trashUnifiedTab",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.trash_unified_tab",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder",
+          "category"
+        ],
+        "title": "UnifiedTabClearInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ClearedMail": {
+            "properties": {
+              "account": {
+                "title": "Account",
+                "type": "string"
+              },
+              "mailbox": {
+                "title": "Mailbox",
+                "type": "string"
+              },
+              "ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Ids",
+                "type": "array"
+              }
+            },
+            "required": [
+              "account",
+              "mailbox",
+              "ids"
+            ],
+            "title": "ClearedMail",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/ClearedMail"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
       "id": "get_thread",
       "kind": "query",
       "publicName": "threads.get",

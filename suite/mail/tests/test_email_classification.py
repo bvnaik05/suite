@@ -811,3 +811,131 @@ class ChosenInboxTabs(unittest.TestCase):
     def test_a_name_that_is_no_category_is_refused(self):
         with self.assertRaises(frappe.ValidationError):
             classification.normalize_tabs(["updates", "newsletters"])
+
+
+class ClearingATab(unittest.TestCase):
+    """A tab other than Primary clears in one go: all its unread mail read, or all its mail archived."""
+
+    def setUp(self):
+        for patch in (
+            mock.patch.object(classification, "is_enabled", return_value=True),
+            mock.patch.object(classification, "chosen_tabs", return_value=(True, classification.INBOX_TABS)),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def picked(
+        self, action, category: str, **kwargs
+    ) -> tuple[dict, list[str], mock.MagicMock, mock.MagicMock]:
+        """What `action` asks the server for, what it returns, and the seen and move calls it makes."""
+
+        with (
+            mock.patch.object(mail_api, "query_message_ids", return_value={"ids": ["m1", "m2"]}) as query,
+            mock.patch.object(mail_api, "set_seen_status") as seen,
+            mock.patch.object(mail_api, "move_messages_to_mailbox") as move,
+            mock.patch.object(
+                mail_api, "get_mailbox_id_by_role", side_effect=lambda _account, role, **_: role
+            ),
+        ):
+            returned = action(category=category, **kwargs)
+        return query.call_args.args[1], returned, seen, move
+
+    def test_mark_all_read_reads_the_tabs_unread_mail(self):
+        filter, returned, seen, move = self.picked(
+            mail_api.mark_tab_read, "updates", account=ACCOUNT, mailbox="inbox"
+        )
+
+        self.assertEqual(filter["conditions"][0], {"inMailbox": "inbox"})
+        self.assertTrue(
+            lists({"operator": "AND", "conditions": filter["conditions"][1:]}, {"category_updates"})
+        )
+        self.assertFalse(
+            lists({"operator": "AND", "conditions": filter["conditions"][1:]}, {"category_updates", "$seen"})
+        )
+        self.assertFalse(
+            lists({"operator": "AND", "conditions": filter["conditions"][1:]}, {"category_forums"})
+        )
+        seen.assert_called_once_with(ACCOUNT, ["m1", "m2"], True)
+        move.assert_not_called()
+        self.assertEqual(returned, ["m1", "m2"])
+
+    def test_archive_all_archives_the_tabs_mail_read_or_not(self):
+        filter, returned, seen, move = self.picked(
+            mail_api.archive_tab, "forums", account=ACCOUNT, mailbox="inbox"
+        )
+
+        conditions = {"operator": "AND", "conditions": filter["conditions"][1:]}
+        self.assertTrue(lists(conditions, {"category_forums", "$seen"}))
+        self.assertFalse(lists(conditions, {"category_promotions"}))
+        move.assert_called_once_with(ACCOUNT, ["m1", "m2"], "archive")
+        seen.assert_not_called()
+        self.assertEqual(returned, ["m1", "m2"])
+
+    def test_trash_all_moves_the_tabs_mail_to_trash(self):
+        filter, returned, seen, move = self.picked(
+            mail_api.trash_tab, "promotions", account=ACCOUNT, mailbox="inbox"
+        )
+
+        conditions = {"operator": "AND", "conditions": filter["conditions"][1:]}
+        self.assertTrue(lists(conditions, {"category_promotions", "$seen"}))
+        self.assertFalse(lists(conditions, {"category_updates"}))
+        move.assert_called_once_with(ACCOUNT, ["m1", "m2"], "trash")
+        self.assertEqual(returned, ["m1", "m2"])
+
+    def test_primary_is_not_archived_or_trashed_all_at_once(self):
+        for action in (mail_api.archive_tab, mail_api.trash_tab):
+            with self.subTest(action=action.__name__), self.assertRaises(frappe.ValidationError):
+                self.picked(action, "primary", account=ACCOUNT, mailbox="inbox")
+
+    def test_primary_can_be_marked_read_all_at_once(self):
+        filter, _returned, seen, _move = self.picked(
+            mail_api.mark_tab_read, "primary", account=ACCOUNT, mailbox="inbox"
+        )
+
+        conditions = {"operator": "AND", "conditions": filter["conditions"][1:]}
+        self.assertTrue(lists(conditions, {"category_primary"}))
+        self.assertFalse(lists(conditions, {"category_primary", "$seen"}))
+        self.assertFalse(lists(conditions, {"category_updates"}))
+        seen.assert_called_once_with(ACCOUNT, ["m1", "m2"], True)
+
+    def test_a_whole_mailbox_is_marked_read_without_a_category(self):
+        with (
+            mock.patch.object(mail_api, "query_message_ids", return_value={"ids": ["m1"]}) as query,
+            mock.patch.object(mail_api, "set_seen_status") as seen,
+        ):
+            mail_api.mark_tab_read(ACCOUNT, "archive")
+
+        self.assertEqual(
+            query.call_args.args[1],
+            {"operator": "AND", "conditions": [{"inMailbox": "archive"}, {"notKeyword": "$seen"}]},
+        )
+        seen.assert_called_once_with(ACCOUNT, ["m1"], True)
+
+    def test_all_accounts_clear_each_leaving_out_an_account_that_fails(self):
+        def mailboxes(account):
+            if account == "revoked":
+                raise MethodError("accountNotFound", "c0", {})
+            return MAILBOXES
+
+        with (
+            mock.patch.object(
+                mail_api,
+                "get_user_jmap_accounts",
+                return_value=[{"name": "a"}, {"name": "revoked"}, {"name": "b"}],
+            ),
+            mock.patch.object(mail_api, "get_cached_mailboxes", side_effect=mailboxes),
+            mock.patch.object(
+                mail_api, "query_message_ids", side_effect=lambda account, *_: {"ids": [f"{account}-1"]}
+            ),
+            mock.patch.object(mail_api, "set_seen_status") as seen,
+        ):
+            cleared = mail_api.mark_unified_tab_read("inbox", "updates")
+
+        self.assertEqual(
+            cleared,
+            [
+                {"account": "a", "mailbox": "inbox", "ids": ["a-1"]},
+                {"account": "b", "mailbox": "inbox", "ids": ["b-1"]},
+            ],
+        )
+        self.assertEqual(seen.call_count, 2)

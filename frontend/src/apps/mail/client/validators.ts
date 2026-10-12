@@ -41,6 +41,10 @@ import type {
   AddPushSubscriptionOutput,
   AllowScreeningSendersInput,
   AllowScreeningSendersOutput,
+  ArchiveTabInput,
+  ArchiveTabOutput,
+  ArchiveUnifiedTabInput,
+  ArchiveUnifiedTabOutput,
   BlockSendersInput,
   BlockSendersOutput,
   BookInput,
@@ -253,6 +257,10 @@ import type {
   InviteOutput,
   JunkSendersInboxMailInput,
   JunkSendersInboxMailOutput,
+  MarkTabReadInput,
+  MarkTabReadOutput,
+  MarkUnifiedTabReadInput,
+  MarkUnifiedTabReadOutput,
   MoveMailsInput,
   MoveMailsOutput,
   OngoingCalendarExchangeInput,
@@ -329,6 +337,10 @@ import type {
   SignupOutput,
   SubscribeMailboxInput,
   SubscribeMailboxOutput,
+  TrashTabInput,
+  TrashTabOutput,
+  TrashUnifiedTabInput,
+  TrashUnifiedTabOutput,
   UndoScreeningVerdictInput,
   UndoScreeningVerdictOutput,
   UnscreenEmailAddressesInput,
@@ -7413,6 +7425,204 @@ export const operationGetUnifiedTabCounts: Validators<
         type: 'array',
       },
       'get_unified_tab_counts output',
+    )
+  },
+}
+
+export const operationMarkTabRead: Validators<MarkTabReadInput, MarkTabReadOutput> = {
+  validateInput(value: unknown): asserts value is MarkTabReadInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          mailbox: { title: 'Mailbox', type: 'string' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
+        },
+        required: ['account', 'mailbox'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'mark_tab_read input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is MarkTabReadOutput {
+    assertSchema(value, { items: { type: 'string' }, type: 'array' }, 'mark_tab_read output')
+  },
+}
+
+export const operationArchiveTab: Validators<ArchiveTabInput, ArchiveTabOutput> = {
+  validateInput(value: unknown): asserts value is ArchiveTabInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          mailbox: { title: 'Mailbox', type: 'string' },
+          category: { title: 'Category', type: 'string' },
+        },
+        required: ['account', 'mailbox', 'category'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'archive_tab input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is ArchiveTabOutput {
+    assertSchema(value, { items: { type: 'string' }, type: 'array' }, 'archive_tab output')
+  },
+}
+
+export const operationTrashTab: Validators<TrashTabInput, TrashTabOutput> = {
+  validateInput(value: unknown): asserts value is TrashTabInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          mailbox: { title: 'Mailbox', type: 'string' },
+          category: { title: 'Category', type: 'string' },
+        },
+        required: ['account', 'mailbox', 'category'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'trash_tab input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is TrashTabOutput {
+    assertSchema(value, { items: { type: 'string' }, type: 'array' }, 'trash_tab output')
+  },
+}
+
+export const operationMarkUnifiedTabRead: Validators<
+  MarkUnifiedTabReadInput,
+  MarkUnifiedTabReadOutput
+> = {
+  validateInput(value: unknown): asserts value is MarkUnifiedTabReadInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          folder: { title: 'Folder', type: 'string' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
+        },
+        required: ['folder'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'mark_unified_tab_read input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is MarkUnifiedTabReadOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          ClearedMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              mailbox: { title: 'Mailbox', type: 'string' },
+              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+            },
+            required: ['account', 'mailbox', 'ids'],
+            title: 'ClearedMail',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/ClearedMail' },
+        type: 'array',
+      },
+      'mark_unified_tab_read output',
+    )
+  },
+}
+
+export const operationArchiveUnifiedTab: Validators<
+  ArchiveUnifiedTabInput,
+  ArchiveUnifiedTabOutput
+> = {
+  validateInput(value: unknown): asserts value is ArchiveUnifiedTabInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          folder: { title: 'Folder', type: 'string' },
+          category: { title: 'Category', type: 'string' },
+        },
+        required: ['folder', 'category'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'archive_unified_tab input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is ArchiveUnifiedTabOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          ClearedMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              mailbox: { title: 'Mailbox', type: 'string' },
+              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+            },
+            required: ['account', 'mailbox', 'ids'],
+            title: 'ClearedMail',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/ClearedMail' },
+        type: 'array',
+      },
+      'archive_unified_tab output',
+    )
+  },
+}
+
+export const operationTrashUnifiedTab: Validators<TrashUnifiedTabInput, TrashUnifiedTabOutput> = {
+  validateInput(value: unknown): asserts value is TrashUnifiedTabInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          folder: { title: 'Folder', type: 'string' },
+          category: { title: 'Category', type: 'string' },
+        },
+        required: ['folder', 'category'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'trash_unified_tab input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is TrashUnifiedTabOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          ClearedMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              mailbox: { title: 'Mailbox', type: 'string' },
+              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+            },
+            required: ['account', 'mailbox', 'ids'],
+            title: 'ClearedMail',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/ClearedMail' },
+        type: 'array',
+      },
+      'trash_unified_tab output',
     )
   },
 }
