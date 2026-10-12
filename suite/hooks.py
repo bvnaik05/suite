@@ -148,6 +148,8 @@ drive_content_types = [
 # Dotted paths to `suite.suite_core.content.adapters.ContentAdapterSpec` objects,
 # one per app whose documents the content layer keeps.
 suite_content_adapters = ["suite.writer.content.SPEC"]
+# The one `suite.suite_core.content.adapters.NodeHooks`: what the layer asks Drive about a node.
+suite_content_nodes = ["suite.composition.content.NODES"]
 
 # ============================================================================
 # Permissions — permission_query_conditions (deep-merged union; no key clashes)

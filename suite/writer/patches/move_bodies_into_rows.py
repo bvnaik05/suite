@@ -13,8 +13,8 @@ import hashlib
 import frappe
 from frappe.utils import now_datetime
 
+from suite.suite_core.content.adapters import node_hooks
 from suite.suite_core.content.tables import table
-from suite.writer.content import document_owner
 from suite.writer.drive import EMPTY_BODY
 
 OLD_COLUMNS = ("checkpoint_rev", "checkpoint_chain", "integrated_rev")
@@ -136,7 +136,7 @@ def keep_recovery_copy(doc_id: str, log_row: frappe._dict, row: frappe._dict, bo
 
     payload = row.content.encode()
     try:
-        owner = document_owner(log_row.node) or row.owner
+        owner = node_hooks().owner(log_row.node) or row.owner
         payload_sha = hashlib.sha256(payload).hexdigest()
         frappe.db.sql(
             f"""INSERT INTO `{table("writer", "recovery")}`

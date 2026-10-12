@@ -851,7 +851,7 @@ class TestWriterCollab(IntegrationTestCase):
         frappe.db.sql("UPDATE `__writer_content_doc` SET `start_clocks` = NULL WHERE `id` = %s", doc_id)
         frappe.db.commit()
 
-        routes.content.backfill_clocks(writer_content.ADAPTER, writer_content.document_owner)
+        routes.content.backfill_clocks(writer_content.ADAPTER, routes.node_owner)
 
         self.assertEqual(self.push(node, sid, client_id, 3, a), (409, {"collab": "clock_gap", "clock": 3}))
         self.assertEqual(self.push(node, sid, client_id, 3, c)[0], 200)

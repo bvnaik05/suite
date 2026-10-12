@@ -8,6 +8,7 @@ from frappe.tests.utils import whitelist_for_tests
 
 from suite.suite_core import content
 from suite.suite_core.content import compaction, documents, quarantine, scheduling, suspect
+from suite.suite_core.content.adapters import node_hooks
 from suite.suite_core.content.tables import KINDS, table
 from suite.writer import content as writer_content
 
@@ -64,7 +65,7 @@ def quarantine_last(node: str, why: str) -> dict:
     """Quarantine `node`'s last row, as a judge that finds it bad does."""
     log_row = find_log(node)
     revs = {int(log_row["head_rev"])}
-    quarantine.quarantine(writer_content.ADAPTER, log_row["id"], revs, why, writer_content.document_owner)
+    quarantine.quarantine(writer_content.ADAPTER, log_row["id"], revs, why, node_hooks().owner)
     return state(node)
 
 

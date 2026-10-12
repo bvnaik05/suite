@@ -74,7 +74,7 @@ class Tab:
 class TestQuarantine(CheckpointCase):
     def quarantine(self, node: str, revs: set[int], reason: str = "test") -> list[int]:
         return quarantine.quarantine(
-            writer_content.ADAPTER, self.doc_row(node).id, revs, reason, writer_content.document_owner
+            writer_content.ADAPTER, self.doc_row(node).id, revs, reason, routes.node_owner
         )
 
     def stored_text(self, node: str) -> str:
@@ -520,7 +520,7 @@ class TestQuarantine(CheckpointCase):
         frappe.db.sql("UPDATE `__writer_content_doc` SET `start_clocks` = NULL WHERE `id` = %s", doc_id)
         frappe.db.commit()
 
-        routes.content.backfill_clocks(writer_content.ADAPTER, writer_content.document_owner)
+        routes.content.backfill_clocks(writer_content.ADAPTER, routes.node_owner)
 
         self.assertEqual(
             (self.row_states(node), self.doc_row(node).start_clocks), (["ok", "ok", "quarantined"], "{}")
@@ -566,7 +566,7 @@ class TestQuarantine(CheckpointCase):
             return moved
 
         with patch.object(quarantine, "quarantine", quarantine_then_purge):
-            routes.content.backfill_clocks(writer_content.ADAPTER, writer_content.document_owner)
+            routes.content.backfill_clocks(writer_content.ADAPTER, routes.node_owner)
 
         clock_rows = frappe.db.sql(
             "SELECT `id`, `start_clocks` FROM `__writer_content_doc` WHERE `id` IN %s", (doc_ids,)
@@ -594,7 +594,7 @@ class TestQuarantine(CheckpointCase):
             return real_read(adapter, doc_id)
 
         with patch.object(backfill, "read", purged_first):
-            routes.content.backfill_clocks(writer_content.ADAPTER, writer_content.document_owner)
+            routes.content.backfill_clocks(writer_content.ADAPTER, routes.node_owner)
 
         clock_rows = frappe.db.sql(
             "SELECT `id`, `start_clocks` FROM `__writer_content_doc` WHERE `id` IN %s", (doc_ids,)

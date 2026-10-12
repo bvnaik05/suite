@@ -700,7 +700,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         node = self.new_document()
         before = self.content_modified(node)
         start = now_datetime().replace(microsecond=0) + timedelta(hours=1)
-        with self.frozen_clock(start), patch.object(writer_content.drive, "touch", side_effect=RuntimeError):
+        with self.frozen_clock(start), patch.object(routes.drive, "touch", side_effect=RuntimeError):
             self.type_into(node, ["one"])
         self.assertEqual(self.content_modified(node), before)
 

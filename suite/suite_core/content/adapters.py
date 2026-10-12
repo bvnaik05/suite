@@ -14,8 +14,7 @@ class ContentAdapterSpec:
     """One app's plug-in. `name` is also its table prefix; `content_type` is its Drive content type and
     the doctype whose row holds each document's latest checked body, base64, in `body_field`, found by
     its node in `node_field`; `roots` names every root type it writes; `kernel` is the Node bundle that
-    judges suspect documents; `owner` names a document's owner from its node; `touch` tells the app a
-    document's body changed."""
+    judges suspect documents."""
 
     name: str
     content_type: str
@@ -24,8 +23,16 @@ class ContentAdapterSpec:
     roots: Mapping[str, type]
     schema: EditorSchema
     kernel: Path
+
+
+@dataclass(frozen=True)
+class NodeHooks:
+    """What the layer asks about a document's node, the same for every app, given through the
+    `suite_content_nodes` hook: `owner` names the node's owner, and `touch` records that the body
+    of an app's document changed."""
+
     owner: Callable[[str], str | None]
-    touch: Callable[[str], None]
+    touch: Callable[[ContentAdapterSpec, str], None]
 
 
 def adapters() -> dict[str, ContentAdapterSpec]:
@@ -51,3 +58,15 @@ def spec_of(name: str) -> ContentAdapterSpec:
 def for_type(content_type: str) -> ContentAdapterSpec | None:
     """The adapter for a Drive content type, or None when no app keeps that type's documents here."""
     return next((spec for spec in adapters().values() if spec.content_type == content_type), None)
+
+
+def node_hooks() -> NodeHooks:
+    paths = list(frappe.get_hooks("suite_content_nodes") or ())
+    if len(paths) != 1:
+        raise ValueError(f"Expected one suite_content_nodes hook, found {len(paths)}")
+
+    hooks = frappe.get_attr(paths[0])
+    if not isinstance(hooks, NodeHooks):
+        raise ValueError(f"Invalid content node hooks {paths[0]}")
+
+    return hooks

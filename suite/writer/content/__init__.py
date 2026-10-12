@@ -5,10 +5,8 @@ import gzip
 import json
 from pathlib import Path
 
-import frappe
 import pycrdt
 
-from suite import drive
 from suite.suite_core import content
 from suite.suite_core.content.adapters import ContentAdapterSpec
 
@@ -32,15 +30,6 @@ SCHEMA = content.EditorSchema(
 )
 
 
-def document_owner(node: str) -> str | None:
-    return frappe.db.get_value("Drive Node", node, "owner")
-
-
-def touch(node: str) -> None:
-    document_name = frappe.db.get_value("Writer Document", {"node": node})
-    drive.touch("Writer Document", document_name)
-
-
 SPEC = ContentAdapterSpec(
     name=ADAPTER,
     content_type="Writer Document",
@@ -49,8 +38,6 @@ SPEC = ContentAdapterSpec(
     roots=ROOTS,
     schema=SCHEMA,
     kernel=KERNEL,
-    owner=document_owner,
-    touch=touch,
 )
 
 

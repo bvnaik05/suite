@@ -101,7 +101,7 @@ class TestSuspect(CheckpointCase):
             self.doc_row(node).id,
             writer_content.ROOTS,
             writer_content.KERNEL,
-            writer_content.document_owner,
+            routes.node_owner,
         )
 
     def alert_count(self, title: str) -> int:

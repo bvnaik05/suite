@@ -9,7 +9,7 @@ from frappe.utils import now_datetime
 
 from suite.suite_core import content
 from suite.suite_core.content import checkpoints, compaction, scheduling, suspect, updates
-from suite.suite_core.content.adapters import adapters, spec_of
+from suite.suite_core.content.adapters import adapters, node_hooks, spec_of
 from suite.suite_core.content.tables import table
 
 COMPACT = "suite.suite_core.content.documents.compact"
@@ -23,7 +23,7 @@ TOUCH_BATCH = 100
 def ensure_tables() -> None:
     for spec in adapters().values():
         content.ensure_tables(spec.name)
-        content.backfill_clocks(spec.name, spec.owner)
+        content.backfill_clocks(spec.name, node_hooks().owner)
 
 
 def start_log(adapter: str, node: str) -> None:
@@ -143,12 +143,12 @@ def delete_purged(adapter: str, doc_id: str) -> None:
 
 def compact(adapter: str, doc_id: str) -> None:
     spec = spec_of(adapter)
-    checkpoints.run(adapter, doc_id, spec.roots, JUDGE, spec.owner)
+    checkpoints.run(adapter, doc_id, spec.roots, JUDGE, node_hooks().owner)
 
 
 def judge(adapter: str, doc_id: str) -> None:
     spec = spec_of(adapter)
-    verdict = suspect.judge(adapter, doc_id, spec.roots, spec.kernel, spec.owner)
+    verdict = suspect.judge(adapter, doc_id, spec.roots, spec.kernel, node_hooks().owner)
     if verdict in {"clean", "quarantined"}:
         consider_compaction(adapter, doc_id)
 
@@ -227,7 +227,7 @@ def touch(adapter: str, doc_id: str) -> None:
         return
 
     try:
-        spec_of(adapter).touch(node)
+        node_hooks().touch(spec_of(adapter), node)
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
     except Exception:
         frappe.db.rollback()

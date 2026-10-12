@@ -17,6 +17,7 @@ from suite import drive
 from suite.composition.http import HttpOwner, Route
 from suite.suite_core import content
 from suite.suite_core.content import adapters, documents
+from suite.suite_core.content.adapters import ContentAdapterSpec, NodeHooks
 
 # Every row reads or writes its own bytes, so each is a stream; a POST answers JSON
 ROUTES = (
@@ -348,6 +349,17 @@ def json_response(status: int, body: dict) -> Response:
     text = json.dumps(body)
     return Response(text, status=status, mimetype="application/json")
 
+
+def node_owner(node: str) -> str | None:
+    return frappe.db.get_value("Drive Node", node, "owner")
+
+
+def touch_body(spec: ContentAdapterSpec, node: str) -> None:
+    document_name = frappe.db.get_value(spec.content_type, {spec.node_field: node})
+    drive.touch(spec.content_type, document_name)
+
+
+NODES = NodeHooks(owner=node_owner, touch=touch_body)
 
 HTTP = HttpOwner(
     owner="content",

@@ -68,7 +68,7 @@ class CheckpointCase(IntegrationTestCase):
             doc_id,
             writer_content.ROOTS,
             "suite.suite_core.content.documents.judge",
-            writer_content.document_owner,
+            routes.node_owner,
         )
 
     def restore_mode(self):
