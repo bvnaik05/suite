@@ -2196,10 +2196,6 @@ import { confirmLeave } from '@/utils/confirmLeave'
 import { chipColor, chipPaletteColor } from '../../canvas/chip-geometry'
 import { COL_HEADER_H, ROW_HEADER_W } from '../../canvas/constants'
 import { createGrid } from '../../canvas/index'
-import { createCellProvider } from '../../core/cell-provider'
-import { createWorkbookClient } from '../../core/client'
-import { createDisplayCache } from '../../core/display-cache'
-import { MAX_VIEWPORT_CELLS } from '../../core/limits'
 import { createChartEngine } from '../../engine/charts.js'
 import { createClipboard } from '../../engine/clipboard.js'
 import { createCommentsEngine } from '../../engine/comments.js'
@@ -2211,7 +2207,7 @@ import { adjustFormula } from '../../engine/formula-adjust.js'
 import { createHistory } from '../../engine/history.js'
 import { detectHyperlink, isAutoLinkText } from '../../engine/links.js'
 import { createMergeEngine } from '../../engine/merge.js'
-import { createNamedRanges, definedNameFormula } from '../../engine/named-ranges.js'
+import { createNamedRanges } from '../../engine/named-ranges.js'
 import { detectSeries } from '../../engine/patterns/index.js'
 import { createPivotEngine } from '../../engine/pivot.js'
 import { createProtectionEngine } from '../../engine/protection.js'
@@ -2256,6 +2252,7 @@ import { useShortcuts } from './useShortcuts.js'
 import { useSmartFill } from './useSmartFill.js'
 import { useSplitText } from './useSplitText.js'
 import { useToolbar } from './useToolbar.js'
+import { useWorkbook } from './useWorkbook.js'
 
 const props = defineProps({
   id: {
@@ -2342,9 +2339,42 @@ const brandMenuOptions = computed(() => [
 
 // The open tab. The editor owns it; IronCalc's sheet list sets it on load.
 const currentSheet = ref('Sheet1')
-// IronCalc: { client, provider, offSheets, offVersion } once started (see _startEngine).
-// Declared up here because setup code (the sheet tabs) reads it.
-let _engine = null
+// IronCalc holds every cell (see useWorkbook.js). Declared up here because
+// setup code (the sheet tabs) reads it.
+const {
+  startEngine: _startEngine,
+  stopEngine: _stopEngine,
+  engineClient: _client,
+  engineBytes: _engineBytes,
+  command: _command,
+  writeInputs: _writeInputs,
+  syncDefinedNames: _syncDefinedNames,
+  inputAt: _inputAt,
+  paintedInput: _paintedInput,
+  readRect: _readRect,
+  readInputs: _readInputs,
+  readIds: _readIds,
+  readInput: _readInput,
+  displayValue: _displayValue,
+  refreshUsedCells: _refreshUsedCells,
+  usedCellIds: _usedCellIds,
+  usedExtent: _usedExtent,
+  readWholeSheet: _readWholeSheet,
+  readDisplays: _readDisplays,
+  readSourceRange: _readSourceRange,
+  clearRect: _clearRect,
+  clearSheet: _clearSheet,
+} = useWorkbook({
+  currentSheet,
+  // Created below; read only once the engine runs.
+  namedRanges: () => namedRanges,
+  getGrid: () => grid,
+  syncNames: () => syncNames(),
+  onVersion: () => _onEngineVersion(),
+  onUsedExtent: (max) => {
+    if (grid) _expandGridTo(max.maxCol, max.maxRow)
+  },
+})
 const formats = createFormatsEngine()
 const merge = createMergeEngine()
 const sortFilter = createSortFilter({
@@ -2387,26 +2417,6 @@ function openNamedRangesDialog() {
   contextMenu.open = false
   namedRangesDialogOpen.value = true
 }
-// Named ranges live in their own store (the dialog edits it, the document
-// saves it); IronCalc evaluates `=Name` from defined names. This sends
-// IronCalc whatever differs from what it was last sent, so calling it after
-// anything that may change the store (dialog, undo, load, sheet rename,
-// row/column ops) is cheap.
-let _namesInEngine = new Map() // name → formula
-function _syncDefinedNames() {
-  if (!_engine) return
-  const want = new Map(namedRanges.list().map((e) => [e.name, definedNameFormula(e)]))
-  const commands = []
-  for (const name of _namesInEngine.keys())
-    if (!want.has(name)) commands.push(_command('deleteDefinedName', { name }))
-  for (const [name, formula] of want)
-    if (_namesInEngine.get(name) !== formula)
-      commands.push(_command('setDefinedName', { name, formula }))
-  _namesInEngine = want
-  if (commands.length === 1) _engine.client.dispatch(commands[0])
-  else if (commands.length > 1) _engine.client.dispatch(_command('batch', { commands }))
-}
-
 function _onNamedRangesChanged() {
   _syncDefinedNames()
   // The engine notifies via onChange too, but we explicitly push history
@@ -2497,11 +2507,11 @@ const history = createHistory({
   // shared with the previous step when no command ran in between, so a
   // format-only step serializes nothing.
   snapshot() {
-    return { bytes: _engine ? _engine.client.snapshot() : null, ..._sideSnapshot() }
+    return { bytes: _client() ? _client().snapshot() : null, ..._sideSnapshot() }
   },
   restore(snap) {
-    if (snap.bytes && _engine) {
-      _engine.client
+    if (snap.bytes && _client()) {
+      _client()
         .restore(snap.bytes)
         .catch((e) => console.error('[sheets] restoring an undo step failed', e))
     }
@@ -3340,8 +3350,8 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
     readSheet: _readWholeSheet,
     write: _writeInputs,
     clear: _clearSheet,
-    addSheet: (name) => _engine?.client.dispatch(_command('addSheet', { name })),
-    idle: () => (_engine ? _engine.client.idle() : Promise.resolve()),
+    addSheet: (name) => _client()?.dispatch(_command('addSheet', { name })),
+    idle: () => (_client() ? _client().idle() : Promise.resolve()),
   },
   // Lazy: useSheetTabs defines sheetNames further down.
   sheetNames: () => sheetNames.value,
@@ -3468,8 +3478,8 @@ async function _computeSelectionStatsAsync(token) {
     return
   }
   const sn = currentSheet.value
-  if (!_engine) return
-  const { count, numCount, sum } = await _engine.client.rangeStats({
+  if (!_client()) return
+  const { count, numCount, sum } = await _client().rangeStats({
     sheet: sn,
     r1: r0 + 1,
     c1: c0 + 1,
@@ -3837,8 +3847,8 @@ if (props.embedded) {
   )
 }
 _sheetTabs = useSheetTabs({
-  names: () => _engine?.client.sheets ?? [currentSheet.value],
-  run: (type, payload) => _engine?.client.dispatch(_command(type, payload)),
+  names: () => _client()?.sheets ?? [currentSheet.value],
+  run: (type, payload) => _client()?.dispatch(_command(type, payload)),
   currentSheet,
   formats,
   extras: [merge, comments, validation, protection, condFormat, sortFilter, slicers],
@@ -3931,8 +3941,8 @@ const {
     readSheet: _readWholeSheet,
     write: _writeInputs,
     clear: _clearRect,
-    addSheet: (name) => _engine?.client.dispatch(_command('addSheet', { name })),
-    idle: () => (_engine ? _engine.client.idle() : Promise.resolve()),
+    addSheet: (name) => _client()?.dispatch(_command('addSheet', { name })),
+    idle: () => (_client() ? _client().idle() : Promise.resolve()),
   },
   sheetNames: () => sheetNames.value,
   formats,
@@ -4595,7 +4605,7 @@ function _setupGridInstance() {
       // Non-empty cell ids for the current sheet — the lazy path's source for
       // cold-path scans (Cmd+A extent, autofit) that used to walk the grid's
       // own `data` keys.
-      getCellIds: () => _usedIds,
+      getCellIds: () => _usedCellIds(),
       getMergeInfo: (id) => merge.getMasterInfo(id, currentSheet.value),
       isSlave: (id) => merge.isSlave(id, currentSheet.value),
       getMasterId: (id) => merge.getMasterId(id, currentSheet.value),
@@ -6830,8 +6840,8 @@ async function openCellHistory() {
 
 // Cells on the open sheet whose input contains `query`, as [{ id, input }].
 async function _findCells(query) {
-  if (!_engine) return []
-  const { cells } = await _engine.client.findCells({ sheet: currentSheet.value, query })
+  if (!_client()) return []
+  const { cells } = await _client().findCells({ sheet: currentSheet.value, query })
   return cells.map(({ row, col, input }) => ({ id: cellId(row - 1, col - 1), input }))
 }
 // Replacements as one write and one undo step.
@@ -7386,7 +7396,7 @@ async function _applyStructural(axis, map, forward, inverse = null) {
   const sn = currentSheet.value
   const sideBefore = _sideSnapshot()
   // Taken in dispatch order, so it is the workbook just before this command.
-  const beforeBytes = inverse ? null : (_engine?.client.snapshot() ?? null)
+  const beforeBytes = inverse ? null : (_client()?.snapshot() ?? null)
   const op = {
     opType: 'structural',
     subSheet: sn,
@@ -7397,7 +7407,7 @@ async function _applyStructural(axis, map, forward, inverse = null) {
     sideAfter: null,
     applied: true,
   }
-  _engine?.client.dispatch(_command(op.forward.type, op.forward.payload))
+  _client()?.dispatch(_command(op.forward.type, op.forward.payload))
   _remapSide(axis, map, sn)
   op.sideAfter = _sideSnapshot()
   history.pushOp(op)
@@ -7440,10 +7450,10 @@ function _afterStructural(sn) {
 
 function _revertStructural(op) {
   if (op.applied) {
-    if (op.inverse) _engine?.client.dispatch(_command(op.inverse.type, op.inverse.payload))
+    if (op.inverse) _client()?.dispatch(_command(op.inverse.type, op.inverse.payload))
     else
-      _engine?.client
-        .restore(op.beforeBytes)
+      _client()
+        ?.restore(op.beforeBytes)
         .catch((e) => console.error('[sheets] undo of delete failed', e))
     op.applied = false
   }
@@ -7453,7 +7463,7 @@ function _revertStructural(op) {
 
 function _redoStructural(op) {
   if (!op.applied) {
-    _engine?.client.dispatch(_command(op.forward.type, op.forward.payload))
+    _client()?.dispatch(_command(op.forward.type, op.forward.payload))
     op.applied = true
   }
   _restoreSide(op.sideAfter)
@@ -8200,98 +8210,25 @@ function _cellDisplay(id) {
 }
 
 // ── IronCalc ─────────────────────────────────────────────────────────────────
-// IronCalc (core/: worker, client, display cache) holds every cell. The grid
-// reads display values and inputs through the cell provider; every write is a
-// command sent with client.dispatch. Features that still read the old engine
-// (sheet.*) move over one at a time.
+// The workbook itself is in useWorkbook.js. What follows reacts to it: the
+// formula bar, the grid's extent and sparklines.
 
-async function _startEngine(snapshotBytes = null) {
-  _stopEngine()
-  const cache = createDisplayCache()
-  const client = await createWorkbookClient({ echo: cache, snapshotBytes })
-  client.onCommandError((f) => console.error('[sheets] IronCalc rejected', f.command.type, f.error))
-  const provider = createCellProvider({ client, cache, requestRender: () => grid?.render?.() })
-  // Tabs follow the workbook: its sheets on load, and any later change.
-  const offSheets = client.onSheets(() => syncNames())
+// After every applied edit.
+function _onEngineVersion() {
+  // Range rules (colour scales, data bars) cache min/max, and charts
+  // cache their source matrix: both are stale after any edit.
+  condFormat?.invalidate()
+  chartDataVersion.value++
+  _refreshUsedCells()
+  computeSelectionStats() // the selected cells' values may have changed
+  _refreshFormulaBar() // an import, pivot or undo may have changed the active cell
   // Edits change the values a filter's lists show.
-  const offVersion = client.onVersion(() => {
-    // Range rules (colour scales, data bars) cache min/max, and charts
-    // cache their source matrix: both are stale after any edit.
-    condFormat?.invalidate()
-    chartDataVersion.value++
-    _refreshUsedCells()
-    computeSelectionStats() // the selected cells' values may have changed
-    _refreshFormulaBar() // an import, pivot or undo may have changed the active cell
-    const sn = currentSheet.value
-    if (!sortFilter.hasFilter(sn)) return
-    sortFilter
-      .refresh(sn)
-      .then(() => slicerVersion.value++)
-      .catch(() => {}) // the next filter action reads again
-  })
-  _engine = { client, provider, offSheets, offVersion }
-  // The saved bytes may predate names being sent to IronCalc: send them all.
-  _namesInEngine = new Map()
-  _syncDefinedNames()
-  syncNames()
-  _refreshUsedCells() // size the grid to the loaded data
-  grid?.render?.()
-}
-
-function _stopEngine() {
-  _engine?.offSheets()
-  _engine?.offVersion()
-  _engine?.provider.dispose()
-  _engine?.client.terminate()
-  _engine = null
-}
-
-function _engineBytes() {
-  if (!_engine) return Promise.reject(new Error('IronCalc is not running'))
-  return _engine.client.toBytes()
-}
-
-let _commandSeq = 0
-
-function _command(type, payload) {
-  return { id: `ui-${Date.now()}-${_commandSeq++}`, actor: 'local', ts: Date.now(), type, payload }
-}
-
-// One cell's write: setInput, or clearContents when the value is empty.
-function _inputCommand(sn, id, value) {
-  const p = parseCellId(id)
-  if (!p) return null
-  const row = p.row + 1
-  const col = p.col + 1
-  const input = value == null ? '' : String(value)
-  return input === ''
-    ? _command('clearContents', { sheet: sn, range: { r1: row, c1: col, r2: row, c2: col } })
-    : _command('setInput', { sheet: sn, row, col, input })
-}
-
-// Writes a {cellId: value} map as one command, so a multi-cell edit or an
-// undo recalculates once.
-function _writeInputs(sn, map) {
-  if (!_engine) return
-  const commands = Object.entries(map)
-    .map(([id, value]) => _inputCommand(sn, id, value))
-    .filter(Boolean)
-  if (commands.length === 1) _engine.client.dispatch(commands[0])
-  else if (commands.length > 1) _engine.client.dispatch(_command('batch', { commands }))
-}
-
-// The cell's input (a formula, not its result) when its area is on screen,
-// else undefined. Writes use it as the value they replace.
-function _inputAt(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return p && _engine ? _engine.provider.getInput(sn, p.row + 1, p.col + 1) : undefined
-}
-
-// The input a cell is painted with, kept through a refresh: lets the grid
-// keep drawing a sparkline while its value is re-read. Not for edits.
-function _paintedInput(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return p && _engine ? _engine.provider.peekInput(sn, p.row + 1, p.col + 1) : undefined
+  const sn = currentSheet.value
+  if (!sortFilter.hasFilter(sn)) return
+  sortFilter
+    .refresh(sn)
+    .then(() => slicerVersion.value++)
+    .catch(() => {}) // the next filter action reads again
 }
 
 // Shows a cell's input in the formula bar. A cell off screen (a jump to a far
@@ -8304,8 +8241,8 @@ function _showInputInFormulaBar(id, sn = currentSheet.value) {
   }
   formulaValue.value = ''
   const p = parseCellId(id)
-  if (!p || !_engine) return
-  _engine.client
+  if (!p || !_client()) return
+  _client()
     .readCells({ sheet: sn, cells: [{ row: p.row + 1, col: p.col + 1 }], what: ['input'] })
     .then(({ cells }) => {
       // Still the active cell, and nobody has started typing into it.
@@ -8315,7 +8252,7 @@ function _showInputInFormulaBar(id, sn = currentSheet.value) {
     })
     .catch((e) => {
       // Stopping the engine (leaving the page) rejects reads still in flight.
-      if (_engine) console.error('[sheets] readCells failed', e)
+      if (_client()) console.error('[sheets] readCells failed', e)
     })
 }
 
@@ -8326,8 +8263,8 @@ function _refreshFormulaBar() {
   const id = activeCell.value
   const sn = currentSheet.value
   const p = parseCellId(id)
-  if (!p || !_engine || _typedCell) return
-  _engine.client
+  if (!p || !_client() || _typedCell) return
+  _client()
     .readCells({ sheet: sn, cells: [{ row: p.row + 1, col: p.col + 1 }], what: ['input'] })
     .then(({ cells }) => {
       if (activeCell.value === id && currentSheet.value === sn && !_typedCell) {
@@ -8335,77 +8272,6 @@ function _refreshFormulaBar() {
       }
     })
     .catch(() => {}) // the next selection change shows it
-}
-
-// A rect's inputs and display strings (0-based rect), read from the worker in
-// chunks of rows that fit one readViewport.
-async function _readRect(sn, rect) {
-  const inputs = []
-  const displays = []
-  if (!_engine) return { inputs, displays }
-  const cols = rect.c1 - rect.c0 + 1
-  const step = Math.max(1, Math.floor(MAX_VIEWPORT_CELLS / cols))
-  for (let r = rect.r0; r <= rect.r1; r += step) {
-    const res = await _engine.client.readViewport({
-      sheet: sn,
-      r1: r + 1,
-      c1: rect.c0 + 1,
-      r2: Math.min(r + step - 1, rect.r1) + 1,
-      c2: rect.c1 + 1,
-      includeInputs: true,
-    })
-    inputs.push(...(res.inputs ?? []))
-    displays.push(...res.values)
-  }
-  // A sparkline shows a chart, not IronCalc's #NAME?, to every reader
-  // (charts, copied text, filter lists), as it does in the grid.
-  inputs.forEach((row, i) =>
-    row.forEach((input, j) => {
-      if (parseSparkline(input)) displays[i][j] = ''
-    }),
-  )
-  return { inputs, displays }
-}
-
-// {cellId: input} for a rect: an edit op's before or after.
-async function _readInputs(rect, sn = currentSheet.value) {
-  const out = {}
-  if (!rect) return out
-  const { inputs } = await _readRect(sn, rect)
-  for (let r = rect.r0; r <= rect.r1; r++)
-    for (let c = rect.c0; c <= rect.c1; c++)
-      out[cellId(r, c)] = inputs[r - rect.r0]?.[c - rect.c0] ?? ''
-  return out
-}
-
-// Inputs of scattered cells, {cellId: input}, in one round trip.
-async function _readIds(ids, sn = currentSheet.value) {
-  const out = {}
-  const cells = []
-  for (const id of ids) {
-    const p = parseCellId(id)
-    if (p) cells.push({ row: p.row + 1, col: p.col + 1 })
-  }
-  if (!_engine || !cells.length) return out
-  const res = await _engine.client.readCells({ sheet: sn, cells, what: ['input'] })
-  for (const c of res.cells) out[cellId(c.row - 1, c.col - 1)] = c.input ?? ''
-  return out
-}
-
-// One cell's input: from the cache when on screen, else from the worker.
-async function _readInput(id, sn = currentSheet.value) {
-  const known = _inputAt(id, sn)
-  if (known !== undefined) return known
-  const p = parseCellId(id)
-  if (!p) return ''
-  return (await _readInputs({ r0: p.row, c0: p.col, r1: p.row, c1: p.col }, sn))[id] ?? ''
-}
-
-// A cell's computed display string. Readers that run during a paint use this,
-// so values and conditional formats come from the same place.
-function _displayValue(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return p && _engine ? _engine.provider.getDisplay(sn, p.row + 1, p.col + 1) : ''
 }
 
 // Grow the grid's scrollable area to cover a sheet's used extent so the user
@@ -8417,112 +8283,6 @@ function _expandGridTo(maxCol, maxRow) {
     grid.expandCols(neededCols - grid.getTotalCols())
   if (grid.getTotalRows && grid.expandRows && neededRows > grid.getTotalRows())
     grid.expandRows(neededRows - grid.getTotalRows())
-}
-
-// The open sheet's non-empty cells, from the worker: the grid's scroll extent,
-// Ctrl+A's extent and column autofit read them. Refreshed after every edit
-// and on switch; one read at a time, re-run when more changed meanwhile.
-let _usedIds = []
-let _usedMax = null // { maxRow, maxCol } (0-based), null when the sheet is empty
-let _usedReading = false
-let _usedStale = false
-function _refreshUsedCells() {
-  if (!_engine) return
-  if (_usedReading) {
-    _usedStale = true
-    return
-  }
-  _usedReading = true
-  const sn = currentSheet.value
-  _engine.client
-    .usedCells({ sheet: sn })
-    .then(({ cells }) => {
-      if (currentSheet.value !== sn) return // a switch queued its own read
-      const ids = []
-      let maxRow = -1,
-        maxCol = -1
-      for (let i = 0; i < cells.length; i += 2) {
-        const r = cells[i] - 1,
-          c = cells[i + 1] - 1
-        ids.push(cellId(r, c))
-        if (r > maxRow) maxRow = r
-        if (c > maxCol) maxCol = c
-      }
-      _usedIds = ids
-      _usedMax = ids.length ? { maxRow, maxCol } : null
-      if (grid && _usedMax) _expandGridTo(_usedMax.maxCol, _usedMax.maxRow)
-    })
-    .catch((e) => {
-      if (_engine) console.error('[sheets] reading used cells failed', e) // see readCells
-    })
-    .finally(() => {
-      _usedReading = false
-      if (_usedStale) {
-        _usedStale = false
-        _refreshUsedCells()
-      }
-    })
-}
-
-// Any sheet's data extent (0-based), read from the worker; null when empty.
-async function _sheetExtent(sn) {
-  if (!_engine) return null
-  const { cells } = await _engine.client.usedCells({ sheet: sn })
-  let maxRow = -1,
-    maxCol = -1
-  for (let i = 0; i < cells.length; i += 2) {
-    if (cells[i] - 1 > maxRow) maxRow = cells[i] - 1
-    if (cells[i + 1] - 1 > maxCol) maxCol = cells[i + 1] - 1
-  }
-  return maxRow < 0 ? null : { maxRow, maxCol }
-}
-
-// A whole sheet's inputs and displays, A1 to its last used cell.
-async function _readWholeSheet(sn) {
-  const ext = await _sheetExtent(sn)
-  if (!ext) return { inputs: [], displays: [] }
-  return _readRect(sn, { r0: 0, c0: 0, r1: ext.maxRow, c1: ext.maxCol })
-}
-
-// A user-typed source range's shown values, cut to the sheet's data: a range
-// like A1:Z1048576 reads only the rows that hold something.
-async function _readSourceRange(sn, rect) {
-  const ext = await _sheetExtent(sn)
-  const r1 = Math.min(rect.r1, ext?.maxRow ?? rect.r0)
-  const c1 = Math.min(rect.c1, ext?.maxCol ?? rect.c0)
-  return _readDisplays(sn, { ...rect, r1: Math.max(r1, rect.r0), c1: Math.max(c1, rect.c0) })
-}
-
-// Empties a rect's cells (0-based; contents only, formats stay).
-function _clearRect(sn, rect) {
-  _engine?.client.dispatch(
-    _command('clearContents', {
-      sheet: sn,
-      range: { r1: rect.r0 + 1, c1: rect.c0 + 1, r2: rect.r1 + 1, c2: rect.c1 + 1 },
-    }),
-  )
-}
-
-// Empties a sheet's cells (contents only; formats stay).
-async function _clearSheet(sn) {
-  const ext = await _sheetExtent(sn)
-  if (!ext || !_engine) return
-  _engine.client.dispatch(
-    _command('clearContents', {
-      sheet: sn,
-      range: { r1: 1, c1: 1, r2: ext.maxRow + 1, c2: ext.maxCol + 1 },
-    }),
-  )
-}
-
-// The open sheet's data extent, or null when it is empty.
-function _usedExtent() {
-  return _usedMax
-}
-
-// A rect's shown values (charts read these).
-async function _readDisplays(sn, rect) {
-  return (await _readRect(sn, rect)).displays
 }
 
 // Repaints the grid and re-reads where the data is. The grid pulls each
@@ -8541,8 +8301,8 @@ function _sparklineAt(id) {
   const sn = currentSheet.value
   const input = _paintedInput(id, sn)
   const ref = parseSparkline(input)
-  if (!ref || !_engine) return null
-  const key = `${input}\0${_engine.client.getVersion()}`
+  if (!ref || !_client()) return null
+  const key = `${input}\0${_client().getVersion()}`
   const hit = _sparks.get(`${sn}\0${id}`)
   if (hit && (hit.key === key || hit.reading)) return hit.spec
   const entry = { key, spec: hit?.spec ?? null, reading: true }
