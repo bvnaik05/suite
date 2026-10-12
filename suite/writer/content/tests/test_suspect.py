@@ -26,8 +26,15 @@ from suite.suite_core.content import (
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 from suite.writer.content.tests import test_checkpoints, test_quarantine
-from suite.writer.content.tests.test_checkpoints import WRITER, CheckpointCase
-from suite.writer.content.tests.test_collab import OUTSIDER, READER, answer, call_route, read_frame
+from suite.writer.content.tests.support import (
+    OUTSIDER,
+    READER,
+    WRITER,
+    CheckpointCase,
+    answer,
+    call_route,
+    read_frame,
+)
 from suite.writer.content.tests.test_kernel import BUNDLE, paragraph
 
 JUDGE = "suite.suite_core.content.documents.judge"

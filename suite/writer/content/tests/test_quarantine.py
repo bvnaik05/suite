@@ -12,8 +12,15 @@ from suite.suite_core.content import backfill, documents, quarantine
 from suite.suite_core.content.log import chain_next
 from suite.suite_core.content.tests.test_compaction import crafted, encoded_varuint
 from suite.writer import content as writer_content
-from suite.writer.content.tests.test_checkpoints import WRITER, CheckpointCase
-from suite.writer.content.tests.test_collab import answer, call_route, push_body, read_frame, read_open
+from suite.writer.content.tests.support import (
+    WRITER,
+    CheckpointCase,
+    answer,
+    call_route,
+    push_body,
+    read_frame,
+    read_open,
+)
 
 
 class Tab:

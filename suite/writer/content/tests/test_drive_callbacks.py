@@ -23,8 +23,14 @@ from suite.suite_core import content
 from suite.suite_core.content import documents, log, scheduling, touches
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
-from suite.writer.content.tests.test_checkpoints import WRITER, CheckpointCase
-from suite.writer.content.tests.test_collab import answer, call_route, push_body, read_open
+from suite.writer.content.tests.support import (
+    WRITER,
+    CheckpointCase,
+    answer,
+    call_route,
+    push_body,
+    read_open,
+)
 
 
 def version_of(docname: str) -> dict:

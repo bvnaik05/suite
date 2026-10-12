@@ -1,4 +1,3 @@
-import base64
 import gzip
 import json
 import os
@@ -12,157 +11,31 @@ from unittest.mock import patch
 
 import frappe
 import pycrdt
-from frappe.tests import IntegrationTestCase
 from frappe.utils.background_jobs import get_redis_conn
 from redis.exceptions import RedisError
 
-from suite import drive
 from suite.composition import content as routes
 from suite.suite_core.content import (
     admission,
     checkpoints,
     compaction,
     documents,
-    live,
-    log,
     pushes,
     scheduling,
 )
 from suite.suite_core.content.snapshot import isolation_level
-from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
-from suite.writer.content.tests.test_collab import (
+from suite.writer.content.tests.support import (
+    WRITER,
+    CheckpointCase,
     answer,
+    as_final,
     body_for,
     call_route,
-    push_body,
     read_open,
     typed_updates,
 )
-
-WRITER = "writer-collab-writer@example.com"
-
-
-def as_final(body: bytes) -> bytes:
-    """The same push sent as a hiding or closing tab's last one."""
-    length = int.from_bytes(body[:4], "big")
-    header = json.loads(body[4 : 4 + length]) | {"final": True}
-    encoded = json.dumps(header).encode()
-    return len(encoded).to_bytes(4, "big") + encoded + body[4 + length :]
-
-
-class CheckpointCase(IntegrationTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        ensure_user(WRITER)
-        documents.ensure_tables()
-        frappe.db.commit()
-
-    def setUp(self):
-        super().setUp()
-        self.saved_mode = log.mode(writer_content.ADAPTER)
-        log.set_mode(writer_content.ADAPTER, "on")
-        frappe.db.commit()
-        scheduling.paused_until = 0.0
-        self.addCleanup(setattr, scheduling, "paused_until", 0.0)
-        self.addCleanup(self.restore_mode)
-        frappe.set_user(WRITER)
-        self.addCleanup(frappe.set_user, "Administrator")
-
-    def compaction_job(self, doc_id: str) -> checkpoints.Compaction:
-        return checkpoints.Compaction(
-            "writer",
-            doc_id,
-            writer_content.ROOTS,
-            "suite.suite_core.content.documents.judge",
-            routes.node_owner,
-        )
-
-    def restore_mode(self):
-        log.set_mode(writer_content.ADAPTER, self.saved_mode)
-        frappe.db.commit()
-
-    def new_document(self) -> str:
-        root = drive.ensure_personal_root(WRITER)
-        parent = frappe.db.get_value("Drive Root", root, "node")
-        node = drive.create_document(
-            parent, f"Collab {uuid.uuid4().hex[:8]}", content_doctype="Writer Document"
-        )
-        frappe.db.commit()
-        self.addCleanup(self.delete_log, node)
-        return node
-
-    def delete_log(self, node: str):
-        doc = routes.content.find(writer_content.ADAPTER, node)
-        if doc:
-            for kind in ("update", "session", "checkpoint", "recovery"):
-                frappe.db.sql(f"DELETE FROM `__writer_content_{kind}` WHERE `doc_id` = %s", doc.id)
-
-            frappe.db.sql("DELETE FROM `__writer_content_doc` WHERE `id` = %s", doc.id)
-            frappe.db.commit()
-
-    def type_into(self, node: str, words: list[str]) -> str:
-        """A tab opened on the document types each word as its own row; returns the whole text."""
-        sid = uuid.uuid4().hex
-        session_body = json.dumps({"sid": sid}).encode()
-        session = call_route(routes.sessions_post, node, body=session_body)
-        client_id = answer(session)["client_id"]
-
-        opened_bytes = call_route(routes.document_get, node).get_data()
-        header, checkpoint, rows = read_open(opened_bytes)
-        doc = pycrdt.Doc(client_id=client_id)
-        for payload in [checkpoint, *(payload for _rev, payload in rows)]:
-            if payload:
-                doc.apply_update(payload)
-
-        seen = doc.get_state()
-        fragment = doc.get("default", type=pycrdt.XmlFragment)
-        text = fragment.children[0] if len(fragment.children) else fragment.children.append(pycrdt.XmlText())
-        for seq, word in enumerate(words, start=1):
-            text.insert(len(str(text)), word)
-            update = doc.get_update(seen)
-            seen = doc.get_state()
-            body = body_for(node, header["lineage"], sid, client_id, seq, update)
-            self.assertEqual(call_route(routes.updates_post, node, body=body).status_code, 200)
-
-        return str(text)
-
-    def doc_row(self, node: str):
-        return frappe.db.sql("SELECT * FROM `__writer_content_doc` WHERE `node` = %s", node, as_dict=True)[0]
-
-    def checkpoints_of(self, node: str) -> list[tuple[int, bytes, int]]:
-        stored = frappe.db.sql(
-            """SELECT `through_rev`, `gz`, `integrated` FROM `__writer_content_checkpoint`
-            WHERE `doc_id` = %s ORDER BY `through_rev`""",
-            self.doc_row(node).id,
-        )
-        return [(int(rev), gzip.decompress(bytes(gz)), int(integrated)) for rev, gz, integrated in stored]
-
-    def body_of(self, node: str) -> bytes:
-        """The body Writer's own row holds, as Drive and a version read it."""
-        encoded_body = frappe.db.get_value("Writer Document", {"node": node}, "content") or ""
-        return base64.b64decode(encoded_body)
-
-    def row_count(self, node: str) -> int:
-        return frappe.db.sql(
-            "SELECT COUNT(*) FROM `__writer_content_update` WHERE `doc_id` = %s", self.doc_row(node).id
-        )[0][0]
-
-    def set_doc(self, node: str, **values):
-        assignments = ", ".join(f"`{key}` = %({key})s" for key in values)
-        params = {**values, "node": node}
-        frappe.db.sql(f"UPDATE `__writer_content_doc` SET {assignments} WHERE `node` = %(node)s", params)
-        frappe.db.commit()
-
-    def text_of(self, state: bytes) -> str:
-        doc = compaction.load_doc([state])
-        fragment = doc.get("default", type=pycrdt.XmlFragment)
-        return "".join(str(child) for child in fragment.children)
-
-    def compact(self, node: str):
-        documents.compact(writer_content.ADAPTER, self.doc_row(node).id)
 
 
 class TestWriterCheckpoints(CheckpointCase):
@@ -1086,131 +959,3 @@ class TestWriterCompactionTriggers(CheckpointCase):
         errors = frappe.get_all("Error Log", logged, pluck="error")
         self.assertEqual(len(errors), 1)
         self.assertTrue(errors[0].startswith(f"writer document {doc_id}\n"), errors[0])
-
-
-class TestWriterAdmission(CheckpointCase):
-    """A push waits while it could take the next compaction past the cap (I19)."""
-
-    def setUp(self):
-        super().setUp()
-        self.requested = []
-        enqueue = patch.object(
-            frappe, "enqueue", lambda method, **kwargs: self.requested.append(kwargs["doc_id"])
-        )
-        enqueue.start()
-        self.addCleanup(enqueue.stop)
-
-    def open_session(self, node: str) -> tuple[str, int]:
-        sid = uuid.uuid4().hex
-        session_body = json.dumps({"sid": sid}).encode()
-        session = call_route(routes.sessions_post, node, body=session_body)
-        client_id = answer(session)["client_id"]
-        return sid, client_id
-
-    def push(self, node: str, tab: tuple[str, int], seq: int, update: bytes):
-        lineage = self.doc_row(node).lineage
-        body = push_body(lineage, *tab, seq, 0, update)
-        response = call_route(routes.updates_post, node, body=body)
-        return response.status_code, answer(response)
-
-    def edited_update(self, client_id: int, rows: list[bytes], edit) -> bytes:
-        doc = pycrdt.Doc(client_id=client_id)
-        for row in rows:
-            doc.apply_update(row)
-
-        before = doc.get_state()
-        fragment = doc.get("default", type=pycrdt.XmlFragment)
-        edit(fragment.children[0])
-        return doc.get_update(before)
-
-    def test_each_row_adds_its_bytes_and_each_word_it_splits_to_the_tail(self):
-        node = self.new_document()
-        first, second = self.open_session(node), self.open_session(node)
-        abc, de = typed_updates(first[1], ["abc", "de"])
-        inside = self.edited_update(second[1], [abc, de], lambda text: text.insert(1, "x"))
-
-        for tab, seq, update in ((first, 1, abc), (first, 2, de), (second, 1, inside)):
-            self.assertEqual(self.push(node, tab, seq, update)[0], 200)
-
-        self.assertEqual(self.doc_row(node).tail_bound, len(abc) + len(de) + len(inside) + 32)
-        self.compact(node)
-        self.assertEqual(self.doc_row(node).tail_bound, 0)
-
-    def test_a_push_that_could_take_the_state_past_the_cap_waits_for_a_compaction(self):
-        node = self.new_document()
-        tab = self.open_session(node)
-        abc, de = typed_updates(tab[1], ["abc", "de"])
-        self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
-        self.set_doc(node, state_bytes=writer_content.SPEC.max_state - len(abc) - len(de) + 1)
-        self.requested.clear()
-
-        self.assertEqual(self.push(node, tab, 2, de), (423, {"collab": "compacting", "retry_ms": 2000}))
-        self.assertEqual((self.row_count(node), self.doc_row(node).tail_bound), (1, len(abc)))
-        self.assertEqual(self.requested, [self.doc_row(node).id])
-
-        self.set_doc(node, state_bytes=writer_content.SPEC.max_state - len(abc) - len(de))
-        self.assertEqual(self.push(node, tab, 2, de)[0], 200)
-
-    def test_a_document_at_the_cap_takes_deletes_and_nothing_that_adds(self):
-        node = self.new_document()
-        writing, deleting = self.open_session(node), self.open_session(node)
-        abc, de = typed_updates(writing[1], ["abc", "de"])
-        self.assertEqual(self.push(node, writing, 1, abc)[0], 200)
-        self.set_doc(node, state_bytes=writer_content.SPEC.max_state)
-
-        self.assertEqual(self.push(node, writing, 2, de), (423, {"collab": "doc_full", "retry_ms": 300_000}))
-        removal = self.edited_update(deleting[1], [abc], lambda text: text.__delitem__(slice(1, 2)))
-        self.assertEqual(self.push(node, deleting, 1, removal)[0], 200)
-        self.assertEqual(self.row_count(node), 2)
-
-    def test_a_compaction_that_frees_a_full_document_tells_its_live_room(self):
-        node = self.new_document()
-        tab = self.open_session(node)
-        abc, de = typed_updates(tab[1], ["abc", "de"])
-        self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
-        doc = self.doc_row(node)
-        room = live.rooms(writer_content.ADAPTER, doc.id, doc.lineage)["keys"][0]
-        self.set_doc(node, state_bytes=writer_content.SPEC.max_state)
-
-        with patch("frappe.publish_realtime") as publish:
-            self.compact(node)
-            self.assertEqual(self.push(node, tab, 2, de)[0], 200)
-            self.compact(node)
-
-        control_messages = [
-            (published.args[1]["kind"], published.kwargs["room"])
-            for published in publish.call_args_list
-            if published.args[0] == "suite_collab_ctl"
-        ]
-        self.assertEqual(control_messages, [("room", room)])
-
-    def test_a_stale_push_to_a_full_document_is_told_it_is_stale(self):
-        node = self.new_document()
-        tab = self.open_session(node)
-        abc, de = typed_updates(tab[1], ["abc", "de"])
-        self.set_doc(node, state_bytes=writer_content.SPEC.max_state)
-        ahead = push_body(self.doc_row(node).lineage, *tab, 1, 1, abc)
-
-        self.assertEqual(self.push(node, tab, 2, de), (409, {"collab": "seq", "acked": 0}))
-        response = call_route(routes.updates_post, node, body=ahead)
-        self.assertEqual((response.status_code, answer(response)), (409, {"collab": "diverged"}))
-
-    def test_with_no_tail_to_compact_a_push_that_does_not_fit_is_full(self):
-        node = self.new_document()
-        tab = self.open_session(node)
-        [abc] = typed_updates(tab[1], ["abc"])
-        self.set_doc(node, state_bytes=writer_content.SPEC.max_state - len(abc) + 1)
-
-        self.assertEqual(self.push(node, tab, 1, abc), (423, {"collab": "doc_full", "retry_ms": 300_000}))
-        self.assertEqual((self.row_count(node), self.requested), (0, []))
-
-    def test_tails_stored_before_bounds_were_kept_count_their_bytes(self):
-        node = self.new_document()
-        tab = self.open_session(node)
-        [abc] = typed_updates(tab[1], ["abc"])
-        self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
-        self.set_doc(node, tail_bound=0)
-
-        documents.ensure_tables()
-
-        self.assertEqual(self.doc_row(node).tail_bound, len(abc))
