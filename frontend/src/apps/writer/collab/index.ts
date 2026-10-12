@@ -12,10 +12,12 @@ import { getRealtimeSocket } from '@/platform/realtime'
 import { getCookieSessionUser } from '@/platform/session'
 import { createTransport, type HttpMethod, type Operation } from '@/platform/transport'
 
+import features from '../../../../../suite/writer/content/features.json'
+
 export { BODY_FIELD } from './field'
 
-// Raise with suite/writer/content/features.json whenever the editor learns a new node, mark or attribute
-export const WRITER_SCHEMA = 1
+// The schema the server's fast check reads, raised in features.json when the editor learns a new name
+export const WRITER_SCHEMA = features.schema
 
 const contentOperation = (id: string, method: HttpMethod, path: string): Operation => ({
   id,
