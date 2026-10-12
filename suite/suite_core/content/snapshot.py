@@ -5,6 +5,8 @@ import contextlib
 import gzip
 import hashlib
 import json
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 import frappe
 
@@ -87,6 +89,103 @@ def fallback_rev(adapter: str, doc_id: str) -> int:
     return int(found[0][0])
 
 
+@dataclass(frozen=True)
+class Base:
+    """Where a read starts: the state through `rev` and the chain it ends on."""
+
+    rev: int
+    checkpoint: bytes | None
+    chain: bytes
+    is_intact: bool
+
+
+def pick_base(adapter: str, doc_id: str, doc: frappe._dict, body: bytes, integrated: bool) -> Base:
+    """The app row's body, or a fallback newer than it unless `integrated`."""
+    rev = int(doc.body_rev)
+    checkpoint = None
+    chain = chain_seed(doc.lineage)
+    is_intact = True
+    if rev:
+        checkpoint = body
+        chain = bytes(doc.body_chain or b"")
+        body_sha = doc.body_sha
+        is_intact = body_sha is not None and hashlib.sha256(checkpoint).digest() == bytes(body_sha)
+
+    fallback_rows = None
+    if not integrated:
+        fallback_rows = frappe.db.sql(
+            f"""SELECT `through_rev`, `gz`, `chain`, `sha256` FROM `{table(adapter, "checkpoint")}`
+            WHERE `doc_id` = %s AND `through_rev` > %s ORDER BY `through_rev` DESC LIMIT 1""",
+            (doc_id, rev),
+        )
+
+    if fallback_rows:
+        through, compressed_state, stored_chain, stored_sha = fallback_rows[0]
+        state = gzip.decompress(bytes(compressed_state))
+        # A fallback that fails its sha is passed over; every edit after the body is still there
+        if hashlib.sha256(state).digest() == bytes(stored_sha):
+            return Base(int(through), state, bytes(stored_chain), True)
+
+    return Base(rev, checkpoint, chain, is_intact)
+
+
+def walk_chain(stored: Sequence, chain: bytes) -> tuple[list[tuple[int, bytes]], list[int], bytes]:
+    """The rows and the quarantined revs, and the chain extended over both."""
+    rows, quarantined = [], []
+    for rev, payload, sha, row_state in stored:
+        rev, payload = int(rev), bytes(payload)
+        if row_state == "quarantined":
+            quarantined.append(rev)
+            chain = chain_next(chain, rev, bytes(sha))
+        else:
+            rows.append((rev, payload))
+            chain = chain_next(chain, rev, hashlib.sha256(payload).digest())
+
+    return rows, quarantined, chain
+
+
+def read_once(adapter: str, doc_id: str, integrated: bool, own_snapshot: bool) -> dict | None:
+    """Raises `ChainBroken` when the rows don't continue the base to the head."""
+    with repeatable_read() if own_snapshot else contextlib.nullcontext():
+        control_rows = frappe.db.sql(
+            f"""SELECT `node`, `lineage`, `head_rev`, `head_chain`, `body_rev`, `body_chain`, `body_sha`,
+            `schema_steps`, `q_epoch` FROM `{table(adapter, "doc")}` WHERE `id` = %s AND `mode` != 'purged'""",
+            doc_id,
+            as_dict=True,
+        )
+        app_row = body_row(adapter, control_rows[0].node) if control_rows else None
+        if app_row is None:
+            return None
+
+        doc = control_rows[0]
+        base = pick_base(adapter, doc_id, doc, app_row.body, integrated)
+        stored = frappe.db.sql(
+            f"""SELECT `rev`, `payload`, `sha256`, `state` FROM `{table(adapter, "update")}`
+            WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`""",
+            (doc_id, base.rev),
+        )
+
+    rows, quarantined, chain = walk_chain(stored, base.chain)
+    revs = [int(row[0]) for row in stored]
+    is_gap_free = revs == list(range(base.rev + 1, int(doc.head_rev) + 1))
+    is_chain_matched = chain == bytes(doc.head_chain)
+    if not (base.is_intact and is_gap_free and is_chain_matched):
+        raise ChainBroken
+
+    steps = json.loads(doc.schema_steps)
+    return {
+        "lineage": doc.lineage,
+        "head_rev": int(doc.head_rev),
+        "head_chain": chain,
+        "schema": steps[-1][1],
+        "base": base.rev,
+        "checkpoint": base.checkpoint,
+        "rows": rows,
+        "quarantined": quarantined,
+        "q_epoch": int(doc.q_epoch),
+    }
+
+
 def read(adapter: str, doc_id: str, *, integrated: bool = False, own_snapshot: bool = True) -> dict | None:
     """The base and every row after it through the head, from one snapshot, chain checked.
     The base is the app row's checked body, or a fallback newer than it unless `integrated`.
@@ -97,78 +196,7 @@ def read(adapter: str, doc_id: str, *, integrated: bool = False, own_snapshot: b
     the read or was rewound; the read is tried once more before it gives up.
     A Drive callback may not commit, so it passes `own_snapshot=False` and reads in Drive's transaction.
     """
-    for _try in range(2):
-        with repeatable_read() if own_snapshot else contextlib.nullcontext():
-            control_rows = frappe.db.sql(
-                f"""SELECT `node`, `lineage`, `head_rev`, `head_chain`, `body_rev`, `body_chain`, `body_sha`,
-                `schema_steps`, `q_epoch` FROM `{table(adapter, "doc")}` WHERE `id` = %s AND `mode` != 'purged'""",
-                doc_id,
-                as_dict=True,
-            )
-            app_row = body_row(adapter, control_rows[0].node) if control_rows else None
-            if app_row is None:
-                return None
-
-            doc = control_rows[0]
-            base = int(doc.body_rev)
-            checkpoint = None
-            chain = chain_seed(doc.lineage)
-            body_intact = True
-            if base:
-                checkpoint = app_row.body
-                chain = bytes(doc.body_chain or b"")
-                body_sha = doc.body_sha
-                body_intact = body_sha is not None and hashlib.sha256(checkpoint).digest() == bytes(body_sha)
-
-            fallback_rows = None
-            if not integrated:
-                fallback_rows = frappe.db.sql(
-                    f"""SELECT `through_rev`, `gz`, `chain`, `sha256` FROM `{table(adapter, "checkpoint")}`
-                    WHERE `doc_id` = %s AND `through_rev` > %s ORDER BY `through_rev` DESC LIMIT 1""",
-                    (doc_id, base),
-                )
-
-            if fallback_rows:
-                through, compressed_state, stored_chain, stored_sha = fallback_rows[0]
-                state = gzip.decompress(bytes(compressed_state))
-                # A fallback that fails its sha is passed over; every edit after the body is still there
-                if hashlib.sha256(state).digest() == bytes(stored_sha):
-                    base = int(through)
-                    checkpoint = state
-                    chain = bytes(stored_chain)
-                    body_intact = True
-
-            stored = frappe.db.sql(
-                f"""SELECT `rev`, `payload`, `sha256`, `state` FROM `{table(adapter, "update")}`
-                WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`""",
-                (doc_id, base),
-            )
-
-        rows, quarantined = [], []
-        for rev, payload, sha, row_state in stored:
-            rev, payload = int(rev), bytes(payload)
-            if row_state == "quarantined":
-                quarantined.append(rev)
-                chain = chain_next(chain, rev, bytes(sha))
-            else:
-                rows.append((rev, payload))
-                chain = chain_next(chain, rev, hashlib.sha256(payload).digest())
-
-        revs = [int(row[0]) for row in stored]
-        gap_free = revs == list(range(base + 1, int(doc.head_rev) + 1))
-        chain_matches = chain == bytes(doc.head_chain)
-        if body_intact and gap_free and chain_matches:
-            steps = json.loads(doc.schema_steps)
-            return {
-                "lineage": doc.lineage,
-                "head_rev": int(doc.head_rev),
-                "head_chain": chain,
-                "schema": steps[-1][1],
-                "base": base,
-                "checkpoint": checkpoint,
-                "rows": rows,
-                "quarantined": quarantined,
-                "q_epoch": int(doc.q_epoch),
-            }
-
-    raise ChainBroken
+    try:
+        return read_once(adapter, doc_id, integrated, own_snapshot)
+    except ChainBroken:
+        return read_once(adapter, doc_id, integrated, own_snapshot)
