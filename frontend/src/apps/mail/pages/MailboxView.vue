@@ -42,7 +42,7 @@
       </div>
     </div>
 
-    <template v-else-if="threadRows.length || filter || mailbox === 'search'">
+    <template v-else-if="threadRows.length || filter || mailbox === 'search' || inboxTab">
       <ThreadPane
         :thread-open="!!threadID"
         @touch-start="onThreadTouchStart"
@@ -83,6 +83,13 @@
               <Button :label="__('Delete Now')" variant="ghost" @click="showEmptyMailbox = true" />
             </div>
 
+            <InboxTabs
+              v-if="inboxTab && !selections.length"
+              :tabs="inboxTabs"
+              :active="inboxTab"
+              :route-for="routeForTab"
+            />
+
             <!-- Both toolbar variants share h-12 so toggling selection mode doesn't shift the list. -->
             <!-- px-1/gap-1 match the title row above, so the ✕ shares the hamburger's
 						     axis and the count text starts where the title does. -->
@@ -116,9 +123,16 @@
             <LoadingBar v-if="activeThreads.isFetching" />
           </div>
 
+          <InboxTabs
+            v-if="!isMobile && inboxTab"
+            :tabs="inboxTabs"
+            :active="inboxTab"
+            :route-for="routeForTab"
+          />
+
           <!-- Toolbar/Actions -->
           <MailListToolbar
-            v-else
+            v-if="!isMobile"
             :title="title"
             :filter-options="FILTER_OPTIONS"
             :show-filter="!selections.length && mailbox !== 'search'"
@@ -448,6 +462,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, client, useInfiniteQuery, useMutation, type InputOf } from '@/api'
 import HeaderActions from '@/apps/mail/components/HeaderActions.vue'
 import NoMails from '@/apps/mail/components/Icons/NoMails.vue'
+import InboxTabs from '@/apps/mail/components/InboxTabs.vue'
 import LoadingBar from '@/apps/mail/components/LoadingBar.vue'
 import MailGroupHeader from '@/apps/mail/components/MailGroupHeader.vue'
 import MailListItem from '@/apps/mail/components/MailListItem.vue'
@@ -457,6 +472,7 @@ import MobileTitleHeader from '@/apps/mail/components/mobile/MobileTitleHeader.v
 import SearchResultsHeader from '@/apps/mail/components/SearchResultsHeader.vue'
 import StackListItem from '@/apps/mail/components/StackListItem.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
+import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows, type NavRow } from '@/apps/mail/composables/useListRows'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
 import { useScreener } from '@/apps/mail/composables/useScreener'
@@ -1035,6 +1051,20 @@ const { filter, reloadFilter, FILTER_OPTIONS, filterTitle } = useStoredFilter({
 })
 const isMailboxLoaded = ref(false)
 
+// The Inbox's category tabs; `inboxTab` is the open one, and undefined in any other list or when the
+// Inbox isn't split. Opening another refetches the first window, as a filter change does.
+const {
+  tabs: inboxTabs,
+  active: inboxTab,
+  routeFor: routeForTab,
+} = useInboxTabs(
+  () => mailbox === mailboxIds.inbox && 'account',
+  () => ({ name: 'mail-mailbox', params: { accountId, mailbox: route.params.mailbox } }),
+)
+watch(inboxTab, (tab, previous) => {
+  if (tab && previous && tab !== previous) resetThreads(false)
+})
+
 // Reset resource for a mailbox: the window starts at the top and runs as deep as the composable asks
 // (see resetLimit) — one page on a reset, the loaded list on a refresh, so a refresh can tell which
 // loaded rows are gone. Over-fetches one row to detect whether more exist without relying on the
@@ -1047,6 +1077,7 @@ const threads = useInfiniteQuery(api.mail.threads.list, () =>
         limit: PAGE_LENGTH,
         start: 0,
         filter_by: filter.value,
+        category: inboxTab.value,
       }
     : false,
 )
@@ -1498,9 +1529,13 @@ const mailboxName = computed(() => {
       return mailboxObj.value?._name ?? ''
   }
 })
-const unreadThreadsPrefix = computed(() =>
-  mailboxObj.value?.unread_threads ? `(${mailboxObj.value.unread_threads})` : '',
+// A split Inbox counts its Primary tab: the rest of its unread mail is counted on the other tabs.
+const unreadThreads = computed(() =>
+  inboxTab.value
+    ? inboxTabs.value.find((tab) => tab.category === 'primary')?.unread
+    : mailboxObj.value?.unread_threads,
 )
+const unreadThreadsPrefix = computed(() => (unreadThreads.value ? `(${unreadThreads.value})` : ''))
 const currentThread = computed(() =>
   threadRows.value?.find((t: Thread) => t.thread_id === threadID),
 )

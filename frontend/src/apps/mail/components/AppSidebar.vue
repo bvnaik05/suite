@@ -109,6 +109,7 @@ import { useAccountSwitch, useScreenSize } from '@/apps/mail/utils/composables'
 import { canMoveToMailbox } from '@/apps/mail/utils/mailboxTargets'
 import {
   groupUnifiedFolders,
+  INBOX_FOLDER,
   isUnifiedRoute,
   mailboxIdForParam,
   mailboxParam,
@@ -281,6 +282,15 @@ const dashboardItems = [
   },
 ]
 
+// A split Inbox counts its Primary tab, as its page does; the rest of its unread mail is counted on its
+// other tabs. Until those counts arrive, or with no tabs, it counts the whole folder.
+const primaryUnread = (counts?: { category: string; unread_threads: number }[] | null) =>
+  counts?.find((count) => count.category === 'primary')?.unread_threads
+const unreadSuffix = (primary: number | undefined, folder: number) => {
+  const unread = primary ?? folder
+  return unread ? String(unread) : ''
+}
+
 const mailboxItems = computed(
   () =>
     mailboxes.data
@@ -300,7 +310,10 @@ const mailboxItems = computed(
               mailbox: mailboxParam(mailbox.id, mailboxes.data),
             },
           },
-          suffix: mailbox.unread_threads ? String(mailbox.unread_threads) : '',
+          suffix: unreadSuffix(
+            mailbox.role === 'inbox' ? primaryUnread(store.tabCounts.data) : undefined,
+            mailbox.unread_threads,
+          ),
           activeFor: [mailbox.id],
           menuOptions: [
             {
@@ -338,7 +351,10 @@ const unifiedSidebarItems = computed(() => {
     }),
     to: unifiedFolderRoute(folder.slug),
     activeFor: [`unified:${folder.slug}`],
-    suffix: folder.unread_threads ? String(folder.unread_threads) : '',
+    suffix: unreadSuffix(
+      folder.slug === INBOX_FOLDER ? primaryUnread(store.unifiedTabCounts.data) : undefined,
+      folder.unread_threads,
+    ),
   })
   const starredItem = {
     label: __('Starred'),

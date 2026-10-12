@@ -283,6 +283,8 @@ const messageReaders = [
   'search_mails',
   'get_mailboxes',
   'get_unified_folders',
+  'get_tab_counts',
+  'get_unified_tab_counts',
   'get_all_inbox_unread_count',
   'inbox_summary',
   'get_submissions',

@@ -27,7 +27,7 @@
       </div>
     </div>
 
-    <template v-else-if="threadRows.length">
+    <template v-else-if="threadRows.length || inboxTab">
       <ThreadPane
         :thread-open="!!threadID"
         @touch-start="onThreadTouchStart"
@@ -38,6 +38,13 @@
           <!-- The toolbar itself carries the bottom border here: unlike the mailbox
 					     list, the merged one has no header block above the row for it to sit
 					     under (its mobile title header is a sibling of ThreadPane). -->
+          <InboxTabs
+            v-if="inboxTab"
+            :tabs="inboxTabs"
+            :active="inboxTab"
+            :route-for="routeForTab"
+          />
+
           <MailListToolbar
             class="border-b"
             :title="title"
@@ -49,6 +56,13 @@
 
           <!-- Mail list -->
           <div ref="mailList" class="h-full overflow-y-auto overscroll-contain max-sm:pb-20">
+            <!-- An empty tab keeps its tabs, to leave it by. -->
+            <p
+              v-if="!threadRows.length && !threads.isFetching"
+              class="text-ink-gray-5 px-3 py-10 text-center text-p-sm sm:px-5"
+            >
+              {{ __('No mails in {0}.', [openTabLabel]) }}
+            </p>
             <div v-for="(rows, key) in groupedRows" :key="key">
               <MailGroupHeader
                 v-if="groupMessagesBy !== 'None' && !isMobile"
@@ -181,6 +195,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, client, useInfiniteQuery } from '@/api'
 import HeaderActions from '@/apps/mail/components/HeaderActions.vue'
 import NoMails from '@/apps/mail/components/Icons/NoMails.vue'
+import InboxTabs from '@/apps/mail/components/InboxTabs.vue'
 import MailGroupHeader from '@/apps/mail/components/MailGroupHeader.vue'
 import MailListItem from '@/apps/mail/components/MailListItem.vue'
 import MailListToolbar from '@/apps/mail/components/MailListToolbar.vue'
@@ -189,6 +204,7 @@ import MobileTitleHeader from '@/apps/mail/components/mobile/MobileTitleHeader.v
 import StackListItem from '@/apps/mail/components/StackListItem.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
 import { closeComposeWindowFor } from '@/apps/mail/composables/useComposeWindow'
+import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows } from '@/apps/mail/composables/useListRows'
 import { useMailRemoval } from '@/apps/mail/composables/useMailRemoval'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
@@ -215,6 +231,7 @@ import {
 import { mailCopies, mailCopyIds, rowMailIds } from '@/apps/mail/utils/mailCopies'
 import { threadRow } from '@/apps/mail/utils/threadRows'
 import {
+  INBOX_FOLDER,
   STARRED_FOLDER,
   UNIFIED_ROUTE,
   UNIFIED_THREAD_ROUTE,
@@ -302,12 +319,30 @@ const {
   starrable: () => folder !== STARRED_FOLDER && !isTrashFolder.value,
 })
 
+// The Inbox's category tabs, across every account; `inboxTab` is the open one, and undefined in any
+// other folder or when the Inbox isn't split. Opening another resets the list, as a filter change does.
+const {
+  tabs: inboxTabs,
+  active: inboxTab,
+  routeFor: routeForTab,
+} = useInboxTabs(
+  () => folder === INBOX_FOLDER && 'unified',
+  () => unifiedFolderRoute(folder),
+)
+const openTabLabel = computed(
+  () => inboxTabs.value.find((tab) => tab.category === inboxTab.value)?.label ?? '',
+)
+watch(inboxTab, (tab, previous) => {
+  if (tab && previous && tab !== previous) resetThreads()
+})
+
 // The engine owns loaded windows and refreshes their rows together.
 const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
   folder,
   limit: PAGE_LENGTH,
   start: 0,
   filter_by: filter.value,
+  category: inboxTab.value,
 }))
 const threadRows = computed(() => threads.rows.map((row) => threadRow(row, store.accountId)))
 const isLoading = computed(() => threads.status === 'pending')
@@ -1113,9 +1148,12 @@ watch(
   },
 )
 
-const unreadCount = computed(
-  () =>
-    store.unifiedFolders.data?.find((f: UnifiedFolder) => f.slug === folder)?.unread_threads ?? 0,
+// A split Inbox counts its Primary tab: the rest of its unread mail is counted on the other tabs.
+const unreadCount = computed(() =>
+  inboxTab.value
+    ? (inboxTabs.value.find((tab) => tab.category === 'primary')?.unread ?? 0)
+    : (store.unifiedFolders.data?.find((f: UnifiedFolder) => f.slug === folder)?.unread_threads ??
+      0),
 )
 
 usePageMeta(() =>
