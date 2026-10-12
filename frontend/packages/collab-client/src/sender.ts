@@ -10,6 +10,7 @@ import {
   MAX_HEADER_BYTES,
   MAX_KEEPALIVE_BYTES,
   MAX_PUSH_BYTES,
+  type Entry,
   type Outbox,
 } from './outbox'
 import { PIECE_BYTES, putPieces, stageFor, type Staging } from './pieces'
@@ -41,11 +42,21 @@ export interface SenderRoom extends AccessRoom {
 // The gap between pushes until the server names its own
 const DEFAULT_PACE_MS = 500
 const MAX_PACE_MS = 10_000
+// The server is busy or holds the document; the push is asked again
+const LOCKED = 423
+const BUSY_RETRY_MS = 1000
 
 // The seqs of one session a push carries, through `to`
 type PushRange = { box: Outbox; to: number }
 // A keepalive push ready to send, with the seqs it carries
 type KeepalivePush = { header: { from: number; to: number }; body: Uint8Array<ArrayBuffer> }
+// A push ready to send; a large one goes as staged pieces first
+interface PreparedPush {
+  box: Outbox
+  header: PushHeader
+  body: Uint8Array<ArrayBuffer>
+  pieces?: { stage: string; update: Uint8Array }
+}
 
 // A server pace that is missing or not a number falls back to the default; one out of range is held to it
 function paceWithinRange(paceMs: unknown) {
@@ -133,36 +144,42 @@ export class Sender {
     this.cancelQueuedSend()
     this.lastPushStartedAt = Date.now()
 
-    const { box, header, body, pieces } = prepared
-    const { endpoints } = this.room.options
-    const push = async () => {
-      if (pieces) {
-        const refused = await putPieces(endpoints, pieces.stage, header, pieces.update)
-        if (refused) {
-          return refused
-        }
-      }
-
-      const pushOptions = pieces ? {} : request
-      const answer = await endpoints.push(body, pushOptions)
-      return readReply(answer)
-    }
-    const pushFailed = () => {
-      this.room.onUnreachable()
-      this.retryAfter(backoffMs())
-    }
-    const pushDone = () => {
-      this.inFlight = null
-      this.inFlightRange = null
-      this.room.notifyListeners()
-    }
+    const { box, header } = prepared
     this.inFlightRange = { box, to: header.to }
     this.inFlight = Promise.resolve()
-      .then(push)
-      .then((reply) => this.settlePush(reply, box, header.to), pushFailed)
-      .finally(pushDone)
+      .then(() => this.push(prepared, request))
+      .then(
+        (reply) => this.settlePush(reply, box, header.to),
+        () => this.onPushFailed(),
+      )
+      .finally(() => this.endPush())
     this.room.notifyListeners()
     return this.inFlight
+  }
+
+  private async push({ header, body, pieces }: PreparedPush, request: { keepalive?: boolean }) {
+    const { endpoints } = this.room.options
+    if (!pieces) {
+      return readReply(await endpoints.push(body, request))
+    }
+
+    const refused = await putPieces(endpoints, pieces.stage, header, pieces.update)
+    if (refused) {
+      return refused
+    }
+
+    return readReply(await endpoints.push(body, {}))
+  }
+
+  private onPushFailed() {
+    this.room.onUnreachable()
+    this.retryAfter(backoffMs())
+  }
+
+  private endPush() {
+    this.inFlight = null
+    this.inFlightRange = null
+    this.room.notifyListeners()
   }
 
   // Both are in flight at once, so they share the browser's keepalive quota
@@ -230,7 +247,23 @@ export class Sender {
     keepalive?: boolean,
     after: PushRange | null = null,
     maxBytes = keepalive ? MAX_KEEPALIVE_BYTES : MAX_PUSH_BYTES,
-  ) {
+  ): PreparedPush | null {
+    const batch = this.nextBatch(after, maxBytes)
+    if (!batch) {
+      return null
+    }
+
+    const header = this.pushHeader(batch.box, batch.entries, !!keepalive)
+    const update = Y.mergeUpdates(batch.entries.map((entry) => entry.bytes))
+    if (update.byteLength <= PIECE_BYTES) {
+      return { box: batch.box, header, body: encodePush(header, update) }
+    }
+
+    return this.stagedPush(batch.box, header, update)
+  }
+
+  // The unsent entries that go next, from the first session holding any; null when none can go now
+  private nextBatch(after: PushRange | null, maxBytes: number) {
     const room = this.room
     const box = after?.box ?? room.outboxes.find((other) => other.pending.length) ?? room.ownOutbox
     const cannotSend =
@@ -244,7 +277,12 @@ export class Sender {
       return null
     }
 
-    const header: PushHeader = {
+    return { box, entries }
+  }
+
+  private pushHeader(box: Outbox, entries: Entry[], isFinal: boolean): PushHeader {
+    const room = this.room
+    return {
       proto: 1,
       lineage: room.lineage,
       principal: room.options.principal,
@@ -255,91 +293,96 @@ export class Sender {
       cid: box.cid,
       seen_rev: room.appliedThrough,
       shas: entries.map((entry) => entry.sha),
-      final: !!keepalive,
-    }
-    const batchUpdates = entries.map((entry) => entry.bytes)
-    const update = Y.mergeUpdates(batchUpdates)
-    if (update.byteLength <= PIECE_BYTES) {
-      const body = encodePush(header, update)
-      return { box, header, body }
-    }
-
-    // Staged pieces take several requests, which a departing page can't count on
-    this.staging = stageFor(this.staging, header)
-    const staged: PushHeader = {
-      ...header,
-      final: false,
-      stage_id: this.staging.id,
-    }
-    const pieces = {
-      stage: this.staging.id,
-      update,
-    }
-    const body = encodePush(staged, new Uint8Array())
-    return {
-      box,
-      header: staged,
-      body,
-      pieces,
+      final: isFinal,
     }
   }
 
+  // Staged pieces take several requests, which a departing page can't count on
+  private stagedPush(box: Outbox, header: PushHeader, update: Uint8Array): PreparedPush {
+    this.staging = stageFor(this.staging, header)
+    const staged: PushHeader = { ...header, final: false, stage_id: this.staging.id }
+    const pieces = { stage: this.staging.id, update }
+    return { box, header: staged, body: encodePush(staged, new Uint8Array()), pieces }
+  }
+
   private async settlePush(reply: Reply, box: Outbox, lastSeq: number) {
-    const room = this.room
     if (reply.pace_ms !== undefined) {
       this.setPace(reply.pace_ms)
     }
-    if (reply.status !== 423) {
-      room.setPaused(null)
+
+    if (reply.status !== LOCKED) {
+      this.room.setPaused(null)
     }
+
     if (reply.status === 200) {
-      this.onCommitted(reply, box, lastSeq)
-      return
+      return this.onCommitted(reply, box, lastSeq)
     }
 
     if (reply.status === 409 && reply.collab === 'seq' && typeof reply.acked === 'number') {
-      // The server lost seqs it already acknowledged, so resending can't restore them
-      if (reply.acked < box.acked) {
-        return room.stopForGood('seq')
-      }
-
-      room.acknowledge(box, reply.acked)
-      if (box.hasGap) {
-        return room.stopForGood('seq')
-      }
-
-      return this.retryAfter(0)
+      return this.onSeqConflict(box, reply.acked)
     }
 
     // Pieces the server dropped or never got are staged again; a stage it refused is replaced
     const stageFailed = reply.collab === 'stage_conflict' || reply.collab === 'stage_incomplete'
     if (reply.status === 409 && stageFailed) {
-      if (reply.collab === 'stage_conflict') {
-        this.staging = null
-      }
-      return this.retryAfter(backoffMs())
+      return this.restage(reply.collab === 'stage_conflict')
     }
 
+    if (reply.status === LOCKED) {
+      return this.onBusy(reply)
+    }
+
+    return this.onRefused(reply)
+  }
+
+  private onSeqConflict(box: Outbox, acked: number) {
+    // The server lost seqs it already acknowledged, so resending can't restore them
+    if (acked < box.acked) {
+      return this.room.stopForGood('seq')
+    }
+
+    this.room.acknowledge(box, acked)
+    if (box.hasGap) {
+      return this.room.stopForGood('seq')
+    }
+
+    return this.retryAfter(0)
+  }
+
+  private restage(isRefused: boolean) {
+    if (isRefused) {
+      this.staging = null
+    }
+
+    return this.retryAfter(backoffMs())
+  }
+
+  private async onBusy(reply: Reply) {
+    const room = this.room
     // A change that adds content to a full document is never taken, so it waits in a recovery copy
-    if (reply.status === 423 && reply.collab === 'doc_full') {
+    if (reply.collab === 'doc_full') {
       await room.stopForGood('document_full')
       return room.markNeedsRebuild()
     }
 
-    if (reply.status === 423) {
-      if (reply.reason === 'suspect') {
-        room.setHeld(room.held ?? 'change')
-      }
-      room.setPaused(reply.reason ?? reply.collab ?? 'busy')
-      return this.retryAfter(reply.retry_ms ?? 1000)
+    if (reply.reason === 'suspect') {
+      room.setHeld(room.held ?? 'change')
     }
 
+    room.setPaused(reply.reason ?? reply.collab ?? 'busy')
+    return this.retryAfter(reply.retry_ms ?? BUSY_RETRY_MS)
+  }
+
+  private async onRefused(reply: Reply) {
+    const room = this.room
     const blocked = classifyRefusal(room, reply, 'lost_edit')
     if (blocked && isRecoverable(blocked)) {
       return this.retryAfter(backoffMs())
     }
 
-    if (blocked) return
+    if (blocked) {
+      return
+    }
 
     if (!reply.collab) {
       // Only a proxy refuses a body without a reason; the change stays here until uploads get through
