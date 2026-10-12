@@ -260,11 +260,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// A write names its account, or names none because it spans every account (clearing an All accounts
+// folder): that one reaches every account's reads, not none of them.
 function matchingAccount(input: unknown, queryInput: unknown): boolean {
   return (
     !isRecord(input) ||
     !isRecord(queryInput) ||
     !('account' in queryInput) ||
+    !input.account ||
     input.account === queryInput.account
   )
 }
