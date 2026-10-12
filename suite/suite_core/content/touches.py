@@ -63,6 +63,7 @@ def touch(adapter: str, doc_id: str) -> None:
 
 
 def sweep(adapter: str) -> None:
+    """Touch the documents edited since their last touch, longest waiting first, TOUCH_BATCH at most."""
     touched_before = now_datetime() - TOUCH_EVERY
     due_doc_ids = frappe.db.sql(
         f"""SELECT `id` FROM `{table(adapter, "doc")}` WHERE `touched_at` <= %s AND `head_rev` > `touched_rev`

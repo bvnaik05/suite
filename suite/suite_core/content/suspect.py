@@ -138,7 +138,9 @@ def rejudge_key(adapter: str, doc_id: str) -> str:
 
 
 def judge_rows(judging: Judging, suspect_reason: str) -> str | None:
-    adapter, doc_id, roots = judging.adapter, judging.doc_id, judging.roots
+    adapter = judging.adapter
+    doc_id = judging.doc_id
+    roots = judging.roots
     snapshot = read(adapter, doc_id, integrated=True)
     if snapshot is None:
         return None
