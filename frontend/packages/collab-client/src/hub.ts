@@ -1,5 +1,6 @@
 import type { LiveSocket } from './types'
 
+// Must match ROOMS_MAX in realtime/collab.js, which refuses a larger set
 const ROOMS_MAX = 8
 
 // The calls a socket's hub makes on each document open on it
