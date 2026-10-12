@@ -43,4 +43,22 @@ describe('build watcher', () => {
     expect(tab.belowMinBuild('slides')).toBe(false)
     expect(toastInfo.mock.calls.at(-1)![1].description).toBe('Reload to keep editing in Writer.')
   })
+
+  it('names a product paused after the banner showed for another', async () => {
+    const tab = await tabOnBuild('100', {
+      'X-Suite-Min-Builds': JSON.stringify({ writer: '150' }),
+    })
+    vi.stubGlobal('fetch', fakeFetch({ 'X-Suite-Min-Builds': JSON.stringify({ slides: '150' }) }))
+    tab.watchBuild()
+    await window.fetch('/api/method/ping')
+
+    expect(toastInfo.mock.calls.at(-1)![1].description).toBe('Reload to keep editing in Slides.')
+  })
+
+  it('keeps answering requests when the minimum builds header is malformed', async () => {
+    const tab = await tabOnBuild('100', { 'X-Suite-Min-Builds': '{not json' })
+
+    expect(tab.belowMinBuild('writer')).toBe(false)
+    await expect(window.fetch('/api/method/ping')).resolves.toBeInstanceOf(Response)
+  })
 })
