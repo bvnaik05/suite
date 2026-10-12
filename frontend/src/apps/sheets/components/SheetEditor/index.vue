@@ -861,132 +861,19 @@
           </template>
         </Dropdown>
 
-        <!-- Inline filter panel — sort + condition + Google-Sheets-style
-           "Filter by values" checklist with search and Select all/Clear. -->
-        <div v-if="filterPanel.open" class="sn-filter-panel" :style="filterPanelStyle">
-          <div class="sn-fp-title">Column {{ colLabel(filterPanel.col) }}</div>
-          <div class="sn-fp-row">
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              icon-left="lucide-arrow-up"
-              label="A → Z"
-              tooltip="Sort ascending"
-              @click="doSort(filterPanel.col, 'asc')"
-            />
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              icon-left="lucide-arrow-down"
-              label="Z → A"
-              tooltip="Sort descending"
-              @click="doSort(filterPanel.col, 'desc')"
-            />
-          </div>
-
-          <!-- Mode toggle: condition vs values. Labels are short ("Values" /
-             "Condition") so both fit inside the 260 px panel at the default
-             Button text-base size — the full "Filter by …" wording overflowed
-             at this width. Both modes share the Apply/Clear actions at the
-             bottom, so the user can flip between modes before committing. -->
-          <div class="sn-fp-mode" role="tablist" aria-label="Filter mode">
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              :variant="filterPanel.mode === 'values' ? 'subtle' : 'ghost'"
-              label="Values"
-              @click="filterPanel.mode = 'values'"
-            />
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              :variant="filterPanel.mode === 'condition' ? 'subtle' : 'ghost'"
-              label="Condition"
-              @click="filterPanel.mode = 'condition'"
-            />
-          </div>
-
-          <!-- Filter by values -->
-          <template v-if="filterPanel.mode === 'values'">
-            <!-- When a search is active these act on the *shown* matches only
-               (Google-Sheets behaviour). Relabel so it's obvious — otherwise
-               "Clear" during a search reads as "clear everything" and silently
-               leaves the hidden values checked. -->
-            <div class="sn-fp-vlinks">
-              <Button
-                variant="ghost"
-                size="sm"
-                :label="valueSearchActive ? 'Select shown' : 'Select all'"
-                @click="selectAllFilterValues"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                :label="valueSearchActive ? 'Clear shown' : 'Clear'"
-                @click="clearAllFilterValues"
-              />
-              <span class="sn-fp-count">Displaying {{ filterPanel.valueSet.size }}</span>
-            </div>
-            <FormControl
-              v-model="filterPanel.valueSearch"
-              type="text"
-              size="sm"
-              placeholder="Search…"
-            >
-              <template #prefix>
-                <FeatherIcon name="search" class="sn-fp-search-icon" />
-              </template>
-            </FormControl>
-            <div class="sn-fp-values">
-              <div
-                v-for="v in filteredFilterValues"
-                :key="v || '__blanks__'"
-                class="sn-fp-value-row"
-                @click="toggleFilterValue(v)"
-              >
-                <Checkbox
-                  :model-value="filterPanel.valueSet.has(v)"
-                  :aria-label="v === '' ? '(Blanks)' : v"
-                  @update:model-value="toggleFilterValue(v)"
-                  @click.stop
-                />
-                <span class="sn-fp-value-text">{{ v === '' ? '(Blanks)' : v }}</span>
-              </div>
-              <div v-if="!filteredFilterValues.length" class="sn-fp-empty">No matching values</div>
-            </div>
-          </template>
-
-          <!-- Filter by condition -->
-          <template v-else>
-            <FormControl
-              v-model="filterPanel.operator"
-              type="select"
-              size="sm"
-              :options="FILTER_OPERATOR_OPTIONS"
-              aria-label="Condition"
-            />
-            <FormControl
-              v-if="!['empty', 'notempty'].includes(filterPanel.operator)"
-              v-model="filterPanel.value"
-              type="text"
-              size="sm"
-              placeholder="Value"
-              @keydown.enter="applyFilter"
-            />
-          </template>
-
-          <div class="sn-fp-actions">
-            <Button
-              class="sn-fp-grow"
-              variant="solid"
-              size="sm"
-              label="Apply"
-              @click="applyFilter"
-            />
-            <Button class="sn-fp-grow" size="sm" label="Clear" @click="clearFilterCol" />
-            <Button class="sn-fp-grow" size="sm" label="Close" @click="filterPanel.open = false" />
-          </div>
-        </div>
+        <!-- Inline filter panel (FilterPanel.vue) -->
+        <FilterPanel
+          v-if="filterPanel.open"
+          :key="filterPanel.seq"
+          :style="filterPanelStyle"
+          :col="filterPanel.col"
+          :all-values="filterPanel.allValues"
+          :spec="filterPanel.spec"
+          @sort="(dir) => doSort(filterPanel.col, dir)"
+          @apply="applyFilter"
+          @clear="clearFilterCol"
+          @close="filterPanel.open = false"
+        />
       </div>
 
       <!-- Add-more-rows strip — only when the user has scrolled near the bottom -->
@@ -1883,7 +1770,6 @@ import { useRootStore } from '@/stores/root'
 import { confirmLeave } from '@/utils/confirmLeave'
 
 import { chipColor } from '../../canvas/chip-geometry'
-import { COL_HEADER_H, ROW_HEADER_W } from '../../canvas/constants'
 import { createGrid } from '../../canvas/index'
 import { createChartEngine } from '../../engine/charts.js'
 import { createClipboard } from '../../engine/clipboard.js'
@@ -1911,7 +1797,6 @@ import { isCanvasClipboardTarget } from '../../utils/clipboard-target.js'
 import { applyNumberFmt, buildNumberFmt, parseNumberFmt } from '../../utils/format-number.js'
 import { AC_FUN_KEYS } from '../../utils/formula-ac.js'
 import { autoCloseKey } from '../../utils/formula-autoclose.js'
-import { overlayRectStyle } from '../../utils/overlay-rect.js'
 import { userInitials } from '../../utils/session.js'
 import { getTextWrap } from '../../utils/text-wrap.js'
 import AISettingsDialog from './AISettingsDialog.vue'
@@ -1921,6 +1806,7 @@ import ChartDialog from './ChartDialog.vue'
 import ChartOverlay from './ChartOverlay.vue'
 import ColorPicker from './ColorPicker.vue'
 import ConditionalFormatDialog from './ConditionalFormatDialog.vue'
+import FilterPanel from './FilterPanel.vue'
 import FindReplace from './FindReplace.vue'
 import InlineTitleInput from './InlineTitleInput.vue'
 import LinkPreviewCard from './LinkPreviewCard.vue'
@@ -1940,6 +1826,7 @@ import { usePivotIntegration } from './usePivotIntegration.js'
 import { useSheetTabs } from './useSheetTabs.js'
 import { useShortcuts } from './useShortcuts.js'
 import { useSmartFill } from './useSmartFill.js'
+import { useSortFilter } from './useSortFilter.js'
 import { useSplitText } from './useSplitText.js'
 import { useToolbar } from './useToolbar.js'
 import { useWorkbook } from './useWorkbook.js'
@@ -2560,32 +2447,6 @@ const IncreaseDecimalIcon = _decimalsIcon([
     rx: 2.5,
   }),
 ])
-const FILTER_OPERATOR_OPTIONS = [
-  {
-    label: 'Contains',
-    value: 'contains',
-  },
-  {
-    label: 'Equals',
-    value: 'equals',
-  },
-  {
-    label: 'Greater than',
-    value: 'gt',
-  },
-  {
-    label: 'Less than',
-    value: 'lt',
-  },
-  {
-    label: 'Is empty',
-    value: 'empty',
-  },
-  {
-    label: 'Is not empty',
-    value: 'notempty',
-  },
-]
 const fileDropdownOptions = computed(() => [
   {
     group: 'Export',
@@ -2882,74 +2743,6 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
   isDirty,
 })
 
-// Filter panel state.
-//   - mode: 'values' (Google-Sheets-style checklist) or 'condition' (operator
-//     + value). Default to 'values' since that's the more discoverable path.
-//   - valueSet: which distinct displayed values are currently checked. Stored
-//     as a real Set for O(1) toggles; serialised to an array when persisted
-//     via sortFilter.setFilter.
-//   - allValues: distinct displayed values in the column's data range, cached
-//     while the panel is open so we don't recompute on every keystroke.
-const filterPanel = reactive({
-  open: false,
-  col: 0,
-  mode: 'values',
-  operator: 'contains',
-  value: '',
-  valueSet: new Set(),
-  valueSearch: '',
-  allValues: [],
-})
-const filteredFilterValues = computed(() => {
-  const q = filterPanel.valueSearch.trim().toLowerCase()
-  if (!q) return filterPanel.allValues
-  return filterPanel.allValues.filter((v) => String(v).toLowerCase().includes(q))
-})
-
-// True while the value search box narrows the list — Select all / Clear then
-// act on the shown subset, so their labels change to say so.
-const valueSearchActive = computed(() => filterPanel.valueSearch.trim() !== '')
-function toggleFilterValue(v) {
-  if (filterPanel.valueSet.has(v)) filterPanel.valueSet.delete(v)
-  else filterPanel.valueSet.add(v)
-}
-function selectAllFilterValues() {
-  // Only the values currently visible under the search filter — matches
-  // Google Sheets behaviour where "Select all" respects the search box.
-  for (const v of filteredFilterValues.value) filterPanel.valueSet.add(v)
-}
-function clearAllFilterValues() {
-  for (const v of filteredFilterValues.value) filterPanel.valueSet.delete(v)
-}
-
-// Auto-close the filter popover on any click outside its body or the
-// chevron that opened it. Mirrors how Google Sheets handles this — users
-// shouldn't have to remember to hit "Close" before editing a cell.
-function _filterPanelOutsideClick(e) {
-  const t = e.target
-  if (!t || !(t instanceof Element)) return
-  if (t.closest('.sn-filter-panel')) return // click inside the popover itself
-  if (t.closest('.sn-filter-btn')) return // click on a chevron toggles its own panel
-  // Frappe UI's Select/Combobox/Dropdown render their dropdown into a portal
-  // (SelectPortal → body), so the listbox options live OUTSIDE the panel's
-  // DOM subtree. Without this exemption, clicking "Equals" / "Greater than"
-  // on the condition-mode operator picker fired the outside-click handler
-  // and slammed the whole panel shut. The portaled content is tagged with
-  // data-slot="content" on the wrapper, so an ancestor match catches every
-  // descendant click (items, scroll viewport, etc.).
-  if (t.closest('[data-slot="content"]')) return
-  filterPanel.open = false
-}
-watch(
-  () => filterPanel.open,
-  (open) => {
-    // `mousedown` (not click) so the close fires before any other component
-    // gets the focus/selection event — keeps the panel from leaving stale
-    // state behind when the user just clicks elsewhere in the sheet.
-    if (open) document.addEventListener('mousedown', _filterPanelOutsideClick, true)
-    else document.removeEventListener('mousedown', _filterPanelOutsideClick, true)
-  },
-)
 let grid = null
 let ro = null
 function syncFlags() {
@@ -3569,21 +3362,6 @@ const {
   blockProtected: (rect, sn) => _rectBlocked(rect, sn),
 })
 
-// `showSortFilter` is the existing template/handler API; with ranged filters
-// it's now derived from "does this sheet have a filter range?".  Writing true
-// creates a filter on the current selection; writing false removes it.
-const showSortFilter = computed({
-  get() {
-    renderVersion.value
-    return sortFilter.hasFilter(currentSheet.value)
-  },
-  set(v) {
-    v
-      ? _createFilterOnSelection().catch((e) => console.error('[sheets] filter failed', e))
-      : _removeFilter()
-  },
-})
-
 // Adding a sheet used to push a full-workbook snapshot (history.push deep-clones
 // every cell of every sheet — ~2s on a large workbook). The new sheet is empty,
 // so undo/redo only needs its name: a cheap structural op instead of a snapshot.
@@ -3705,87 +3483,37 @@ function doAddMoreRows() {
   isDirty.value = true
 }
 
-// ── Filter overlay geometry ───────────────────────────────────────────────────
-
-const filterConfig = computed(() => {
-  renderVersion.value // re-eval when canvas re-renders (e.g. filter apply)
-  return sortFilter.getFilterConfig(currentSheet.value)
-})
-const filterRange = computed(() => {
-  renderVersion.value
-  return sortFilter.getRange(currentSheet.value)
-})
-
-// Chevron buttons appear only on the header row of the active filter range —
-// at most one filter per sheet, scoped to its rectangle (Google-Sheets-style).
-const visibleFilterCols = computed(() => {
-  renderVersion.value
-  if (!grid || !filterRange.value) return []
-  const { r0, c0, c1 } = filterRange.value
-  const rowRect = grid.getRowRect(r0)
-  const rects = grid.getColumnHeaderRects().filter(({ c }) => c >= c0 && c <= c1)
-  const BTN = 16
-  return rects.map(({ c, x, width }) => ({
-    col: c,
-    style: {
-      left: x + width - BTN - 3 + 'px',
-      top: rowRect.y + (rowRect.height - BTN) / 2 + 'px',
-      width: BTN + 'px',
-      height: BTN + 'px',
-    },
-  }))
-})
-
-// Live position for the open filter panel. Recomputed on every canvas render
-// (renderVersion) so the panel tracks its column as the grid scrolls, anchored
-// to the column's chevron just like visibleFilterCols. Returns display:none when
-// the column scrolls out of the visible header range so the panel hides instead
-// of floating over unrelated columns; it reappears when scrolled back into view.
-const filterPanelStyle = computed(() => {
-  renderVersion.value
-  if (!filterPanel.open || !grid || !filterRange.value)
-    return {
-      display: 'none',
-    }
-  const { r0 } = filterRange.value
-  const colRect = grid.getColumnHeaderRects().find(({ c }) => c === filterPanel.col)
-  const rowRect = grid.getRowRect(r0)
-  if (!colRect || !rowRect)
-    return {
-      display: 'none',
-    }
-  const BTN = 16
-  const wrapW = gridWrapRef.value?.getBoundingClientRect().width ?? Infinity
-  return {
-    top: rowRect.y + rowRect.height + 2 + 'px',
-    left: clampFilterLeft(colRect.x + colRect.width - BTN - 3, wrapW) + 'px',
-  }
-})
-
-// Outline drawn around the active filter's rectangle so its extent is visible
-// (Google-Sheets-style). Mirrors the pivot highlight: bounding box from the
-// range's top-left / bottom-right cell rects, clamped to the header strips so
-// it never paints over the row-number gutter or column-header row when the
-// range is scrolled partly out of view.
-const filterHighlightStyle = computed(() => {
-  renderVersion.value
-  if (!showSortFilter.value || !grid || !filterRange.value) return null
-  const { r0, c0, r1, c1 } = filterRange.value
-  const tl = grid.getCellRect?.(r0, c0)
-  const br = grid.getCellRect?.(r1, c1)
-  if (!tl || !br) return null
-  const zoom = grid.getZoom?.() ?? 1
-  // `|| Infinity` treats a 0/undefined viewport (before the first layout) as
-  // "unclamped" — a 0 would otherwise collapse the overlay to nothing.
-  const vp = grid.getViewportSize?.()
-  const viewW = vp?.w || Infinity
-  const viewH = vp?.h || Infinity
-  return overlayRectStyle(tl, br, {
-    headerX: ROW_HEADER_W * zoom,
-    headerY: COL_HEADER_H * zoom,
-    viewW,
-    viewH,
-  })
+// ── Sort & Filter ─────────────────────────────────────────────────────────────
+// The filter, its overlay geometry and the filter panel (see useSortFilter.js).
+const {
+  filterPanel,
+  showSortFilter,
+  filterConfig,
+  visibleFilterCols,
+  filterPanelStyle,
+  filterHighlightStyle,
+  detectContiguousBlock: _detectContiguousBlock,
+  openFilterPanel,
+  openQuickFilterForActive,
+  applyFilter,
+  clearFilterCol,
+  doSort,
+} = useSortFilter({
+  sortFilter,
+  currentSheet,
+  activeCell,
+  renderVersion,
+  gridWrapRef,
+  history,
+  getGrid: () => grid,
+  readRect: _readRect,
+  rectBlocked: (rect, sn) => _rectBlocked(rect, sn),
+  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+  repopulateGrid: () => _repopulateGrid(),
+  applyHiddenRows: () => _applyHiddenRows(),
+  markDirty: () => {
+    isDirty.value = true
+  },
 })
 
 // Per-sub-sheet peer dots — small colored circles next to each tab label
@@ -5005,12 +4733,6 @@ watch(isDirty, (dirty) => {
   if (dirty) _triggerAutoSave()
 })
 
-// Re-render the canvas when the filter row is toggled so row-0 cells reserve
-// (or release) right-padding for the chevron buttons.
-watch(showSortFilter, () => {
-  grid?.render?.()
-})
-
 // Title focus/blur — mark `isDirty` when the value changed during the focus
 // session so `_doAutoSave` doesn't bail on its `!isDirty` guard. Without
 // this, a rename-then-save flow (no cell edit in between) silently dropped
@@ -5986,113 +5708,6 @@ function onNavigateTo(id) {
   grid.moveTo(p.row, p.col)
 }
 
-// ── Sort & Filter ─────────────────────────────────────────────────────────────
-
-// Expand a single anchor cell to the contiguous non-empty data block around it
-// (Google-Sheets Ctrl+A behaviour). If the anchor itself is empty, pivot to
-// the adjacent cell down/right that has data — the empty anchor then becomes
-// the header row/col of the resulting block. Returns null only when nothing
-// adjacent has data either.
-// The contiguous block of non-empty cells around (r, c), as a rect, or null
-// when the anchor and its right/lower neighbours are empty. Reads a window
-// around the anchor in one go and widens it while the block reaches its edge.
-async function _detectContiguousBlock(r, c) {
-  const sn = currentSheet.value
-  for (let rows = 1000, cols = 26; ; rows *= 8, cols *= 8) {
-    const win = { r0: Math.max(0, r - rows), c0: Math.max(0, c - cols), r1: r + rows, c1: c + cols }
-    const { inputs } = await _readRect(sn, win)
-    const hasVal = (rr, cc) =>
-      rr >= win.r0 &&
-      cc >= win.c0 &&
-      rr <= win.r1 &&
-      cc <= win.c1 &&
-      (inputs[rr - win.r0]?.[cc - win.c0] ?? '') !== ''
-    const block = _blockAround(r, c, hasVal)
-    if (!block) return null
-    const atEdge =
-      (block.r0 === win.r0 && win.r0 > 0) ||
-      block.r1 === win.r1 ||
-      (block.c0 === win.c0 && win.c0 > 0) ||
-      block.c1 === win.c1
-    if (!atEdge || rows >= 1_000_000) return block
-  }
-}
-
-function _blockAround(r, c, hasVal) {
-  const anchorEmpty = !hasVal(r, c)
-  let ar = r,
-    ac = c
-  if (anchorEmpty) {
-    if (hasVal(r + 1, c)) ar = r + 1
-    else if (hasVal(r, c + 1)) ac = c + 1
-    else return null
-  }
-  let r0 = ar,
-    r1 = ar,
-    c0 = ac,
-    c1 = ac
-  while (r0 > 0 && hasVal(r0 - 1, ac)) r0--
-  while (hasVal(r1 + 1, ac)) r1++
-  while (c0 > 0 && hasVal(ar, c0 - 1)) c0--
-  while (hasVal(ar, c1 + 1)) c1++
-  // Walk again from the new top-row left/right edges in case the block widens
-  // below; this matches Google Sheets' "smart" expansion well enough for now.
-  for (let rr = r0; rr <= r1; rr++) {
-    while (c0 > 0 && hasVal(rr, c0 - 1)) c0--
-    while (hasVal(rr, c1 + 1)) c1++
-  }
-  // If the original anchor sits exactly one row above (or one col left of)
-  // the detected block, fold it in as the header row/col.
-  if (anchorEmpty && r === r0 - 1 && c >= c0 && c <= c1) r0 = r
-  if (anchorEmpty && c === c0 - 1 && r >= r0 && r <= r1) c0 = c
-  return {
-    r0,
-    c0,
-    r1,
-    c1,
-  }
-}
-
-// Create a filter on the user's current selection.  A selection that spans no
-// data rows — a single cell, or a lone header row like A1:E1 — auto-expands to
-// the contiguous data block around its top-left anchor (or refuses if that
-// anchor is empty). Without this, toggling the filter on just the header row
-// would produce a header-only range (r1 === r0): chevrons appear, but the
-// value list scans zero data rows and comes up empty. A genuine multi-row
-// block is taken verbatim.
-async function _createFilterOnSelection() {
-  if (!grid) return
-  const sel = grid.getSelection()
-  const noDataRows = sel.r0 === sel.r1
-  const range = noDataRows
-    ? (await _detectContiguousBlock(sel.r0, sel.c0)) || {
-        r0: sel.r0,
-        c0: sel.c0,
-        r1: sel.r0,
-        c1: sel.c0,
-      }
-    : {
-        r0: sel.r0,
-        c0: sel.c0,
-        r1: sel.r1,
-        c1: sel.c1,
-      }
-  sortFilter.setRange(range, currentSheet.value)
-  filterPanel.open = false
-  _applyHiddenRows()
-  grid?.render?.()
-  history.push()
-  isDirty.value = true
-}
-function _removeFilter() {
-  sortFilter.clearRange(currentSheet.value)
-  filterPanel.open = false
-  _applyHiddenRows()
-  grid?.render?.()
-  history.push()
-  isDirty.value = true
-}
-
 // ── Slicers ────────────────────────────────────────────────────────────────
 // A slicer is a floating value-filter control bound to a column of the filter
 // range. It reads/writes that column's `inSet` spec in sortFilter; the slicers
@@ -6300,124 +5915,6 @@ function _endSlicerDrag() {
   _slicerDrag = null
   window.removeEventListener('mousemove', _onSlicerDrag)
   window.removeEventListener('mouseup', _endSlicerDrag)
-}
-async function openFilterPanel(colIdx) {
-  const sn = currentSheet.value
-  await sortFilter.refresh(sn)
-  const cfg = sortFilter.getFilterConfig(sn)
-  const existing = cfg[colIdx]
-  const allValues = sortFilter.getColumnValues(colIdx, sn)
-  filterPanel.col = colIdx
-  filterPanel.allValues = allValues
-  filterPanel.valueSearch = ''
-  // Decide initial mode + state from the existing spec (if any). `inSet`
-  // → values mode with the saved selection; condition-style ops → condition
-  // mode; nothing saved → default values mode with every value checked.
-  if (existing?.operator === 'inSet') {
-    filterPanel.mode = 'values'
-    filterPanel.operator = 'contains'
-    filterPanel.value = ''
-    filterPanel.valueSet = new Set(existing.values || [])
-  } else if (existing) {
-    filterPanel.mode = 'condition'
-    filterPanel.operator = existing.operator || 'contains'
-    filterPanel.value = existing.value || ''
-    filterPanel.valueSet = new Set(allValues)
-  } else {
-    filterPanel.mode = 'values'
-    filterPanel.operator = 'contains'
-    filterPanel.value = ''
-    filterPanel.valueSet = new Set(allValues)
-  }
-  filterPanel.open = true
-}
-
-// The panel renders at FILTER_PANEL_W px outer width (260 content + 24 padding +
-// 2 border, content-box). clampFilterLeft keeps its full width inside the grid
-// wrap so chevrons on right-edge columns don't push the Apply/Close buttons
-// off-screen. Live positioning lives in the filterPanelStyle computed.
-const FILTER_PANEL_W = 286
-function clampFilterLeft(left, wrapWidth) {
-  const GAP = 6
-  const maxLeft = wrapWidth - FILTER_PANEL_W - GAP
-  return Math.max(GAP, Math.min(left, maxLeft))
-}
-
-// Alt+↓ on a canvas cell opens the filter panel for that cell's column. Forces
-// the filter row visible first (so chevrons exist) and anchors the popover at
-// the column's row-0 cell rather than at a click target.
-async function openQuickFilterForActive() {
-  const id = activeCell.value
-  const p = parseCellId(id)
-  if (!p) return
-  if (!sortFilter.hasFilter(currentSheet.value)) await _createFilterOnSelection()
-  nextTick(() => {
-    const range = sortFilter.getRange(currentSheet.value)
-    if (!range || p.col < range.c0 || p.col > range.c1) return
-    const rects = grid?.getColumnHeaderRects?.() || []
-    const colRect = rects.find((r) => r.c === p.col)
-    const rowRect = grid?.getRowRect?.(range.r0)
-    if (!colRect || !rowRect) return
-    const cfg = sortFilter.getFilterConfig(currentSheet.value)
-    filterPanel.open = true
-    filterPanel.col = p.col
-    filterPanel.operator = cfg[p.col]?.operator || 'contains'
-    filterPanel.value = cfg[p.col]?.value || ''
-    // Position is derived live by the filterPanelStyle computed; we only need
-    // the column visible here so the panel has a valid anchor on open.
-  })
-}
-function applyFilter() {
-  const sn = currentSheet.value
-  if (filterPanel.mode === 'values') {
-    // No-op safety: an all-checked selection is identical to no filter at
-    // all, so clear the column entry instead of saving every value.
-    if (filterPanel.valueSet.size === filterPanel.allValues.length) {
-      sortFilter.clearFilter(filterPanel.col, sn)
-    } else {
-      sortFilter.setFilter(
-        filterPanel.col,
-        {
-          operator: 'inSet',
-          values: [...filterPanel.valueSet],
-        },
-        sn,
-      )
-    }
-  } else {
-    sortFilter.setFilter(
-      filterPanel.col,
-      {
-        operator: filterPanel.operator,
-        value: filterPanel.value,
-      },
-      sn,
-    )
-  }
-  filterPanel.open = false
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-}
-function clearFilterCol() {
-  sortFilter.clearFilter(filterPanel.col, currentSheet.value)
-  filterPanel.open = false
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-}
-async function doSort(colIdx, dir) {
-  const sn = currentSheet.value
-  // Sorting permutes values across the filter range — refuse if it overlaps
-  // protection, matching Google Sheets (a protected range blocks the sort).
-  const range = sortFilter.getRange(sn)
-  if (range && _rectBlocked(range, sn)) return
-  filterPanel.open = false
-  const sorted = await sortFilter.sort(colIdx, dir, sn)
-  if (sorted) _pushEditOp(sn, sorted.before, sorted.after, 'Sort')
-  _applyHiddenRows()
 }
 // ── Context menu ──────────────────────────────────────────────────────────────
 

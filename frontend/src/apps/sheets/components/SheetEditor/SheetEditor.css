@@ -735,49 +735,6 @@
   text-overflow: ellipsis;
 }
 
-.sn-filter-panel {
-  position: absolute;
-  z-index: 100;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-elevation-2);
-  border-radius: 10px;
-  box-shadow:
-    0 0 1px rgba(0, 0, 0, 0.35),
-    0 6px 8px -4px rgba(0, 0, 0, 0.1);
-  padding: 12px;
-  width: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sn-fp-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--ink-gray-8);
-  padding-bottom: 2px;
-}
-.sn-fp-row {
-  display: flex;
-  gap: 4px;
-}
-.sn-fp-mode {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  background: var(--surface-base);
-}
-.sn-fp-actions {
-  display: flex;
-  gap: 4px;
-  padding-top: 2px;
-}
-.sn-fp-grow {
-  flex: 1;
-}
-
 /* "Filter by values" mode — every interactive element is a Frappe UI primitive
    (Button, Checkbox, FormControl), so the per-class rules here only handle
    layout and the value-list row chrome. */
@@ -785,25 +742,6 @@
   display: flex;
   align-items: center;
   gap: 2px;
-}
-.sn-fp-count {
-  margin-left: auto;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  color: var(--ink-gray-5);
-}
-.sn-fp-search-icon {
-  width: 13px;
-  height: 13px;
-  color: var(--ink-gray-5);
-}
-.sn-fp-values {
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  padding: 4px 0;
-  background: var(--surface-base);
 }
 .sn-fp-value-row {
   display: flex;
@@ -822,12 +760,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.sn-fp-empty {
-  padding: 12px 10px;
-  font-size: 12px;
-  color: var(--ink-gray-5);
-  text-align: center;
 }
 
 /* ── Bottom · tabs + stats ───────────────────────────────────────────────── */
