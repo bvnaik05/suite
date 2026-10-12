@@ -1,0 +1,1669 @@
+/* Espresso tokens — every color comes from frappe-ui's semantic palette
+   (--surface-*, --outline-*, --ink-*). No raw Tailwind hexes. */
+
+/* ── Root layout ─────────────────────────────────────────────────────────── */
+.sn-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--surface-base);
+  font-family: InterVar, ui-sans-serif, system-ui, sans-serif;
+  color: var(--ink-gray-9);
+}
+
+/* ── Canvas loading overlay ──────────────────────────────────────────────── */
+/* Sits inside .sn-grid-wrap. The canvas is mounted underneath (the grid
+   engine needs the canvas ref to wire up before loadSheet returns), so
+   this is a translucent veil that fades when isInitialLoad flips. */
+.sn-canvas-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-base);
+  z-index: 1;
+  pointer-events: none; /* don't intercept clicks if it lingers a frame */
+}
+.sn-canvas-loading-spinner {
+  color: var(--ink-gray-5);
+}
+.sn-pivot-building {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--surface-base);
+  border: 1px solid var(--outline-gray-2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  font-size: 13px;
+  color: var(--ink-gray-7);
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* ── Load-time error state ───────────────────────────────────────────────── */
+.sn-load-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+.sn-load-error-icon {
+  line-height: 0;
+  margin-bottom: 4px;
+}
+.sn-load-error-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink-gray-9);
+  margin: 0;
+}
+.sn-load-error-sub {
+  font-size: 13px;
+  color: var(--ink-gray-6);
+  margin: 0 0 8px;
+  max-width: 360px;
+}
+
+/* ── Bar 1 · Identity / topbar ───────────────────────────────────────────── */
+.sn-topbar {
+  container: sn-topbar / inline-size;
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--outline-elevation-1);
+  background: var(--surface-elevation-1);
+  flex-shrink: 0;
+}
+/* Left cluster groups: brand+title tight (gap:4); status chips sit further away
+   (gap:12) so the title reads as the focal point, not crowded by badges. */
+.sn-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sn-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.sn-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.sn-app-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: block;
+}
+.sn-app-menu-trigger {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.sn-parent-breadcrumb :deep(a) {
+  color: var(--ink-gray-5);
+}
+
+/*
+   intrinsic ~20ch width is taken out of the layout — otherwise it, not the
+   text, would dictate the box. Result: the box hugs the text and grows smoothly
+   per keystroke, with no width animation lagging the caret and no canvas
+   measurement drifting from actual metrics. min/max-width keep the old
+   click-target floor and runaway-title ceiling. */
+/* Hairline between action buttons and avatar — groups the cluster without
+   relying on extra padding. */
+.sn-topbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--outline-gray-2);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.sn-save-error {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 240px;
+}
+.sn-wide-only {
+  display: inline-flex;
+}
+.sn-compact-only {
+  display: none;
+}
+/* A narrow bar, down to a 320 px phone, keeps every action on one row: labels
+   and dividers go, and Ask AI, File and Keyboard shortcuts fold into one menu. */
+@container sn-topbar (max-width: 640px) {
+  .sn-wide-only,
+  .sn-topbar-divider,
+  .sn-save-label,
+  .sn-view-only-label {
+    display: none;
+  }
+  .sn-compact-only {
+    display: inline-flex;
+  }
+  .sn-save-error {
+    max-width: 96px;
+  }
+}
+/* Notes count badge — workbook-wide teal badge on the notes icon. */
+.sn-notes-btn-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.sn-notes-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  box-sizing: border-box;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  background: #0d7490;
+  border-radius: 999px;
+  border: 1.5px solid var(--surface-base);
+  pointer-events: none;
+}
+
+/* Brand-coloured current-user avatar. Avatar's inner label uses
+   `bg-surface-gray-2 text-ink-gray-5` by default — we override both so the
+   chip reads as "you" against the otherwise-neutral topbar. Scoped styles
+   need `:deep()` to reach into frappe-ui's component internals. */
+.sn-user-avatar :deep(div) {
+  background: #0d7490 !important;
+  color: #ffffff !important;
+}
+
+/* Presence avatars — stacked/overlapping, each with a white ring so they
+   visually separate even when colors are similar. */
+.sn-presence {
+  display: inline-flex;
+  align-items: center;
+}
+.sn-presence-avatar {
+  margin-left: -6px;
+  border-radius: 50%;
+  /* Outer ring = surface bg so the stack reads as overlapping pebbles;
+     inner ring = the peer's cursor color so the avatar matches their
+     cursor outline at a glance. `box-shadow` stacks two rings without
+     pushing layout. */
+  box-shadow:
+    0 0 0 2px var(--surface-base),
+    0 0 0 4px var(--rc, var(--outline-gray-2));
+}
+.sn-presence-avatar:first-child {
+  margin-left: 0;
+}
+.sn-presence-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface-gray-3);
+  border: 2px solid var(--surface-base);
+  margin-left: -6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-gray-7);
+  flex-shrink: 0;
+  cursor: default;
+}
+
+/* Save status — small muted text, Espresso ink-gray-5.  Sits quietly next to
+   the title; never competes for attention. */
+.sn-save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--ink-gray-5);
+  white-space: nowrap;
+  user-select: none;
+}
+.sn-save-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+@keyframes sn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.sn-save-spin {
+  animation: sn-spin 0.9s linear infinite;
+}
+
+/* ── Pivot FAB ── */
+.sn-pivot-fab {
+  position: absolute;
+  z-index: 20;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-base);
+  border: 1px solid var(--outline-gray-2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--ink-gray-6);
+  transition:
+    background 0.1s,
+    color 0.1s,
+    box-shadow 0.1s;
+}
+.sn-pivot-fab:hover,
+.sn-pivot-fab.open {
+  background: var(--surface-gray-1);
+  color: var(--ink-gray-9);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.16);
+}
+.sn-pivot-fab-icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* Pivot highlight overlay — neutral outline drawn over the pivot output
+   range, matching the rest of the espresso chrome (ink-gray scale rather
+   than a saturated brand colour). pointer-events:none keeps clicks
+   reaching the canvas underneath. */
+.sn-pivot-highlight {
+  position: absolute;
+  z-index: 15;
+  pointer-events: none;
+  border: 1.5px solid var(--ink-gray-8);
+  border-radius: 2px;
+}
+
+/* Filter range outline — same neutral chrome as the pivot highlight, drawn
+   around the active filter's rectangle so its extent is visible. pointer-events
+   stays off so the chevron buttons and canvas underneath keep receiving clicks. */
+.sn-filter-range {
+  position: absolute;
+  z-index: 14;
+  pointer-events: none;
+  /* Thin green outline, Google-Sheets-style — a 1.5px near-black frame read
+     as far too heavy against the gridlines. */
+  border: 1px solid var(--ink-green-3, #15803d);
+  border-radius: 2px;
+}
+
+/* ── Bar 2 · Formula bar ─────────────────────────────────────────────────── */
+
+.sn-formula-bar {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--outline-gray-2);
+  gap: 8px;
+  flex-shrink: 0;
+  background: var(--surface-base);
+}
+/* Cell address tag */
+.sn-cell-ref {
+  box-sizing: border-box;
+  min-width: 50px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-gray-7);
+  background: var(--surface-base);
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 6px;
+  height: 30px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  cursor: default;
+  user-select: none;
+  transition:
+    border-color 0.12s,
+    background-color 0.12s;
+}
+.sn-cell-ref:hover {
+  border-color: var(--outline-gray-3);
+  background: var(--surface-gray-3);
+}
+/* "fx" delimiter */
+.sn-fx-label {
+  font-size: 14px;
+  font-style: italic;
+  font-weight: 500;
+  color: var(--ink-gray-4);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  padding: 0 6px 0 2px;
+  user-select: none;
+  font-family: ui-serif, Georgia, 'Times New Roman', serif;
+}
+.sn-formula-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+.sn-formula-wrap .sn-formula-input {
+  flex: 1;
+}
+.sn-formula-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 30px;
+  line-height: 1;
+  border-radius: 6px;
+  outline: none;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--ink-gray-8);
+  background: var(--surface-base);
+  border: 1px solid var(--outline-gray-2);
+  font-family: 'Fira Code', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  letter-spacing: 0.005em;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.sn-formula-input::placeholder {
+  color: var(--ink-gray-3);
+  font-style: italic;
+  font-family: inherit;
+}
+.sn-formula-input:hover {
+  background: var(--surface-gray-3);
+  border-color: var(--outline-gray-3);
+}
+.sn-formula-input:focus {
+  border-color: var(--outline-gray-4);
+  background: var(--surface-base);
+  box-shadow: 0 0 0 2px rgba(23, 23, 23, 0.08);
+}
+.sn-fbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* Formula autocomplete — Frappe UI Autocomplete is form-field oriented, so the inline popover is bespoke but uses Espresso surfaces. */
+.sn-ac-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  bottom: auto;
+  left: 0;
+  right: 0;
+  background: var(--surface-elevation-2);
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 8px;
+  box-shadow:
+    0 0 1px rgba(0, 0, 0, 0.35),
+    0 6px 8px -4px rgba(0, 0, 0, 0.1);
+  z-index: 300;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.sn-ac-list--up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.sn-ac-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 4px;
+}
+.sn-ac-item:hover,
+.sn-ac-item.active {
+  background: var(--surface-gray-2);
+}
+.sn-ac-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-gray-9);
+  min-width: 90px;
+  letter-spacing: 0.02em;
+}
+.sn-ac-sig {
+  font-size: 11px;
+  color: var(--ink-gray-5);
+  letter-spacing: 0.01em;
+}
+.sn-ac-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-cyan-6, #0891b2);
+  background: var(--surface-cyan-1, #ecfeff);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+/* Validation dialog two-column value row */
+.sn-vd-vals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Validation "List of items" per-item editor: swatch · label · remove */
+.sn-vd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sn-vd-list-label {
+  font-size: 12px;
+  color: var(--ink-gray-5);
+}
+.sn-vd-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sn-vd-swatch {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--outline-gray-2);
+  cursor: pointer;
+  padding: 0;
+}
+.sn-vd-swatch:hover,
+.sn-vd-swatch.is-open {
+  box-shadow:
+    0 0 0 2px var(--surface-base),
+    0 0 0 3.5px var(--outline-gray-4);
+}
+.sn-vd-item-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 8px;
+  color: var(--ink-gray-9);
+  background: var(--surface-base);
+  outline: none;
+}
+.sn-vd-item-input:focus {
+  border-color: var(--outline-gray-4);
+}
+.sn-vd-item-x {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--ink-gray-5);
+  cursor: pointer;
+}
+.sn-vd-item-x:hover {
+  background: var(--surface-gray-2);
+  color: var(--ink-gray-8);
+}
+.sn-vd-item-xg {
+  width: 15px;
+  height: 15px;
+}
+.sn-vd-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-gray-7);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sn-vd-add:hover {
+  background: var(--surface-gray-2);
+  color: var(--ink-gray-9);
+}
+.sn-vd-add-g {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Bar 3 · Formatting toolbar ──────────────────────────────────────────── */
+.sn-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+  padding: 0 15px;
+  border-bottom: 1px solid var(--outline-gray-2);
+  background: var(--surface-base);
+  flex-shrink: 0;
+}
+/* A phone-width bar scrolls sideways instead of clipping the controls at
+   its end (including the "…" menu). Menus and tooltips are portalled, so
+   the scroll box does not clip them. */
+@media (max-width: 720px) {
+  .sn-toolbar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sn-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+/* Read-only: dim and make the whole formatting bar inert. pointer-events:none
+   swallows clicks on every control (buttons + dropdowns) without per-button
+   wiring; the reduced opacity is the visual "disabled" cue. */
+.sn-toolbar--readonly {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.sn-toolbar :deep(.fui-form-control) {
+  width: auto;
+}
+.sn-toolbar :deep(select) {
+  min-width: 118px;
+}
+/* Font family dropdown — uses a Button trigger that hugs the short label. */
+.sn-font-family :deep(button) {
+  padding-left: 6px;
+  padding-right: 4px;
+  gap: 2px;
+}
+
+/* flex-shrink:0 — the input has no min-content width, so a narrow bar would
+   squeeze it until the size is hidden. */
+.sn-font-size {
+  width: 52px;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+.sn-font-size :deep(input) {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.sn-font-size :deep(input::-webkit-outer-spin-button),
+.sn-font-size :deep(input::-webkit-inner-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.sn-vr {
+  width: 1px;
+  height: 18px;
+  background: var(--outline-gray-2);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+
+/* Active-format pip — toolbar buttons (Bold / Italic / Underline /
+   Strikethrough) flip from the default subtle gray to brand cyan-50 when
+   their format is applied on the selected cell. Same hex as the active
+   selection wash, so the eye learns "cyan = applied here". */
+.sn-fmt-active :deep(button) {
+  background: #ecf8fb !important;
+  color: #0d7490 !important;
+}
+.sn-fmt-active :deep(button:hover) {
+  background: #d8f1f6 !important;
+}
+
+/* Toolbar overflow — `.sn-tool-extra` groups stay inline at wide widths and
+   collapse below 1280px into the `.sn-tool-more` "…" dropdown. Using
+   `display:contents` on the wrappers means the buttons participate in the
+   parent flex layout when shown, with zero visual nesting.
+
+   The "…" button itself is shown at every width: it is the only mouse path to
+   the actions that have no toolbar button of their own (pivot table, named
+   ranges, zoom, Smart Fill). `buildMoreToolbarOptions` drops the options that
+   are already inline, so the menu never repeats a visible button — keep its
+   `collapsed` argument in sync with the breakpoint below. */
+.sn-tool-extra {
+  display: contents;
+}
+.sn-tool-more {
+  display: inline-flex;
+  margin-left: auto;
+}
+@media (max-width: 1280px) {
+  .sn-tool-extra {
+    display: none;
+  }
+}
+
+/* Color-picker trigger buttons (FeatherIcon glyph above a colored underline).
+   These open the ColorPicker popover; the swatch grid + hex + custom live there. */
+.sn-swatch-btn {
+  position: relative;
+  height: 28px;
+  width: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid transparent;
+  gap: 1px;
+  transition: background-color 0.12s;
+  background: transparent;
+  padding: 0;
+}
+.sn-swatch-btn:hover,
+.sn-swatch-btn.is-open {
+  background: var(--surface-gray-3);
+}
+.sn-swatch-glyph {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-gray-8);
+  pointer-events: none;
+}
+.sn-merge-glyph {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+  pointer-events: none;
+}
+.sn-swatch-underline {
+  width: 16px;
+  height: 3px;
+  border-radius: 1px;
+  pointer-events: none;
+}
+.sn-swatch-fill {
+  border: 1px solid var(--outline-gray-2);
+}
+
+/* ── Canvas grid ─────────────────────────────────────────────────────────── */
+.sn-grid-wrap {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background: var(--surface-base);
+}
+.sn-grid-wrap canvas {
+  display: block;
+  outline: none;
+}
+
+.sn-painting-format canvas {
+  cursor: crosshair;
+}
+
+/* ── Filter overlay (chevrons sit on row 0 of data — the user's header row) ── */
+/* Covers the full canvas; button positions come from grid.colX() which already
+   includes ROW_HEADER_W. The clip-path masks the row-number gutter (left 50px). */
+/* clip-path keeps chevrons out of the row-header strip on the left (50px =
+   ROW_HEADER_W) AND the column-header strip on top (24px = COL_HEADER_H);
+   without the top inset, the chevrons follow row 0 up over A/B/C/D when
+   the user scrolls past the header row. */
+.sn-filter-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  clip-path: inset(24px 0 0 50px);
+}
+.sn-filter-btn {
+  position: absolute;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  pointer-events: all;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-gray-7);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition:
+    background-color 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+.sn-filter-btn:hover {
+  background: var(--surface-base);
+  border-color: var(--outline-gray-4);
+  color: var(--ink-gray-9);
+}
+.sn-filter-btn.active {
+  background: var(--surface-gray-4);
+  border-color: var(--outline-gray-4);
+  color: var(--ink-gray-9);
+}
+.sn-filter-btn-icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* Remote selection rectangle — solid 2px border in the peer's hashed
+   colour plus a soft fill so multi-cell ranges read as a region, not just
+   an outline. `color-mix` falls back to a transparent rect on browsers
+   that don't support it (all evergreen browsers do, and we use Chromium /
+   WebKit / Firefox latest). */
+.sn-remote-cursor {
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid var(--rc);
+  background: color-mix(in srgb, var(--rc) 10%, transparent);
+  /* Default: no animation. The class below opts in for one paint cycle
+     when the peer actually changes cells (vs. local scroll). */
+  transition: none;
+}
+.sn-remote-cursor--moved {
+  transition:
+    left 0.12s ease-out,
+    top 0.12s ease-out,
+    width 0.12s ease-out,
+    height 0.12s ease-out;
+}
+.sn-remote-cursor-label {
+  position: absolute;
+  top: -18px;
+  left: -1px;
+  background: var(--rc);
+  color: var(--surface-base);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+  line-height: 16px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sn-filter-panel {
+  position: absolute;
+  z-index: 100;
+  background: var(--surface-elevation-2);
+  border: 1px solid var(--outline-elevation-2);
+  border-radius: 10px;
+  box-shadow:
+    0 0 1px rgba(0, 0, 0, 0.35),
+    0 6px 8px -4px rgba(0, 0, 0, 0.1);
+  padding: 12px;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sn-fp-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-gray-8);
+  padding-bottom: 2px;
+}
+.sn-fp-row {
+  display: flex;
+  gap: 4px;
+}
+.sn-fp-mode {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 8px;
+  background: var(--surface-base);
+}
+.sn-fp-actions {
+  display: flex;
+  gap: 4px;
+  padding-top: 2px;
+}
+.sn-fp-grow {
+  flex: 1;
+}
+
+/* "Filter by values" mode — every interactive element is a Frappe UI primitive
+   (Button, Checkbox, FormControl), so the per-class rules here only handle
+   layout and the value-list row chrome. */
+.sn-fp-vlinks {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sn-fp-count {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink-gray-5);
+}
+.sn-fp-search-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--ink-gray-5);
+}
+.sn-fp-values {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 8px;
+  padding: 4px 0;
+  background: var(--surface-base);
+}
+.sn-fp-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  color: var(--ink-gray-8);
+}
+.sn-fp-value-row:hover {
+  background: var(--surface-gray-2);
+}
+.sn-fp-value-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-fp-empty {
+  padding: 12px 10px;
+  font-size: 12px;
+  color: var(--ink-gray-5);
+  text-align: center;
+}
+
+/* ── Bottom · tabs + stats ───────────────────────────────────────────────── */
+.sn-bottom {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  border-top: 1px solid var(--outline-gray-2);
+  background: var(--surface-sidebar);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sn-tabs-track {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 0 6px;
+}
+.sn-tabs-track::-webkit-scrollbar {
+  display: none;
+}
+
+.sn-tab {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  position: relative;
+  cursor: grab;
+  /* The tab itself owns the pill background so label + chevron merge
+     into a single visual unit — no inter-button seam, no double-pill
+     look. The inner Buttons are transparent and rely on this wrapper
+     for their background. */
+  border-radius: 6px;
+  transition: background-color 0.12s;
+}
+.sn-tab:active {
+  cursor: grabbing;
+}
+.sn-tab:hover {
+  background: var(--surface-gray-2);
+}
+.sn-tab--active,
+.sn-tab--active:hover {
+  background: var(--surface-gray-3);
+}
+
+/* Active indicator: 2px line at the bottom */
+.sn-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: var(--ink-gray-9);
+  border-radius: 1px 1px 0 0;
+}
+.sn-tab--pivot.sn-tab--active::after {
+  background: var(--ink-cyan-7, #0e7490);
+}
+
+/* Main label Button — transparent so the wrapper's pill shows through, with
+   no internal hover/active background of its own; that lives on `.sn-tab`.
+   frappe-ui forwards our `class` onto the <button> root itself (there is no
+   inner button), so we style `.sn-tab-btn` directly — a `:deep(button)`
+   descendant selector matches nothing and leaves the native ghost hover pill
+   showing through, which is what made the label and chevron highlight as two
+   separate pills. `background` is forced so it beats the native
+   `hover:/active:` background utilities at equal specificity. */
+.sn-tab-btn {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-gray-7);
+  /* Tight right padding so the label flows directly into the chevron and
+     the pair reads as one pill on every tab. */
+  padding: 0 2px 0 8px !important;
+  height: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 148px;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.sn-tab--active .sn-tab-btn {
+  font-weight: 600;
+  color: var(--ink-gray-9);
+}
+
+/* Pivot icon tint */
+.sn-tab--pivot .sn-tab-btn :deep(.icon) {
+  color: var(--ink-cyan-7, #0e7490);
+}
+
+/* ── Per-tab peer dots ──────────────────────────────────────────────────
+   One coloured circle per remote user currently looking at this tab.
+   Sits in the tab's right edge, before the chevron when the tab is
+   active. Capped to 3 visible + "+N" overflow so a popular tab can't
+   blow out the tabs track. */
+.sn-tab-peers {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  pointer-events: auto;
+}
+.sn-tab-peer-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rc);
+  box-shadow: 0 0 0 1px var(--surface-base);
+}
+.sn-tab-peer-more {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--ink-gray-7);
+  margin-left: 2px;
+  line-height: 1;
+}
+
+/* Chevron — sits flush against the label inside the same pill so the two read
+   as one button. Styled directly on the <button> (same reason as `.sn-tab-btn`
+   above), transparent so it shares the wrapper's pill instead of drawing its
+   own. `width:auto` overrides frappe-ui's fixed-square `w-7` so the chevron
+   hugs the label rather than reserving a full 28px cell. Slightly muted on
+   inactive tabs, full ink on the active one (matches the label's color). */
+.sn-tab-chevron {
+  padding: 0 6px 0 0 !important;
+  width: auto !important;
+  height: 28px;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--ink-gray-5);
+}
+.sn-tab-chevron:hover {
+  color: var(--ink-gray-9);
+}
+.sn-tab--active .sn-tab-chevron {
+  color: var(--ink-gray-8);
+}
+
+/* Add-sheet button — the wrapper carries the divider + margins so the Button
+   itself stays a clean square pill with its own contained hover box (any
+   border/padding set on `.sn-tab-add` would land on the <button> root and
+   distend its hover fill). Full-height flex box keeps the 28px button
+   optically centered against the tab labels. */
+.sn-tab-add-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  margin: 0 8px 0 12px;
+  padding-right: 8px;
+  border-right: 1px solid var(--outline-gray-2);
+}
+/* Feather `plus` sits ~1px high inside its box; pull the glyph down so it
+   lands on the same optical row as the tab labels' text. */
+.sn-tab-add :deep(svg) {
+  display: block;
+  position: relative;
+  top: 1px;
+}
+
+.sn-tab-drag-over::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--ink-gray-9);
+  border-radius: 1px;
+}
+
+.sn-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink-gray-6);
+  flex-shrink: 0;
+  white-space: nowrap;
+  border-left: 1px solid var(--outline-gray-2);
+  height: 100%;
+}
+
+/* ── Right-click context menu (positioned at cursor; uses Frappe UI Buttons inside) ── */
+.sn-ctx-menu {
+  position: fixed;
+  z-index: 9000;
+  background: var(--surface-elevation-2);
+  border: 1px solid var(--outline-elevation-2);
+  border-radius: 10px;
+  box-shadow:
+    0 0 1px rgba(0, 0, 0, 0.35),
+    0 6px 8px -4px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+  min-width: 208px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+/* Frappe UI Button defaults to `justify-content:center`. Override inside
+   context menus so every row's icon sits at the same left padding and the
+   labels line up regardless of length. */
+.sn-ctx-menu :deep(button) {
+  width: 100%;
+  justify-content: flex-start;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+.sn-ctx-sep {
+  height: 1px;
+  background: var(--outline-gray-1);
+  margin: 4px 0;
+  border: none;
+}
+.sn-rename-err {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-red-6);
+  letter-spacing: 0.02em;
+}
+
+/* Sheet-tab drag visual — Espresso ink-gray-9 left edge on the drop target. */
+.sn-tab {
+  cursor: grab;
+}
+.sn-tab:active {
+  cursor: grabbing;
+}
+
+/* Viewer tabs — no chevron, no drag. The `.sn-tab-btn` right padding is only
+   2px because it normally butts against the chevron; with the chevron gone the
+   label needs its own symmetric breathing room. And a grab cursor lies about a
+   tab that can't be dragged — clicking still switches sheets, so use pointer.
+   Placed after the base `.sn-tab` cursor rules to win on equal specificity. */
+.sn-tab--static,
+.sn-tab--static:active {
+  cursor: pointer;
+}
+.sn-tab--static .sn-tab-btn {
+  padding-right: 8px !important;
+}
+
+.sn-tab-drag-over::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--ink-gray-9);
+  border-radius: 1px;
+}
+
+/* Add-more-rows strip — sits between the canvas and the bottom bar. */
+.sn-addrows {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-top: 1px solid var(--outline-gray-2);
+  background: var(--surface-sidebar);
+  flex-shrink: 0;
+}
+.sn-addrows-label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ink-gray-6);
+}
+.sn-addrows-input {
+  width: 72px;
+  height: 24px;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--ink-gray-9);
+  background: var(--surface-base);
+  font-family: inherit;
+  outline: none;
+}
+.sn-addrows-input:focus {
+  border-color: var(--outline-gray-4);
+  box-shadow: 0 0 0 2px rgba(23, 23, 23, 0.1);
+}
+
+/* Comment panel */
+.sn-comment-panel {
+  position: fixed;
+  z-index: 8500;
+  background: var(--surface-elevation-2);
+  border: 1px solid var(--outline-elevation-2);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  padding: 12px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Slicers — floating value-filter controls */
+.sn-slicer {
+  position: fixed;
+  z-index: 8400;
+  width: 220px;
+  background: var(--surface-elevation-2);
+  border: 1px solid var(--outline-elevation-2);
+  border-radius: 10px;
+  box-shadow:
+    0 0 1px rgba(0, 0, 0, 0.35),
+    0 6px 8px -4px rgba(0, 0, 0, 0.1);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sn-slicer-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: move;
+  user-select: none;
+}
+.sn-slicer-colsel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sn-slicer-colsel :deep(button) {
+  width: 100%;
+  justify-content: space-between;
+  font-weight: 600;
+}
+.sn-slicer-colsel :deep(button > span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-slicer-actions {
+  margin: -2px 0;
+}
+.sn-slicer-values {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 8px;
+  padding: 4px 0;
+  background: var(--surface-base);
+}
+.sn-comment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sn-comment-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-gray-7);
+  text-transform: uppercase;
+}
+.sn-comment-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-gray-5);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.sn-comment-ta {
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink-gray-9);
+  background: var(--surface-gray-1);
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  min-height: 64px;
+  outline: none;
+}
+.sn-comment-ta:focus {
+  border-color: var(--outline-gray-4);
+}
+.sn-comment-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.sn-comment-hactions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sn-comment-resolved {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  color: var(--ink-green-3, #15803d);
+  background: var(--surface-green-2, #e4f3e9);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.sn-comment-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.sn-comment-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sn-comment-reply-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sn-comment-author {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-gray-9);
+}
+.sn-comment-time {
+  font-size: 11px;
+  color: var(--ink-gray-5);
+}
+.sn-comment-del {
+  margin-left: auto;
+  opacity: 0;
+}
+.sn-comment-reply:hover .sn-comment-del {
+  opacity: 1;
+}
+.sn-comment-text {
+  font-size: 13px;
+  color: var(--ink-gray-8);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Notes side panel — docks the right edge of sn-grid-wrap, same dock as
+   Version History (only one of the two is open at a time). */
+.sn-notes-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 300px;
+  background: var(--surface-base);
+  border-left: 1px solid var(--outline-gray-2);
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+  box-shadow: -4px 0 12px -8px rgba(0, 0, 0, 0.08);
+  animation: sn-notes-slide-in 160ms cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+@keyframes sn-notes-slide-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.sn-notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--outline-gray-2);
+}
+.sn-notes-title {
+  font-weight: 600;
+  color: var(--ink-gray-8);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sn-notes-count {
+  font-weight: 400;
+  color: var(--ink-gray-5);
+  font-size: 12px;
+}
+.sn-notes-toolbar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--outline-gray-2);
+}
+.sn-notes-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--ink-gray-5);
+}
+.sn-notes-empty-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-gray-7);
+  margin-bottom: 6px;
+}
+.sn-notes-empty-hint {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sn-notes-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+.sn-notes-group {
+  padding: 4px 0;
+}
+.sn-notes-group-h {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink-gray-5);
+  padding: 8px 16px 4px;
+  text-transform: uppercase;
+}
+.sn-notes-row {
+  padding: 8px 12px;
+  margin: 1px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.sn-notes-row:hover {
+  background: var(--surface-gray-2);
+}
+.sn-notes-row-active {
+  background: var(--surface-gray-2);
+  box-shadow: inset 2px 0 0 var(--ink-gray-7);
+}
+.sn-notes-row-ref {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-gray-8);
+  font-variant-numeric: tabular-nums;
+}
+.sn-notes-row-text {
+  font-size: 12px;
+  color: var(--ink-gray-6);
+  margin-top: 2px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* Validation dropdown panel */
+.sn-dropdown-panel {
+  position: fixed;
+  z-index: 8500;
+  padding: 4px;
+  background: var(--surface-elevation-2);
+  border: 1px solid var(--outline-elevation-2);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  min-width: 140px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.sn-dropdown-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink-gray-9);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sn-dropdown-opt:hover {
+  background: var(--surface-gray-2);
+}
+.sn-dropdown-opt.is-active {
+  font-weight: 500;
+}
+.sn-dropdown-check {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--ink-gray-7);
+}
+.sn-dropdown-chip {
+  max-width: 200px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--ink-gray-9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-dropdown-clear .sn-dropdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sn-dropdown-clear {
+  color: var(--ink-gray-6);
+  border-top: 1px solid var(--outline-gray-1);
+  border-radius: 0 0 6px 6px;
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+/* Conditional format dialog rows */
+.sn-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sn-cf-fmt {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+.sn-cf-fmt-label {
+  font-size: 12px;
+  color: var(--ink-gray-6);
+  flex: 1;
+}
+.sn-cf-hint {
+  font-size: 11px;
+  color: var(--ink-gray-5);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Colour-scale stop pickers + gradient preview strip */
+.sn-cf-scale {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+.sn-cf-stop {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-gray-6);
+}
+.sn-cf-stop input {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sn-cf-scale-preview {
+  height: 18px;
+  width: 100%;
+  border-radius: 4px;
+  border: 1px solid var(--outline-gray-2);
+}
+
+/* Data-bar preview rows — three bars at sample widths so users can sanity-check the colour. */
+.sn-cf-bar-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--surface-gray-1);
+  border-radius: 6px;
+  border: 1px solid var(--outline-gray-2);
+}
+.sn-cf-bar-row {
+  height: 14px;
+  background: var(--surface-base);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.sn-cf-bar-fill {
+  height: 100%;
+  opacity: 0.55;
+}
+
+/* Existing-rules list at the top of the CF dialog. */
+.sn-cf-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--surface-gray-1);
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 6px;
+}
+.sn-cf-rule-list-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-gray-6);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 4px 4px;
+}
+.sn-cf-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sn-cf-rule-pick {
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-gray-8);
+  background: var(--surface-base);
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 5px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.sn-cf-rule-pick:hover {
+  background: var(--surface-gray-2);
+}
+.sn-cf-rule-row--active .sn-cf-rule-pick {
+  border-color: var(--ink-gray-9);
+}
