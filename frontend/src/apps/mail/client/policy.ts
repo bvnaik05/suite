@@ -120,14 +120,19 @@ export const registration: OwnerRegistration = {
     if (reference.id === 'update_preferences')
       return {
         effects: {
-          // The Inbox's tabs are a preference: a category turned off moves its mail into Primary.
-          invalidates: [
-            'mail.get_user_info',
-            'mail.get_threads',
-            'mail.get_unified_threads',
-            'mail.get_tab_counts',
-            'mail.get_unified_tab_counts',
-          ],
+          // The Inbox's categories are preferences too: a category turned off moves its mail into
+          // Primary, so the lists and their counts follow. No other preference touches them, and a
+          // split view toggle refetching the whole list was a reload for nothing.
+          invalidates: (input) =>
+            isRecord(input) && ('inbox_tabs' in input || 'split_inbox' in input)
+              ? [
+                  'mail.get_user_info',
+                  'mail.get_threads',
+                  'mail.get_unified_threads',
+                  'mail.get_tab_counts',
+                  'mail.get_unified_tab_counts',
+                ]
+              : ['mail.get_user_info'],
           optimisticReads: {
             references: ['mail.get_user_info'],
             update(input, _query, data) {
