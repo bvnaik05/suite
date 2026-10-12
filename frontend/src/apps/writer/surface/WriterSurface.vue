@@ -33,6 +33,7 @@ import RecoveryBanner from '@/apps/writer/recovery/RecoveryBanner.vue'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { belowMinBuild } from '@/platform/build'
 
+import { refusedSaveBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import {
   resolveDocumentUnload,
@@ -113,6 +114,20 @@ const writes = createWriteGate(props.session, () => {
 
 const writerDocument = createWriterDocument(props.session)
 
+const refusedSaveKept = ref(false)
+const shownBanner = computed(() => {
+  if (writes.refusedForGood.value) {
+    return refusedSaveBanner(refusedSaveKept.value)
+  }
+
+  return banner.value
+})
+
+watch(writes.refusedForGood, () => {
+  refusedSaveKept.value = retainRecovery()
+  editorSurface.value?.editor?.setEditable(false)
+})
+
 const version = useMutation(api.drive.versions.create, {
   context: props.session.credentials.context,
   silent: true,
@@ -166,6 +181,7 @@ const editable = computed(
   () =>
     readable.value &&
     writes.writable.value &&
+    !writes.refusedForGood.value &&
     !isLocked(settings.value) &&
     allowsEditing.value &&
     !belowMinBuild('writer'),
@@ -355,15 +371,18 @@ onBeforeUnmount(() => {
     <RecoveryBanner ref="recoveryBanner" :node="session.nodeId" />
 
     <div
-      v-if="banner"
+      v-if="shownBanner"
       class="shrink-0 border-b border-outline-gray-1 bg-surface-amber-2 px-5 py-2 text-sm text-ink-amber-7"
       role="status"
     >
-      {{ banner.text
-      }}<a v-if="banner.link" :href="banner.link.href" target="_blank" class="underline">{{
-        banner.link.label
-      }}</a
-      >{{ banner.after }}
+      {{ shownBanner.text
+      }}<a
+        v-if="shownBanner.link"
+        :href="shownBanner.link.href"
+        target="_blank"
+        class="underline"
+        >{{ shownBanner.link.label }}</a
+      >{{ shownBanner.after }}
     </div>
 
     <div class="relative flex min-h-0 flex-1 flex-col">

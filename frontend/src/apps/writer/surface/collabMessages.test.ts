@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { bannerFor, openFailureFor, type Banner, type BannerState } from './collabMessages'
+import {
+  bannerFor,
+  openFailureFor,
+  refusedSaveBanner,
+  type Banner,
+  type BannerState,
+} from './collabMessages'
 
 // What the banner reads on the page, with the link standing for its words
 function pageText(banner: Banner | null) {
@@ -34,6 +40,13 @@ function bannerText(changes: Partial<BannerState>) {
 }
 
 describe('collab banner copy', () => {
+  it('tells an old editor its save was refused, where its work went, and to reload', () => {
+    expect([refusedSaveBanner(true).text, refusedSaveBanner(false).text]).toEqual([
+      'This document now saves as you edit, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',
+      'This document now saves as you edit, so saving stopped in this tab. Reload to keep editing.',
+    ])
+  })
+
   it("says a signed-out tab isn't saving and asks to sign in", () => {
     expect(bannerText({ blocked: 'signed_out' })).toBe(
       "You're signed out, so changes aren't saved. [Sign in] to save them.",

@@ -175,6 +175,13 @@ function stoppedBanner(state: BannerState): Banner {
   return { text: `${reason}${recovery}${reloadHint}` }
 }
 
+// The old editor's whole-body save, refused once the document saves as it is edited
+export function refusedSaveBanner(isRecoveryKept: boolean): Banner {
+  const recovery = isRecoveryKept ? ' Unsent changes were kept as a recovery copy.' : ''
+  const reason = 'This document now saves as you edit, so saving stopped in this tab.'
+  return { text: `${reason}${recovery} Reload to keep editing.` }
+}
+
 // A refusal or a stop outranks a wait, since a wait ends on its own
 export function bannerFor(state: BannerState): Banner | null {
   if (state.blocked) {

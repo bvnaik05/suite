@@ -16,6 +16,10 @@ COLLISION_ERRORS = (
 LOGGED_FIELDS = ("content", "html", "ycomments", "collab")
 
 
+class LoggedDocumentConflict(drive.DriveConflict):
+    """A whole-body write to a document that saves through its log."""
+
+
 class WriterDocument(drive.DriveContent, Document):
     """The body of one Writer document.
 
@@ -81,4 +85,6 @@ class WriterDocument(drive.DriveContent, Document):
     def refuse_if_logged(self):
         """A document with a log saves through it, so an old tab cannot write an older body over the row."""
         if content.find(ADAPTER, self.node):
-            raise drive.DriveConflict(frappe._("This document saves as you edit; reload it to keep editing"))
+            raise LoggedDocumentConflict(
+                frappe._("This document saves as you edit; reload it to keep editing")
+            )

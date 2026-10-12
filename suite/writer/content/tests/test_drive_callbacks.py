@@ -32,6 +32,7 @@ from suite.writer.content.tests.support import (
     push_body,
     read_open,
 )
+from suite.writer.doctype.writer_document.writer_document import LoggedDocumentConflict
 
 
 def version_of(docname: str) -> dict:
@@ -563,7 +564,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
                 lambda: document.save_html("<p>older</p>"),
                 lambda: save_comments(document.name, "AQID"),
             ):
-                with self.subTest(mode=mode), self.assertRaisesRegex(drive.DriveConflict, "reload it"):
+                with self.subTest(mode=mode), self.assertRaisesRegex(LoggedDocumentConflict, "reload it"):
                     save()
                 self.assertEqual(
                     frappe.db.get_value("Writer Document", self.docname_of(node), fields), before
