@@ -15,6 +15,7 @@ const STATUS_FIELDS = [
   'blocked',
   'paused',
   'stopped',
+  'copiesKept',
   'held',
   'newerSchema',
   'unsent',
@@ -170,6 +171,7 @@ export function useWriterCollab(
     return roomStatus.unsent + roomStatus.othersUnsent
   })
   const paused = computed(() => (isLive.value ? (status.value?.paused ?? null) : null))
+  const copiesKept = computed(() => status.value?.copiesKept ?? 0)
   const banner = computed(() => {
     const roomStatus = status.value
     if (!isLive.value || !roomStatus) {
@@ -180,7 +182,7 @@ export function useWriterCollab(
       ...roomStatus,
       canEdit: mayEdit(),
       failed: roomStatus.saveState === 'failed',
-      recoveryKept: recoveryKept.value,
+      recoveryKept: recoveryKept.value || roomStatus.copiesKept > 0,
       setAside: setAside.value,
       polling: roomStatus.live === 'polling',
     }
@@ -197,6 +199,7 @@ export function useWriterCollab(
     saveState,
     unsent,
     paused,
+    copiesKept,
     banner,
     openFailure,
     open,

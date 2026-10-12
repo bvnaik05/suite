@@ -2,7 +2,16 @@
 import type { CollabRoom } from '@suite/collab-client'
 import type { Editor } from '@tiptap/core'
 import { Badge, Button, Skeleton, toast } from 'frappe-ui'
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  provide,
+  ref,
+  shallowRef,
+  watch,
+} from 'vue'
 
 import { api, useMutation } from '@/api'
 import {
@@ -20,6 +29,7 @@ import type { CollaborationUser } from '@/apps/writer/composables/useCollaborati
 import emitter from '@/apps/writer/emitter'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
 import { downloadCopy, keepPageCopy, listCopies } from '@/apps/writer/recovery/copies'
+import RecoveryBanner from '@/apps/writer/recovery/RecoveryBanner.vue'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { belowMinBuild } from '@/platform/build'
 
@@ -66,7 +76,7 @@ const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const panel = ref<DocumentPanel | null>(null)
 const previewedVersion = ref<DocumentVersion | null>(null)
 
-const hasRecovery = ref(false)
+const recoveryBanner = ref<InstanceType<typeof RecoveryBanner> | null>(null)
 
 const {
   mode: collabMode,
@@ -77,6 +87,7 @@ const {
   saveState: roomSaveState,
   unsent: roomUnsent,
   paused: roomPaused,
+  copiesKept,
   banner,
   openFailure,
   open: openCollab,
@@ -221,6 +232,11 @@ async function closePreview() {
 }
 
 function retainRecovery(): boolean {
+  // The device store keeps a live tab's work, so a page copy would only repeat it
+  if (room.value?.onDevice) {
+    return false
+  }
+
   const html = editorSurface.value?.editor?.getHTML()
   if (!html) {
     return false
@@ -232,14 +248,11 @@ function retainRecovery(): boolean {
     return false
   }
 
-  hasRecovery.value = true
+  void recoveryBanner.value?.refresh()
   return true
 }
 
-async function findRecovery() {
-  const copies = await listCopies(props.session.nodeId)
-  hasRecovery.value = copies.length > 0
-}
+watch(copiesKept, () => recoveryBanner.value?.refresh())
 
 async function downloadChanges() {
   const [latest] = await listCopies(props.session.nodeId)
@@ -291,7 +304,6 @@ onMounted(() => {
   window.addEventListener('offline', setOffline)
   window.addEventListener('beforeunload', warnBeforeUnload)
   void openCollab()
-  void findRecovery()
 })
 
 onBeforeUnmount(() => {
@@ -310,9 +322,7 @@ onBeforeUnmount(() => {
       title-label="Document title"
       :save-state="savingPaused ? null : saveState"
       :view-only="!editable && !showEditingPaused"
-      :recoverable="hasRecovery"
       :panels="['comments', 'versions']"
-      @download-changes="downloadChanges"
     >
       <template #status>
         <Badge
@@ -341,6 +351,8 @@ onBeforeUnmount(() => {
         />
       </template>
     </DriveDocumentHeader>
+
+    <RecoveryBanner ref="recoveryBanner" :node="session.nodeId" />
 
     <div
       v-if="banner"

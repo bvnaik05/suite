@@ -109,6 +109,8 @@ export interface CollabRoom {
   readonly paused: string | null
   // Why this tab's work can never be committed; its unsent work went to recovery
   readonly stopped: string | null
+  // How many times this tab has written its recovery copy to the device
+  readonly copiesKept: number
   // The document waits for an admin, so nobody edits it
   readonly held: Held | null
   // A newer editor wrote to the document; this tab follows and sends nothing more until reloaded

@@ -10,6 +10,7 @@ const fakeRooms = vi.hoisted(() => {
     canWrite: true,
     blocked: null as string | null,
     stopped: null as string | null,
+    copiesKept: 0,
     paused: null as string | null,
     held: null as string | null,
     newerSchema: false,
@@ -85,6 +86,17 @@ describe('writer collab editing state', () => {
     const collab = await openCollab()
     becomes({ blocked: null, stopped: 'poison', saveState: 'failed', unsent: 1, canWrite: false })
     expect(collab.banner.value?.text).toMatch(/can't hold a change made in this tab/)
+  })
+
+  it('says the unsent work was kept once the device holds its recovery copy', async () => {
+    const collab = await openCollab()
+    becomes({ stopped: 'schema', saveState: 'failed', unsent: 1, canWrite: false })
+    expect(collab.banner.value?.text).not.toMatch(/recovery copy/)
+
+    becomes({ copiesKept: 1 })
+    expect(collab.banner.value?.text).toBe(
+      'This document was edited in a newer version of Writer, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',
+    )
   })
 
   it('leaves a lost right or a read-only room as view only', async () => {

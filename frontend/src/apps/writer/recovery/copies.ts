@@ -164,3 +164,9 @@ function escapeText(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
+
+const SAVED_AT = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+export function savedAtLabel(copy: RecoveryCopy) {
+  return SAVED_AT.format(copy.savedAt)
+}

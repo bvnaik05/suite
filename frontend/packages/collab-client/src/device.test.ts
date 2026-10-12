@@ -353,6 +353,7 @@ describe('collab room on a device', () => {
       'Plan',
       'saved refused late',
     ])
+    expect(room.copiesKept).toBe(2)
   })
 
   it('a change from a session the server closed is kept aside and the tab asks to be rebuilt', async () => {

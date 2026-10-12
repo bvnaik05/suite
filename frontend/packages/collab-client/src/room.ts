@@ -48,6 +48,7 @@ export class Room implements CollabRoom {
   closed = false
   // Set once this tab's work can never be committed; the reason it was kept as a recovery copy
   stopReason: string | null = null
+  copiesKept = 0
   failed = false
   unheard = false
   // Changes other tabs of this document keep on the device and have yet to see committed
@@ -258,7 +259,13 @@ export class Room implements CollabRoom {
     const sids = boxes.map((box) => box.sid)
     const doc = this.device.doc
     const stored = boxes.flatMap((box) => box.toStoredEntries(doc))
-    await this.device.recover(sids, reason, stored, Y.encodeStateAsUpdate(this.doc))
+    await this.keepCopy(this.device, sids, reason, stored)
+  }
+
+  private async keepCopy(device: Device, sids: string[], reason: string, stored: StoredEntry[]) {
+    await device.recover(sids, reason, stored, Y.encodeStateAsUpdate(this.doc))
+    this.copiesKept++
+    this.notifyListeners()
   }
 
   // Without a device store nothing typed offline would survive the tab, so editing stops until the server answers
@@ -462,7 +469,7 @@ export class Room implements CollabRoom {
 
     const entry = this.ownOutbox.createEntry(update)
     const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
-    void this.device.recover([this.ownOutbox.sid], reason, stored, Y.encodeStateAsUpdate(this.doc))
+    void this.keepCopy(this.device, [this.ownOutbox.sid], reason, stored)
   }
 
   private onVisibilityChange = () => {
