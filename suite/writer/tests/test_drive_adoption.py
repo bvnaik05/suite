@@ -56,6 +56,7 @@ from suite.drive.framework import refuse_governed_share, validate_content_regist
 from suite.suite_core import content as collab
 from suite.tests.utils import ensure_user
 from suite.writer import drive as writer
+from suite.writer.content import files
 from suite.writer.doctype.writer_document.writer_document import WriterDocument
 
 USER = "writer-adoption-user@example.com"
@@ -290,7 +291,7 @@ class TestWriterDeclaration(UnitTestCase):
 
     def test_a_media_id_is_found_in_both_spellings_a_body_uses(self):
         html = '<img src="/api/method/writer.api.embed.get?id=one"><img data-node="two">'
-        self.assertEqual(writer._ids_in(html), {"one", "two"})
+        self.assertEqual(files.ids_in(html), {"one", "two"})
 
     def test_the_yjs_body_answers_live_attributes_only(self):
         # The read is exact: a removed picture stops being named at once, and a
@@ -362,7 +363,7 @@ class TestWriterDeclaration(UnitTestCase):
 
     def test_a_rewrite_touches_only_the_ids_it_was_given(self):
         html = html_with("old", "untouched")
-        rewritten = writer._remap_text(html, {"old": "new"})
+        rewritten = files.remap_text(html, {"old": "new"})
         self.assertIn("id=new", rewritten)
         self.assertIn("id=untouched", rewritten)
         self.assertNotIn("id=old", rewritten)

@@ -16,7 +16,8 @@ class ContentAdapterSpec:
     its node in `node_field`; `roots` names every root type it writes; `kernel` is the Node bundle that
     judges suspect documents. `codec` names the update format of its state, `max_state` the most a compacted
     document may hold and `max_change` the most one change may, in bytes. `check_copy(state, html, text)` says
-    whether a readable copy a browser rendered holds what the state does."""
+    whether a readable copy a browser rendered holds what the state does. `file_values(state)` names the Drive
+    nodes a state uses, and `rewrite_files(mapping)` is how a stored value names a copy's nodes instead."""
 
     name: str
     content_type: str
@@ -32,6 +33,8 @@ class ContentAdapterSpec:
     # The state an old body holds. It decides none of the conversion rules (when, whether for good, what is
     # kept), which wait for the second grill and ticket 29
     convert: Callable[[str], bytes]
+    file_values: Callable[[bytes], set[str]]
+    rewrite_files: Callable[[Mapping[str, str]], Callable[[str], str]]
 
 
 @dataclass(frozen=True)

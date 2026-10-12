@@ -9,6 +9,7 @@ import pycrdt
 
 from suite.suite_core import content
 from suite.suite_core.content.adapters import ContentAdapterSpec
+from suite.writer.content.files import file_values, rewrite_files
 from suite.writer.content.readable_copy import check_copy
 
 ADAPTER = "writer"
@@ -49,6 +50,8 @@ SPEC = ContentAdapterSpec(
     max_change=4 * 2**20,
     check_copy=check_copy,
     convert=convert,
+    file_values=file_values,
+    rewrite_files=rewrite_files,
 )
 
 

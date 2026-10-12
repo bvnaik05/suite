@@ -68,7 +68,6 @@ import base64
 import binascii
 import io
 import json
-import re
 from contextlib import contextmanager
 
 import frappe
@@ -78,14 +77,13 @@ from frappe import _
 from suite import drive
 from suite.suite_core import content
 from suite.suite_core.content import compaction, documents
+from suite.writer import content as writer_content
 from suite.writer.content import ADAPTER, version_payload
+from suite.writer.content.files import BODY_FRAGMENT, elements, ids_in, load, remap_text, remapped_attribute
 
 DOCTYPE = "Writer Document"
 MIME = "frappe/writer"
 NODE_FIELD = "node"
-
-# The Yjs root fragment the editor binds to.
-BODY_FRAGMENT = "default"
 
 # `Writer Document.content`'s own default: one empty Yjs update, base64.
 EMPTY_BODY = "AAA="
@@ -102,26 +100,6 @@ VERSION_MIME = "application/json"
 # bytes are held rather than after, exactly as `suite.sheets.drive` bounds its
 # own. `Writer Document.content` and `.html` are both LONGTEXT.
 MAX_VERSION_BYTES = 64 * 1024 * 1024
-
-# A media reference inside a body is a node id carried in an attribute. Three
-# spellings are read: the embed URL Writer writes, the old Drive embed URL
-# (`embed_name=`, relative or absolute), both with and without the `suite.`
-# prefix the standalone apps used, and the plain node attribute the Drive
-# media route uses.
-#
-# The URLs and the plain attribute are not symmetrical. In `html` an attribute
-# is text, so every pattern reads it. In the Yjs body an attribute is a name and a value
-# held apart, and the plain spelling puts the bare id in the value with
-# `data-node` nowhere in it, so the pattern alone would never see it. That is
-# what `_attribute_ids` and `_remapped_attribute` are for.
-NODE_ATTRIBUTE = "data-node"
-MEDIA_ID = r"[A-Za-z0-9_-]{1,140}"
-MEDIA_PATTERNS = (
-    re.compile(rf"(?:suite\.)?writer\.api\.embed\.get\?id=({MEDIA_ID})"),
-    re.compile(rf"(?:suite\.)?drive\.api\.embed\.get_file_content\?[^\"'<>\s]*?\bembed_name=({MEDIA_ID})"),
-    re.compile(rf'{NODE_ATTRIBUTE}="({MEDIA_ID})"'),
-)
-BARE_MEDIA_ID = re.compile(MEDIA_ID)
 
 DEFAULT_SETTINGS = '{"collab": true}'
 
@@ -207,9 +185,7 @@ def version_bytes(docname: str) -> tuple[io.BytesIO, str]:
         snapshot, state = live_checkpoint
         payload = version_payload(snapshot, state)
         with _readable_body():
-            loaded_state = compaction.load_doc([state])
-            fragment = loaded_state.get(BODY_FRAGMENT, type=pycrdt.XmlFragment)
-            payload["media"] = sorted(_fragment_ids(fragment))
+            payload["media"] = sorted(writer_content.SPEC.file_values(state))
         payload_bytes = json.dumps(payload).encode("utf-8")
         return io.BytesIO(payload_bytes), VERSION_MIME
 
@@ -283,14 +259,13 @@ def used_nodes(docname: str) -> set[str]:
     if not row:
         return set()
 
-    html_ids = _ids_in(row.html or "")
+    html_ids = ids_in(row.html or "")
     with _readable_body():
         state = documents.live_state(ADAPTER, row.node)
         if state is None:
             return html_ids | _body_ids(row.content)
 
-        fragment = state.get(BODY_FRAGMENT, type=pycrdt.XmlFragment)
-        return html_ids | _fragment_ids(fragment)
+        return html_ids | writer_content.SPEC.file_values(state.get_update())
 
 
 def remap_media(docname: str, mapping: dict[str, str]) -> None:
@@ -302,22 +277,16 @@ def remap_media(docname: str, mapping: dict[str, str]) -> None:
         frappe.throw(_("That Writer document was not found"), frappe.DoesNotExistError)
 
     log_row = content.find(ADAPTER, row.node)
-    values = {"html": _remap_text(row.html or "", mapping)}
+    values = {"html": remap_text(row.html or "", mapping)}
     body = None if log_row else _remap_body(row.content, mapping)
     if body is not None:
         values["content"] = body
     frappe.db.set_value(DOCTYPE, docname, values, update_modified=False)
     if log_row:
-        rule = remap_rule(mapping)
         try:
-            documents.remap_log(ADAPTER, row.node, rule)
+            documents.remap_log(ADAPTER, row.node, writer_content.SPEC.rewrite_files(mapping))
         except (ValueError, compaction.CompactionFailed) as refused:
             raise drive.DriveConflict(_("The copy's pictures could not be moved to it")) from refused
-
-
-def remap_rule(mapping: dict[str, str]):
-    """How a stored value names a copied picture: a bare old id becomes the new id, and an embed URL is rewritten."""
-    return lambda value: mapping[value] if value in mapping else _remap_text(value, mapping)
 
 
 SPEC = drive.ContentTypeSpec(
@@ -406,68 +375,19 @@ def _version_payload(raw: bytes) -> dict:
     return {"content": content, "html": html, "collab": int(collab)}
 
 
-def _ids_in(text: str) -> set[str]:
-    return {match.group(1) for pattern in MEDIA_PATTERNS for match in pattern.finditer(text)}
-
-
-def _attribute_ids(key: str, value: str) -> set[str]:
-    """Answer the media node ids one live element attribute names.
-
-    `data-node` holds the bare id, with the attribute name held apart from it,
-    so the text patterns never see it inside a Yjs body. Reading the name is
-    what makes the two spellings symmetrical between `html` and `content`.
-    """
-    if key == NODE_ATTRIBUTE and BARE_MEDIA_ID.fullmatch(value):
-        return {value}
-    return _ids_in(value)
-
-
-def _remapped_attribute(key: str, value: str, mapping: dict[str, str]) -> str:
-    """Rewrite one live element attribute, in whichever spelling it uses."""
-    if key == NODE_ATTRIBUTE:
-        return mapping.get(value, value)
-    return _remap_text(value, mapping)
-
-
-def _remap_text(text: str, mapping: dict[str, str]) -> str:
-    def swap(match: re.Match) -> str:
-        found = match.group(1)
-        replacement = mapping.get(found)
-        if replacement is None:
-            return match.group(0)
-        start, end = match.span(1)
-        start -= match.start()
-        end -= match.start()
-        return match.group(0)[:start] + replacement + match.group(0)[end:]
-
-    for pattern in MEDIA_PATTERNS:
-        text = pattern.sub(swap, text)
-    return text
-
-
 def _body_ids(content: str | None) -> set[str]:
     """Read the live attributes of one Yjs body, never its tombstones."""
     try:
         raw = _decoded_body(content)
         if raw is None:
             return set()
-        _, fragment = _loaded_body(raw)
         with _readable_body():
-            found = _fragment_ids(fragment)
+            found = writer_content.SPEC.file_values(raw)
     except UnreadableBody:
         # An unreadable body must never cost somebody a picture, so fall back
         # to a raw scan. It over-reports, which only keeps media alive.
         frappe.log_error("Writer: could not read a document body for the media sweep", frappe.get_traceback())
-        return _ids_in(_raw_text(content))
-    return found
-
-
-def _fragment_ids(fragment) -> set[str]:
-    found: set[str] = set()
-    for element in _elements(fragment):
-        for key, value in dict(element.attributes).items():
-            if isinstance(value, str):
-                found |= _attribute_ids(key, value)
+        return ids_in(_raw_text(content))
     return found
 
 
@@ -489,11 +409,11 @@ def _remap_body(content: str | None, mapping: dict[str, str]) -> str | None:
     with _readable_body():
         changed = False
         with document.transaction():
-            for element in _elements(fragment):
+            for element in elements(fragment):
                 for key, value in dict(element.attributes).items():
                     if not isinstance(value, str):
                         continue
-                    rewritten = _remapped_attribute(key, value, mapping)
+                    rewritten = remapped_attribute(key, value, mapping)
                     if rewritten != value:
                         element.attributes[key] = rewritten
                         changed = True
@@ -554,26 +474,6 @@ def _readable_body():
         raise UnreadableBody(_("This Writer document body cannot be read")) from unreadable
 
 
-def _reads_as_fragment(fragment) -> bool:
-    """False for a root written as another type: its length counts children it can't show."""
-    return len(fragment.children) == sum(1 for _child in fragment.children)
-
-
 def _loaded_body(raw: bytes):
-    document = pycrdt.Doc()
-    fragment = pycrdt.XmlFragment()
-    document[BODY_FRAGMENT] = fragment
     with _readable_body():
-        document.apply_update(raw)
-        if not _reads_as_fragment(fragment):
-            raise UnreadableBody(_("This Writer document body cannot be read"))
-    return document, fragment
-
-
-def _elements(fragment):
-    stack = list(fragment.children)
-    while stack:
-        node = stack.pop()
-        if isinstance(node, pycrdt.XmlElement):
-            yield node
-            stack.extend(node.children)
+        return load(raw)
