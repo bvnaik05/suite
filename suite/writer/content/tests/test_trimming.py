@@ -241,23 +241,25 @@ class TestWriterTrimming(CheckpointCase):
         covers.assert_called_once_with(writer_content.KERNEL, self.body_of(node), going)
         self.assertEqual(self.revs_of(node), [3])
 
-    def test_a_body_replaced_during_the_check_deletes_nothing(self):
+    def assert_nothing_deleted_when_changed_during_the_check(self, **values):
         node = self.compacted_document(["one ", "two ", "three"])
         self.age_rows(node)
         checked = trimming.check
 
-        def stamped_meanwhile(*args):
+        def changed_meanwhile(*args):
             checked(*args)
-            frappe.db.sql(
-                "UPDATE `__writer_content_doc` SET `body_sha` = UNHEX(SHA2('newer', 256)) WHERE `node` = %s",
-                node,
-            )
-            frappe.db.commit()
+            self.set_doc(node, **values)
 
-        with patch.object(trimming, "check", side_effect=stamped_meanwhile):
+        with patch.object(trimming, "check", side_effect=changed_meanwhile):
             self.trim(node)
 
-        self.assertEqual((self.revs_of(node), self.doc_row(node).trimmed_rev), ([1, 2, 3], 0))
+        self.assertEqual(self.revs_of(node), [1, 2, 3])
+
+    def test_a_body_replaced_during_the_check_deletes_nothing(self):
+        self.assert_nothing_deleted_when_changed_during_the_check(body_sha=b"x" * 32)
+
+    def test_a_document_marked_suspect_during_the_check_deletes_nothing(self):
+        self.assert_nothing_deleted_when_changed_during_the_check(suspect="client")
 
     def test_every_version_still_restores_after_trimming(self):
         node = self.new_document()

@@ -269,7 +269,7 @@ def still_as_checked(adapter: str, doc_id: str, chunk: Chunk) -> bool:
     doc_table = table(adapter, "doc")
     locked = frappe.db.sql(
         f"""SELECT `body_sha`, `trimmed_rev` FROM `{doc_table}`
-        WHERE `id` = %s AND `mode` != 'purged' FOR UPDATE""",
+        WHERE `id` = %s AND `mode` != 'purged' AND `suspect` IS NULL FOR UPDATE""",
         doc_id,
         as_dict=True,
     )
