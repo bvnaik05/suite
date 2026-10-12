@@ -1,6 +1,7 @@
 // Live collaboration rooms. This process is shared with Meet and every other app,
 // so no listener or timer here may throw or leave a promise unhandled.
 const crypto = require("node:crypto");
+const send_reply = require("./acknowledge");
 
 const ROOM_PATTERN = /^sc:[A-Za-z0-9_-]{32}$/;
 const ROOMS_MAX = 8;
@@ -311,14 +312,6 @@ function flush_presence() {
 		if ([...sites.values()].some((site) => site.dirty.size)) {
 			schedule_flush();
 		}
-	} catch {}
-}
-
-function send_reply(acknowledge, reply) {
-	if (typeof acknowledge !== "function") return;
-
-	try {
-		Promise.resolve(acknowledge(reply)).catch(() => {});
 	} catch {}
 }
 
