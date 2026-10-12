@@ -112,6 +112,9 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_collab_stage.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_suspect.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_suspect.py|import|suite.drive._core.principals",
+            # The trimming case reads every version back as its writer; reading one is not a public call yet
+            "suite/writer/content/tests/test_trimming.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_trimming.py|import|suite.drive._core.versions",
             # The callback cases run Drive's media sweep on one document, and
             # trash, purge and restore a version as its writer; none of these
             # is a public call yet.
