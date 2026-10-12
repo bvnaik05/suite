@@ -5,13 +5,13 @@ import { Device } from './device'
 import type { Limits } from './frames'
 import { adoptLeftovers, claimClientId, lostReason } from './leftovers'
 import { Live, type LiveHooks } from './live'
-import { holdLock } from './locks'
+import { hasLocks, holdLock } from './locks'
 import type { Opening, RoomInit } from './opening'
 import { ADOPT, REMOTE } from './origins'
 import { Outbox } from './outbox'
 import { Puller } from './puller'
 import { Sender } from './sender'
-import type { StoredSession } from './store'
+import type { StoredEntry, StoredSession } from './store'
 import {
   isRecoverable,
   type Blocked,
@@ -50,6 +50,8 @@ export class Room implements CollabRoom {
   stopReason: string | null = null
   failed = false
   unheard = false
+  // Changes other tabs of this document keep on the device and have yet to see committed
+  othersUnsent = 0
   device: Device | null
   realtime: Live | null = null
   readonly sender = new Sender(this)
@@ -62,6 +64,8 @@ export class Room implements CollabRoom {
   private persisted = false
   private ticks = 0
   private lastRemoteAt = 0
+  private deviceStale = false
+  private deviceRead: Promise<void> | null = null
 
   constructor(
     init: RoomInit,
@@ -116,6 +120,8 @@ export class Room implements CollabRoom {
     this.pollTimer = setInterval(() => void this.tick(), this.options.pollMs ?? 5000)
     document.addEventListener('visibilitychange', this.onVisibilityChange)
     window.addEventListener('pagehide', this.sender.sendNow)
+    this.device?.onChanged(() => this.refreshDevice())
+    this.refreshDevice()
   }
 
   get canWrite() {
@@ -162,7 +168,7 @@ export class Room implements CollabRoom {
       return 'saving'
     }
 
-    if (this.unsent) {
+    if (this.unsent || this.othersUnsent) {
       return 'unsaved'
     }
 
@@ -228,6 +234,8 @@ export class Room implements CollabRoom {
     if (this.device && !this.ownOutbox.pending.length && !this.stopReason) {
       void this.device.release(this.ownOutbox.sid)
     }
+
+    this.device?.close()
   }
 
   // The work this tab holds can never be committed: keep it as a recovery copy and stop
@@ -371,6 +379,7 @@ export class Room implements CollabRoom {
   }
 
   private tick() {
+    this.refreshDevice()
     const unsentForLong = !!this.unsentSince && Date.now() - this.unsentSince > PERSIST_AFTER_MS
     if (this.unsent && unsentForLong) {
       this.requestPersistentStorage()
@@ -436,7 +445,7 @@ export class Room implements CollabRoom {
     if (this.device) {
       const session = this.ownSession(this.device)
       const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
-      void this.device.store.capture(session, stored).catch(() => this.dropDeviceStore())
+      void this.captureOnDevice(this.device, session, stored)
     }
     this.onUnsentChanged()
     if (this.bound) {
@@ -457,12 +466,55 @@ export class Room implements CollabRoom {
   private onVisibilityChange = () => {
     if (document.visibilityState === 'hidden') {
       this.sender.sendNow()
+    } else {
+      this.refreshDevice()
+    }
+  }
+
+  private async captureOnDevice(device: Device, session: StoredSession, stored: StoredEntry[]) {
+    try {
+      await device.store.capture(session, stored)
+    } catch {
+      this.dropDeviceStore()
+      return
+    }
+
+    device.changed()
+  }
+
+  // Other tabs' work counts as unsent here too, so no tab shows Saved over it (spec I1). One read at a time
+  private refreshDevice() {
+    this.deviceStale = true
+    this.deviceRead ??= this.readDeviceUntilFresh().finally(() => {
+      this.deviceRead = null
+    })
+  }
+
+  private async readDeviceUntilFresh() {
+    while (this.deviceStale && this.device && !this.closed) {
+      this.deviceStale = false
+      await this.readDevice(this.device)
+    }
+  }
+
+  // Work a tab left when it closed is free to take on, and goes out from here
+  private async readDevice(device: Device) {
+    if (this.writable && hasLocks()) {
+      await adoptLeftovers(this)
+    }
+
+    const held = this.outboxes.map((box) => box.sid)
+    const othersUnsent = await device.othersUnsent(held)
+    if (othersUnsent !== this.othersUnsent && !this.closed) {
+      this.othersUnsent = othersUnsent
+      this.notifyListeners()
     }
   }
 
   private dropDeviceStore() {
     if (!this.device) return
 
+    this.device.close()
     this.device = null
     this.notifyListeners()
   }

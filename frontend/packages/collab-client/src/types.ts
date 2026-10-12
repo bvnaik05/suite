@@ -115,6 +115,8 @@ export interface CollabRoom {
   readonly needsRebuild: boolean
   readonly saveState: SaveState
   readonly unsent: number
+  // Changes other tabs of this document keep on the device and have yet to see committed; counted, never applied here
+  readonly othersUnsent: number
   // Whether unsent work outlives this tab
   readonly onDevice: boolean
   readonly appliedThrough: number

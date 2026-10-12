@@ -408,3 +408,49 @@ declare const setImmediate: (callback: () => void) => void
 export const idle = async () => {
   for (let turn = 0; turn < 20; turn++) await new Promise<void>((resolve) => setImmediate(resolve))
 }
+
+// Web Locks for one browser: a lock stays taken until the tab holding it lets go
+export function fakeLocks() {
+  const held = new Set<string>()
+  async function request(
+    name: string,
+    _options: LockOptions,
+    callback: (lock: Lock | null) => unknown,
+  ) {
+    if (held.has(name)) {
+      return callback(null)
+    }
+
+    held.add(name)
+    try {
+      return await callback({ name, mode: 'exclusive' })
+    } finally {
+      held.delete(name)
+    }
+  }
+
+  vi.stubGlobal('navigator', { ...navigator, locks: { request } })
+}
+
+// Endpoints whose pushes wait until `release` is called
+export function heldPushes(server: FakeServer) {
+  const gate = Promise.withResolvers<void>()
+  const endpoints = { ...server.endpoints() }
+  const push = endpoints.push
+  endpoints.push = async (body, request) => {
+    await gate.promise
+    return push(body, request)
+  }
+
+  return { endpoints, release: gate.resolve }
+}
+
+// Endpoints whose pushes fail as if offline
+export function offlinePushes(server: FakeServer) {
+  const endpoints = { ...server.endpoints() }
+  endpoints.push = async () => {
+    throw new TypeError('Failed to fetch')
+  }
+
+  return endpoints
+}

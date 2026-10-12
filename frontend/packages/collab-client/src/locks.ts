@@ -22,3 +22,8 @@ export function holdLock(name: string): Promise<(() => void) | null> {
     void locks.request(name, options, holdUntilReleased).catch(lockFailed)
   })
 }
+
+// Without Web Locks every session counts as free, including those of tabs still open
+export function hasLocks() {
+  return !!globalThis.navigator?.locks
+}

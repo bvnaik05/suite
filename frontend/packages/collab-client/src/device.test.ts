@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
-import { breaksOn, device, fakeServer, fakeTime, idle, join, reply, text } from './test-support'
+import {
+  breaksOn,
+  device,
+  fakeLocks,
+  fakeServer,
+  fakeTime,
+  heldPushes,
+  idle,
+  join,
+  offlinePushes,
+  reply,
+  text,
+} from './test-support'
 import type { CollabEndpoints } from './types'
 
 describe('collab room on a device', () => {
@@ -482,6 +494,63 @@ describe('collab room on a device', () => {
       await vi.advanceTimersByTimeAsync(0)
 
       expect([persist.mock.calls.length, room.blocked]).toEqual([1, null])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a tab counts the work another open tab holds as unsent, and shows Saved once it is committed', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const slow = heldPushes(server)
+      const first = await join(slow.endpoints, { device: kept })
+      first.doc.getText('t').insert(0, 'held in first')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+
+      const second = await join(server.endpoints(), { device: kept })
+      await idle()
+      const seen = [second.unsent, second.othersUnsent, second.saveState, text(second)]
+      expect(seen).toEqual([0, 1, 'unsaved', ''])
+
+      slow.release()
+      await first.flush()
+      await idle()
+      expect([second.othersUnsent, second.saveState, first.saveState]).toEqual([
+        0,
+        'clean',
+        'clean',
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('work an open tab held when it closed is sent once by the tab still open', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const first = await join(offlinePushes(server), { device: kept })
+      first.doc.getText('t').insert(0, 'left behind')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+      const second = await join(server.endpoints(), { device: kept })
+      await idle()
+
+      await first.close()
+      await vi.advanceTimersByTimeAsync(60_000)
+      await idle()
+      await second.flush()
+      await vi.advanceTimersByTimeAsync(60_000)
+      await idle()
+
+      const seen = [text(second), server.rows.length, second.othersUnsent, second.saveState]
+      expect(seen).toEqual(['left behind', 1, 0, 'clean'])
     } finally {
       vi.unstubAllGlobals()
     }
