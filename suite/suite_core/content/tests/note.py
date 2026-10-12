@@ -10,13 +10,13 @@ from suite.suite_core.content.ingest import EditorSchema
 
 SPEC = ContentAdapterSpec(
     name="note",
-    content_type="Note",
+    content_type="Content Layer Note",
     body_field="body",
     node_field="node",
     roots={"text": pycrdt.Text},
     schema=EditorSchema(
         1,
-        {},
+        {"text": 1},
         content_refs=frozenset({0, 1, 4}),
         shared_types=frozenset(),
         nodes=frozenset(),
