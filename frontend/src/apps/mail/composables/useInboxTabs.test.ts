@@ -1,13 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 
-import {
-  useClearTab,
-  useInboxTabs,
-  useTabChoice,
-  useTabClearMenu,
-  type InboxCategory,
-} from './useInboxTabs'
+import { useClearList } from './useClearList'
+import { useInboxTabs, useTabChoice, type InboxCategory } from './useInboxTabs'
 
 type Counts = { category: InboxCategory; unread_threads: number }[]
 
@@ -28,14 +23,11 @@ const saved = vi.hoisted(() => [] as unknown[])
 const toasts = vi.hoisted(() => [] as string[])
 // Saves resolve at once, unless a test holds them to see what happens while they are pending.
 const held = vi.hoisted(() => ({ on: false, release: [] as (() => void)[] }))
-// What the server answers a clearing with: the ids it changed, by account and mailbox.
+// What the server answers a clearing with: what it changed, by account.
 const answers = vi.hoisted(() => new Map<unknown, unknown>())
 const routes = vi.hoisted(() => ({
   updatePreferences: { name: 'updatePreferences' },
-  markTabRead: { name: 'markTabRead' },
-  markUnifiedTabRead: { name: 'markUnifiedTabRead' },
-  archiveTab: { name: 'archiveTab' },
-  archiveUnifiedTab: { name: 'archiveUnifiedTab' },
+  clearList: { name: 'clearList' },
   seen: { name: 'seen' },
   setFolders: { name: 'setFolders' },
 }))
@@ -204,7 +196,7 @@ describe('the Inbox tabs', () => {
   })
 
   it('clear any list by marking all of it read, and only a bulk tab by archiving or trashing it', () => {
-    const menuFor = useTabClearMenu(() => ({ account: 'ih', mailbox: 'inbox' }))
+    const { menuFor } = useClearList(() => ({ account: 'ih', mailbox: 'inbox' }))
     const labels = (scope: Parameters<typeof menuFor>[0]) =>
       menuFor(scope).flatMap((group) => group.options.map((option) => option.label))
 
@@ -218,14 +210,18 @@ describe('the Inbox tabs', () => {
   })
 
   it('say what a clearing did, and what its Undo put back', async () => {
-    const { markAllRead, archiveAll } = useClearTab(() => ({ account: 'ih', mailbox: 'inbox' }))
+    const { clear } = useClearList(() => ({ account: 'ih', mailbox: 'inbox' }))
+    const updates = { category: 'updates', name: 'Updates' } as const
     const before = { id: 'c', mailbox_ids: ['inbox', 'project'], junk: 0 }
-    answers.set(routes.markTabRead, { cleared: [{ account: 'ih', ids: ['a', 'b'] }], failed: [] })
-    answers.set(routes.archiveTab, { cleared: [{ account: 'ih', mails: [before] }], failed: [] })
 
-    await markAllRead({ category: 'updates', name: 'Updates' })
+    answers.set(routes.clearList, { cleared: [{ account: 'ih', ids: ['a', 'b'] }], failed: [] })
+    await clear('read', updates)
     await undoSlot.action?.()
-    await archiveAll({ category: 'updates', name: 'Updates' })
+    answers.set(routes.clearList, {
+      cleared: [{ account: 'ih', ids: ['c'], mails: [before] }],
+      failed: [],
+    })
+    await clear('archive', updates)
     await undoSlot.action?.()
 
     expect(toasts).toEqual([
@@ -234,29 +230,33 @@ describe('the Inbox tabs', () => {
       'Updates mail archived.',
       'Updates mail moved back.',
     ])
+    expect(saved).toContainEqual({
+      action: 'archive',
+      account: 'ih',
+      mailbox: 'inbox',
+      category: 'updates',
+      filter_by: undefined,
+    })
     // Undo touches exactly what was cleared, and puts it back in every folder it was in.
     expect(saved).toContainEqual({ account: 'ih', ids: ['a', 'b'], seen: false })
     expect(saved).toContainEqual({ account: 'ih', mails: [before] })
   })
 
   it('say so when a folder has nothing unread to mark', async () => {
-    const { markAllRead } = useClearTab(() => ({ account: 'ih', mailbox: 'archive' }))
-    answers.set(routes.markTabRead, { cleared: [], failed: [] })
+    const { clear } = useClearList(() => ({ account: 'ih', mailbox: 'archive' }))
+    answers.set(routes.clearList, { cleared: [], failed: [] })
 
-    await markAllRead({ name: 'Archive' })
+    await clear('read', { name: 'Archive' })
 
     expect(toasts).toEqual(['Nothing unread in Archive.'])
     expect(undoSlot.action).toBeUndefined()
   })
 
   it('keep what an account cleared before failing undoable, and say it did not finish', async () => {
-    const { markAllRead } = useClearTab(() => ({ folder: 'inbox' }))
-    answers.set(routes.markUnifiedTabRead, {
-      cleared: [{ account: 'ih', ids: ['a'] }],
-      failed: ['q9'],
-    })
+    const { clear } = useClearList(() => ({ folder: 'inbox' }))
+    answers.set(routes.clearList, { cleared: [{ account: 'ih', ids: ['a'] }], failed: ['q9'] })
 
-    await markAllRead({ category: 'updates', name: 'Updates' })
+    await clear('read', { category: 'updates', name: 'Updates' })
     await undoSlot.action?.()
 
     expect(toasts).toEqual([
@@ -268,19 +268,31 @@ describe('the Inbox tabs', () => {
   })
 
   it("clear only what the list's filter shows, and say so", async () => {
-    const { archiveAll, markAllRead } = useClearTab(() => ({ folder: 'inbox' }))
-    answers.set(routes.archiveUnifiedTab, {
-      cleared: [{ account: 'ih', mails: [{ id: 'c', mailbox_ids: ['inbox'], junk: 0 }] }],
+    const { clear } = useClearList(() => ({ folder: 'inbox' }))
+
+    answers.set(routes.clearList, {
+      cleared: [
+        { account: 'ih', ids: ['c'], mails: [{ id: 'c', mailbox_ids: ['inbox'], junk: 0 }] },
+      ],
       failed: [],
     })
-    answers.set(routes.markUnifiedTabRead, { cleared: [{ account: 'ih', ids: ['a'] }], failed: [] })
-
-    await archiveAll({ category: 'social', name: 'Social', filter: 'unscreened' })
+    await clear('archive', { category: 'social', name: 'Social', filter: 'unscreened' })
     await undoSlot.action?.()
-    await markAllRead({ category: 'social', name: 'Social', filter: 'unread' })
+    answers.set(routes.clearList, { cleared: [{ account: 'ih', ids: ['a'] }], failed: [] })
+    await clear('read', { category: 'social', name: 'Social', filter: 'unread' })
 
-    expect(saved).toContainEqual({ folder: 'inbox', category: 'social', filter_by: 'unscreened' })
-    expect(saved).toContainEqual({ folder: 'inbox', category: 'social', filter_by: 'unread' })
+    expect(saved).toContainEqual({
+      action: 'archive',
+      folder: 'inbox',
+      category: 'social',
+      filter_by: 'unscreened',
+    })
+    expect(saved).toContainEqual({
+      action: 'read',
+      folder: 'inbox',
+      category: 'social',
+      filter_by: 'unread',
+    })
     expect(toasts).toEqual([
       'Social mail from unknown senders archived.',
       'Social mail from unknown senders moved back.',

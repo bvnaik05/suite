@@ -54,10 +54,10 @@
             @refresh="refreshThreads()"
           >
             <template v-if="clearScope" #actions>
-              <TabClearActions :scope="clearScope" :target="{ folder }" />
+              <ClearListMenu :scope="clearScope" :target="{ folder }" />
             </template>
             <template v-if="clearScope" #mobile-actions>
-              <TabClearActions :scope="clearScope" :target="{ folder }" />
+              <ClearListMenu :scope="clearScope" :target="{ folder }" />
             </template>
           </MailListToolbar>
 
@@ -204,6 +204,7 @@ import { computed, inject, onMounted, onUnmounted, ref, useTemplateRef, watch } 
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, client, useInfiniteQuery } from '@/api'
+import ClearListMenu from '@/apps/mail/components/ClearListMenu.vue'
 import HeaderActions from '@/apps/mail/components/HeaderActions.vue'
 import NoMails from '@/apps/mail/components/Icons/NoMails.vue'
 import InboxTabs from '@/apps/mail/components/InboxTabs.vue'
@@ -213,10 +214,10 @@ import MailListToolbar from '@/apps/mail/components/MailListToolbar.vue'
 import MailThread from '@/apps/mail/components/MailThread.vue'
 import MobileTitleHeader from '@/apps/mail/components/mobile/MobileTitleHeader.vue'
 import StackListItem from '@/apps/mail/components/StackListItem.vue'
-import TabClearActions from '@/apps/mail/components/TabClearActions.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
+import { listScope } from '@/apps/mail/composables/useClearList'
 import { closeComposeWindowFor } from '@/apps/mail/composables/useComposeWindow'
-import { tabName, useInboxTabs, type ClearScope } from '@/apps/mail/composables/useInboxTabs'
+import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows } from '@/apps/mail/composables/useListRows'
 import { useMailRemoval } from '@/apps/mail/composables/useMailRemoval'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
@@ -356,15 +357,13 @@ const openTabLabel = computed(
 const tabSwitched = ref(false)
 // So too a filter changed on a list already showing.
 const filterChanged = ref(false)
-// What the list's menu clears: the open tab of a split Inbox, else the whole folder, as far as the
-// list's filter shows it. Not offered where
-// there is no folder to clear (Starred) or nothing unread to clear (Sent, Drafts).
-const clearScope = computed<ClearScope | undefined>(() => {
-  if (folder === STARRED_FOLDER || isOutgoingFolder.value) return undefined
-  if (inboxTab.value)
-    return { category: inboxTab.value, name: tabName(inboxTab.value), filter: filter.value }
-  return { name: folderLabel.value, filter: filter.value }
-})
+// What the list's menu clears (see listScope). Not offered where there is no folder to clear
+// (Starred) or nothing unread to clear (Sent, Drafts).
+const clearScope = computed(() =>
+  folder === STARRED_FOLDER || isOutgoingFolder.value
+    ? undefined
+    : listScope(inboxTab.value, folderLabel.value, filter.value),
+)
 watch(inboxTab, (tab, previous) => {
   tabSwitched.value = !!(tab && previous && tab !== previous)
   if (tabSwitched.value) resetThreads()

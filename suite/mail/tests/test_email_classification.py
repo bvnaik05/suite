@@ -819,7 +819,7 @@ class ChosenInboxTabs(unittest.TestCase):
             classification.normalize_tabs(["updates", "newsletters"])
 
 
-class ClearingATab(unittest.TestCase):
+class ClearingAList(unittest.TestCase):
     """A list clears in one go: all its unread mail read, or, on a tab of bulk mail, all of it archived or
     moved to Trash, a batch at a time until none is left. What it changed comes back, for Undo."""
 
@@ -831,8 +831,8 @@ class ClearingATab(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def picked(self, action, *batches: list[str], **kwargs):
-        """What `action` asks the server for, what it returns, and the seen and move calls it makes, the
+    def cleared(self, action: str, *batches: list[str], **where):
+        """What clearing asks the server for, what it returns, and the seen and move calls it makes, the
         server answering each query with the next of `batches`, then with nothing."""
 
         answers = iter([*batches, []])
@@ -853,14 +853,12 @@ class ClearingATab(unittest.TestCase):
                 mail_api, "get_mailbox_id_by_role", side_effect=lambda _account, role, **_: role
             ),
         ):
-            returned = action(**kwargs)
+            returned = mail_api.clear_list(action, **{"account": ACCOUNT, "mailbox": "inbox", **where})
         filter = query.call_args.args[1] if query.called else None
         return filter, returned, seen, move
 
     def test_mark_all_read_reads_the_tabs_unread_mail(self):
-        filter, returned, seen, move = self.picked(
-            mail_api.mark_tab_read, ["m1", "m2"], account=ACCOUNT, mailbox="inbox", category="updates"
-        )
+        filter, returned, seen, move = self.cleared("read", ["m1", "m2"], category="updates")
 
         self.assertEqual(filter["conditions"][0], {"inMailbox": "inbox"})
         rest = {"operator": "AND", "conditions": filter["conditions"][1:]}
@@ -872,9 +870,7 @@ class ClearingATab(unittest.TestCase):
         self.assertEqual(returned, {"cleared": [{"account": ACCOUNT, "ids": ["m1", "m2"]}], "failed": []})
 
     def test_archive_all_archives_the_tabs_mail_and_says_where_it_was(self):
-        filter, returned, seen, move = self.picked(
-            mail_api.archive_tab, ["m1"], account=ACCOUNT, mailbox="inbox", category="forums"
-        )
+        filter, returned, seen, move = self.cleared("archive", ["m1"], category="forums")
 
         rest = {"operator": "AND", "conditions": filter["conditions"][1:]}
         self.assertTrue(lists(rest, {"category_forums", "$seen"}))
@@ -888,6 +884,7 @@ class ClearingATab(unittest.TestCase):
                 "cleared": [
                     {
                         "account": ACCOUNT,
+                        "ids": ["m1"],
                         "mails": [{"id": "m1", "mailbox_ids": ["inbox", "project"], "junk": 0}],
                     }
                 ],
@@ -896,9 +893,7 @@ class ClearingATab(unittest.TestCase):
         )
 
     def test_trash_all_moves_the_tabs_mail_to_trash(self):
-        filter, returned, _seen, move = self.picked(
-            mail_api.trash_tab, ["m1"], account=ACCOUNT, mailbox="inbox", category="promotions"
-        )
+        filter, returned, _seen, move = self.cleared("trash", ["m1"], category="promotions")
 
         rest = {"operator": "AND", "conditions": filter["conditions"][1:]}
         self.assertTrue(lists(rest, {"category_promotions", "$seen"}))
@@ -906,10 +901,8 @@ class ClearingATab(unittest.TestCase):
         move.assert_called_once_with(ACCOUNT, ["m1"], "trash")
         self.assertEqual(returned["cleared"][0]["mails"][0]["id"], "m1")
 
-    def test_a_tab_clears_a_batch_at_a_time_until_none_is_left(self):
-        _filter, returned, seen, _move = self.picked(
-            mail_api.mark_tab_read, ["m1", "m2"], ["m3"], account=ACCOUNT, mailbox="inbox", category="updates"
-        )
+    def test_a_list_clears_a_batch_at_a_time_until_none_is_left(self):
+        _filter, returned, seen, _move = self.cleared("read", ["m1", "m2"], ["m3"], category="updates")
 
         self.assertEqual(
             seen.call_args_list, [mock.call(ACCOUNT, ["m1", "m2"], True), mock.call(ACCOUNT, ["m3"], True)]
@@ -917,27 +910,14 @@ class ClearingATab(unittest.TestCase):
         self.assertEqual(returned["cleared"], [{"account": ACCOUNT, "ids": ["m1", "m2", "m3"]}])
 
     def test_mail_the_clear_left_behind_ends_the_clearing(self):
-        _filter, returned, seen, _move = self.picked(
-            mail_api.mark_tab_read,
-            ["m1"],
-            ["m1"],
-            ["m1"],
-            account=ACCOUNT,
-            mailbox="inbox",
-            category="updates",
-        )
+        _filter, returned, seen, _move = self.cleared("read", ["m1"], ["m1"], ["m1"], category="updates")
 
         seen.assert_called_once_with(ACCOUNT, ["m1"], True)
         self.assertEqual(returned["cleared"], [{"account": ACCOUNT, "ids": ["m1"]}])
 
     def test_a_filtered_list_clears_only_what_its_filter_shows(self):
-        filter, _returned, _seen, move = self.picked(
-            mail_api.archive_tab,
-            ["m1"],
-            account=ACCOUNT,
-            mailbox="inbox",
-            category="social",
-            filter_by="unscreened",
+        filter, _returned, _seen, move = self.cleared(
+            "archive", ["m1"], category="social", filter_by="unscreened"
         )
 
         # Social mail from a sender nobody has decided on goes; the rest of Social stays.
@@ -949,20 +929,17 @@ class ClearingATab(unittest.TestCase):
     def test_the_filter_is_the_one_the_list_shows(self):
         for filter_by in ("unread", "starred", "has_attachments", "unscreened"):
             with self.subTest(filter_by=filter_by):
-                filter, *_ = self.picked(
-                    mail_api.mark_tab_read, ["m1"], account=ACCOUNT, mailbox="archive", filter_by=filter_by
-                )
+                filter, *_ = self.cleared("read", ["m1"], mailbox="archive", filter_by=filter_by)
                 self.assertIn(mail_api.list_filter(filter_by), filter["conditions"])
 
-    def test_primary_is_not_archived_or_trashed_all_at_once(self):
-        for action in (mail_api.archive_tab, mail_api.trash_tab):
-            with self.subTest(action=action.__name__), self.assertRaises(frappe.ValidationError):
-                self.picked(action, ["m1"], account=ACCOUNT, mailbox="inbox", category="primary")
+    def test_only_a_category_other_than_primary_is_archived_or_trashed_all_at_once(self):
+        for action in ("archive", "trash"):
+            for where in ({"category": "primary"}, {"mailbox": "archive"}):
+                with self.subTest(action=action, where=where), self.assertRaises(frappe.ValidationError):
+                    self.cleared(action, ["m1"], **where)
 
     def test_primary_can_be_marked_read_all_at_once(self):
-        filter, _returned, seen, _move = self.picked(
-            mail_api.mark_tab_read, ["m1", "m2"], account=ACCOUNT, mailbox="inbox", category="primary"
-        )
+        filter, _returned, seen, _move = self.cleared("read", ["m1", "m2"], category="primary")
 
         rest = {"operator": "AND", "conditions": filter["conditions"][1:]}
         self.assertTrue(lists(rest, {"category_primary"}))
@@ -971,9 +948,7 @@ class ClearingATab(unittest.TestCase):
         seen.assert_called_once_with(ACCOUNT, ["m1", "m2"], True)
 
     def test_a_whole_mailbox_is_marked_read_without_a_category(self):
-        filter, _returned, seen, _move = self.picked(
-            mail_api.mark_tab_read, ["m1"], account=ACCOUNT, mailbox="archive"
-        )
+        filter, _returned, seen, _move = self.cleared("read", ["m1"], mailbox="archive")
 
         self.assertEqual(
             filter, {"operator": "AND", "conditions": [{"inMailbox": "archive"}, {"notKeyword": "$seen"}]}
@@ -1005,7 +980,7 @@ class ClearingATab(unittest.TestCase):
             ),
             mock.patch.object(mail_api, "set_seen_status", side_effect=mark),
         ):
-            returned = mail_api.mark_unified_tab_read("inbox", "updates")
+            returned = mail_api.clear_list("read", folder="inbox", category="updates")
 
         self.assertEqual(
             returned,

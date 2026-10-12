@@ -14,12 +14,12 @@
 import { Button, Dropdown } from 'frappe-ui'
 
 import {
-  useTabClearMenu,
+  useClearList,
   type ClearScope,
   type ClearTarget,
-} from '@/apps/mail/composables/useInboxTabs'
+} from '@/apps/mail/composables/useClearList'
 
 const { scope, target } = defineProps<{ scope: ClearScope; target: ClearTarget }>()
 
-const menuFor = useTabClearMenu(() => target)
+const { menuFor } = useClearList(() => target)
 </script>

@@ -121,7 +121,7 @@
               :filter-options="FILTER_OPTIONS"
             >
               <template v-if="clearScope" #mobile-actions>
-                <TabClearActions :scope="clearScope" :target="{ account: accountId, mailbox }" />
+                <ClearListMenu :scope="clearScope" :target="{ account: accountId, mailbox }" />
               </template>
             </MailListToolbar>
 
@@ -165,7 +165,7 @@
             </template>
 
             <template #actions>
-              <TabClearActions
+              <ClearListMenu
                 v-if="clearScope && !selections.length"
                 :scope="clearScope"
                 :target="{ account: accountId, mailbox }"
@@ -473,6 +473,7 @@ import { computed, inject, onMounted, onUnmounted, ref, useTemplateRef, watch } 
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, client, useInfiniteQuery, useMutation, type InputOf } from '@/api'
+import ClearListMenu from '@/apps/mail/components/ClearListMenu.vue'
 import HeaderActions from '@/apps/mail/components/HeaderActions.vue'
 import NoMails from '@/apps/mail/components/Icons/NoMails.vue'
 import InboxTabs from '@/apps/mail/components/InboxTabs.vue'
@@ -484,9 +485,9 @@ import MailThread from '@/apps/mail/components/MailThread.vue'
 import MobileTitleHeader from '@/apps/mail/components/mobile/MobileTitleHeader.vue'
 import SearchResultsHeader from '@/apps/mail/components/SearchResultsHeader.vue'
 import StackListItem from '@/apps/mail/components/StackListItem.vue'
-import TabClearActions from '@/apps/mail/components/TabClearActions.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
-import { tabName, useInboxTabs, type ClearScope } from '@/apps/mail/composables/useInboxTabs'
+import { listScope } from '@/apps/mail/composables/useClearList'
+import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows, type NavRow } from '@/apps/mail/composables/useListRows'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
 import { useScreener } from '@/apps/mail/composables/useScreener'
@@ -1085,15 +1086,13 @@ const {
 // Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline, as a
 // search does, rather than the whole view giving way to the spinner.
 const tabSwitched = ref(false)
-// What the list's menu clears: the open tab of a split Inbox, else the whole folder, as far as the
-// list's filter shows it. Not offered where
-// there is no folder to clear (Starred, a search) or nothing unread to clear (Sent, Drafts).
-const clearScope = computed<ClearScope | undefined>(() => {
-  if (['search', 'starred', mailboxIds.sent, mailboxIds.drafts].includes(mailbox)) return undefined
-  if (inboxTab.value)
-    return { category: inboxTab.value, name: tabName(inboxTab.value), filter: filter.value }
-  return { name: mailboxName.value, filter: filter.value }
-})
+// What the list's menu clears (see listScope). Not offered where there is no folder to clear
+// (Starred, a search) or nothing unread to clear (Sent, Drafts).
+const clearScope = computed(() =>
+  ['search', 'starred', mailboxIds.sent, mailboxIds.drafts].includes(mailbox)
+    ? undefined
+    : listScope(inboxTab.value, mailboxName.value, filter.value),
+)
 watch(inboxTab, (tab, previous) => {
   tabSwitched.value = !!(tab && previous && tab !== previous)
   if (tabSwitched.value) resetThreads(false)

@@ -41,10 +41,6 @@ import type {
   AddPushSubscriptionOutput,
   AllowScreeningSendersInput,
   AllowScreeningSendersOutput,
-  ArchiveTabInput,
-  ArchiveTabOutput,
-  ArchiveUnifiedTabInput,
-  ArchiveUnifiedTabOutput,
   BlockSendersInput,
   BlockSendersOutput,
   BookInput,
@@ -53,6 +49,8 @@ import type {
   CancelScheduledMailOutput,
   ChangeMemberPasswordInput,
   ChangeMemberPasswordOutput,
+  ClearListInput,
+  ClearListOutput,
   ContactCardAddToAddressBookInput,
   ContactCardAddToAddressBookOutput,
   ContactCardRemoveFromAddressBookInput,
@@ -257,10 +255,6 @@ import type {
   InviteOutput,
   JunkSendersInboxMailInput,
   JunkSendersInboxMailOutput,
-  MarkTabReadInput,
-  MarkTabReadOutput,
-  MarkUnifiedTabReadInput,
-  MarkUnifiedTabReadOutput,
   MoveMailsInput,
   MoveMailsOutput,
   OngoingCalendarExchangeInput,
@@ -337,10 +331,6 @@ import type {
   SignupOutput,
   SubscribeMailboxInput,
   SubscribeMailboxOutput,
-  TrashTabInput,
-  TrashTabOutput,
-  TrashUnifiedTabInput,
-  TrashUnifiedTabOutput,
   UndoScreeningVerdictInput,
   UndoScreeningVerdictOutput,
   UnscreenEmailAddressesInput,
@@ -7429,77 +7419,42 @@ export const operationGetUnifiedTabCounts: Validators<
   },
 }
 
-export const operationMarkTabRead: Validators<MarkTabReadInput, MarkTabReadOutput> = {
-  validateInput(value: unknown): asserts value is MarkTabReadInput {
+export const operationClearList: Validators<ClearListInput, ClearListOutput> = {
+  validateInput(value: unknown): asserts value is ClearListInput {
     assertSchema(
       value,
       {
         type: 'object',
         properties: {
-          account: { title: 'Account', type: 'string' },
-          mailbox: { title: 'Mailbox', type: 'string' },
+          action: { enum: ['read', 'archive', 'trash'], title: 'Action', type: 'string' },
+          account: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Account' },
+          mailbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailbox' },
+          folder: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Folder' },
           category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
           filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
         },
-        required: ['account', 'mailbox'],
+        required: ['action'],
         additionalProperties: false,
         $defs: {},
       },
-      'mark_tab_read input',
+      'clear_list input',
     )
   },
-  validateOutput(value: unknown): asserts value is MarkTabReadOutput {
+  validateOutput(value: unknown): asserts value is ClearListOutput {
     assertSchema(
       value,
       {
         $defs: {
-          ReadMail: {
+          ClearedMail: {
             properties: {
               account: { title: 'Account', type: 'string' },
               ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
             },
             required: ['account', 'ids'],
-            title: 'ReadMail',
+            title: 'ClearedMail',
             type: 'object',
           },
-        },
-        properties: {
-          cleared: { items: { $ref: '#/$defs/ReadMail' }, title: 'Cleared', type: 'array' },
-          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
-        },
-        required: ['cleared', 'failed'],
-        title: 'MarkedRead',
-        type: 'object',
-      },
-      'mark_tab_read output',
-    )
-  },
-}
-
-export const operationArchiveTab: Validators<ArchiveTabInput, ArchiveTabOutput> = {
-  validateInput(value: unknown): asserts value is ArchiveTabInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: {
-          account: { title: 'Account', type: 'string' },
-          mailbox: { title: 'Mailbox', type: 'string' },
-          category: { title: 'Category', type: 'string' },
-          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
-        },
-        required: ['account', 'mailbox', 'category'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'archive_tab input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is ArchiveTabOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
           Membership: {
             properties: {
               id: { title: 'Id', type: 'string' },
@@ -7510,246 +7465,16 @@ export const operationArchiveTab: Validators<ArchiveTabInput, ArchiveTabOutput> 
             title: 'Membership',
             type: 'object',
           },
-          MovedMail: {
-            properties: {
-              account: { title: 'Account', type: 'string' },
-              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
-            },
-            required: ['account', 'mails'],
-            title: 'MovedMail',
-            type: 'object',
-          },
         },
         properties: {
-          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
+          cleared: { items: { $ref: '#/$defs/ClearedMail' }, title: 'Cleared', type: 'array' },
           failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
         },
         required: ['cleared', 'failed'],
-        title: 'Moved',
+        title: 'Cleared',
         type: 'object',
       },
-      'archive_tab output',
-    )
-  },
-}
-
-export const operationTrashTab: Validators<TrashTabInput, TrashTabOutput> = {
-  validateInput(value: unknown): asserts value is TrashTabInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: {
-          account: { title: 'Account', type: 'string' },
-          mailbox: { title: 'Mailbox', type: 'string' },
-          category: { title: 'Category', type: 'string' },
-          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
-        },
-        required: ['account', 'mailbox', 'category'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'trash_tab input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is TrashTabOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          Membership: {
-            properties: {
-              id: { title: 'Id', type: 'string' },
-              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
-              junk: { title: 'Junk', type: 'integer' },
-            },
-            required: ['id', 'mailbox_ids', 'junk'],
-            title: 'Membership',
-            type: 'object',
-          },
-          MovedMail: {
-            properties: {
-              account: { title: 'Account', type: 'string' },
-              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
-            },
-            required: ['account', 'mails'],
-            title: 'MovedMail',
-            type: 'object',
-          },
-        },
-        properties: {
-          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
-          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
-        },
-        required: ['cleared', 'failed'],
-        title: 'Moved',
-        type: 'object',
-      },
-      'trash_tab output',
-    )
-  },
-}
-
-export const operationMarkUnifiedTabRead: Validators<
-  MarkUnifiedTabReadInput,
-  MarkUnifiedTabReadOutput
-> = {
-  validateInput(value: unknown): asserts value is MarkUnifiedTabReadInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: {
-          folder: { title: 'Folder', type: 'string' },
-          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
-          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
-        },
-        required: ['folder'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'mark_unified_tab_read input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is MarkUnifiedTabReadOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          ReadMail: {
-            properties: {
-              account: { title: 'Account', type: 'string' },
-              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
-            },
-            required: ['account', 'ids'],
-            title: 'ReadMail',
-            type: 'object',
-          },
-        },
-        properties: {
-          cleared: { items: { $ref: '#/$defs/ReadMail' }, title: 'Cleared', type: 'array' },
-          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
-        },
-        required: ['cleared', 'failed'],
-        title: 'MarkedRead',
-        type: 'object',
-      },
-      'mark_unified_tab_read output',
-    )
-  },
-}
-
-export const operationArchiveUnifiedTab: Validators<
-  ArchiveUnifiedTabInput,
-  ArchiveUnifiedTabOutput
-> = {
-  validateInput(value: unknown): asserts value is ArchiveUnifiedTabInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: {
-          folder: { title: 'Folder', type: 'string' },
-          category: { title: 'Category', type: 'string' },
-          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
-        },
-        required: ['folder', 'category'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'archive_unified_tab input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is ArchiveUnifiedTabOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          Membership: {
-            properties: {
-              id: { title: 'Id', type: 'string' },
-              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
-              junk: { title: 'Junk', type: 'integer' },
-            },
-            required: ['id', 'mailbox_ids', 'junk'],
-            title: 'Membership',
-            type: 'object',
-          },
-          MovedMail: {
-            properties: {
-              account: { title: 'Account', type: 'string' },
-              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
-            },
-            required: ['account', 'mails'],
-            title: 'MovedMail',
-            type: 'object',
-          },
-        },
-        properties: {
-          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
-          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
-        },
-        required: ['cleared', 'failed'],
-        title: 'Moved',
-        type: 'object',
-      },
-      'archive_unified_tab output',
-    )
-  },
-}
-
-export const operationTrashUnifiedTab: Validators<TrashUnifiedTabInput, TrashUnifiedTabOutput> = {
-  validateInput(value: unknown): asserts value is TrashUnifiedTabInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: {
-          folder: { title: 'Folder', type: 'string' },
-          category: { title: 'Category', type: 'string' },
-          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
-        },
-        required: ['folder', 'category'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'trash_unified_tab input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is TrashUnifiedTabOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          Membership: {
-            properties: {
-              id: { title: 'Id', type: 'string' },
-              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
-              junk: { title: 'Junk', type: 'integer' },
-            },
-            required: ['id', 'mailbox_ids', 'junk'],
-            title: 'Membership',
-            type: 'object',
-          },
-          MovedMail: {
-            properties: {
-              account: { title: 'Account', type: 'string' },
-              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
-            },
-            required: ['account', 'mails'],
-            title: 'MovedMail',
-            type: 'object',
-          },
-        },
-        properties: {
-          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
-          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
-        },
-        required: ['cleared', 'failed'],
-        title: 'Moved',
-        type: 'object',
-      },
-      'trash_unified_tab output',
+      'clear_list output',
     )
   },
 }
