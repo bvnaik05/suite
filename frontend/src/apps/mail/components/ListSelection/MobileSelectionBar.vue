@@ -46,14 +46,19 @@
 <script setup lang="ts">
 import { usePortalTarget } from 'frappe-ui'
 import { Ellipsis } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, ref, type Component } from 'vue'
 
 import type { SelectAction } from '@/apps/mail/utils/selectActions'
 import AdaptiveDropdown from '@/components/AdaptiveDropdown.vue'
 
-type MenuOption = { label: string; icon?: unknown; onClick?: () => void }
+type MenuOption = { label: string; icon?: string | Component; onClick?: () => void }
 // A More entry: an action, or a menu of its own (the folder menus) that opens as a chained sheet.
-type Option = { label: string; icon: unknown; onClick?: () => void; options?: MenuOption[] }
+type Option = {
+  label: string
+  icon: string | Component
+  onClick?: () => void
+  options?: MenuOption[]
+}
 
 const {
   open,
