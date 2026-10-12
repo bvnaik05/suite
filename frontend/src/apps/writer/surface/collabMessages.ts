@@ -1,4 +1,4 @@
-import type { Blocked } from '@suite/collab-client'
+import type { Blocked, CollabRoom } from '@suite/collab-client'
 
 import { describeFailure } from '@/platform/transport'
 
@@ -10,28 +10,18 @@ export interface Banner {
   after?: string
 }
 
-export interface BannerState {
-  blocked: Blocked | null
-  // Why the room will never save this tab's work
-  stopped: string | null
-  // The document waits for an admin: one change, or its saved content
-  held: string | null
-  // A newer editor wrote to the document, so this tab only shows it
-  newerSchema: boolean
+export type BannerState = Pick<
+  CollabRoom,
+  'blocked' | 'stopped' | 'held' | 'newerSchema' | 'paused' | 'atLimit' | 'onDevice' | 'unsent'
+> & {
   // The person may edit the document in an editor that can show it
   canEdit: boolean
-  // Why saving waits
-  paused: string | null
   // Saving stopped with work unsent
   failed: boolean
-  // The document holds all it may, so only deletes save
-  atLimit: boolean
-  onDevice: boolean
   // The editor's HTML was kept in this browser as a recovery copy
   recoveryKept: boolean
   // An earlier room of this page set its unsent work aside as a recovery copy
   setAside: boolean
-  unsent: number
   // No live updates reach this tab, so it polls
   polling: boolean
 }
@@ -51,124 +41,167 @@ const PAUSE_MESSAGES: Record<string, string> = {
   upload_refused: 'Your network is refusing uploads',
 }
 
-// While saving goes on: a full document, or a rebuilt room after the stopped one's work went to a recovery copy
-function savingBanner(atLimit: boolean, setAside: boolean): Banner | null {
-  if (atLimit) {
-    const setAsideNote = setAside ? ' Your latest changes went to a recovery copy.' : ''
+function recoveryNote(state: BannerState) {
+  return state.recoveryKept ? ' Unsent changes were kept as a recovery copy.' : ''
+}
+
+// Without a device store the unsent changes live only in this tab
+function keepOpenNote(state: BannerState) {
+  return state.onDevice ? '' : ' Keep this tab open.'
+}
+
+function messageFor(messages: Record<string, string>, reason: string | null) {
+  if (reason === null || !Object.hasOwn(messages, reason)) {
+    return null
+  }
+
+  return messages[reason]
+}
+
+// While saving goes on: a full document, a rebuilt room whose old work went to a recovery copy, or polling
+function savingBanner(state: BannerState): Banner | null {
+  if (state.atLimit) {
+    const setAsideNote = state.setAside ? ' Your latest changes went to a recovery copy.' : ''
     return {
       text: `This document is at its size limit.${setAsideNote} Delete content to free space.`,
     }
   }
 
-  if (!setAside) {
-    return null
+  if (state.setAside) {
+    return { text: "Your last edits couldn't be saved here and were kept as a recovery copy." }
   }
 
-  return { text: "Your last edits couldn't be saved here and were kept as a recovery copy." }
+  if (state.polling) {
+    return { text: "Live updates are unavailable, so others' changes show up late." }
+  }
+
+  return null
 }
 
-export function bannerFor({
-  blocked,
-  stopped,
-  held,
-  newerSchema,
-  canEdit,
-  paused,
-  failed,
-  atLimit,
-  onDevice,
-  recoveryKept,
-  setAside,
-  unsent,
-  polling,
-}: BannerState): Banner | null {
-  const pauseMessage =
-    paused && Object.hasOwn(PAUSE_MESSAGES, paused) ? PAUSE_MESSAGES[paused] : null
-  const interrupted = blocked || held || newerSchema || pauseMessage || failed
-  if (!interrupted) {
-    const pollingBanner = polling
-      ? { text: "Live updates are unavailable, so others' changes show up late." }
-      : null
-    return savingBanner(atLimit, setAside) ?? pollingBanner
+function newerSchemaBanner(state: BannerState): Banner {
+  const reloadTo = state.canEdit ? 'edit it' : 'see its latest changes'
+  return { text: `This document was edited in a newer version of Writer. Reload to ${reloadTo}.` }
+}
+
+function heldBanner(state: BannerState): Banner {
+  const isWholeDocument = state.held === 'bad_checkpoint'
+  const text = isWholeDocument
+    ? 'This document is in question and read-only while an admin reviews it.'
+    : 'This document is read-only while an admin reviews a change to it.'
+  if (!state.unsent) {
+    return { text }
   }
 
-  const recoveryNote = recoveryKept ? ' Unsent changes were kept as a recovery copy.' : ''
-  // Without a device store the unsent changes live only in this tab
-  const keepOpen = onDevice ? '' : ' Keep this tab open.'
-  const unblocked = !blocked && !stopped
-  if (newerSchema && unblocked) {
-    const reloadTo = canEdit ? 'edit it' : 'see its latest changes'
-    return { text: `This document was edited in a newer version of Writer. Reload to ${reloadTo}.` }
-  }
-
-  if (held && unblocked) {
-    const text =
-      held === 'bad_checkpoint'
-        ? 'This document is in question and read-only while an admin reviews it.'
-        : 'This document is read-only while an admin reviews a change to it.'
-    if (!unsent) {
-      return { text }
-    }
-
-    if (onDevice) {
-      return {
-        text: `${text} Your unsent changes are kept on this device and save once it is released.`,
-      }
-    }
-
-    return { text: `${text} Your unsent changes save once it is released.${keepOpen}` }
-  }
-
-  if (pauseMessage && unblocked) {
-    if (onDevice) {
-      return {
-        text: `${pauseMessage}, so your latest changes aren't saved. They're kept on this device.`,
-      }
-    }
-
-    return { text: `${pauseMessage}, so your latest changes aren't saved.${keepOpen}` }
-  }
-
-  switch (blocked) {
-    case 'signed_out':
-      return {
-        text: unsent ? "You're signed out, so changes aren't saved. " : "You're signed out. ",
-        link: {
-          label: 'Sign in',
-          href: `/login?redirect-to=${encodeURIComponent(location.pathname)}`,
-        },
-        after: unsent ? ` to save them.${keepOpen}` : ' to keep editing.',
-      }
-    case 'locked':
-      return {
-        text: "This document was locked, so changes aren't saved. Unlock it to save them.",
-        after: keepOpen,
-      }
-    case 'offline':
-      return { text: "You're offline and this browser can't keep changes, so editing is paused." }
-    case 'stale_session':
-      return {
-        text: `You signed in again in another tab.${onDevice ? '' : recoveryNote} Reload to keep saving.`,
-      }
-    case 'other_user':
-      if (onDevice) {
-        return {
-          text: 'Someone else is now signed in here. Your unsent changes are kept on this device.',
-        }
-      }
-
-      return { text: `Someone else is now signed in here.${recoveryNote} Reload to continue.` }
-    case 'lost_edit':
-      return { text: `You can no longer edit this document.${recoveryNote}` }
-    case 'lost_read':
-      return { text: `You can no longer open this document.${recoveryNote}` }
-    default: {
-      const knownStop = stopped && Object.hasOwn(STOP_MESSAGES, stopped) ? stopped : null
-      const reason = knownStop ? STOP_MESSAGES[knownStop] : 'Saving stopped in this tab.'
-      const reloadHint = knownStop && LASTING_STOPS.has(knownStop) ? '' : ' Reload to keep editing.'
-      return { text: `${reason}${recoveryNote}${reloadHint}` }
+  if (state.onDevice) {
+    return {
+      text: `${text} Your unsent changes are kept on this device and save once it is released.`,
     }
   }
+
+  const keepOpen = keepOpenNote(state)
+  return { text: `${text} Your unsent changes save once it is released.${keepOpen}` }
+}
+
+function pauseBanner(pauseMessage: string, state: BannerState): Banner {
+  const keepOpen = keepOpenNote(state)
+  const where = state.onDevice ? " They're kept on this device." : keepOpen
+  return { text: `${pauseMessage}, so your latest changes aren't saved.${where}` }
+}
+
+function signedOutBanner(state: BannerState): Banner {
+  const redirectTo = encodeURIComponent(location.pathname)
+  const signIn = { label: 'Sign in', href: `/login?redirect-to=${redirectTo}` }
+  if (!state.unsent) {
+    return { text: "You're signed out. ", link: signIn, after: ' to keep editing.' }
+  }
+
+  const keepOpen = keepOpenNote(state)
+  const after = ` to save them.${keepOpen}`
+  return { text: "You're signed out, so changes aren't saved. ", link: signIn, after }
+}
+
+function lockedBanner(state: BannerState): Banner {
+  const text = "This document was locked, so changes aren't saved. Unlock it to save them."
+  return { text, after: keepOpenNote(state) }
+}
+
+function offlineBanner(): Banner {
+  return { text: "You're offline and this browser can't keep changes, so editing is paused." }
+}
+
+function staleSessionBanner(state: BannerState): Banner {
+  const note = recoveryNote(state)
+  const recovery = state.onDevice ? '' : note
+  return { text: `You signed in again in another tab.${recovery} Reload to keep saving.` }
+}
+
+function otherUserBanner(state: BannerState): Banner {
+  if (state.onDevice) {
+    return {
+      text: 'Someone else is now signed in here. Your unsent changes are kept on this device.',
+    }
+  }
+
+  const recovery = recoveryNote(state)
+  return { text: `Someone else is now signed in here.${recovery} Reload to continue.` }
+}
+
+function lostEditBanner(state: BannerState): Banner {
+  const recovery = recoveryNote(state)
+  return { text: `You can no longer edit this document.${recovery}` }
+}
+
+function lostReadBanner(state: BannerState): Banner {
+  const recovery = recoveryNote(state)
+  return { text: `You can no longer open this document.${recovery}` }
+}
+
+const BLOCKED_BANNERS: Record<Blocked, (state: BannerState) => Banner> = {
+  signed_out: signedOutBanner,
+  locked: lockedBanner,
+  offline: offlineBanner,
+  stale_session: staleSessionBanner,
+  other_user: otherUserBanner,
+  lost_edit: lostEditBanner,
+  lost_read: lostReadBanner,
+}
+
+function stoppedBanner(state: BannerState): Banner {
+  const reason = messageFor(STOP_MESSAGES, state.stopped) ?? 'Saving stopped in this tab.'
+  const isLasting = state.stopped !== null && LASTING_STOPS.has(state.stopped)
+  const reloadHint = isLasting ? '' : ' Reload to keep editing.'
+  const recovery = recoveryNote(state)
+  return { text: `${reason}${recovery}${reloadHint}` }
+}
+
+// A refusal or a stop outranks a wait, since a wait ends on its own
+export function bannerFor(state: BannerState): Banner | null {
+  if (state.blocked) {
+    return BLOCKED_BANNERS[state.blocked](state)
+  }
+
+  if (state.stopped) {
+    return stoppedBanner(state)
+  }
+
+  if (state.newerSchema) {
+    return newerSchemaBanner(state)
+  }
+
+  if (state.held) {
+    return heldBanner(state)
+  }
+
+  const pauseMessage = messageFor(PAUSE_MESSAGES, state.paused)
+  if (pauseMessage) {
+    return pauseBanner(pauseMessage, state)
+  }
+
+  if (state.failed) {
+    return stoppedBanner(state)
+  }
+
+  return savingBanner(state)
 }
 
 const OPEN_FAILURES: Record<string, string> = {

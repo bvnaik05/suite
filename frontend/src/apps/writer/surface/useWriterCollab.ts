@@ -1,10 +1,4 @@
-import {
-  CollabOpenError,
-  isRecoverable,
-  type Blocked,
-  type CollabRoom,
-  type LiveState,
-} from '@suite/collab-client'
+import { CollabOpenError, isRecoverable, type CollabRoom } from '@suite/collab-client'
 import { computed, nextTick, ref, shallowRef } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
@@ -12,37 +6,30 @@ import { openWriterRoom } from '@/apps/writer/collab'
 import { TransportError } from '@/platform/transport'
 
 import { bannerFor, openFailureFor, type BannerState } from './collabMessages'
-import type { DocumentSaveState } from './navigation'
 
 export type CollabMode = 'opening' | 'legacy' | 'live' | 'failed'
 
-interface RoomStatus {
-  saveState: DocumentSaveState
-  canWrite: boolean
-  blocked: Blocked | null
-  paused: string | null
-  stopped: string | null
-  held: string | null
-  newerSchema: boolean
-  unsent: number
-  onDevice: boolean
-  atLimit: boolean
-  live: LiveState | null
-}
+const STATUS_FIELDS = [
+  'saveState',
+  'canWrite',
+  'blocked',
+  'paused',
+  'stopped',
+  'held',
+  'newerSchema',
+  'unsent',
+  'onDevice',
+  'atLimit',
+  'live',
+] as const satisfies readonly (keyof CollabRoom)[]
 
-const readStatus = (room: CollabRoom): RoomStatus => ({
-  saveState: room.saveState,
-  canWrite: room.canWrite,
-  blocked: room.blocked,
-  paused: room.paused,
-  stopped: room.stopped,
-  held: room.held,
-  newerSchema: room.newerSchema,
-  unsent: room.unsent,
-  onDevice: room.onDevice,
-  atLimit: room.atLimit,
-  live: room.live,
-})
+type RoomStatus = Pick<CollabRoom, (typeof STATUS_FIELDS)[number]>
+
+// A snapshot, since the room's getters change under the page
+function readStatus(room: CollabRoom) {
+  const entries = STATUS_FIELDS.map((field) => [field, room[field]])
+  return Object.fromEntries(entries) as RoomStatus
+}
 
 // A Writer document's live room: opening it, mirroring its state for the page, and closing it.
 // `retainRecovery` keeps the editor's HTML in this browser when the room stops holding unsent work.
