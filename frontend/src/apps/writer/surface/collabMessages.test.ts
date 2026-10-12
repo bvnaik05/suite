@@ -117,6 +117,12 @@ describe('collab stop copy', () => {
     )
   })
 
+  it('says saving stopped because a newer Writer edited the document, and where the unsent work went', () => {
+    expect(bannerText({ failed: true, stopped: 'schema', recoveryKept: true })).toBe(
+      'This document was edited in a newer version of Writer, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',
+    )
+  })
+
   it('says saving stopped because collaboration was switched off, and where the unsent work went', () => {
     expect(bannerText({ failed: true, stopped: 'disabled', recoveryKept: true })).toBe(
       'Collaboration was switched off for this app, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',

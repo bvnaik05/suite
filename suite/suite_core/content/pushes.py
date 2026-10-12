@@ -175,12 +175,21 @@ def locked_doc(adapter: str, doc_id: str, is_final: bool) -> frappe._dict:
     return locked_rows[0]
 
 
+def schema_through(steps: list[list[int]], rev: int) -> int:
+    """Answer the highest editor schema of the rows through `rev`."""
+    return max((schema for first_rev, schema in steps if first_rev <= rev), default=0)
+
+
 def check_doc_open(doc: frappe._dict, header: PushHeader) -> None:
     if doc.mode == "purged":
         raise Refusal(404, "not_found")
 
     if header.lineage != doc.lineage:
         raise Refusal(409, "lineage")
+
+    # A tab that read a newer editor's rows would write its older reading of them back
+    if header.schema < schema_through(json.loads(doc.schema_steps), header.seen_rev):
+        raise Refusal(409, "schema")
 
     # The rows stay on the device until an admin reviews the document
     if doc.suspect_held:

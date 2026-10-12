@@ -373,7 +373,7 @@ class TestWriterCollab(CollabCase):
         self.assertEqual(self.open_document(node)[1], [])
         self.assertEqual(self.push(node, sid, client_id, 1, formatted_update(client_id, "bold"))[0], 200)
 
-    def test_the_highest_schema_steps_up_only_when_a_stored_row_raises_it(self):
+    def test_the_highest_schema_steps_up_only_when_a_stored_row_raises_it_and_older_tabs_stop_past_it(self):
         self.set_mode("on")
         node = self.new_document()
         lineage = self.open_document(node)[0]["lineage"]
@@ -436,6 +436,11 @@ class TestWriterCollab(CollabCase):
         pull = call_route(routes.updates_get, node)
         pulled = read_frame(pull.get_data())[0]
         self.assertEqual((self.open_document(node)[0]["schema"], pulled["schema"]), (2, 2))
+        *_typed, third = typed_updates(client_id, ["a", "b", "c"])
+        body = push_body(lineage, sid, client_id, 3, 2, third, schema=1)
+        response = call_route(routes.updates_post, node, body=body)
+        self.assertEqual((response.status_code, answer(response)), (409, {"collab": "schema"}))
+        self.assertEqual(push_with_schema(sid, client_id, 3, third, 1), 200)
 
     def test_a_push_that_does_not_continue_its_writers_clocks_is_refused_and_stores_nothing(self):
         self.set_mode("on")

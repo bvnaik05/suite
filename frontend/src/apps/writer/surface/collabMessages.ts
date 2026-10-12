@@ -32,6 +32,7 @@ const STOP_MESSAGES: Record<string, string> = {
   too_large: 'A change in this tab is too large to save. Insert large images as files.',
   document_full: "This document is at its size limit, so a change in this tab couldn't be saved.",
   disabled: 'Collaboration was switched off for this app, so saving stopped in this tab.',
+  schema: 'This document was edited in a newer version of Writer, so saving stopped in this tab.',
 }
 // Stops a reload would only repeat
 const LASTING_STOPS = new Set(['browser'])
