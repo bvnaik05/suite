@@ -2,6 +2,7 @@ import * as Y from 'yjs'
 
 import { classifyRefusal } from './access'
 import { readReply, type Reply } from './answers'
+import { backoffMs } from './backoff'
 import { encodePush, type PushHeader } from './frames'
 import {
   KEEPALIVE_QUOTA,
@@ -22,8 +23,6 @@ const MAX_PACE_MS = 10_000
 type PushRange = { box: Outbox; to: number }
 // A keepalive push ready to send, with the seqs it carries
 type KeepalivePush = { header: { from: number; to: number }; body: Uint8Array<ArrayBuffer> }
-
-export const backoffMs = () => 1000 + Math.random() * 29_000
 
 // A server pace that is missing or not a number falls back to the default; one out of range is held to it
 function paceWithinRange(paceMs: unknown) {

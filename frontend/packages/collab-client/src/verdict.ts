@@ -1,8 +1,8 @@
 import { classifyRefusal, isDisabled } from './access'
 import { readReply, type Reply } from './answers'
+import { backoffMs } from './backoff'
 import type { PullHeader } from './frames'
 import type { Room } from './room'
-import { backoffMs } from './sender'
 import { isRecoverable } from './types'
 
 const STRIKE_WINDOW_MS = 10 * 60_000
