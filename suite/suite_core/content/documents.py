@@ -102,8 +102,7 @@ def remap_log(adapter: str, node: str, rewrite) -> None:
     roots = spec_of(adapter).roots
     state = log_read.checkpoint
     # copy_log starts every copied log from a body
-    if state is None:
-        raise compaction.CompactionFailed("remap_mismatch")
+    assert state is not None
 
     remapped = updates.rewrite_values(state, rewrite)
     if remapped == state:
