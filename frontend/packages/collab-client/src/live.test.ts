@@ -187,14 +187,14 @@ describe('collab room live', () => {
     const room = await join(server.endpoints(), { socket: server.socket() })
     await vi.advanceTimersByTimeAsync(0)
 
-    server.hold('kernel_failed')
+    server.hold('change')
     await vi.advanceTimersByTimeAsync(200)
     const whileHeld = [room.held, room.canWrite]
     server.hold()
     await vi.advanceTimersByTimeAsync(200)
 
     expect(room.live).toBe('live')
-    expect(whileHeld).toEqual(['kernel_failed', false])
+    expect(whileHeld).toEqual(['change', false])
     expect([room.held, room.canWrite]).toEqual([null, true])
   })
 
