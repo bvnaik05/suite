@@ -18,8 +18,17 @@ from redis.exceptions import RedisError
 
 from suite import drive
 from suite.composition import content as routes
-from suite.suite_core.content import admission, checkpoints, compaction, documents, live, log, scheduling
-from suite.suite_core.content.log import isolation_level
+from suite.suite_core.content import (
+    admission,
+    checkpoints,
+    compaction,
+    documents,
+    live,
+    log,
+    pushes,
+    scheduling,
+)
+from suite.suite_core.content.snapshot import isolation_level
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
@@ -943,7 +952,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
         node = self.new_document()
         (last,) = self.typing_pushes(node, ["Typed while Redis was down"])
 
-        with patch.object(log, "get_redis_conn", side_effect=RedisError):
+        with patch.object(pushes, "get_redis_conn", side_effect=RedisError):
             status, _elapsed = self.timed_push(node, as_final(last))
 
         self.assertEqual(status, 200)

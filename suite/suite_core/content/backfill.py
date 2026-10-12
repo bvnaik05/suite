@@ -6,7 +6,8 @@ from collections.abc import Callable
 import frappe
 
 from suite.suite_core.content import ingest, quarantine
-from suite.suite_core.content.log import ChainBroken, read
+from suite.suite_core.content.log import ChainBroken
+from suite.suite_core.content.snapshot import read
 from suite.suite_core.content.tables import table
 
 

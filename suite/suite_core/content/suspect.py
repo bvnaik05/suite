@@ -19,8 +19,10 @@ import frappe
 from frappe.utils.background_jobs import get_redis_conn
 
 from suite.suite_core.content import admission, compaction, kernel, live, quarantine
-from suite.suite_core.content.log import SUSPECT_RETRY_MS, Refusal, read
+from suite.suite_core.content.log import Refusal
+from suite.suite_core.content.pushes import SUSPECT_RETRY_MS
 from suite.suite_core.content.scheduling import enqueue
+from suite.suite_core.content.snapshot import read
 from suite.suite_core.content.tables import table
 
 # The compaction failures that come from the CRDT library itself, not from the rows' shape or the host

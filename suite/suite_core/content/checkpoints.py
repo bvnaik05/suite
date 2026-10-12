@@ -22,15 +22,8 @@ from frappe.utils import now_datetime
 
 from suite.suite_core.content import admission, compaction, ingest, live, quarantine, scheduling, suspect
 from suite.suite_core.content.adapters import spec_of
-from suite.suite_core.content.log import (
-    ChainBroken,
-    body_row,
-    chain_next,
-    chain_seed,
-    fallback_rev,
-    read,
-    rows_after,
-)
+from suite.suite_core.content.log import ChainBroken, chain_next, chain_seed
+from suite.suite_core.content.snapshot import body_row, fallback_rev, read, rows_after
 from suite.suite_core.content.tables import table
 
 PACED_FROM = 512 * 2**10
