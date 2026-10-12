@@ -20,6 +20,8 @@ export type {
   CredentialGroup,
   CredentialGrouper,
   DocumentSession,
+  DocumentThread,
+  DocumentVersion,
   MediaHandle,
   MediaStatus,
   SessionState,

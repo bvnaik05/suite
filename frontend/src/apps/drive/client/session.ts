@@ -6,6 +6,12 @@ import { getCookieSessionUser } from '@/platform/session'
 import { TransportError, type RequestContext, type RequestScope } from '@/platform/transport'
 
 import { onAccessChange } from './accessChanges'
+import type {
+  NodeThreadsOutput,
+  NodeThreadsOutputThreadShape,
+  NodeVersionsOutput,
+  NodeVersionsOutputVersionShape,
+} from './generated'
 import { driveLinks } from './links'
 import { DRIVE_ROLES, type DriveAccess, type DriveNode } from './types'
 
@@ -32,6 +38,9 @@ export interface CredentialGroup {
   nodeIds: string[]
   fetch: CredentialFetch
 }
+
+export type DocumentThread = NodeThreadsOutputThreadShape
+export type DocumentVersion = NodeVersionsOutputVersionShape
 
 /**
  * Share-link credentials for requests a product sends itself. Each one
@@ -69,7 +78,7 @@ export interface DocumentSession {
   share(): Promise<void>
   copy(parent: string, title?: string): Promise<DriveNode>
   comments: {
-    list(resolved?: boolean): Promise<unknown>
+    list(resolved?: boolean): Promise<NodeThreadsOutput>
     create(anchor: string, text: string, authorName?: string): Promise<unknown>
     reply(thread: string, text: string, authorName?: string): Promise<unknown>
     resolve(thread: string, resolved: boolean): Promise<unknown>
@@ -77,7 +86,7 @@ export interface DocumentSession {
     remove(comment: string): Promise<unknown>
   }
   versions: {
-    list(cursor?: string): Promise<unknown>
+    list(cursor?: string): Promise<NodeVersionsOutput>
     create(kind?: 'auto' | 'named' | 'milestone', label?: string): Promise<unknown>
     update(
       seq: string,

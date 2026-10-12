@@ -13,7 +13,7 @@
         if (db)
           db.transaction(['content'], 'readwrite')
             .objectStore('content')
-            .put({ val, saved: new Date() }, props.file.name)
+            .put({ val, saved: new Date() }, props.file.doc.name)
         if (!editable) return
         edited = true
         autosave()
@@ -51,7 +51,7 @@ const props = defineProps({
 })
 
 const rawContent = ref(props.document.doc.html)
-const contentReady = ref(!props.file.write)
+const contentReady = ref(!props.file.doc.write)
 defineEmits(['saveComment', 'saveDocument'])
 const textEditor = ref('textEditor')
 
@@ -84,7 +84,7 @@ const autosave = debounce(() => {
 // Local saving with IndexedDB
 const db = ref(null)
 
-if (props.file.write) {
+if (props.file.doc.write) {
   const request = window.indexedDB.open('Writer', 1)
   request.onupgradeneeded = () => {
     if (!request.result.objectStoreNames.contains('content'))
@@ -93,12 +93,12 @@ if (props.file.write) {
   request.onsuccess = (event) => {
     const database = event.target.result
     db.value = database
-    database.transaction(['content']).objectStore('content').get(props.file.name).onsuccess = (
+    database.transaction(['content']).objectStore('content').get(props.file.doc.name).onsuccess = (
       val,
     ) => {
       if (
         val.target.result?.val?.length > 20 &&
-        val.target.result.saved > new Date(props.file.modified)
+        val.target.result.saved > new Date(props.file.doc.modified)
       )
         rawContent.value = val.target.result.val
       contentReady.value = true
