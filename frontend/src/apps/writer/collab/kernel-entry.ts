@@ -26,8 +26,10 @@ const judgeInput = () => {
   const fromBase64 = (base64: string) => new Uint8Array(Buffer.from(base64, 'base64'))
   const checkpoint = input.checkpoint ? fromBase64(input.checkpoint) : null
   const rows = input.rows.map(fromBase64)
-  let answer: object = { covered: covers(checkpoint!, rows) }
-  if (input.mode !== 'covers') {
+  let answer: object
+  if (input.mode === 'covers') {
+    answer = { covered: checkpoint !== null && covers(checkpoint, rows) }
+  } else {
     answer = judge(checkpoint, rows, writerFault)
   }
 
