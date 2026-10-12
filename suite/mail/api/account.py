@@ -235,9 +235,8 @@ def get_user_info() -> dict | None:
     data.max_attachment_size = MAX_ATTACHMENT_SIZE
     # Whether mail is being sorted into categories, and so whether the lists offer them as filters.
     data.email_classification = classification.is_enabled()
-    # The categories the Inbox is split into when it is split, in the order of their tabs, kept apart
-    # from whether it is (mail being classified and the split being on), so the choice survives the
-    # split being turned off.
+    # Whether the Inbox is split, and its tabs for when it is: kept apart, so the choice of tabs
+    # survives the split being turned off.
     split, chosen = classification.chosen_tabs(user)
     data.split_inbox = int(split)
     data.inbox_tabs = [tab.value for tab in chosen]

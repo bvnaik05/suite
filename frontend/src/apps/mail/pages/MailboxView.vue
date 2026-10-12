@@ -780,35 +780,35 @@ watch(
 
 // Main data
 
-// The remembered All/Unread/Starred/Has-attachments choice, its menu, and its own title (see
-// useListFilter) — all shared with the merged All Inboxes list. Starred is not offered inside
-// Trash, nor inside the Starred list itself, where it would filter a list to itself.
-const { filter, reloadFilter, FILTER_OPTIONS, filterTitle } = useListFilter({
-  onChange: () => {
-    filterChanged.value = true
-    resetThreads(false)
-  },
+// The list's filters, their menu, and its own title (see useListFilter) — all shared with the
+// merged All Inboxes list. Starred is not offered inside Trash, nor inside the Starred list itself,
+// where it would filter a list to itself.
+const {
+  filter,
+  changed: filterChanged,
+  reloadFilter,
+  FILTER_OPTIONS,
+  filterTitle,
+} = useListFilter({
+  onChange: () => resetThreads(false),
   starrable: () => ![mailboxIds.trash, 'starred'].includes(mailbox),
   screenable: () => mailbox === mailboxIds.inbox && screener.active.value,
 })
 const isMailboxLoaded = ref(false)
-// A filter changed on a list already showing: the list, its tabs and toolbar stay up while the
-// filtered list loads inline, rather than the whole view giving way to the spinner.
-const filterChanged = ref(false)
 
 // The Inbox's category tabs; `inboxTab` is the open one, and undefined in any other list or when the
-// Inbox isn't split. Opening another refetches the first window, as a filter change does.
+// Inbox isn't split.
 const {
   tabs: inboxTabs,
   active: inboxTab,
   routeFor: routeForTab,
+  switched: tabSwitched,
+  primaryUnread,
 } = useInboxTabs(
   () => mailbox === mailboxIds.inbox && 'account',
   () => ({ name: 'mail-mailbox', params: { accountId, mailbox: route.params.mailbox } }),
+  () => resetThreads(false),
 )
-// Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline, as a
-// search does, rather than the whole view giving way to the spinner.
-const tabSwitched = ref(false)
 // What the list's menu clears (see listScope). Not offered where there is no folder to clear
 // (Starred, a search) or nothing unread to clear (Sent, Drafts).
 const clearScope = computed(() =>
@@ -816,10 +816,6 @@ const clearScope = computed(() =>
     ? undefined
     : listScope(inboxTab.value, mailboxName.value, filter.value),
 )
-watch(inboxTab, (tab, previous) => {
-  tabSwitched.value = !!(tab && previous && tab !== previous)
-  if (tabSwitched.value) resetThreads(false)
-})
 
 // Reset resource for a mailbox: the window starts at the top and runs as deep as the composable asks
 // (see resetLimit) — one page on a reset, the loaded list on a refresh, so a refresh can tell which
@@ -873,8 +869,7 @@ const isLoading = computed(() => {
   if (!isMailboxLoaded.value) return true
   if (emptyMailbox.isPending) return true
   if (refillPending.value) return true
-  // A split Inbox keeps its tabs up while an emptied tab refills (an Undo, a refresh): the list loads
-  // inline rather than the whole view giving way to the spinner.
+  // A split Inbox keeps its tabs up while an emptied tab refills (an Undo, a refresh).
   if (inboxTab.value) return false
   return !threadRows.value.length && activeThreads.value.isFetching
 })
@@ -949,7 +944,6 @@ watch(
     if (isAllAccountsSearch.value && mailbox === 'search' && old?.[0] === 'search') return
     isMailboxLoaded.value = false
     tabSwitched.value = false
-    filterChanged.value = false
     reloadFilter()
     focusedRowKey.value = undefined
     collapsedGroups.value = []
@@ -1291,11 +1285,8 @@ const mailboxName = computed(() => {
       return mailboxObj.value?._name ?? ''
   }
 })
-// A split Inbox counts its Primary tab: the rest of its unread mail is counted on the other tabs.
 const unreadThreads = computed(() =>
-  inboxTab.value
-    ? inboxTabs.value.find((tab) => tab.category === 'primary')?.unread
-    : mailboxObj.value?.unread_threads,
+  inboxTab.value ? primaryUnread.value : mailboxObj.value?.unread_threads,
 )
 const unreadThreadsPrefix = computed(() => (unreadThreads.value ? `(${unreadThreads.value})` : ''))
 const currentThread = computed(() =>

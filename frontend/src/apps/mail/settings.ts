@@ -19,8 +19,6 @@ function scoped(load: () => Promise<BodyModule>, options: { socket?: boolean } =
   }
 }
 
-// The layout choice is a desktop one: a phone shows one pane at a time.
-
 export const mailSettings = {
   label: () => __('Mail'),
   condition: () => useSession().capabilities.value.jmap,

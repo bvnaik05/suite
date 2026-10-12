@@ -44,13 +44,10 @@
            under the menu at the row's end: the menu sits outside the tab list, whose keyboard
            handling would otherwise move focus from it onto a tab, opening that tab. -->
       <div class="flex h-12 items-center border-b border-outline-gray-1 px-3 sm:px-5">
-        <!-- When even icons and the open tab's name don't fit, the list scrolls sideways rather than
-           squeezing its tabs into each other; pb-px keeps each tab's underline inside what scrolls.
-           Each tab underlines itself (below) in place of the list's one sliding indicator: that one
-           measures the open tab once, as it is clicked, so it lags behind a name still opening. A
-           narrow row sets its tabs 16px apart rather than 24, room for the open tab's whole name
-           in the split view's list: a name that only just doesn't fit would end its opening by
-           trading its clipped end for an ellipsis. -->
+        <!-- Scrolls sideways rather than squeezing its tabs; pb-px keeps the underlines inside what
+           scrolls. Each tab underlines itself: the list's sliding indicator measures the open tab
+           once, as it is clicked, so it lags behind a name still opening. A narrow row sets its
+           tabs closer, room for the open tab's whole name in the split view's list. -->
         <TabList
           variant="underline"
           size="md"
@@ -62,10 +59,10 @@
           ]"
         >
           <!-- A list too narrow for every name names only the open tab; the rest show an icon and a
-             count, and name themselves in a tooltip. A name opens and closes rather than snapping,
-             so the tab draws its own icon, name and count (the label frappe-ui draws can only
-             appear or vanish). No tab shrinks: a list too narrow even for that scrolls. A closed name stays in the tab for screen readers. The tooltip is never disabled, only
-             emptied: disabling it re-creates the tab, and a re-created tab can't animate. -->
+             count, and name themselves in a tooltip. The tab draws its own icon, name and count so
+             a name can open and close rather than snap (frappe-ui's label can only appear or
+             vanish); a closed name stays in the tab for screen readers. The tooltip is emptied,
+             never disabled: disabling it re-creates the tab, and a re-created tab can't animate. -->
           <Tooltip v-for="tab in tabs" :key="tab.category" :text="iconOnly(tab) ? tab.label : ''">
             <TabTrigger
               :value="tab.category"

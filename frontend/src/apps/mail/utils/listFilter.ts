@@ -40,6 +40,9 @@ export const useListFilter = ({
   screenable = () => false,
 }: ListFilterOptions) => {
   const stored = ref<string[]>([])
+  // A filter changed on a list already showing, so the list stays up while the filtered one loads
+  // inline, rather than the whole view giving way to the spinner.
+  const changed = ref(false)
 
   // Each filter in the order the menu lists it, with whether this list offers it.
   const FILTERS = [
@@ -59,11 +62,15 @@ export const useListFilter = ({
     stored.value = stored.value.includes(key)
       ? stored.value.filter((k) => k !== key)
       : FILTERS.map((f) => f.key).filter((k) => k === key || stored.value.includes(k))
+    changed.value = true
     onChange()
   }
 
   /** Start clear: another list (a mailbox switch) opens unfiltered. */
-  const reloadFilter = () => (stored.value = [])
+  const reloadFilter = () => {
+    stored.value = []
+    changed.value = false
+  }
 
   // Computed, not a constant array: each row's box has to follow what is ticked.
   const FILTER_OPTIONS = computed<FilterOption[]>(() =>
@@ -93,5 +100,5 @@ export const useListFilter = ({
     return active.value[0].label()
   })
 
-  return { filter, reloadFilter, FILTER_OPTIONS, filterTitle }
+  return { filter, changed, reloadFilter, FILTER_OPTIONS, filterTitle }
 }

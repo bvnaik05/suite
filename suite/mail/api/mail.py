@@ -261,6 +261,14 @@ def add_user_images_to_emails(account: str, mails: list[dict], is_thread: bool =
     return mails
 
 
+def all_of(conditions: list[dict]) -> dict | None:
+    """A JMAP filter matching every one of `conditions`, or None for none."""
+
+    if len(conditions) > 1:
+        return {"operator": "AND", "conditions": conditions}
+    return conditions[0] if conditions else None
+
+
 def list_filter(filter_by: str | None, skip: tuple[str, ...] = ()) -> dict | None:
     """The condition a list's filter (`filter_by`) adds to what it shows, if any.
 
@@ -277,14 +285,13 @@ def list_filter(filter_by: str | None, skip: tuple[str, ...] = ()) -> dict | Non
         # A category is asked for by its keyword: "category_promotions".
         **{category.keyword: {"hasKeyword": category.keyword} for category in Category},
     }
-    conditions = [
-        conditions_by_key[key]
-        for key in dict.fromkeys((filter_by or "").split(","))
-        if key in conditions_by_key and key not in skip
-    ]
-    if len(conditions) > 1:
-        return {"operator": "AND", "conditions": conditions}
-    return conditions[0] if conditions else None
+    return all_of(
+        [
+            conditions_by_key[key]
+            for key in dict.fromkeys((filter_by or "").split(","))
+            if key in conditions_by_key and key not in skip
+        ]
+    )
 
 
 @frappe.whitelist()
@@ -319,12 +326,7 @@ def get_threads(
     if category:
         conditions.append(tab_filter(validate_tab(category), classification.inbox_tabs()))
 
-    if len(conditions) == 1:
-        filter = conditions[0]
-    else:
-        filter = {"operator": "AND", "conditions": conditions}
-
-    conversations = fetch_threads(account, filter, start, limit)
+    conversations = fetch_threads(account, all_of(conditions), start, limit)
 
     # Four roles are needed below, so they come off one cached mailbox list rather than a lookup each:
     # every `get_mailbox_id_by_role` resolves the account's user and client again on the way in.
@@ -539,13 +541,7 @@ def get_unified_threads(
     for account in accounts:
         account_id = account["name"]
         mailboxes = get_cached_mailboxes(account_id)
-        if folder == STARRED_FOLDER:
-            view_mailboxes = [STARRED_FOLDER]
-        else:
-            view_mailboxes = [
-                m["id"] for m in mailboxes if is_listed_mailbox(m) and mailbox_slug(m) == folder
-            ]
-
+        view_mailboxes = [STARRED_FOLDER] if folder == STARRED_FOLDER else folder_mailboxes(mailboxes, folder)
         ids_by_role = {(m.get("role") or "").lower(): m["id"] for m in mailboxes}
         # Two folders of one account can share a slug ("Receipts" and "receipts"), and a thread can sit
         # in both — it is listed once, from the first.
@@ -609,6 +605,14 @@ def count_unread_by_tab(account: str, mailboxes: list[str]) -> dict[Category, in
     return {tab: query.result.total or 0 for tab, query in queries.items()}
 
 
+def tab_counts(unread: dict[Category, int]) -> list[dict]:
+    """The Inbox's tabs, in order, each with its count in `unread`."""
+
+    return [
+        {"category": tab.value, "unread_threads": unread.get(tab, 0)} for tab in classification.inbox_tabs()
+    ]
+
+
 @frappe.whitelist()
 def get_tab_counts(account: str, mailbox: str) -> list[dict]:
     """The Inbox's tabs, in order, each with how many of its threads in `mailbox` are unread.
@@ -616,18 +620,14 @@ def get_tab_counts(account: str, mailbox: str) -> list[dict]:
     Empty when the Inbox isn't split into tabs.
     """
 
-    unread = count_unread_by_tab(account, [mailbox])
-    return [
-        {"category": tab.value, "unread_threads": unread.get(tab, 0)} for tab in classification.inbox_tabs()
-    ]
+    return tab_counts(count_unread_by_tab(account, [mailbox]))
 
 
-def folder_mailboxes(account: str, folder: str) -> list[str]:
-    """The mailboxes of an account that make up a merged `folder`, a slug as for `get_unified_threads`."""
+def folder_mailboxes(mailboxes: list[dict], folder: str) -> list[str]:
+    """The ids among an account's `mailboxes` that make up a merged `folder`, a slug as for
+    `get_unified_threads`."""
 
-    return [
-        m["id"] for m in get_cached_mailboxes(account) if is_listed_mailbox(m) and mailbox_slug(m) == folder
-    ]
+    return [m["id"] for m in mailboxes if is_listed_mailbox(m) and mailbox_slug(m) == folder]
 
 
 @frappe.whitelist()
@@ -642,15 +642,15 @@ def get_unified_tab_counts(folder: str) -> list[dict]:
     for account in get_user_jmap_accounts():
         account_id = account["name"]
         try:
-            counts = count_unread_by_tab(account_id, folder_mailboxes(account_id, folder))
+            counts = count_unread_by_tab(
+                account_id, folder_mailboxes(get_cached_mailboxes(account_id), folder)
+            )
         except MethodError:
             continue
         for tab, count in counts.items():
             unread[tab] = unread.get(tab, 0) + count
 
-    return [
-        {"category": tab.value, "unread_threads": unread.get(tab, 0)} for tab in classification.inbox_tabs()
-    ]
+    return tab_counts(unread)
 
 
 # How many messages a clearing takes at a time. It goes on, a batch at a time, until none are left.
@@ -668,7 +668,7 @@ def clearing_filter(mailbox: str, tab: Category | None, read: bool, filter_by: s
         conditions.append(condition)
     if read:
         conditions.append({"notKeyword": "$seen"})
-    return conditions[0] if len(conditions) == 1 else {"operator": "AND", "conditions": conditions}
+    return all_of(conditions)
 
 
 @frappe.whitelist()
@@ -714,7 +714,9 @@ def clear_list(
         # A message the clear left where it was is not taken again, so the clearing ends.
         taken: set[str] = set()
         try:
-            for mailbox_id in folder_mailboxes(account_id, folder) if folder else [mailbox]:
+            for mailbox_id in (
+                folder_mailboxes(get_cached_mailboxes(account_id), folder) if folder else [mailbox]
+            ):
                 filter = clearing_filter(mailbox_id, tab, read, filter_by)
                 while ids := [
                     id

@@ -95,7 +95,7 @@
               {{
                 filter
                   ? __('No mails found for the selected filter.')
-                  : __('No mails in {0}.', [inboxTab ? openTabLabel : folderLabel])
+                  : __('No mails in {0}.', [inboxTab ? tabName(inboxTab) : folderLabel])
               }}
             </p>
             <div v-for="(rows, key) in groupedRows" :key="key">
@@ -268,7 +268,7 @@ import StackListItem from '@/apps/mail/components/StackListItem.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
 import { listScope } from '@/apps/mail/composables/useClearList'
 import { closeComposeWindowFor } from '@/apps/mail/composables/useComposeWindow'
-import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
+import { tabName, useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows } from '@/apps/mail/composables/useListRows'
 import { useListSelection } from '@/apps/mail/composables/useListSelection'
 import { useMailRemoval } from '@/apps/mail/composables/useMailRemoval'
@@ -383,42 +383,35 @@ const {
   fillProgress: () => visibleThreadCount.value,
 })
 
-// The remembered All/Unread/Starred/Has-attachments choice, its menu, and its title (see
-// useListFilter) — all shared with the mailbox list, and remembered per folder as it is there.
+// The list's filters, their menu, and its title (see useListFilter) — all shared with the mailbox
+// list.
 const {
   filter,
+  changed: filterChanged,
   FILTER_OPTIONS,
   filterTitle: title,
   reloadFilter,
 } = useListFilter({
-  onChange: () => {
-    filterChanged.value = true
-    resetThreads()
-  },
+  onChange: () => resetThreads(),
   starrable: () => folder !== STARRED_FOLDER && !isTrashFolder.value,
   // The merged Inbox, when any of the accounts screens new senders.
   screenable: () =>
-    folder === 'inbox' && !!store.userResource.data?.accounts?.some((a) => a.enable_screening),
+    folder === INBOX_FOLDER && !!store.userResource.data?.accounts?.some((a) => a.enable_screening),
 })
 
 // The Inbox's category tabs, across every account; `inboxTab` is the open one, and undefined in any
-// other folder or when the Inbox isn't split. Opening another resets the list, as a filter change does.
+// other folder or when the Inbox isn't split.
 const {
   tabs: inboxTabs,
   active: inboxTab,
   routeFor: routeForTab,
+  switched: tabSwitched,
+  primaryUnread,
 } = useInboxTabs(
   () => folder === INBOX_FOLDER && 'unified',
   () => unifiedFolderRoute(folder),
+  () => resetThreads(),
 )
-const openTabLabel = computed(
-  () => inboxTabs.value.find((tab) => tab.category === inboxTab.value)?.label ?? '',
-)
-// Once the Inbox is showing, its tabs stay up while another tab loads: the list loads inline rather
-// than the whole view giving way to the spinner.
-const tabSwitched = ref(false)
-// So too a filter changed on a list already showing.
-const filterChanged = ref(false)
 // What the list's menu clears (see listScope). Not offered where there is no folder to clear
 // (Starred) or nothing unread to clear (Sent, Drafts).
 const clearScope = computed(() =>
@@ -426,10 +419,6 @@ const clearScope = computed(() =>
     ? undefined
     : listScope(inboxTab.value, folderLabel.value, filter.value),
 )
-watch(inboxTab, (tab, previous) => {
-  tabSwitched.value = !!(tab && previous && tab !== previous)
-  if (tabSwitched.value) resetThreads()
-})
 
 // The engine owns loaded windows and refreshes their rows together.
 const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
@@ -1400,20 +1389,18 @@ const handleDelete = (rows: Thread[]) => {
   )
 }
 
-// Another folder reuses this component, so it starts over: its own remembered filter, from the top.
+// Another folder reuses this component, so it starts over: unfiltered, from the top.
 watch(
   () => folder,
   () => {
-    filterChanged.value = false
     reloadFilter()
     resetThreads()
   },
 )
 
-// A split Inbox counts its Primary tab: the rest of its unread mail is counted on the other tabs.
 const unreadCount = computed(() =>
   inboxTab.value
-    ? (inboxTabs.value.find((tab) => tab.category === 'primary')?.unread ?? 0)
+    ? (primaryUnread.value ?? 0)
     : (store.unifiedFolders.data?.find((f: UnifiedFolder) => f.slug === folder)?.unread_threads ??
       0),
 )

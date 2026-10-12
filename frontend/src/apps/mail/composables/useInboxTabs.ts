@@ -1,4 +1,4 @@
-import { computed, shallowRef } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useRoute, type RouteLocationNamedRaw } from 'vue-router'
 
 import { api, client, type InputOf } from '@/api'
@@ -31,11 +31,13 @@ const TAB_LOOK: Record<InboxCategory, { label: () => string; icon: string }> = {
  * Primary when it names none of them, and `undefined` when there are no tabs.
  *
  * `listRoute` is the list the tabs belong to: a tab leads there, leaving any open thread behind,
- * since that thread may not be in the tab being opened.
+ * since that thread may not be in the tab being opened. `onSwitch` refetches the list when another
+ * tab opens, as a filter change does.
  */
 export const useInboxTabs = (
   scope: () => 'account' | 'unified' | false,
   listRoute: () => RouteLocationNamedRaw,
+  onSwitch?: () => void,
 ) => {
   const route = useRoute()
   const store = userStore()
@@ -62,7 +64,18 @@ export const useInboxTabs = (
     query: category === 'primary' ? {} : { category },
   })
 
-  return { tabs, active, routeFor }
+  // Whether the open tab was switched to from another: the tabs stay up while it loads, the list
+  // loading inline rather than the whole view giving way to the spinner.
+  const switched = ref(false)
+  watch(active, (tab, previous) => {
+    switched.value = !!(tab && previous && tab !== previous)
+    if (switched.value) onSwitch?.()
+  })
+
+  // A split Inbox counts its Primary tab: the rest of its unread mail is counted on the other tabs.
+  const primaryUnread = computed(() => tabs.value.find((tab) => tab.category === 'primary')?.unread)
+
+  return { tabs, active, routeFor, switched, primaryUnread }
 }
 
 /** The categories a person can give a tab or not: all but Primary, which is the Inbox's own. */

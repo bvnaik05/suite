@@ -1085,18 +1085,28 @@ def move_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> N
         frappe.throw(_("Failed to move mail(s) to mailbox."))
 
 
-def try_move_messages(account: str, ids: list[str], mailbox_id: str) -> tuple[list[str], bool]:
-    """Moves messages to a mailbox as far as the server will, returning those it moved and whether
-    that was all of them: a failure part way still says what it had already moved."""
+def _try_update_emails(
+    account: str, emails: list[dict], error: str, **replace: bool
+) -> tuple[list[str], bool]:
+    """Updates emails as far as the server will, returning the ids it updated and whether that was
+    all of them: a failure part way still says what it had already updated."""
 
-    emails = [{"id": id, "mailbox_ids": {mailbox_id: True}} for id in ids]
     try:
-        result = _update_emails(account, emails, replace_mailboxes=True)
+        result = _update_emails(account, emails, **replace)
         complete = not result.not_updated
     except Exception as e:
-        log_mail_error(_("Failed to move mail(s) to mailbox"), frappe.get_traceback(with_context=True))
+        log_mail_error(error, frappe.get_traceback(with_context=True))
         result, complete = getattr(e, "applied", None) or SetResult(), False
-    moved = [id for id in ids if id in result.updated]
+    return [email["id"] for email in emails if email["id"] in result.updated], complete
+
+
+def try_move_messages(account: str, ids: list[str], mailbox_id: str) -> tuple[list[str], bool]:
+    """Moves messages to a mailbox as far as the server will (see `_try_update_emails`)."""
+
+    emails = [{"id": id, "mailbox_ids": {mailbox_id: True}} for id in ids]
+    moved, complete = _try_update_emails(
+        account, emails, _("Failed to move mail(s) to mailbox"), replace_mailboxes=True
+    )
     _remove_cached_messages(account, moved)
     return moved, complete
 
@@ -1201,17 +1211,12 @@ def _cache_seen(account: str, ids: list[str], seen: bool) -> None:
 
 
 def try_set_seen(account: str, ids: list[str], seen: bool = True) -> tuple[list[str], bool]:
-    """Sets the seen status of messages as far as the server will, returning those it changed and
-    whether that was all of them: a failure part way still says what it had already changed."""
+    """Sets the seen status of messages as far as the server will (see `_try_update_emails`)."""
 
     emails = [{"id": id, "keywords": {"$seen": seen}} for id in ids]
-    try:
-        result = _update_emails(account, emails, replace_keywords=False)
-        complete = not result.not_updated
-    except Exception as e:
-        log_mail_error(_("Failed to set seen status for mail(s)"), frappe.get_traceback(with_context=True))
-        result, complete = getattr(e, "applied", None) or SetResult(), False
-    changed = [id for id in ids if id in result.updated]
+    changed, complete = _try_update_emails(
+        account, emails, _("Failed to set seen status for mail(s)"), replace_keywords=False
+    )
     _cache_seen(account, changed, seen)
     return changed, complete
 
