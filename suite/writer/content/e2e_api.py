@@ -41,6 +41,14 @@ def disable_collab(node: str) -> dict:
 
 
 @whitelist_for_tests(methods=["POST"])
+def make_legacy(node: str) -> dict:
+    """Mark `node`'s Writer document non-collaborative, as one from before collaboration is."""
+    frappe.db.set_value("Writer Document", {"node": node}, "collab", 0)
+    frappe.db.commit()
+    return state(node)
+
+
+@whitelist_for_tests(methods=["POST"])
 def compact_now(node: str) -> dict:
     """Compact `node`'s collab log in this request, as the queued job would."""
     doc_id = find_log(node)["id"]
