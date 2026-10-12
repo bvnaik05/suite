@@ -2192,6 +2192,22 @@ describe('collab room on a device', () => {
     expect([room.stopped, room.canWrite]).toEqual(['disabled', false])
   })
 
+  it('a tab whose suspect report is answered that collaboration is off stops', async () => {
+    const server = fakeServer('live', 'apply-1')
+    server.judge.answer = () => reply(409, { collab: 'disabled' })
+    const room = await join(server.endpoints())
+    breaksOn(room, 'boom')
+    const writer = await join(server.endpoints())
+    writer.doc.getText('t').insert(0, 'boom')
+    await writer.flush()
+
+    await room.pull()
+
+    await vi.waitFor(() =>
+      expect([server.judge.reports, room.stopped, room.canWrite]).toEqual([[1], 'disabled', false]),
+    )
+  })
+
   it('a change refused by a full document is kept aside and the tab asks to be rebuilt', async () => {
     const server = fakeServer()
     const kept = await device()
