@@ -930,6 +930,30 @@ class ClearingATab(unittest.TestCase):
         seen.assert_called_once_with(ACCOUNT, ["m1"], True)
         self.assertEqual(returned["cleared"], [{"account": ACCOUNT, "ids": ["m1"]}])
 
+    def test_a_filtered_list_clears_only_what_its_filter_shows(self):
+        filter, _returned, _seen, move = self.picked(
+            mail_api.archive_tab,
+            ["m1"],
+            account=ACCOUNT,
+            mailbox="inbox",
+            category="social",
+            filter_by="unscreened",
+        )
+
+        # Social mail from a sender nobody has decided on goes; the rest of Social stays.
+        rest = {"operator": "AND", "conditions": filter["conditions"][1:]}
+        self.assertTrue(lists(rest, {"category_social", "unscreened"}))
+        self.assertFalse(lists(rest, {"category_social"}))
+        move.assert_called_once_with(ACCOUNT, ["m1"], "archive")
+
+    def test_the_filter_is_the_one_the_list_shows(self):
+        for filter_by in ("unread", "starred", "has_attachments", "unscreened"):
+            with self.subTest(filter_by=filter_by):
+                filter, *_ = self.picked(
+                    mail_api.mark_tab_read, ["m1"], account=ACCOUNT, mailbox="archive", filter_by=filter_by
+                )
+                self.assertIn(mail_api.list_filter(filter_by), filter["conditions"])
+
     def test_primary_is_not_archived_or_trashed_all_at_once(self):
         for action in (mail_api.archive_tab, mail_api.trash_tab):
             with self.subTest(action=action.__name__), self.assertRaises(frappe.ValidationError):

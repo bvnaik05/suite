@@ -16293,6 +16293,17 @@
               }
             ],
             "title": "Category"
+          },
+          "filter_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter By"
           }
         },
         "required": [
@@ -16381,6 +16392,17 @@
           "category": {
             "title": "Category",
             "type": "string"
+          },
+          "filter_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter By"
           }
         },
         "required": [
@@ -16496,6 +16518,17 @@
           "category": {
             "title": "Category",
             "type": "string"
+          },
+          "filter_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter By"
           }
         },
         "required": [
@@ -16614,6 +16647,17 @@
               }
             ],
             "title": "Category"
+          },
+          "filter_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter By"
           }
         },
         "required": [
@@ -16697,6 +16741,17 @@
           "category": {
             "title": "Category",
             "type": "string"
+          },
+          "filter_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter By"
           }
         },
         "required": [
@@ -16807,6 +16862,17 @@
           "category": {
             "title": "Category",
             "type": "string"
+          },
+          "filter_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter By"
           }
         },
         "required": [

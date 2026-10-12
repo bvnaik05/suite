@@ -53,19 +53,24 @@ class UnifiedTabCountsInput(TypedDict):
 
 class TabClearInput(TabCountsInput):
     category: str
+    # The list's filter: only what it shows is cleared.
+    filter_by: NotRequired[str | None]
 
 
 class UnifiedTabClearInput(UnifiedTabCountsInput):
     category: str
+    filter_by: NotRequired[str | None]
 
 
 class MarkReadInput(TabCountsInput):
     # A tab of the Inbox; none, the whole mailbox.
     category: NotRequired[str | None]
+    filter_by: NotRequired[str | None]
 
 
 class UnifiedMarkReadInput(UnifiedTabCountsInput):
     category: NotRequired[str | None]
+    filter_by: NotRequired[str | None]
 
 
 class SearchInput(AccountInput):

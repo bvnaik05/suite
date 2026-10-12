@@ -7439,6 +7439,7 @@ export const operationMarkTabRead: Validators<MarkTabReadInput, MarkTabReadOutpu
           account: { title: 'Account', type: 'string' },
           mailbox: { title: 'Mailbox', type: 'string' },
           category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
         },
         required: ['account', 'mailbox'],
         additionalProperties: false,
@@ -7485,6 +7486,7 @@ export const operationArchiveTab: Validators<ArchiveTabInput, ArchiveTabOutput> 
           account: { title: 'Account', type: 'string' },
           mailbox: { title: 'Mailbox', type: 'string' },
           category: { title: 'Category', type: 'string' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
         },
         required: ['account', 'mailbox', 'category'],
         additionalProperties: false,
@@ -7541,6 +7543,7 @@ export const operationTrashTab: Validators<TrashTabInput, TrashTabOutput> = {
           account: { title: 'Account', type: 'string' },
           mailbox: { title: 'Mailbox', type: 'string' },
           category: { title: 'Category', type: 'string' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
         },
         required: ['account', 'mailbox', 'category'],
         additionalProperties: false,
@@ -7599,6 +7602,7 @@ export const operationMarkUnifiedTabRead: Validators<
         properties: {
           folder: { title: 'Folder', type: 'string' },
           category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
         },
         required: ['folder'],
         additionalProperties: false,
@@ -7647,6 +7651,7 @@ export const operationArchiveUnifiedTab: Validators<
         properties: {
           folder: { title: 'Folder', type: 'string' },
           category: { title: 'Category', type: 'string' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
         },
         required: ['folder', 'category'],
         additionalProperties: false,
@@ -7702,6 +7707,7 @@ export const operationTrashUnifiedTab: Validators<TrashUnifiedTabInput, TrashUni
         properties: {
           folder: { title: 'Folder', type: 'string' },
           category: { title: 'Category', type: 'string' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
         },
         required: ['folder', 'category'],
         additionalProperties: false,

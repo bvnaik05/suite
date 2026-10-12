@@ -259,6 +259,20 @@ def add_user_images_to_emails(account: str, mails: list[dict], is_thread: bool =
     return mails
 
 
+def list_filter(filter_by: str | None) -> dict | None:
+    """The condition a list's filter (`filter_by`) adds to what it shows, if any."""
+
+    return {
+        "starred": {"someInThreadHaveKeyword": "$flagged"},
+        "unread": {"notKeyword": "$seen"},
+        "has_attachments": {"hasAttachment": True},
+        # Mail from senders nobody has decided on yet (see the screening gate).
+        "unscreened": {"hasKeyword": UNSCREENED_KEYWORD},
+        # A category is asked for by its keyword: "category_promotions".
+        **{category.keyword: {"hasKeyword": category.keyword} for category in Category},
+    }.get(filter_by or "")
+
+
 @frappe.whitelist()
 def get_threads(
     account: str,
@@ -286,17 +300,8 @@ def get_threads(
     else:
         conditions = [{"inMailbox": mailbox}]
 
-    filter_map = {
-        "starred": {"someInThreadHaveKeyword": "$flagged"},
-        "unread": {"notKeyword": "$seen"},
-        "has_attachments": {"hasAttachment": True},
-        # Mail from senders nobody has decided on yet (see the screening gate).
-        "unscreened": {"hasKeyword": UNSCREENED_KEYWORD},
-        # A category is asked for by its keyword: "category_promotions".
-        **{category.keyword: {"hasKeyword": category.keyword} for category in Category},
-    }
-    if filter_by in filter_map and not (mailbox == "starred" and filter_by == "starred"):
-        conditions.append(filter_map[filter_by])
+    if (condition := list_filter(filter_by)) and not (mailbox == "starred" and filter_by == "starred"):
+        conditions.append(condition)
     if category:
         conditions.append(tab_filter(validate_tab(category), classification.inbox_tabs()))
 
@@ -650,13 +655,17 @@ def clearable_tab(category: str | None, unread_only: bool) -> Category | None:
     return tab
 
 
-def tab_message_filter(mailbox: str, tab: Category | None, unread_only: bool = False) -> dict:
-    """The messages a tab lists in a `mailbox` (the whole mailbox with no `tab`), the unread ones only
-    if asked."""
+def tab_message_filter(
+    mailbox: str, tab: Category | None, unread_only: bool = False, filter_by: str | None = None
+) -> dict:
+    """The messages a tab lists in a `mailbox` (the whole mailbox with no `tab`), narrowed as the list
+    is by its filter (`filter_by`), and to the unread ones if asked."""
 
     conditions: list[dict] = [{"inMailbox": mailbox}]
     if tab:
         conditions.append(tab_filter(tab, classification.inbox_tabs()))
+    if condition := list_filter(filter_by):
+        conditions.append(condition)
     if unread_only:
         conditions.append({"notKeyword": "$seen"})
     return conditions[0] if len(conditions) == 1 else {"operator": "AND", "conditions": conditions}
@@ -691,9 +700,16 @@ def trash(account: str, ids: list[str]) -> list[dict]:
     return before
 
 
-def clear_tab(accounts: list[str], mailboxes_of, category: str | None, unread_only: bool, clear) -> dict:
-    """Clears a tab of each account's mailboxes (`mailboxes_of(account)`), a batch at a time until it is
-    empty, with `clear(account, ids)`. Returns what each account's batches returned, for Undo, and the
+def clear_tab(
+    accounts: list[str],
+    mailboxes_of,
+    category: str | None,
+    unread_only: bool,
+    clear,
+    filter_by: str | None = None,
+) -> dict:
+    """Clears a tab of each account's mailboxes (`mailboxes_of(account)`), as far as the list's filter
+    (`filter_by`) shows it, a batch at a time until it is empty, with `clear(account, ids)`. Returns what each account's batches returned, for Undo, and the
     accounts that failed part way: what they cleared before failing is kept, so it can still be undone.
     """
 
@@ -704,7 +720,7 @@ def clear_tab(accounts: list[str], mailboxes_of, category: str | None, unread_on
         done: list = []
         try:
             for mailbox in mailboxes_of(account):
-                filter = tab_message_filter(mailbox, tab, unread_only)
+                filter = tab_message_filter(mailbox, tab, unread_only, filter_by)
                 # A message the clear left where it was is not taken again, so the clearing ends.
                 taken: set[str] = set()
                 while ids := [
@@ -743,26 +759,28 @@ def moved_cleared(clearing: dict) -> dict:
 
 
 @frappe.whitelist()
-def mark_tab_read(account: str, mailbox: str, category: str | None = None) -> dict:
+def mark_tab_read(
+    account: str, mailbox: str, category: str | None = None, filter_by: str | None = None
+) -> dict:
     """Marks every unread message of a tab in an account's `mailbox` read, or of the whole mailbox with
-    no `category`, returning which, for Undo."""
+    no `category`, as far as the list's filter (`filter_by`) shows it, returning which, for Undo."""
 
-    return read_cleared(clear_tab([account], lambda _: [mailbox], category, True, mark_read))
+    return read_cleared(clear_tab([account], lambda _: [mailbox], category, True, mark_read, filter_by))
 
 
 @frappe.whitelist()
-def archive_tab(account: str, mailbox: str, category: str) -> dict:
+def archive_tab(account: str, mailbox: str, category: str, filter_by: str | None = None) -> dict:
     """Archives every message of a tab in an account's `mailbox`, returning where each was, for Undo."""
 
-    return moved_cleared(clear_tab([account], lambda _: [mailbox], category, False, archive))
+    return moved_cleared(clear_tab([account], lambda _: [mailbox], category, False, archive, filter_by))
 
 
 @frappe.whitelist()
-def trash_tab(account: str, mailbox: str, category: str) -> dict:
+def trash_tab(account: str, mailbox: str, category: str, filter_by: str | None = None) -> dict:
     """Moves every message of a tab in an account's `mailbox` to Trash, returning where each was, for
     Undo."""
 
-    return moved_cleared(clear_tab([account], lambda _: [mailbox], category, False, trash))
+    return moved_cleared(clear_tab([account], lambda _: [mailbox], category, False, trash, filter_by))
 
 
 def user_accounts() -> list[str]:
@@ -770,29 +788,31 @@ def user_accounts() -> list[str]:
 
 
 @frappe.whitelist()
-def mark_unified_tab_read(folder: str, category: str | None = None) -> dict:
+def mark_unified_tab_read(folder: str, category: str | None = None, filter_by: str | None = None) -> dict:
     """Marks a tab's unread mail read across every account, or a whole folder's with no `category`,
     returning what, for Undo."""
 
     return read_cleared(
-        clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, True, mark_read)
+        clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, True, mark_read, filter_by)
     )
 
 
 @frappe.whitelist()
-def archive_unified_tab(folder: str, category: str) -> dict:
+def archive_unified_tab(folder: str, category: str, filter_by: str | None = None) -> dict:
     """Archives a tab's mail across every account, returning where each was, for Undo."""
 
     return moved_cleared(
-        clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, False, archive)
+        clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, False, archive, filter_by)
     )
 
 
 @frappe.whitelist()
-def trash_unified_tab(folder: str, category: str) -> dict:
+def trash_unified_tab(folder: str, category: str, filter_by: str | None = None) -> dict:
     """Moves a tab's mail to Trash across every account, returning where each was, for Undo."""
 
-    return moved_cleared(clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, False, trash))
+    return moved_cleared(
+        clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, False, trash, filter_by)
+    )
 
 
 @frappe.whitelist()

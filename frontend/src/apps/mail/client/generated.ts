@@ -5452,7 +5452,12 @@ const operationGetUnifiedTabCounts: QueryRef<
 
 export type MarkTabReadOutputReadMail = { account: string; ids: Array<string> }
 
-export type MarkTabReadInput = { account: string; mailbox: string; category?: string | null }
+export type MarkTabReadInput = {
+  account: string
+  mailbox: string
+  category?: string | null
+  filter_by?: string | null
+}
 
 export type MarkTabReadOutput = { cleared: Array<MarkTabReadOutputReadMail>; failed: Array<string> }
 
@@ -5481,7 +5486,12 @@ export type ArchiveTabOutputMovedMail = {
   mails: Array<ArchiveTabOutputMembership>
 }
 
-export type ArchiveTabInput = { account: string; mailbox: string; category: string }
+export type ArchiveTabInput = {
+  account: string
+  mailbox: string
+  category: string
+  filter_by?: string | null
+}
 
 export type ArchiveTabOutput = { cleared: Array<ArchiveTabOutputMovedMail>; failed: Array<string> }
 
@@ -5507,7 +5517,12 @@ export type TrashTabOutputMembership = { id: string; mailbox_ids: Array<string>;
 
 export type TrashTabOutputMovedMail = { account: string; mails: Array<TrashTabOutputMembership> }
 
-export type TrashTabInput = { account: string; mailbox: string; category: string }
+export type TrashTabInput = {
+  account: string
+  mailbox: string
+  category: string
+  filter_by?: string | null
+}
 
 export type TrashTabOutput = { cleared: Array<TrashTabOutputMovedMail>; failed: Array<string> }
 
@@ -5531,7 +5546,11 @@ const operationTrashTab: MutationRef<TrashTabInput, TrashTabOutput, TrashTabErro
 
 export type MarkUnifiedTabReadOutputReadMail = { account: string; ids: Array<string> }
 
-export type MarkUnifiedTabReadInput = { folder: string; category?: string | null }
+export type MarkUnifiedTabReadInput = {
+  folder: string
+  category?: string | null
+  filter_by?: string | null
+}
 
 export type MarkUnifiedTabReadOutput = {
   cleared: Array<MarkUnifiedTabReadOutputReadMail>
@@ -5571,7 +5590,7 @@ export type ArchiveUnifiedTabOutputMovedMail = {
   mails: Array<ArchiveUnifiedTabOutputMembership>
 }
 
-export type ArchiveUnifiedTabInput = { folder: string; category: string }
+export type ArchiveUnifiedTabInput = { folder: string; category: string; filter_by?: string | null }
 
 export type ArchiveUnifiedTabOutput = {
   cleared: Array<ArchiveUnifiedTabOutputMovedMail>
@@ -5611,7 +5630,7 @@ export type TrashUnifiedTabOutputMovedMail = {
   mails: Array<TrashUnifiedTabOutputMembership>
 }
 
-export type TrashUnifiedTabInput = { folder: string; category: string }
+export type TrashUnifiedTabInput = { folder: string; category: string; filter_by?: string | null }
 
 export type TrashUnifiedTabOutput = {
   cleared: Array<TrashUnifiedTabOutputMovedMail>

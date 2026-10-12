@@ -35,6 +35,7 @@ const routes = vi.hoisted(() => ({
   markTabRead: { name: 'markTabRead' },
   markUnifiedTabRead: { name: 'markUnifiedTabRead' },
   archiveTab: { name: 'archiveTab' },
+  archiveUnifiedTab: { name: 'archiveUnifiedTab' },
   seen: { name: 'seen' },
   setFolders: { name: 'setFolders' },
 }))
@@ -224,7 +225,7 @@ describe('the Inbox tabs', () => {
 
     await markAllRead({ category: 'updates', name: 'Updates' })
     await undoSlot.action?.()
-    await archiveAll('updates')
+    await archiveAll({ category: 'updates', name: 'Updates' })
     await undoSlot.action?.()
 
     expect(toasts).toEqual([
@@ -260,9 +261,30 @@ describe('the Inbox tabs', () => {
 
     expect(toasts).toEqual([
       'Updates mail marked as read.',
-      "Some Updates mail couldn't be cleared.",
+      'Not all Updates mail could be cleared.',
       'Updates mail marked as unread.',
     ])
     expect(saved).toContainEqual({ account: 'ih', ids: ['a'], seen: false })
+  })
+
+  it("clear only what the list's filter shows, and say so", async () => {
+    const { archiveAll, markAllRead } = useClearTab(() => ({ folder: 'inbox' }))
+    answers.set(routes.archiveUnifiedTab, {
+      cleared: [{ account: 'ih', mails: [{ id: 'c', mailbox_ids: ['inbox'], junk: 0 }] }],
+      failed: [],
+    })
+    answers.set(routes.markUnifiedTabRead, { cleared: [{ account: 'ih', ids: ['a'] }], failed: [] })
+
+    await archiveAll({ category: 'social', name: 'Social', filter: 'unscreened' })
+    await undoSlot.action?.()
+    await markAllRead({ category: 'social', name: 'Social', filter: 'unread' })
+
+    expect(saved).toContainEqual({ folder: 'inbox', category: 'social', filter_by: 'unscreened' })
+    expect(saved).toContainEqual({ folder: 'inbox', category: 'social', filter_by: 'unread' })
+    expect(toasts).toEqual([
+      'Social mail from unknown senders archived.',
+      'Social mail from unknown senders moved back.',
+      'Unread Social mail marked as read.',
+    ])
   })
 })
