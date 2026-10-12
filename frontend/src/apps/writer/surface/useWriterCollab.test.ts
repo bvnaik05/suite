@@ -16,6 +16,7 @@ const fakeRooms = vi.hoisted(() => {
     needsRebuild: false,
     saveState: 'clean',
     unsent: 0,
+    othersUnsent: 0,
     onDevice: true,
     atLimit: false,
     listeners: [] as (() => void)[],
@@ -301,5 +302,12 @@ describe('writer collab rebuild', () => {
 
     await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
     expect(collab.banner.value).toBeNull()
+  })
+
+  it('counts the unsent work other tabs of the document hold on this device', async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    const collab = await openCollab()
+    becomes({ saveState: 'unsaved', unsent: 1, othersUnsent: 2 })
+    expect([collab.unsent.value, collab.saveState.value]).toEqual([3, 'unsaved'])
   })
 })

@@ -18,6 +18,7 @@ const STATUS_FIELDS = [
   'held',
   'newerSchema',
   'unsent',
+  'othersUnsent',
   'onDevice',
   'atLimit',
   'live',
@@ -159,7 +160,15 @@ export function useWriterCollab(
   const allowsEditing = computed(() => editingState.value === 'editing')
   const editingPaused = computed(() => editingState.value === 'paused')
   const saveState = computed(() => (isLive.value ? (status.value?.saveState ?? 'clean') : null))
-  const unsent = computed(() => (isLive.value ? (status.value?.unsent ?? 0) : 0))
+  // Counts what other tabs of this document keep on the device too, as the save state does
+  const unsent = computed(() => {
+    const roomStatus = status.value
+    if (!isLive.value || !roomStatus) {
+      return 0
+    }
+
+    return roomStatus.unsent + roomStatus.othersUnsent
+  })
   const paused = computed(() => (isLive.value ? (status.value?.paused ?? null) : null))
   const banner = computed(() => {
     const roomStatus = status.value
