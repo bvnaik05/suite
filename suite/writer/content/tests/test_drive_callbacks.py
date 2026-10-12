@@ -744,7 +744,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         with (
             self.frozen_clock(start + timedelta(minutes=10)),
             patch.object(scheduling, "enqueue"),
-            patch.object(documents, "TOUCH_BATCH", 1),
+            patch.object(touches, "TOUCH_BATCH", 1),
         ):
             documents.sweep()
 
