@@ -1,4 +1,4 @@
-import type { Page, Request, WebSocket } from "@playwright/test";
+import type { Page, Request, Route, WebSocket } from "@playwright/test";
 import { expect, test } from "../../fixtures/test";
 import {
 	collabState,
@@ -262,4 +262,63 @@ test.describe("Writer collaboration", () => {
 		await openWriterDocument(collaborator.page, node);
 		await expect.poll(() => editorBlocks(collaborator.page)).toEqual(stored);
 	});
+
+	test("a second tab counts the first tab's unsent edit and shows Saved once it is sent", async ({
+		owner,
+	}) => {
+		// A failed push retries after up to 30 s
+		test.setTimeout(120_000);
+		await owner.page.route(PUSHES, dropPushes);
+		await openWriterDocument(owner.page, node);
+		await typeParagraph(owner.page, "Held in the first tab");
+		const firstCount = await unsentCount(owner.page);
+
+		const second = await owner.context.newPage();
+		await openWriterDocument(second, node);
+		await expect(second.getByText(firstCount, { exact: true })).toBeVisible();
+		await expect(second.getByText("Saved", { exact: true })).toBeHidden();
+		expect(await editorBlocks(second)).not.toContain("Held in the first tab");
+
+		await owner.page.unroute(PUSHES, dropPushes);
+		await expect(second.getByText("Saved", { exact: true })).toBeVisible({ timeout: 60_000 });
+		await expectSaved(owner.page);
+	});
+
+	test("an unsent edit left by a closed tab is sent once by the tab still open", async ({
+		owner,
+		testApi,
+	}) => {
+		await owner.page.route(PUSHES, dropPushes);
+		await openWriterDocument(owner.page, node);
+		await typeParagraph(owner.page, "Left by the closed tab");
+		const firstCount = await unsentCount(owner.page);
+		const second = await owner.context.newPage();
+		await openWriterDocument(second, node);
+		await expect(second.getByText(firstCount, { exact: true })).toBeVisible();
+
+		await owner.page.close();
+
+		await expectSaved(second);
+		const stored = await serverBlocks(testApi, node);
+		expect(stored.filter((block) => block === "Left by the closed tab")).toHaveLength(1);
+		await expect.poll(() => editorBlocks(second)).toEqual(stored);
+	});
 });
+
+const PUSHES = "**/api/suite/content/*/updates";
+
+// Pushes fail as if offline; pulls still go through
+function dropPushes(route: Route) {
+	if (route.request().method() === "POST") {
+		return route.abort();
+	}
+
+	return route.fallback();
+}
+
+// The header's "<n> unsent", once the tab holds unsent work
+async function unsentCount(page: Page): Promise<string> {
+	const count = page.getByText(/^\d+ unsent$/);
+	await expect(count).toBeVisible();
+	return (await count.textContent()) ?? "";
+}
