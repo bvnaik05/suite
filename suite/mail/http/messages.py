@@ -68,12 +68,6 @@ class UnifiedMarkReadInput(UnifiedTabCountsInput):
     category: NotRequired[str | None]
 
 
-class ClearedMail(TypedDict):
-    account: str
-    mailbox: str
-    ids: list[str]
-
-
 class SearchInput(AccountInput):
     filter: NotRequired[SearchFilter | None]
     limit: NotRequired[int]
@@ -123,6 +117,28 @@ class Membership(TypedDict):
     id: str
     mailbox_ids: list[str]
     junk: int
+
+
+class ReadMail(TypedDict):
+    account: str
+    ids: list[str]
+
+
+class MovedMail(TypedDict):
+    account: str
+    # Where each message was, for Undo to put it back.
+    mails: list[Membership]
+
+
+class MarkedRead(TypedDict):
+    cleared: list[ReadMail]
+    # Accounts that failed part way; what they cleared first is in `cleared`.
+    failed: list[str]
+
+
+class Moved(TypedDict):
+    cleared: list[MovedMail]
+    failed: list[str]
 
 
 class SetFoldersInput(AccountInput):
@@ -293,15 +309,15 @@ _OPERATIONS: tuple[
         list[TabCount],
         None,
     ),
-    (mail.mark_tab_read, "mutation", "messages.markTabRead", MarkReadInput, list[str], None),
-    (mail.archive_tab, "mutation", "messages.archiveTab", TabClearInput, list[str], None),
-    (mail.trash_tab, "mutation", "messages.trashTab", TabClearInput, list[str], None),
+    (mail.mark_tab_read, "mutation", "messages.markTabRead", MarkReadInput, MarkedRead, None),
+    (mail.archive_tab, "mutation", "messages.archiveTab", TabClearInput, Moved, None),
+    (mail.trash_tab, "mutation", "messages.trashTab", TabClearInput, Moved, None),
     (
         mail.mark_unified_tab_read,
         "mutation",
         "messages.markUnifiedTabRead",
         UnifiedMarkReadInput,
-        list[ClearedMail],
+        MarkedRead,
         None,
     ),
     (
@@ -309,7 +325,7 @@ _OPERATIONS: tuple[
         "mutation",
         "messages.archiveUnifiedTab",
         UnifiedTabClearInput,
-        list[ClearedMail],
+        Moved,
         None,
     ),
     (
@@ -317,7 +333,7 @@ _OPERATIONS: tuple[
         "mutation",
         "messages.trashUnifiedTab",
         UnifiedTabClearInput,
-        list[ClearedMail],
+        Moved,
         None,
     ),
     (mail.get_thread, "query", "threads.get", ThreadInput, list[Message], None),

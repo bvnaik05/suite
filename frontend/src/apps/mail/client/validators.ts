@@ -7448,7 +7448,30 @@ export const operationMarkTabRead: Validators<MarkTabReadInput, MarkTabReadOutpu
     )
   },
   validateOutput(value: unknown): asserts value is MarkTabReadOutput {
-    assertSchema(value, { items: { type: 'string' }, type: 'array' }, 'mark_tab_read output')
+    assertSchema(
+      value,
+      {
+        $defs: {
+          ReadMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+            },
+            required: ['account', 'ids'],
+            title: 'ReadMail',
+            type: 'object',
+          },
+        },
+        properties: {
+          cleared: { items: { $ref: '#/$defs/ReadMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'MarkedRead',
+        type: 'object',
+      },
+      'mark_tab_read output',
+    )
   },
 }
 
@@ -7471,7 +7494,40 @@ export const operationArchiveTab: Validators<ArchiveTabInput, ArchiveTabOutput> 
     )
   },
   validateOutput(value: unknown): asserts value is ArchiveTabOutput {
-    assertSchema(value, { items: { type: 'string' }, type: 'array' }, 'archive_tab output')
+    assertSchema(
+      value,
+      {
+        $defs: {
+          Membership: {
+            properties: {
+              id: { title: 'Id', type: 'string' },
+              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
+              junk: { title: 'Junk', type: 'integer' },
+            },
+            required: ['id', 'mailbox_ids', 'junk'],
+            title: 'Membership',
+            type: 'object',
+          },
+          MovedMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
+            },
+            required: ['account', 'mails'],
+            title: 'MovedMail',
+            type: 'object',
+          },
+        },
+        properties: {
+          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'Moved',
+        type: 'object',
+      },
+      'archive_tab output',
+    )
   },
 }
 
@@ -7494,7 +7550,40 @@ export const operationTrashTab: Validators<TrashTabInput, TrashTabOutput> = {
     )
   },
   validateOutput(value: unknown): asserts value is TrashTabOutput {
-    assertSchema(value, { items: { type: 'string' }, type: 'array' }, 'trash_tab output')
+    assertSchema(
+      value,
+      {
+        $defs: {
+          Membership: {
+            properties: {
+              id: { title: 'Id', type: 'string' },
+              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
+              junk: { title: 'Junk', type: 'integer' },
+            },
+            required: ['id', 'mailbox_ids', 'junk'],
+            title: 'Membership',
+            type: 'object',
+          },
+          MovedMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
+            },
+            required: ['account', 'mails'],
+            title: 'MovedMail',
+            type: 'object',
+          },
+        },
+        properties: {
+          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'Moved',
+        type: 'object',
+      },
+      'trash_tab output',
+    )
   },
 }
 
@@ -7523,19 +7612,23 @@ export const operationMarkUnifiedTabRead: Validators<
       value,
       {
         $defs: {
-          ClearedMail: {
+          ReadMail: {
             properties: {
               account: { title: 'Account', type: 'string' },
-              mailbox: { title: 'Mailbox', type: 'string' },
               ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
             },
-            required: ['account', 'mailbox', 'ids'],
-            title: 'ClearedMail',
+            required: ['account', 'ids'],
+            title: 'ReadMail',
             type: 'object',
           },
         },
-        items: { $ref: '#/$defs/ClearedMail' },
-        type: 'array',
+        properties: {
+          cleared: { items: { $ref: '#/$defs/ReadMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'MarkedRead',
+        type: 'object',
       },
       'mark_unified_tab_read output',
     )
@@ -7567,19 +7660,33 @@ export const operationArchiveUnifiedTab: Validators<
       value,
       {
         $defs: {
-          ClearedMail: {
+          Membership: {
+            properties: {
+              id: { title: 'Id', type: 'string' },
+              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
+              junk: { title: 'Junk', type: 'integer' },
+            },
+            required: ['id', 'mailbox_ids', 'junk'],
+            title: 'Membership',
+            type: 'object',
+          },
+          MovedMail: {
             properties: {
               account: { title: 'Account', type: 'string' },
-              mailbox: { title: 'Mailbox', type: 'string' },
-              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
             },
-            required: ['account', 'mailbox', 'ids'],
-            title: 'ClearedMail',
+            required: ['account', 'mails'],
+            title: 'MovedMail',
             type: 'object',
           },
         },
-        items: { $ref: '#/$defs/ClearedMail' },
-        type: 'array',
+        properties: {
+          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'Moved',
+        type: 'object',
       },
       'archive_unified_tab output',
     )
@@ -7608,19 +7715,33 @@ export const operationTrashUnifiedTab: Validators<TrashUnifiedTabInput, TrashUni
       value,
       {
         $defs: {
-          ClearedMail: {
+          Membership: {
+            properties: {
+              id: { title: 'Id', type: 'string' },
+              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
+              junk: { title: 'Junk', type: 'integer' },
+            },
+            required: ['id', 'mailbox_ids', 'junk'],
+            title: 'Membership',
+            type: 'object',
+          },
+          MovedMail: {
             properties: {
               account: { title: 'Account', type: 'string' },
-              mailbox: { title: 'Mailbox', type: 'string' },
-              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
             },
-            required: ['account', 'mailbox', 'ids'],
-            title: 'ClearedMail',
+            required: ['account', 'mails'],
+            title: 'MovedMail',
             type: 'object',
           },
         },
-        items: { $ref: '#/$defs/ClearedMail' },
-        type: 'array',
+        properties: {
+          cleared: { items: { $ref: '#/$defs/MovedMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'Moved',
+        type: 'object',
       },
       'trash_unified_tab output',
     )

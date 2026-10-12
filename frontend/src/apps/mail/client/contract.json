@@ -16303,10 +16303,51 @@
         "type": "object"
       },
       "output": {
-        "items": {
-          "type": "string"
+        "$defs": {
+          "ReadMail": {
+            "properties": {
+              "account": {
+                "title": "Account",
+                "type": "string"
+              },
+              "ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Ids",
+                "type": "array"
+              }
+            },
+            "required": [
+              "account",
+              "ids"
+            ],
+            "title": "ReadMail",
+            "type": "object"
+          }
         },
-        "type": "array"
+        "properties": {
+          "cleared": {
+            "items": {
+              "$ref": "#/$defs/ReadMail"
+            },
+            "title": "Cleared",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cleared",
+          "failed"
+        ],
+        "title": "MarkedRead",
+        "type": "object"
       },
       "errors": [
         "PermissionError",
@@ -16351,10 +16392,77 @@
         "type": "object"
       },
       "output": {
-        "items": {
-          "type": "string"
+        "$defs": {
+          "Membership": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "mailbox_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Mailbox Ids",
+                "type": "array"
+              },
+              "junk": {
+                "title": "Junk",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "mailbox_ids",
+              "junk"
+            ],
+            "title": "Membership",
+            "type": "object"
+          },
+          "MovedMail": {
+            "properties": {
+              "account": {
+                "title": "Account",
+                "type": "string"
+              },
+              "mails": {
+                "items": {
+                  "$ref": "#/$defs/Membership"
+                },
+                "title": "Mails",
+                "type": "array"
+              }
+            },
+            "required": [
+              "account",
+              "mails"
+            ],
+            "title": "MovedMail",
+            "type": "object"
+          }
         },
-        "type": "array"
+        "properties": {
+          "cleared": {
+            "items": {
+              "$ref": "#/$defs/MovedMail"
+            },
+            "title": "Cleared",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cleared",
+          "failed"
+        ],
+        "title": "Moved",
+        "type": "object"
       },
       "errors": [
         "PermissionError",
@@ -16399,10 +16507,77 @@
         "type": "object"
       },
       "output": {
-        "items": {
-          "type": "string"
+        "$defs": {
+          "Membership": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "mailbox_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Mailbox Ids",
+                "type": "array"
+              },
+              "junk": {
+                "title": "Junk",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "mailbox_ids",
+              "junk"
+            ],
+            "title": "Membership",
+            "type": "object"
+          },
+          "MovedMail": {
+            "properties": {
+              "account": {
+                "title": "Account",
+                "type": "string"
+              },
+              "mails": {
+                "items": {
+                  "$ref": "#/$defs/Membership"
+                },
+                "title": "Mails",
+                "type": "array"
+              }
+            },
+            "required": [
+              "account",
+              "mails"
+            ],
+            "title": "MovedMail",
+            "type": "object"
+          }
         },
-        "type": "array"
+        "properties": {
+          "cleared": {
+            "items": {
+              "$ref": "#/$defs/MovedMail"
+            },
+            "title": "Cleared",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cleared",
+          "failed"
+        ],
+        "title": "Moved",
+        "type": "object"
       },
       "errors": [
         "PermissionError",
@@ -16449,14 +16624,10 @@
       },
       "output": {
         "$defs": {
-          "ClearedMail": {
+          "ReadMail": {
             "properties": {
               "account": {
                 "title": "Account",
-                "type": "string"
-              },
-              "mailbox": {
-                "title": "Mailbox",
                 "type": "string"
               },
               "ids": {
@@ -16469,17 +16640,34 @@
             },
             "required": [
               "account",
-              "mailbox",
               "ids"
             ],
-            "title": "ClearedMail",
+            "title": "ReadMail",
             "type": "object"
           }
         },
-        "items": {
-          "$ref": "#/$defs/ClearedMail"
+        "properties": {
+          "cleared": {
+            "items": {
+              "$ref": "#/$defs/ReadMail"
+            },
+            "title": "Cleared",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
         },
-        "type": "array"
+        "required": [
+          "cleared",
+          "failed"
+        ],
+        "title": "MarkedRead",
+        "type": "object"
       },
       "errors": [
         "PermissionError",
@@ -16520,37 +16708,76 @@
       },
       "output": {
         "$defs": {
-          "ClearedMail": {
+          "Membership": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "mailbox_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Mailbox Ids",
+                "type": "array"
+              },
+              "junk": {
+                "title": "Junk",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "mailbox_ids",
+              "junk"
+            ],
+            "title": "Membership",
+            "type": "object"
+          },
+          "MovedMail": {
             "properties": {
               "account": {
                 "title": "Account",
                 "type": "string"
               },
-              "mailbox": {
-                "title": "Mailbox",
-                "type": "string"
-              },
-              "ids": {
+              "mails": {
                 "items": {
-                  "type": "string"
+                  "$ref": "#/$defs/Membership"
                 },
-                "title": "Ids",
+                "title": "Mails",
                 "type": "array"
               }
             },
             "required": [
               "account",
-              "mailbox",
-              "ids"
+              "mails"
             ],
-            "title": "ClearedMail",
+            "title": "MovedMail",
             "type": "object"
           }
         },
-        "items": {
-          "$ref": "#/$defs/ClearedMail"
+        "properties": {
+          "cleared": {
+            "items": {
+              "$ref": "#/$defs/MovedMail"
+            },
+            "title": "Cleared",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
         },
-        "type": "array"
+        "required": [
+          "cleared",
+          "failed"
+        ],
+        "title": "Moved",
+        "type": "object"
       },
       "errors": [
         "PermissionError",
@@ -16591,37 +16818,76 @@
       },
       "output": {
         "$defs": {
-          "ClearedMail": {
+          "Membership": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "mailbox_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Mailbox Ids",
+                "type": "array"
+              },
+              "junk": {
+                "title": "Junk",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "mailbox_ids",
+              "junk"
+            ],
+            "title": "Membership",
+            "type": "object"
+          },
+          "MovedMail": {
             "properties": {
               "account": {
                 "title": "Account",
                 "type": "string"
               },
-              "mailbox": {
-                "title": "Mailbox",
-                "type": "string"
-              },
-              "ids": {
+              "mails": {
                 "items": {
-                  "type": "string"
+                  "$ref": "#/$defs/Membership"
                 },
-                "title": "Ids",
+                "title": "Mails",
                 "type": "array"
               }
             },
             "required": [
               "account",
-              "mailbox",
-              "ids"
+              "mails"
             ],
-            "title": "ClearedMail",
+            "title": "MovedMail",
             "type": "object"
           }
         },
-        "items": {
-          "$ref": "#/$defs/ClearedMail"
+        "properties": {
+          "cleared": {
+            "items": {
+              "$ref": "#/$defs/MovedMail"
+            },
+            "title": "Cleared",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
         },
-        "type": "array"
+        "required": [
+          "cleared",
+          "failed"
+        ],
+        "title": "Moved",
+        "type": "object"
       },
       "errors": [
         "PermissionError",

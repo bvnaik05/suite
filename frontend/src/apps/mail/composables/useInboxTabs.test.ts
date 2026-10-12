@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 
-import { useInboxTabs, useTabChoice, useTabClearMenu, type InboxCategory } from './useInboxTabs'
+import {
+  useClearTab,
+  useInboxTabs,
+  useTabChoice,
+  useTabClearMenu,
+  type InboxCategory,
+} from './useInboxTabs'
 
 type Counts = { category: InboxCategory; unread_threads: number }[]
 
@@ -22,12 +28,28 @@ const saved = vi.hoisted(() => [] as unknown[])
 const toasts = vi.hoisted(() => [] as string[])
 // Saves resolve at once, unless a test holds them to see what happens while they are pending.
 const held = vi.hoisted(() => ({ on: false, release: [] as (() => void)[] }))
+// What the server answers a clearing with: the ids it changed, by account and mailbox.
+const answers = vi.hoisted(() => new Map<unknown, unknown>())
+const routes = vi.hoisted(() => ({
+  updatePreferences: { name: 'updatePreferences' },
+  markTabRead: { name: 'markTabRead' },
+  markUnifiedTabRead: { name: 'markUnifiedTabRead' },
+  archiveTab: { name: 'archiveTab' },
+  seen: { name: 'seen' },
+  setFolders: { name: 'setFolders' },
+}))
 vi.mock('@/api', () => ({
-  api: { mail: { settings: { updatePreferences: {} } } },
+  api: {
+    mail: {
+      settings: { updatePreferences: routes.updatePreferences },
+      messages: routes,
+    },
+  },
   client: {
-    mutation: async (_reference: unknown, input: unknown) => {
+    mutation: async (reference: unknown, input: unknown) => {
       saved.push(input)
       if (held.on) await new Promise<void>((resolve) => held.release.push(resolve))
+      return answers.get(reference)
     },
   },
 }))
@@ -58,7 +80,11 @@ const tabsFor = (scope: 'account' | 'unified' | false) =>
 
 describe('the Inbox tabs', () => {
   beforeEach(() => {
-    vi.stubGlobal('__', (text: string) => text)
+    vi.stubGlobal('__', (text: string, args: string[] = []) =>
+      text.replace(/\{(\d+)\}/g, (_, index) => args[Number(index)]),
+    )
+    answers.clear()
+    undoSlot.action = undefined
     state.route = reactive({ query: {} })
     saved.length = 0
     toasts.length = 0
@@ -188,5 +214,55 @@ describe('the Inbox tabs', () => {
       'Archive all',
       'Move all to Trash',
     ])
+  })
+
+  it('say what a clearing did, and what its Undo put back', async () => {
+    const { markAllRead, archiveAll } = useClearTab(() => ({ account: 'ih', mailbox: 'inbox' }))
+    const before = { id: 'c', mailbox_ids: ['inbox', 'project'], junk: 0 }
+    answers.set(routes.markTabRead, { cleared: [{ account: 'ih', ids: ['a', 'b'] }], failed: [] })
+    answers.set(routes.archiveTab, { cleared: [{ account: 'ih', mails: [before] }], failed: [] })
+
+    await markAllRead({ category: 'updates', name: 'Updates' })
+    await undoSlot.action?.()
+    await archiveAll('updates')
+    await undoSlot.action?.()
+
+    expect(toasts).toEqual([
+      'Updates mail marked as read.',
+      'Updates mail marked as unread.',
+      'Updates mail archived.',
+      'Updates mail moved back.',
+    ])
+    // Undo touches exactly what was cleared, and puts it back in every folder it was in.
+    expect(saved).toContainEqual({ account: 'ih', ids: ['a', 'b'], seen: false })
+    expect(saved).toContainEqual({ account: 'ih', mails: [before] })
+  })
+
+  it('say so when a folder has nothing unread to mark', async () => {
+    const { markAllRead } = useClearTab(() => ({ account: 'ih', mailbox: 'archive' }))
+    answers.set(routes.markTabRead, { cleared: [], failed: [] })
+
+    await markAllRead({ name: 'Archive' })
+
+    expect(toasts).toEqual(['Nothing unread in Archive.'])
+    expect(undoSlot.action).toBeUndefined()
+  })
+
+  it('keep what an account cleared before failing undoable, and say it did not finish', async () => {
+    const { markAllRead } = useClearTab(() => ({ folder: 'inbox' }))
+    answers.set(routes.markUnifiedTabRead, {
+      cleared: [{ account: 'ih', ids: ['a'] }],
+      failed: ['q9'],
+    })
+
+    await markAllRead({ category: 'updates', name: 'Updates' })
+    await undoSlot.action?.()
+
+    expect(toasts).toEqual([
+      'Updates mail marked as read.',
+      "Some Updates mail couldn't be cleared.",
+      'Updates mail marked as unread.',
+    ])
+    expect(saved).toContainEqual({ account: 'ih', ids: ['a'], seen: false })
   })
 })

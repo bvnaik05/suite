@@ -167,47 +167,40 @@ export const tabName = (category: InboxCategory) => TAB_LOOK[category].label()
 export const useClearTab = (target: () => ClearTarget) => {
   const { setUndoAction, undo } = useUndo()
 
-  /** What a clearing changed, by account and the mailbox it came from; the empty left out. */
-  const cleared = async (done: Promise<{ account: string; mailbox: string; ids: string[] }[]>) =>
-    (await done).filter((mail) => mail.ids.length)
-
-  const ofAccount = async (
-    clear: (where: { account: string; mailbox: string }) => Promise<string[]>,
-    where: { account: string; mailbox: string },
-  ) => [{ ...where, ids: await clear(where) }]
-
   const offerUndo = (message: string, undone: string, putBack: () => Promise<unknown>[]) => {
     setUndoAction(() => raiseOptimisticToast(Promise.all(putBack()), undone))
     raiseToast(message, 'success', { label: __('Undo'), onClick: undo })
   }
 
+  // An account can fail part way: what it cleared first comes back with the rest, so it can still be
+  // undone, and the clearing says it didn't finish.
+  const sayUnfinished = (failed: string[], name: string) => {
+    if (failed.length) raiseToast(__("Some {0} mail couldn't be cleared.", [name]), 'error')
+  }
+
   /** Marks every unread message in the scope read; Undo marks exactly those unread again. */
   const markAllRead = async ({ category, name }: ClearScope) => {
     const where = target()
-    const done = await cleared(
-      'folder' in where
-        ? client.mutation(api.mail.messages.markUnifiedTabRead, { folder: where.folder, category })
-        : ofAccount(
-            (at) => client.mutation(api.mail.messages.markTabRead, { ...at, category }),
-            where,
+    const { cleared, failed } = await ('folder' in where
+      ? client.mutation(api.mail.messages.markUnifiedTabRead, { folder: where.folder, category })
+      : client.mutation(api.mail.messages.markTabRead, { ...where, category }))
+    if (cleared.length)
+      offerUndo(
+        __('{0} mail marked as read.', [name]),
+        __('{0} mail marked as unread.', [name]),
+        () =>
+          cleared.map(({ account, ids }) =>
+            client.mutation(api.mail.messages.seen, { account, ids, seen: false }),
           ),
-    )
-    if (!done.length) return raiseToast(__('Nothing unread in {0}.', [name]))
-    offerUndo(
-      __('Everything in {0} marked as read.', [name]),
-      __('{0} mail marked as unread.', [name]),
-      () =>
-        done.map((mail) =>
-          client.mutation(api.mail.messages.seen, {
-            account: mail.account,
-            ids: mail.ids,
-            seen: false,
-          }),
-        ),
-    )
+      )
+    else if (!failed.length) raiseToast(__('Nothing unread in {0}.', [name]))
+    sayUnfinished(failed, name)
   }
 
-  /** Archives or trashes a tab's mail; Undo moves it back to the mailbox it came from. */
+  /**
+   * Archives or trashes a tab's mail; Undo puts each message back in every folder it was in, as
+   * undoing any move does.
+   */
   const moveAll = async (clearing: 'archive' | 'trash', category: InboxCategory) => {
     const where = target()
     const name = tabName(category)
@@ -215,26 +208,22 @@ export const useClearTab = (target: () => ClearTarget) => {
       clearing === 'archive'
         ? [api.mail.messages.archiveTab, api.mail.messages.archiveUnifiedTab]
         : [api.mail.messages.trashTab, api.mail.messages.trashUnifiedTab]
-    const done = await cleared(
-      'folder' in where
-        ? client.mutation(onEvery, { folder: where.folder, category })
-        : ofAccount((at) => client.mutation(onAccount, { ...at, category }), where),
-    )
-    if (!done.length) return raiseToast(__('Nothing in {0}.', [name]))
-    offerUndo(
-      clearing === 'archive'
-        ? __('Everything in {0} archived.', [name])
-        : __('Everything in {0} moved to Trash.', [name]),
-      __('{0} mail moved back to the Inbox.', [name]),
-      () =>
-        done.map((mail) =>
-          client.mutation(api.mail.messages.move, {
-            account: mail.account,
-            ids: mail.ids,
-            mailbox: mail.mailbox,
-          }),
-        ),
-    )
+    const { cleared, failed } = await ('folder' in where
+      ? client.mutation(onEvery, { folder: where.folder, category })
+      : client.mutation(onAccount, { ...where, category }))
+    if (cleared.length)
+      offerUndo(
+        clearing === 'archive'
+          ? __('{0} mail archived.', [name])
+          : __('{0} mail moved to Trash.', [name]),
+        __('{0} mail moved back.', [name]),
+        () =>
+          cleared.map(({ account, mails }) =>
+            client.mutation(api.mail.messages.setFolders, { account, mails }),
+          ),
+      )
+    else if (!failed.length) raiseToast(__('Nothing in {0}.', [name]))
+    sayUnfinished(failed, name)
   }
 
   const archiveAll = (category: InboxCategory) => moveAll('archive', category)

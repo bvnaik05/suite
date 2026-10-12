@@ -1111,6 +1111,24 @@ def set_messages_mailboxes(account: str, mails: list[dict]) -> None:
         frappe.throw(_("Failed to restore mailbox membership for mail(s)."))
 
 
+def get_messages_mailboxes(account: str, ids: list[str]) -> list[dict]:
+    """Each message's mailbox membership and junk status, as `set_messages_mailboxes` restores them."""
+
+    emails = chunked_get(
+        get_account_client(account),
+        lambda b, chunk: b.mail.email.get(ids=chunk, properties=["id", "mailboxIds", "keywords"]),
+        ids,
+    )
+    return [
+        {
+            "id": email["id"],
+            "mailbox_ids": [mailbox_id for mailbox_id, held in email["mailboxIds"].items() if held],
+            "junk": int(bool((email.get("keywords") or {}).get("$junk"))),
+        }
+        for email in (e.to_wire() for e in emails)
+    ]
+
+
 def add_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> None:
     """Add messages to a mailbox without removing them from existing mailboxes."""
 

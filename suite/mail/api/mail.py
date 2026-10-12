@@ -31,6 +31,7 @@ from suite.mail.doctype.mail_message.mail_message import (
     fetch_thread,
     fetch_threads,
     get_messages,
+    get_messages_mailboxes,
     is_unscreened_message,
     move_messages_to_mailbox,
     query_message_ids,
@@ -628,121 +629,168 @@ def get_unified_tab_counts(folder: str) -> list[dict]:
     ]
 
 
-# How many messages clearing a tab touches at once. A tab holding more takes another click.
-TAB_CLEAR_LIMIT = 5000
+# How many messages a clearing takes at a time. It goes on, a batch at a time, until none are left.
+TAB_CLEAR_BATCH = 1000
 
 
-def tab_message_ids(account: str, mailbox: str, category: str | None, unread_only: bool = False) -> list[str]:
-    """The messages a tab lists in an account's `mailbox` (the whole mailbox with no `category`), the
-    unread ones only if asked.
+def clearable_tab(category: str | None, unread_only: bool) -> Category | None:
+    """The tab a clearing is of, `None` for a whole mailbox.
 
     Only reading reaches Primary or a whole mailbox: archiving or trashing everything at once is for the
     tabs that hold bulk mail, not the mail that needs you.
     """
 
+    if not category and unread_only:
+        return None
+    tab = validate_tab(category or "")
+    if tab == Category.PRIMARY and not unread_only:
+        frappe.throw(_("Primary is not cleared all at once."), frappe.ValidationError)
+    return tab
+
+
+def tab_message_filter(mailbox: str, tab: Category | None, unread_only: bool = False) -> dict:
+    """The messages a tab lists in a `mailbox` (the whole mailbox with no `tab`), the unread ones only
+    if asked."""
+
     conditions: list[dict] = [{"inMailbox": mailbox}]
-    if category or not unread_only:
-        tab = validate_tab(category or "")
-        if tab == Category.PRIMARY and not unread_only:
-            frappe.throw(_("Primary is not cleared all at once."), frappe.ValidationError)
+    if tab:
         conditions.append(tab_filter(tab, classification.inbox_tabs()))
     if unread_only:
         conditions.append({"notKeyword": "$seen"})
-    filter = conditions[0] if len(conditions) == 1 else {"operator": "AND", "conditions": conditions}
-    return query_message_ids(account, filter, 0, TAB_CLEAR_LIMIT)["ids"]
+    return conditions[0] if len(conditions) == 1 else {"operator": "AND", "conditions": conditions}
 
 
 def mark_read(account: str, ids: list[str]) -> list[str]:
-    if ids:
-        set_seen_status(account, ids, True)
+    set_seen_status(account, ids, True)
     return ids
 
 
-def archive(account: str, ids: list[str]) -> list[str]:
-    if ids:
-        move_messages_to_mailbox(
-            account,
-            ids,
-            get_mailbox_id_by_role(account, "archive", create_if_not_exists=True, raise_exception=True),
-        )
-    return ids
+def archive(account: str, ids: list[str]) -> list[dict]:
+    """Archives `ids`, returning where each was before, for Undo to put back."""
+
+    before = get_messages_mailboxes(account, ids)
+    move_messages_to_mailbox(
+        account,
+        ids,
+        get_mailbox_id_by_role(account, "archive", create_if_not_exists=True, raise_exception=True),
+    )
+    return before
 
 
-def trash(account: str, ids: list[str]) -> list[str]:
-    if ids:
-        move_messages_to_mailbox(
-            account,
-            ids,
-            get_mailbox_id_by_role(account, "trash", create_if_not_exists=True, raise_exception=True),
-        )
-    return ids
+def trash(account: str, ids: list[str]) -> list[dict]:
+    """Moves `ids` to Trash, returning where each was before, for Undo to put back."""
+
+    before = get_messages_mailboxes(account, ids)
+    move_messages_to_mailbox(
+        account,
+        ids,
+        get_mailbox_id_by_role(account, "trash", create_if_not_exists=True, raise_exception=True),
+    )
+    return before
+
+
+def clear_tab(accounts: list[str], mailboxes_of, category: str | None, unread_only: bool, clear) -> dict:
+    """Clears a tab of each account's mailboxes (`mailboxes_of(account)`), a batch at a time until it is
+    empty, with `clear(account, ids)`. Returns what each account's batches returned, for Undo, and the
+    accounts that failed part way: what they cleared before failing is kept, so it can still be undone.
+    """
+
+    tab = clearable_tab(category, unread_only)
+    cleared: list[dict] = []
+    failed: list[str] = []
+    for account in accounts:
+        done: list = []
+        try:
+            for mailbox in mailboxes_of(account):
+                filter = tab_message_filter(mailbox, tab, unread_only)
+                # A message the clear left where it was is not taken again, so the clearing ends.
+                taken: set[str] = set()
+                while ids := [
+                    id
+                    for id in query_message_ids(account, filter, 0, TAB_CLEAR_BATCH)["ids"]
+                    if id not in taken
+                ]:
+                    taken.update(ids)
+                    done.extend(clear(account, ids))
+        except (MethodError, frappe.ValidationError):
+            failed.append(account)
+        if done:
+            cleared.append({"account": account, "done": done})
+    return {"cleared": cleared, "failed": failed}
+
+
+def unified_folder_mailboxes(folder: str):
+    """The mailboxes of an account that make up `folder`, a slug, as for `get_unified_threads`."""
+
+    return lambda account: [
+        mailbox["id"]
+        for mailbox in get_cached_mailboxes(account)
+        if is_listed_mailbox(mailbox) and mailbox_slug(mailbox) == folder
+    ]
+
+
+def read_cleared(clearing: dict) -> dict:
+    return {**clearing, "cleared": [{"account": c["account"], "ids": c["done"]} for c in clearing["cleared"]]}
+
+
+def moved_cleared(clearing: dict) -> dict:
+    return {
+        **clearing,
+        "cleared": [{"account": c["account"], "mails": c["done"]} for c in clearing["cleared"]],
+    }
 
 
 @frappe.whitelist()
-def mark_tab_read(account: str, mailbox: str, category: str | None = None) -> list[str]:
+def mark_tab_read(account: str, mailbox: str, category: str | None = None) -> dict:
     """Marks every unread message of a tab in an account's `mailbox` read, or of the whole mailbox with
     no `category`, returning which, for Undo."""
 
-    return mark_read(account, tab_message_ids(account, mailbox, category, unread_only=True))
+    return read_cleared(clear_tab([account], lambda _: [mailbox], category, True, mark_read))
 
 
 @frappe.whitelist()
-def archive_tab(account: str, mailbox: str, category: str) -> list[str]:
-    """Archives every message of a tab in an account's `mailbox`, returning which, for Undo."""
+def archive_tab(account: str, mailbox: str, category: str) -> dict:
+    """Archives every message of a tab in an account's `mailbox`, returning where each was, for Undo."""
 
-    return archive(account, tab_message_ids(account, mailbox, category))
-
-
-@frappe.whitelist()
-def trash_tab(account: str, mailbox: str, category: str) -> list[str]:
-    """Moves every message of a tab in an account's `mailbox` to Trash, returning which, for Undo."""
-
-    return trash(account, tab_message_ids(account, mailbox, category))
-
-
-def clear_unified_tab(folder: str, category: str | None, unread_only: bool, clear) -> list[dict]:
-    """Clears a tab in every account's `folder`, returning what was cleared where, for Undo.
-
-    An account that answers with an error is left out rather than failing the rest.
-    """
-
-    cleared: list[dict] = []
-    for account in get_user_jmap_accounts():
-        account_id = account["name"]
-        try:
-            for mailbox in get_cached_mailboxes(account_id):
-                if not (is_listed_mailbox(mailbox) and mailbox_slug(mailbox) == folder):
-                    continue
-                ids = tab_message_ids(account_id, mailbox["id"], category, unread_only)
-                if ids:
-                    cleared.append(
-                        {"account": account_id, "mailbox": mailbox["id"], "ids": clear(account_id, ids)}
-                    )
-        except MethodError:
-            continue
-    return cleared
+    return moved_cleared(clear_tab([account], lambda _: [mailbox], category, False, archive))
 
 
 @frappe.whitelist()
-def mark_unified_tab_read(folder: str, category: str | None = None) -> list[dict]:
+def trash_tab(account: str, mailbox: str, category: str) -> dict:
+    """Moves every message of a tab in an account's `mailbox` to Trash, returning where each was, for
+    Undo."""
+
+    return moved_cleared(clear_tab([account], lambda _: [mailbox], category, False, trash))
+
+
+def user_accounts() -> list[str]:
+    return [account["name"] for account in get_user_jmap_accounts()]
+
+
+@frappe.whitelist()
+def mark_unified_tab_read(folder: str, category: str | None = None) -> dict:
     """Marks a tab's unread mail read across every account, or a whole folder's with no `category`,
     returning what, for Undo."""
 
-    return clear_unified_tab(folder, category, True, mark_read)
+    return read_cleared(
+        clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, True, mark_read)
+    )
 
 
 @frappe.whitelist()
-def archive_unified_tab(folder: str, category: str) -> list[dict]:
-    """Archives a tab's mail across every account, returning what and from where, for Undo."""
+def archive_unified_tab(folder: str, category: str) -> dict:
+    """Archives a tab's mail across every account, returning where each was, for Undo."""
 
-    return clear_unified_tab(folder, category, False, archive)
+    return moved_cleared(
+        clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, False, archive)
+    )
 
 
 @frappe.whitelist()
-def trash_unified_tab(folder: str, category: str) -> list[dict]:
-    """Moves a tab's mail to Trash across every account, returning what and from where, for Undo."""
+def trash_unified_tab(folder: str, category: str) -> dict:
+    """Moves a tab's mail to Trash across every account, returning where each was, for Undo."""
 
-    return clear_unified_tab(folder, category, False, trash)
+    return moved_cleared(clear_tab(user_accounts(), unified_folder_mailboxes(folder), category, False, trash))
 
 
 @frappe.whitelist()

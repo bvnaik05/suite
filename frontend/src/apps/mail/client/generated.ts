@@ -5450,9 +5450,11 @@ const operationGetUnifiedTabCounts: QueryRef<
   loadValidators: async () => (await import('./validators')).operationGetUnifiedTabCounts,
 }
 
+export type MarkTabReadOutputReadMail = { account: string; ids: Array<string> }
+
 export type MarkTabReadInput = { account: string; mailbox: string; category?: string | null }
 
-export type MarkTabReadOutput = Array<string>
+export type MarkTabReadOutput = { cleared: Array<MarkTabReadOutputReadMail>; failed: Array<string> }
 
 export type MarkTabReadError = 'PermissionError' | 'ValidationError'
 
@@ -5472,9 +5474,16 @@ const operationMarkTabRead: MutationRef<MarkTabReadInput, MarkTabReadOutput, Mar
   loadValidators: async () => (await import('./validators')).operationMarkTabRead,
 }
 
+export type ArchiveTabOutputMembership = { id: string; mailbox_ids: Array<string>; junk: number }
+
+export type ArchiveTabOutputMovedMail = {
+  account: string
+  mails: Array<ArchiveTabOutputMembership>
+}
+
 export type ArchiveTabInput = { account: string; mailbox: string; category: string }
 
-export type ArchiveTabOutput = Array<string>
+export type ArchiveTabOutput = { cleared: Array<ArchiveTabOutputMovedMail>; failed: Array<string> }
 
 export type ArchiveTabError = 'PermissionError' | 'ValidationError'
 
@@ -5494,9 +5503,13 @@ const operationArchiveTab: MutationRef<ArchiveTabInput, ArchiveTabOutput, Archiv
   loadValidators: async () => (await import('./validators')).operationArchiveTab,
 }
 
+export type TrashTabOutputMembership = { id: string; mailbox_ids: Array<string>; junk: number }
+
+export type TrashTabOutputMovedMail = { account: string; mails: Array<TrashTabOutputMembership> }
+
 export type TrashTabInput = { account: string; mailbox: string; category: string }
 
-export type TrashTabOutput = Array<string>
+export type TrashTabOutput = { cleared: Array<TrashTabOutputMovedMail>; failed: Array<string> }
 
 export type TrashTabError = 'PermissionError' | 'ValidationError'
 
@@ -5516,15 +5529,14 @@ const operationTrashTab: MutationRef<TrashTabInput, TrashTabOutput, TrashTabErro
   loadValidators: async () => (await import('./validators')).operationTrashTab,
 }
 
-export type MarkUnifiedTabReadOutputClearedMail = {
-  account: string
-  mailbox: string
-  ids: Array<string>
-}
+export type MarkUnifiedTabReadOutputReadMail = { account: string; ids: Array<string> }
 
 export type MarkUnifiedTabReadInput = { folder: string; category?: string | null }
 
-export type MarkUnifiedTabReadOutput = Array<MarkUnifiedTabReadOutputClearedMail>
+export type MarkUnifiedTabReadOutput = {
+  cleared: Array<MarkUnifiedTabReadOutputReadMail>
+  failed: Array<string>
+}
 
 export type MarkUnifiedTabReadError = 'PermissionError' | 'ValidationError'
 
@@ -5548,15 +5560,23 @@ const operationMarkUnifiedTabRead: MutationRef<
   loadValidators: async () => (await import('./validators')).operationMarkUnifiedTabRead,
 }
 
-export type ArchiveUnifiedTabOutputClearedMail = {
+export type ArchiveUnifiedTabOutputMembership = {
+  id: string
+  mailbox_ids: Array<string>
+  junk: number
+}
+
+export type ArchiveUnifiedTabOutputMovedMail = {
   account: string
-  mailbox: string
-  ids: Array<string>
+  mails: Array<ArchiveUnifiedTabOutputMembership>
 }
 
 export type ArchiveUnifiedTabInput = { folder: string; category: string }
 
-export type ArchiveUnifiedTabOutput = Array<ArchiveUnifiedTabOutputClearedMail>
+export type ArchiveUnifiedTabOutput = {
+  cleared: Array<ArchiveUnifiedTabOutputMovedMail>
+  failed: Array<string>
+}
 
 export type ArchiveUnifiedTabError = 'PermissionError' | 'ValidationError'
 
@@ -5580,15 +5600,23 @@ const operationArchiveUnifiedTab: MutationRef<
   loadValidators: async () => (await import('./validators')).operationArchiveUnifiedTab,
 }
 
-export type TrashUnifiedTabOutputClearedMail = {
+export type TrashUnifiedTabOutputMembership = {
+  id: string
+  mailbox_ids: Array<string>
+  junk: number
+}
+
+export type TrashUnifiedTabOutputMovedMail = {
   account: string
-  mailbox: string
-  ids: Array<string>
+  mails: Array<TrashUnifiedTabOutputMembership>
 }
 
 export type TrashUnifiedTabInput = { folder: string; category: string }
 
-export type TrashUnifiedTabOutput = Array<TrashUnifiedTabOutputClearedMail>
+export type TrashUnifiedTabOutput = {
+  cleared: Array<TrashUnifiedTabOutputMovedMail>
+  failed: Array<string>
+}
 
 export type TrashUnifiedTabError = 'PermissionError' | 'ValidationError'
 
