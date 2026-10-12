@@ -1,8 +1,8 @@
 import { digest } from 'lib0/hash/sha256'
 
 import { readReply, type Reply } from './answers'
+import { hex, randomHex } from './bytes'
 import { encodePush } from './frames'
-import { hex, randomHex } from './outbox'
 import type { CollabEndpoints } from './types'
 
 // The most update bytes one request carries; a larger change is staged in pieces of exactly this size, the last one shorter

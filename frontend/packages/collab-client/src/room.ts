@@ -10,8 +10,8 @@ import {
   type Row,
 } from './frames'
 import { Live, type LiveHooks } from './live'
+import { holdLock } from './locks'
 import {
-  holdLock,
   KEEPALIVE_QUOTA,
   MAX_HEADER_BYTES,
   MAX_KEEPALIVE_BYTES,

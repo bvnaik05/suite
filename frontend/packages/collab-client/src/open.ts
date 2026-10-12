@@ -1,8 +1,8 @@
 import * as Y from 'yjs'
 
 import { readReply, toOpenError } from './answers'
+import { randomHex } from './bytes'
 import { decodeFrame, type OpenHeader } from './frames'
-import { randomHex } from './outbox'
 import { REMOTE, Room, type Opening, type RoomInit } from './room'
 import type { DeviceCopy, StoredSession } from './store'
 import type { Opened, OpenOptions } from './types'

@@ -1,6 +1,7 @@
 import { digest } from 'lib0/hash/sha256'
 import * as Y from 'yjs'
 
+import { hex } from './bytes'
 import type { StoredEntry } from './store'
 
 // Each sha adds 67 bytes to the push header, which the server caps at 4 KiB
@@ -91,38 +92,4 @@ export class Outbox {
     })
     return entries.map(withSession)
   }
-}
-
-// Web Locks only cut duplicate sends between tabs; where they are missing, every session counts as free
-export function holdLock(name: string): Promise<(() => void) | null> {
-  const locks = globalThis.navigator?.locks
-  const releaseNothing = () => {}
-  if (!locks) {
-    return Promise.resolve(releaseNothing)
-  }
-
-  return new Promise((resolve) => {
-    const options: LockOptions = { ifAvailable: true }
-    // The lock is held until the promise it returns settles, which is when the caller releases it
-    const holdUntilReleased = (lock: Lock | null) => {
-      if (!lock) {
-        resolve(null)
-        return
-      }
-
-      return new Promise<void>((release) => resolve(release))
-    }
-
-    const lockFailed = () => resolve(releaseNothing)
-    void locks.request(name, options, holdUntilReleased).catch(lockFailed)
-  })
-}
-
-export function hex(bytes: Uint8Array) {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-export function randomHex(byteCount: number) {
-  const randomBytes = crypto.getRandomValues(new Uint8Array(byteCount))
-  return hex(randomBytes)
 }
