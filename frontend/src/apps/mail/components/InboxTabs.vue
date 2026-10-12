@@ -30,32 +30,67 @@
     ref="row"
     class="shrink-0 sm:border-l sm:border-l-transparent"
     data-testid="inbox-tabs"
+    @transitionend="settleWhenStill"
   >
     <Tabs :model-value="active">
       <!-- As tall as the toolbar below, with the gutter inside the rail, so the first tab lines up
            with the toolbar's checkbox. -->
-      <TabList variant="underline" size="md" class="h-12 w-full px-3 sm:px-5">
+      <!-- Each tab underlines itself (below) in place of the list's one sliding indicator: that one
+           measures the open tab once, as it is clicked, so it lags behind a name still opening. A
+           narrow row sets its tabs 16px apart rather than 24, room for the open tab's whole name
+           in the split view's list: a name that only just doesn't fit would end its opening by
+           trading its clipped end for an ellipsis. -->
+      <TabList
+        variant="underline"
+        size="md"
+        class="h-12 w-full overflow-x-clip px-3 sm:px-5 [&>[data-slot=tab-indicator]]:hidden"
+        :class="[
+          narrow && 'data-[slot=tab-list]:gap-4',
+          animated &&
+            'transition-[column-gap] duration-300 ease-in-out motion-reduce:transition-none',
+        ]"
+      >
         <!-- A list too narrow for every name names only the open tab; the rest show an icon and a
-             count, and name themselves in a tooltip. They keep the named tabs' height (frappe-ui's
-             icon-only trigger is a fixed square a count spills out of). Only a named tab gives way
-             to a still narrower list, by truncating. -->
-        <Tooltip
-          v-for="tab in tabs"
-          :key="tab.category"
-          :text="tab.label"
-          :disabled="!iconOnly(tab)"
-        >
+             count, and name themselves in a tooltip. A name opens and closes rather than snapping,
+             so the tab draws its own icon, name and count (the label frappe-ui draws can only
+             appear or vanish). Only a named tab gives way to a still narrower list, by truncating.
+             A closed name stays in the tab for screen readers. The tooltip is never disabled, only
+             emptied: disabling it re-creates the tab, and a re-created tab can't animate. -->
+        <Tooltip v-for="tab in tabs" :key="tab.category" :text="iconOnly(tab) ? tab.label : ''">
           <TabTrigger
             :value="tab.category"
             :route="routeFor(tab.category)"
-            :icon-left="tab.icon"
-            :label="iconOnly(tab) ? undefined : tab.label"
-            :aria-label="iconOnly(tab) ? tab.label : undefined"
-            :class="iconOnly(tab) ? 'shrink-0' : 'min-w-0 [&>[data-state]]:min-w-0'"
+            class="relative items-center self-stretch after:pointer-events-none after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-[var(--outline-gray-8)] after:opacity-0 data-[state=active]:after:opacity-100"
+            :class="[
+              iconOnly(tab) || resizing ? 'shrink-0' : 'min-w-0 [&>[data-state]]:min-w-0',
+              animated &&
+                'after:transition-opacity after:duration-300 motion-reduce:after:transition-none',
+            ]"
           >
-            <template #suffix>
-              <Badge v-if="countShown(tab)" size="sm">{{ tab.unread }}</Badge>
-            </template>
+            <span class="flex min-w-0 items-center">
+              <span :class="[tab.icon, 'size-4 shrink-0']" aria-hidden="true" />
+              <!-- A grid column eases between nothing and the name's own width. -->
+              <span
+                class="grid min-w-0"
+                :class="[
+                  iconOnly(tab)
+                    ? 'ml-0 grid-cols-[0fr] opacity-0'
+                    : 'ml-2 grid-cols-[1fr] opacity-100',
+                  animated &&
+                    'transition-[grid-template-columns,margin,opacity] duration-300 ease-in-out motion-reduce:transition-none',
+                ]"
+              >
+                <!-- Clipped, not ellipsed, while it opens or closes: an ellipsis is for a name that
+                     won't fit, not one still growing. -->
+                <span
+                  class="min-w-0 overflow-hidden whitespace-nowrap"
+                  :class="settling ? 'text-clip' : 'text-ellipsis'"
+                >
+                  {{ tab.label }}
+                </span>
+              </span>
+              <Badge v-if="countShown(tab)" size="sm" class="ml-2 shrink-0">{{ tab.unread }}</Badge>
+            </span>
           </TabTrigger>
         </Tooltip>
       </TabList>
@@ -66,7 +101,7 @@
 <script setup lang="ts">
 import { useElementSize } from '@vueuse/core'
 import { Badge, TabList, Tabs, TabTrigger, Tooltip } from 'frappe-ui'
-import { computed, useTemplateRef } from 'vue'
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 
 import type { InboxCategory, InboxTab } from '@/apps/mail/composables/useInboxTabs'
@@ -82,10 +117,59 @@ const { isMobile } = useScreenSize()
 
 // About what a tab needs to show its name and count, beside the row's gutters.
 const NAMED_TAB_WIDTH = 140
-const { width } = useElementSize(useTemplateRef<HTMLElement>('row'))
-const narrow = computed(() => width.value > 0 && width.value < NAMED_TAB_WIDTH * tabs.length + 40)
+const row = useTemplateRef<HTMLElement>('row')
+const { width } = useElementSize(row)
+// Read once on mount, before the first paint: the observed size only arrives after it, and until
+// then every tab would show its name, only to close it again.
+const mountedWidth = ref(0)
+// Names and underlines animate only once the row has been laid out at its real width.
+const animated = ref(false)
+onMounted(() => {
+  mountedWidth.value = row.value?.offsetWidth ?? 0
+  requestAnimationFrame(() => requestAnimationFrame(() => (animated.value = true)))
+})
+const rowWidth = computed(() => width.value || mountedWidth.value)
+const narrow = computed(
+  () => rowWidth.value > 0 && rowWidth.value < NAMED_TAB_WIDTH * tabs.length + 40,
+)
 
 const iconOnly = (tab: InboxTab) => narrow.value && tab.category !== active
+
+// While names open and close (300ms, as their transition), none is ellipsed: it is still growing.
+const settling = ref(false)
+// When the row turns narrow (a thread opens beside the list), the open tab keeps its name while the
+// others close. For that moment the row needs more room than it has, and the open tab, the only one
+// that may shrink, would be squeezed to nothing and back: so none shrinks, and the row clips what
+// runs past its edge. A tab switch needs none of that: the opening name starts from nothing and grows
+// into the room the closing one gives up.
+const resizing = ref(false)
+// Settled when the names have stopped moving, not on a timer: the transitions start a frame after
+// the change and ease out, so a timer of their length ends while a name is still a fraction of a pixel
+// short of its width, and its last letters flash an ellipsis. The timer is only a backstop.
+let backstop: ReturnType<typeof setTimeout> | undefined
+const settled = () => {
+  clearTimeout(backstop)
+  settling.value = resizing.value = false
+}
+const settle = (dueToResize: boolean) => {
+  if (!animated.value) return
+  settling.value = true
+  resizing.value = dueToResize
+  clearTimeout(backstop)
+  backstop = setTimeout(settled, 1000)
+}
+const settleWhenStill = () => {
+  if (!settling.value) return
+  const moving = row.value
+    ?.getAnimations({ subtree: true })
+    .some((animation) => animation.playState === 'running')
+  if (!moving) settled()
+}
+watch(narrow, () => settle(true))
+watch(
+  () => active,
+  () => settle(false),
+)
 
 // Primary's unread is the Inbox's own, counted beside it in the sidebar.
 const countShown = (tab: InboxTab) => tab.category !== 'primary' && tab.unread > 0
