@@ -66,6 +66,14 @@ export const stateBytes = (testApi: APIRequestContext, node: string) =>
 export const logId = (testApi: APIRequestContext, node: string) =>
 	callTestHook<string>(testApi, "log_id", node);
 
+/** Age a document's edit rows past the evidence window and queue its trimming. */
+export const trimNow = (testApi: APIRequestContext, node: string) =>
+	callTestHook<CollabState>(testApi, "trim_now", node);
+
+/** The rev through which a document's edit rows may be gone. */
+export const trimmedRev = (testApi: APIRequestContext, node: string) =>
+	callTestHook<number>(testApi, "trimmed_rev", node);
+
 /** Hold a document for an admin; `why` is the judge's cause, and `bad_checkpoint` puts the whole document in question. */
 export async function holdDocument(
 	testApi: APIRequestContext,

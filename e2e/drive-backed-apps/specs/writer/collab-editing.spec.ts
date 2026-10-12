@@ -8,6 +8,8 @@ import {
 	expectSaved,
 	openForCollab,
 	serverBlocks,
+	trimmedRev,
+	trimNow,
 	typeParagraph,
 } from "../../helpers/collab";
 import { discardNode } from "../../helpers/drive";
@@ -195,6 +197,39 @@ test.describe("Writer collaboration", () => {
 			node,
 			[owner.page, collaborator.page],
 			["Typed while offline", "Typed while the other tab was offline"],
+			60_000,
+		);
+	});
+
+	test("a tab offline while the rows it missed are trimmed rebuilds and keeps its own edit", async ({
+		owner,
+		collaborator,
+		testApi,
+	}) => {
+		// A failed pull retries after up to 30 s, so reconnecting can take that long
+		test.setTimeout(120_000);
+		await openWriterDocument(owner.page, node);
+		await openWriterDocument(collaborator.page, node);
+
+		await collaborator.context.setOffline(true);
+		await typeParagraph(collaborator.page, "Typed while offline");
+		await typeParagraph(owner.page, "First line the other tab missed");
+		await expectSaved(owner.page);
+		await typeParagraph(owner.page, "Second line the other tab missed");
+		await expectSaved(owner.page);
+		const compacted = await compactNow(testApi, node);
+		await trimNow(testApi, node);
+		await expect
+			.poll(() => trimmedRev(testApi, node), { timeout: 30_000 })
+			.toBe(compacted.body_rev - 1);
+
+		await collaborator.context.setOffline(false);
+
+		await expectConverged(
+			testApi,
+			node,
+			[owner.page, collaborator.page],
+			["Typed while offline", "First line the other tab missed", "Second line the other tab missed"],
 			60_000,
 		);
 	});

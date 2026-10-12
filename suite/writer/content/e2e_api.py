@@ -7,7 +7,7 @@ import pycrdt
 from frappe.tests.utils import whitelist_for_tests
 
 from suite.suite_core import content
-from suite.suite_core.content import compaction, documents, quarantine, scheduling, suspect
+from suite.suite_core.content import compaction, documents, quarantine, scheduling, suspect, trimming
 from suite.suite_core.content.adapters import node_hooks
 from suite.suite_core.content.tables import KINDS, table
 from suite.writer import content as writer_content
@@ -46,6 +46,32 @@ def compact_now(node: str) -> dict:
     doc_id = find_log(node)["id"]
     documents.compact(writer_content.ADAPTER, doc_id)
     return state(node)
+
+
+@whitelist_for_tests(methods=["POST"])
+def trim_now(node: str) -> dict:
+    """Age `node`'s edit rows past the evidence window and queue its trimming, as the hourly run would."""
+    doc_id = find_log(node)["id"]
+    frappe.db.sql(
+        f"""UPDATE `{table(writer_content.ADAPTER, "update")}`
+        SET `created` = `created` - INTERVAL 25 HOUR WHERE `doc_id` = %s""",
+        doc_id,
+    )
+    frappe.db.commit()
+    frappe.enqueue(
+        trimming.trim,
+        queue="long",
+        adapter=writer_content.ADAPTER,
+        doc_id=doc_id,
+        roots=writer_content.ROOTS,
+        bundle=writer_content.KERNEL,
+    )
+    return state(node)
+
+
+@whitelist_for_tests(methods=["GET", "POST"])
+def trimmed_rev(node: str) -> int:
+    return int(find_log(node)["trimmed_rev"])
 
 
 @whitelist_for_tests(methods=["POST"])
