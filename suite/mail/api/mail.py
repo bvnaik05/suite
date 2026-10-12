@@ -43,6 +43,7 @@ from suite.mail.doctype.mail_message.mail_message import (
     set_spam_status,
     set_unscreened_status,
     try_move_messages,
+    try_set_seen,
 )
 from suite.mail.doctype.mail_queue.mail_queue import MailQueue
 from suite.mail.doctype.mailbox.mailbox import add_mailbox, delete_mailboxes, fetch_mailboxes
@@ -722,8 +723,11 @@ def clear_list(
                 ]:
                     taken.update(ids)
                     if read:
-                        set_seen_status(account_id, ids, True)
-                        done["ids"].extend(ids)
+                        # Only what the server marked read counts, so Undo marks unread nothing else.
+                        changed, complete = try_set_seen(account_id, ids, True)
+                        done["ids"].extend(changed)
+                        if not complete:
+                            raise frappe.ValidationError(_("Not all mail could be marked as read."))
                         continue
                     before = get_messages_mailboxes(account_id, ids)
                     moved, complete = try_move_messages(

@@ -861,7 +861,9 @@ class ClearingAList(unittest.TestCase):
             mock.patch.object(
                 mail_api, "query_message_ids", side_effect=lambda *_: {"ids": next(answers)}
             ) as query,
-            mock.patch.object(mail_api, "set_seen_status") as seen,
+            mock.patch.object(
+                mail_api, "try_set_seen", side_effect=lambda _account, ids, _seen: (ids, True)
+            ) as seen,
             mock.patch.object(
                 mail_api, "try_move_messages", side_effect=lambda _account, ids, _mailbox: (ids, True)
             ) as move,
@@ -891,6 +893,21 @@ class ClearingAList(unittest.TestCase):
         seen.assert_called_once_with(ACCOUNT, ["m1", "m2"], True)
         move.assert_not_called()
         self.assertEqual(returned, {"cleared": [{"account": ACCOUNT, "ids": ["m1", "m2"]}], "failed": []})
+
+    def test_undo_covers_only_the_mail_a_failed_read_did_read(self):
+        reads = iter([(["m1"], True), (["m2"], False)])
+        with (
+            mock.patch.object(
+                mail_api, "query_message_ids", side_effect=iter([{"ids": ["m1"]}, {"ids": ["m2", "m3"]}])
+            ),
+            mock.patch.object(mail_api, "try_set_seen", side_effect=lambda *_: next(reads)),
+        ):
+            returned = mail_api.clear_list("read", account=ACCOUNT, mailbox="inbox", category="updates")
+
+        # m3 stayed unread, so it isn't reported cleared, and Undo won't mark it unread.
+        self.assertEqual(
+            returned, {"cleared": [{"account": ACCOUNT, "ids": ["m1", "m2"]}], "failed": [ACCOUNT]}
+        )
 
     def test_archive_all_archives_the_tabs_mail_and_says_where_it_was(self):
         filter, returned, seen, move = self.cleared("archive", ["m1"], category="forums")
@@ -1024,8 +1041,8 @@ class ClearingAList(unittest.TestCase):
         batches = {"a": iter([["a-1"], []]), "b": iter([["b-1"], ["b-2"]])}
 
         def mark(account, ids, _seen):
-            if ids == ["b-2"]:
-                frappe.throw("Failed to set seen status.")
+            # b's second batch reads nothing before failing.
+            return ([], False) if ids == ["b-2"] else (ids, True)
 
         with (
             mock.patch.object(
@@ -1037,7 +1054,7 @@ class ClearingAList(unittest.TestCase):
             mock.patch.object(
                 mail_api, "query_message_ids", side_effect=lambda account, *_: {"ids": next(batches[account])}
             ),
-            mock.patch.object(mail_api, "set_seen_status", side_effect=mark),
+            mock.patch.object(mail_api, "try_set_seen", side_effect=mark),
         ):
             returned = mail_api.clear_list("read", folder="inbox", category="updates")
 

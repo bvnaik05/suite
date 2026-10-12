@@ -1182,6 +1182,40 @@ def remove_messages_from_mailbox(account: str, ids: list[str], mailbox_id: str) 
         frappe.throw(_("Failed to remove mail(s) from mailbox."))
 
 
+def _cache_seen(account: str, ids: list[str], seen: bool) -> None:
+    """Bring the cached copies of these messages in line with their new seen status."""
+
+    messages_to_cache = {}
+    for message_id, message in _get_cached_messages(account, ids).items():
+        if message:
+            keywords = json.loads(message["keywords"])
+            keywords["$seen"] = bool(seen)
+
+            message["seen"] = cint(seen)
+            message["keywords"] = json.dumps(keywords, indent=4)
+
+            messages_to_cache[message_id] = message
+
+    if messages_to_cache:
+        _cache_messages(account, messages_to_cache)
+
+
+def try_set_seen(account: str, ids: list[str], seen: bool = True) -> tuple[list[str], bool]:
+    """Sets the seen status of messages as far as the server will, returning those it changed and
+    whether that was all of them: a failure part way still says what it had already changed."""
+
+    emails = [{"id": id, "keywords": {"$seen": seen}} for id in ids]
+    try:
+        result = _update_emails(account, emails, replace_keywords=False)
+        complete = not result.not_updated
+    except Exception as e:
+        log_mail_error(_("Failed to set seen status for mail(s)"), frappe.get_traceback(with_context=True))
+        result, complete = getattr(e, "applied", None) or SetResult(), False
+    changed = [id for id in ids if id in result.updated]
+    _cache_seen(account, changed, seen)
+    return changed, complete
+
+
 def set_seen_status(account: str, ids: list[str], seen: bool = True) -> None:
     """Set the seen status for messages."""
 
@@ -1191,20 +1225,7 @@ def set_seen_status(account: str, ids: list[str], seen: bool = True) -> None:
     try:
         emails = [{"id": id, "keywords": {"$seen": seen}} for id in ids]
         _update_emails(account, emails, replace_keywords=False)
-
-        messages_to_cache = {}
-        for message_id, message in _get_cached_messages(account, ids).items():
-            if message:
-                keywords = json.loads(message["keywords"])
-                keywords["$seen"] = bool(seen)
-
-                message["seen"] = cint(seen)
-                message["keywords"] = json.dumps(keywords, indent=4)
-
-                messages_to_cache[message_id] = message
-
-        if messages_to_cache:
-            _cache_messages(account, messages_to_cache)
+        _cache_seen(account, ids, seen)
 
     except Exception:
         log_mail_error(
