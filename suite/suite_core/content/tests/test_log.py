@@ -34,7 +34,7 @@ class TestParsePush(UnitTestCase):
         parsed, payload = parse_push(pushed)
 
         expected_sha = hashlib.sha256(b"\x01").digest()
-        self.assertEqual(parsed["shas"], [expected_sha])
+        self.assertEqual(parsed.shas, [expected_sha])
         self.assertEqual(payload, b"\x01")
 
     def test_malformed_pushes_are_refused_before_anything_is_read(self):

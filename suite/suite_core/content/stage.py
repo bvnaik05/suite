@@ -158,7 +158,7 @@ def refresh_expiry(adapter: str, doc_id: str, stage_id: str) -> None:
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
-def assemble(adapter: str, doc_id: str, stage_id: str, header: dict) -> bytes:
+def assemble(adapter: str, doc_id: str, stage_id: str, sid: str, seq_from: int, seq_to: int) -> bytes:
     """The staged change the push names, whole and checked. A stage whose bytes are wrong is dropped
     so the tab can stage it again; one that only lacks pieces keeps them."""
     rows = frappe.db.sql(
@@ -171,11 +171,7 @@ def assemble(adapter: str, doc_id: str, stage_id: str, header: dict) -> bytes:
         raise Incomplete
 
     first_piece = rows[0]
-    if (first_piece.sid, first_piece.seq_from, first_piece.seq_to) != (
-        header["sid"],
-        header["from"],
-        header["to"],
-    ):
+    if (first_piece.sid, first_piece.seq_from, first_piece.seq_to) != (sid, seq_from, seq_to):
         raise Conflict
 
     expected_indexes = list(range(piece_count(first_piece.total_len)))

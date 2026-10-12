@@ -8,7 +8,7 @@ from frappe.utils import now_datetime
 from suite.suite_core.content.log import Refusal
 from suite.suite_core.content.snapshot import start_clocks
 from suite.suite_core.content.tables import table
-from suite.suite_core.content.wire import busy_refusal
+from suite.suite_core.content.wire import PushHeader, busy_refusal
 
 CLIENT_ID_MAX = 2**30
 
@@ -26,13 +26,13 @@ def load_session(adapter: str, doc_id: str, sid: str, principal: str):
     return rows[0] if rows else None
 
 
-def session_for(adapter: str, doc_id: str, header: dict, principal: str):
+def session_for(adapter: str, doc_id: str, header: PushHeader, principal: str):
     """The pushing session, refused unless it is this principal's, bound to this clientID and open."""
-    session = load_session(adapter, doc_id, header["sid"], principal)
+    session = load_session(adapter, doc_id, header.sid, principal)
     if session is None:
         raise Refusal(409, "session_unknown")
 
-    if int(session.client_id) != header["cid"]:
+    if int(session.client_id) != header.client_id:
         raise Refusal(409, "client_conflict")
 
     if session.closed:

@@ -4,6 +4,7 @@ import json
 import secrets
 import struct
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import frappe
 
@@ -13,6 +14,23 @@ from suite.suite_core.content.log import Refusal
 
 PROTOCOL_VERSION = 1
 PACE_MS = 500
+
+
+@dataclass(frozen=True)
+class PushHeader:
+    lineage: str
+    sid: str
+    seq_from: int
+    seq_to: int
+    client_id: int
+    seen_rev: int
+    schema: int
+    shas: list[bytes]
+    # Set when the change was staged in pieces, which the push itself carries none of
+    stage_id: str | None
+    is_final: bool
+    # Who the tab says it is, checked against the signed-in user; unchecked JSON
+    principal: object
 
 
 def busy_refusal() -> Refusal:
@@ -63,7 +81,7 @@ def limits(adapter: str, doc: frappe._dict) -> dict:
     }
 
 
-def parse_push(body: bytes) -> tuple[dict, bytes]:
+def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
     """Split `u32 hlen | header JSON | Yjs update`."""
     if len(body) < 4:
         raise Refusal(400, "malformed")
@@ -121,14 +139,27 @@ def parse_push(body: bytes) -> tuple[dict, bytes]:
         raise Refusal(400, "malformed")
 
     try:
-        header["shas"] = [bytes.fromhex(sha) for sha in header["shas"]]
+        shas = [bytes.fromhex(sha) for sha in header["shas"]]
     except (TypeError, ValueError):
         raise Refusal(400, "malformed") from None
 
-    if any(len(sha) != 32 for sha in header["shas"]):
+    if any(len(sha) != 32 for sha in shas):
         raise Refusal(400, "malformed")
 
-    return header, payload
+    push_header = PushHeader(
+        lineage=header["lineage"],
+        sid=header["sid"],
+        seq_from=header["from"],
+        seq_to=header["to"],
+        client_id=header["cid"],
+        seen_rev=header["seen_rev"],
+        schema=header["schema"],
+        shas=shas,
+        stage_id=header.get("stage_id"),
+        is_final=header.get("final") is True,
+        principal=header.get("principal"),
+    )
+    return push_header, payload
 
 
 def parse_piece(adapter: str, body: bytes, stage_id: str, index_text: str) -> tuple[dict, int, bytes]:

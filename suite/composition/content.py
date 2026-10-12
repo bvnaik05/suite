@@ -205,7 +205,7 @@ def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
 def push_rows(node: str) -> Response:
     body = frappe.request.get_data()
     header, payload = content.parse_push(body)
-    adapter = authorize_node(node, drive.EDIT, header.get("principal"))
+    adapter = authorize_node(node, drive.EDIT, header.principal)
     content.require_enabled(adapter)
     doc = require_log(adapter, node)
     try:
@@ -215,7 +215,7 @@ def push_rows(node: str) -> Response:
             documents.consider_compaction(adapter, doc.id, refused=True)
         raise
     documents.touch(adapter, doc.id)
-    final_from = header["sid"] if header.get("final") is True else None
+    final_from = header.sid if header.is_final else None
     documents.consider_compaction(adapter, doc.id, final_from=final_from)
     return json_response(200, answer)
 
