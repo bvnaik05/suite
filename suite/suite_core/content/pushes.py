@@ -15,6 +15,7 @@ import hashlib
 import json
 import secrets
 from collections.abc import Iterator
+from datetime import datetime
 
 import frappe
 import pycrdt
@@ -23,7 +24,7 @@ from frappe.utils.background_jobs import get_redis_conn
 from redis.exceptions import RedisError
 
 from suite.suite_core.content import admission, capacity, ingest, live, stage, updates
-from suite.suite_core.content.adapters import spec_of
+from suite.suite_core.content.adapters import ContentAdapterSpec, spec_of
 from suite.suite_core.content.log import Refusal, chain_next
 from suite.suite_core.content.sessions import load_session, session_for
 from suite.suite_core.content.snapshot import start_clocks
@@ -121,38 +122,37 @@ def assembled_payload(adapter: str, doc_id: str, header: dict) -> bytes:
         raise Refusal(409, "stage_incomplete") from None
 
 
-def push(adapter: str, doc_id: str, header: dict, payload: bytes, principal: str) -> dict:
-    """Commit one session's contiguous seq range as the next rev, or refuse it."""
-    spec = spec_of(adapter)
-    schema = spec.schema
+def replay_unlocked(adapter: str, doc_id: str, header: dict, principal: str) -> dict | None:
     session = session_for(adapter, doc_id, header, principal)
     head = frappe.db.sql(f"SELECT `head_rev` FROM `{table(adapter, 'doc')}` WHERE `id` = %s", doc_id)[0][0]
-    replayed = replay(adapter, doc_id, header, int(session.acked_seq), int(head))
-    if replayed:
-        return replayed
+    return replay(adapter, doc_id, header, int(session.acked_seq), int(head))
 
-    if header["schema"] > schema.version:
-        raise Refusal(423, "upgrading", retry_ms=UPGRADING_RETRY_MS)
 
-    if "stage_id" in header:
-        payload = assembled_payload(adapter, doc_id, header)
-
-    if len(payload) > capacity.edit_max(spec.max_change):
-        raise Refusal(400, "malformed")
-
+def checked_row(payload: bytes, client_id: int) -> ingest.Row:
     try:
-        row = ingest.check_row(payload, header["cid"])
+        return ingest.check_row(payload, client_id)
     except ValueError:
         raise Refusal(400, "malformed") from None
 
-    names_allowed = schema.allows(row.update.names, header["schema"])
-    if not names_allowed or not schema.could_write(row.update):
+
+def admissible_row(spec: ContentAdapterSpec, header: dict, payload: bytes) -> ingest.Row:
+    """The row the push makes, refused when it is too big, unreadable or not the editor's to write."""
+    if len(payload) > capacity.edit_max(spec.max_change):
+        raise Refusal(400, "malformed")
+
+    row = checked_row(payload, header["cid"])
+    names_allowed = spec.schema.allows(row.update.names, header["schema"])
+    if not names_allowed or not spec.schema.could_write(row.update):
         raise Refusal(409, "poison")
 
-    row_bound = capacity.row_bound(row.update, len(payload))
+    return row
+
+
+def locked_doc(adapter: str, doc_id: str, is_final: bool) -> frappe._dict:
+    """The control row under its lock, or `busy` when another push holds it."""
     # The lock must be the first statement of a fresh transaction
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    with lock_clause(adapter, doc_id, header.get("final") is True) as lock:
+    with lock_clause(adapter, doc_id, is_final) as lock:
         try:
             locked_rows = frappe.db.sql(
                 f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
@@ -168,18 +168,130 @@ def push(adapter: str, doc_id: str, header: dict, payload: bytes, principal: str
     if not locked_rows:
         raise busy_refusal()
 
-    doc = locked_rows[0]
+    return locked_rows[0]
+
+
+def check_doc_open(doc: frappe._dict, header: dict) -> None:
+    if doc.mode == "purged":
+        raise Refusal(404, "not_found")
+
+    if header["lineage"] != doc.lineage:
+        raise Refusal(409, "lineage")
+
+    # The rows stay on the device until an admin reviews the document
+    if doc.suspect_held:
+        raise Refusal(423, "paused", reason="suspect", retry_ms=SUSPECT_RETRY_MS)
+
+
+def check_seqs(header: dict, acked: int, head: int) -> None:
+    if header["from"] != acked + 1:
+        raise Refusal(409, "seq", acked=acked)
+
+    if header["seen_rev"] > head:
+        raise Refusal(409, "diverged")
+
+
+def admit_row(
+    adapter: str,
+    doc_id: str,
+    doc: frappe._dict,
+    header: dict,
+    row: ingest.Row,
+    row_bound: int,
+    max_state: int,
+) -> None:
+    """Refuse a row the document has no room for, or one that doesn't continue its writer's clocks."""
     try:
-        if doc.mode == "purged":
-            raise Refusal(404, "not_found")
+        capacity.admit(doc, row.update, row_bound, now_datetime(), max_state)
+    except capacity.Full as full:
+        raise Refusal(423, full.reason, retry_ms=full.retry_ms) from None
 
-        if header["lineage"] != doc.lineage:
-            raise Refusal(409, "lineage")
+    try:
+        ingest.check_closed(adapter, doc_id, row, header["cid"], start_clocks(doc))
+    except ingest.Unclosed as unclosed:
+        raise Refusal(409, unclosed.reason, **unclosed.extra) from None
 
-        # The rows stay on the device until an admin reviews the document
-        if doc.suspect_held:
-            raise Refusal(423, "paused", reason="suspect", retry_ms=SUSPECT_RETRY_MS)
 
+def insert_row(
+    adapter: str,
+    doc_id: str,
+    doc: frappe._dict,
+    header: dict,
+    payload: bytes,
+    row_bound: int,
+    rev: int,
+    now: datetime,
+) -> bytes:
+    """Write the row as `rev` and move the head to it; answers the new chain."""
+    schema_steps = json.loads(doc.schema_steps)
+    if header["schema"] > schema_steps[-1][1]:
+        schema_steps.append([rev, header["schema"]])
+
+    payload_sha = hashlib.sha256(payload).digest()
+    chain = chain_next(bytes(doc.head_chain), rev, payload_sha)
+    frappe.db.sql(
+        f"""INSERT INTO `{table(adapter, "update")}`
+        (`doc_id`, `rev`, `sid`, `seq_from`, `seq_to`, `client_id`, `schema`, `payload`, `bound`, `sha256`, `seq_shas`, `chain`, `created`)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, UNHEX(%s), %s, UNHEX(%s), UNHEX(%s), UNHEX(%s), %s)""",
+        (
+            doc_id,
+            rev,
+            header["sid"],
+            header["from"],
+            header["to"],
+            header["cid"],
+            header["schema"],
+            payload.hex(),
+            row_bound,
+            payload_sha.hex(),
+            b"".join(header["shas"]).hex(),
+            chain.hex(),
+            now,
+        ),
+    )
+    frappe.db.sql(
+        f"""UPDATE `{table(adapter, "doc")}` SET `head_rev` = %s, `head_chain` = UNHEX(%s),
+        `tail_rows` = `tail_rows` + 1, `tail_bytes` = `tail_bytes` + %s, `tail_bound` = `tail_bound` + %s,
+        `schema_steps` = %s WHERE `id` = %s""",
+        (rev, chain.hex(), len(payload), row_bound, json.dumps(schema_steps), doc_id),
+    )
+    return chain
+
+
+def advance_session(
+    adapter: str, doc_id: str, header: dict, row: ingest.Row, session: frappe._dict, now: datetime
+) -> None:
+    next_clock = row.clock_to if row.update.structs else session.next_clock
+    frappe.db.sql(
+        f"""UPDATE `{table(adapter, "session")}` SET `acked_seq` = %s, `next_clock` = %s, `last_push_at` = %s
+        WHERE `doc_id` = %s AND `sid` = %s""",
+        (
+            header["to"],
+            next_clock,
+            now,
+            doc_id,
+            header["sid"],
+        ),
+    )
+
+
+def push(adapter: str, doc_id: str, header: dict, payload: bytes, principal: str) -> dict:
+    """Commit one session's contiguous seq range as the next rev, or refuse it."""
+    spec = spec_of(adapter)
+    replayed = replay_unlocked(adapter, doc_id, header, principal)
+    if replayed:
+        return replayed
+
+    if header["schema"] > spec.schema.version:
+        raise Refusal(423, "upgrading", retry_ms=UPGRADING_RETRY_MS)
+
+    if "stage_id" in header:
+        payload = assembled_payload(adapter, doc_id, header)
+
+    row = admissible_row(spec, header, payload)
+    doc = locked_doc(adapter, doc_id, header.get("final") is True)
+    try:
+        check_doc_open(doc, header)
         session = session_for(adapter, doc_id, header, principal)
         acked = int(session.acked_seq)
         head = int(doc.head_rev)
@@ -190,78 +302,18 @@ def push(adapter: str, doc_id: str, header: dict, payload: bytes, principal: str
 
         if header["from"] <= acked:
             header, payload = unacked_part(header, payload, acked, int(session.next_clock))
-            try:
-                row = ingest.check_row(payload, header["cid"])
-            except ValueError:
-                raise Refusal(400, "malformed") from None
+            row = checked_row(payload, header["cid"])
 
-            row_bound = capacity.row_bound(row.update, len(payload))
-
-        if header["from"] != acked + 1:
-            raise Refusal(409, "seq", acked=acked)
-
-        if header["seen_rev"] > head:
-            raise Refusal(409, "diverged")
-
-        try:
-            capacity.admit(doc, row.update, row_bound, now_datetime(), spec.max_state)
-        except capacity.Full as full:
-            raise Refusal(423, full.reason, retry_ms=full.retry_ms) from None
-
-        try:
-            ingest.check_closed(adapter, doc_id, row, header["cid"], start_clocks(doc))
-        except ingest.Unclosed as unclosed:
-            raise Refusal(409, unclosed.reason, **unclosed.extra) from None
-
+        check_seqs(header, acked, head)
+        row_bound = capacity.row_bound(row.update, len(payload))
+        admit_row(adapter, doc_id, doc, header, row, row_bound, spec.max_state)
         rev = head + 1
-        schema_steps = json.loads(doc.schema_steps)
-        if header["schema"] > schema_steps[-1][1]:
-            schema_steps.append([rev, header["schema"]])
-
-        payload_sha = hashlib.sha256(payload).digest()
-        chain = chain_next(bytes(doc.head_chain), rev, payload_sha)
         now = now_datetime()
-        frappe.db.sql(
-            f"""INSERT INTO `{table(adapter, "update")}`
-            (`doc_id`, `rev`, `sid`, `seq_from`, `seq_to`, `client_id`, `schema`, `payload`, `bound`, `sha256`, `seq_shas`, `chain`, `created`)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, UNHEX(%s), %s, UNHEX(%s), UNHEX(%s), UNHEX(%s), %s)""",
-            (
-                doc_id,
-                rev,
-                header["sid"],
-                header["from"],
-                header["to"],
-                header["cid"],
-                header["schema"],
-                payload.hex(),
-                row_bound,
-                payload_sha.hex(),
-                b"".join(header["shas"]).hex(),
-                chain.hex(),
-                now,
-            ),
-        )
-        frappe.db.sql(
-            f"""UPDATE `{table(adapter, "doc")}` SET `head_rev` = %s, `head_chain` = UNHEX(%s),
-            `tail_rows` = `tail_rows` + 1, `tail_bytes` = `tail_bytes` + %s, `tail_bound` = `tail_bound` + %s,
-            `schema_steps` = %s WHERE `id` = %s""",
-            (rev, chain.hex(), len(payload), row_bound, json.dumps(schema_steps), doc_id),
-        )
+        chain = insert_row(adapter, doc_id, doc, header, payload, row_bound, rev, now)
         if "stage_id" in header:
             stage.drop_stage(adapter, doc_id, header["stage_id"])
 
-        next_clock = row.clock_to if row.update.structs else session.next_clock
-        frappe.db.sql(
-            f"""UPDATE `{table(adapter, "session")}` SET `acked_seq` = %s, `next_clock` = %s, `last_push_at` = %s
-            WHERE `doc_id` = %s AND `sid` = %s""",
-            (
-                header["to"],
-                next_clock,
-                now,
-                doc_id,
-                header["sid"],
-            ),
-        )
+        advance_session(adapter, doc_id, header, row, session, now)
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
     except BaseException:
         frappe.db.rollback()
