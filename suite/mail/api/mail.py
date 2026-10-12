@@ -42,6 +42,7 @@ from suite.mail.doctype.mail_message.mail_message import (
     set_seen_status,
     set_spam_status,
     set_unscreened_status,
+    try_move_messages,
 )
 from suite.mail.doctype.mail_queue.mail_queue import MailQueue
 from suite.mail.doctype.mailbox.mailbox import add_mailbox, delete_mailboxes, fetch_mailboxes
@@ -710,17 +711,23 @@ def clear_list(
                     taken.update(ids)
                     if read:
                         set_seen_status(account_id, ids, True)
-                    else:
-                        # Where each was, for Undo to put it back.
-                        done["mails"].extend(get_messages_mailboxes(account_id, ids))
-                        move_messages_to_mailbox(
-                            account_id,
-                            ids,
-                            get_mailbox_id_by_role(
-                                account_id, action, create_if_not_exists=True, raise_exception=True
-                            ),
-                        )
-                    done["ids"].extend(ids)
+                        done["ids"].extend(ids)
+                        continue
+                    before = get_messages_mailboxes(account_id, ids)
+                    moved, complete = try_move_messages(
+                        account_id,
+                        ids,
+                        get_mailbox_id_by_role(
+                            account_id, action, create_if_not_exists=True, raise_exception=True
+                        ),
+                    )
+                    # Where each moved message was, for Undo to put it back: only the ones moved, so
+                    # Undo never touches mail the clearing left alone.
+                    done["ids"].extend(moved)
+                    moved_ids = set(moved)
+                    done["mails"].extend(m for m in before if m["id"] in moved_ids)
+                    if not complete:
+                        raise frappe.ValidationError(_("Not all mail could be moved."))
         except (MethodError, frappe.ValidationError):
             failed.append(account_id)
         if done["ids"]:

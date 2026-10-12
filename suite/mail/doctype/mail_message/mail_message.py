@@ -27,6 +27,7 @@ from suite.mail.doctype.mail_queue.mail_queue import MailQueue
 from suite.mail.doctype.sieve_script.sieve_script import UNSCREENED_KEYWORD
 from suite.mail.doctype.user_account.user_account import get_user_for_jmap_account
 from suite.mail.jmap import (
+    SetResult,
     SuiteJMAPClient,
     account_view,
     chunked_get,
@@ -985,7 +986,7 @@ def get_message_ids(
 
 def _update_emails(
     account: str, emails: list[dict], replace_keywords: bool = False, replace_mailboxes: bool = False
-) -> None:
+) -> SetResult:
     """Update email keywords/mailboxes, as whole-value replacement or per-key patches."""
 
     payload = {}
@@ -1008,7 +1009,7 @@ def _update_emails(
             raise ValueError("At least one of 'keywords' or 'mailbox_ids' must be provided for update.")
 
     client = get_account_client(account)
-    chunked_set(client, lambda b, chunk: b.mail.email.set(update=chunk), payload)
+    return chunked_set(client, lambda b, chunk: b.mail.email.set(update=chunk), payload)
 
 
 def _delete_emails(account: str, ids: list[str]) -> None:
@@ -1082,6 +1083,22 @@ def move_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> N
             frappe.get_traceback(with_context=True),
         )
         frappe.throw(_("Failed to move mail(s) to mailbox."))
+
+
+def try_move_messages(account: str, ids: list[str], mailbox_id: str) -> tuple[list[str], bool]:
+    """Moves messages to a mailbox as far as the server will, returning those it moved and whether
+    that was all of them: a failure part way still says what it had already moved."""
+
+    emails = [{"id": id, "mailbox_ids": {mailbox_id: True}} for id in ids]
+    try:
+        result = _update_emails(account, emails, replace_mailboxes=True)
+        complete = not result.not_updated
+    except Exception as e:
+        log_mail_error(_("Failed to move mail(s) to mailbox"), frappe.get_traceback(with_context=True))
+        result, complete = getattr(e, "applied", None) or SetResult(), False
+    moved = [id for id in ids if id in result.updated]
+    _remove_cached_messages(account, moved)
+    return moved, complete
 
 
 def set_messages_mailboxes(account: str, mails: list[dict]) -> None:

@@ -841,7 +841,9 @@ class ClearingAList(unittest.TestCase):
                 mail_api, "query_message_ids", side_effect=lambda *_: {"ids": next(answers)}
             ) as query,
             mock.patch.object(mail_api, "set_seen_status") as seen,
-            mock.patch.object(mail_api, "move_messages_to_mailbox") as move,
+            mock.patch.object(
+                mail_api, "try_move_messages", side_effect=lambda _account, ids, _mailbox: (ids, True)
+            ) as move,
             mock.patch.object(
                 mail_api,
                 "get_messages_mailboxes",
@@ -900,6 +902,42 @@ class ClearingAList(unittest.TestCase):
         self.assertFalse(lists(rest, {"category_updates"}))
         move.assert_called_once_with(ACCOUNT, ["m1"], "trash")
         self.assertEqual(returned["cleared"][0]["mails"][0]["id"], "m1")
+
+    def test_undo_covers_only_the_mail_a_failed_move_did_move(self):
+        moves = iter([(["m1"], True), (["m2"], False)])
+        with (
+            mock.patch.object(
+                mail_api, "query_message_ids", side_effect=iter([{"ids": ["m1"]}, {"ids": ["m2", "m3"]}])
+            ),
+            mock.patch.object(mail_api, "try_move_messages", side_effect=lambda *_: next(moves)),
+            mock.patch.object(
+                mail_api,
+                "get_messages_mailboxes",
+                side_effect=lambda _account, ids: [
+                    {"id": id, "mailbox_ids": ["inbox"], "junk": 0} for id in ids
+                ],
+            ),
+            mock.patch.object(mail_api, "get_mailbox_id_by_role", return_value="archive"),
+        ):
+            returned = mail_api.clear_list("archive", account=ACCOUNT, mailbox="inbox", category="updates")
+
+        # m3 was never moved, so Undo leaves it be; the account is reported as not finished.
+        self.assertEqual(
+            returned,
+            {
+                "cleared": [
+                    {
+                        "account": ACCOUNT,
+                        "ids": ["m1", "m2"],
+                        "mails": [
+                            {"id": "m1", "mailbox_ids": ["inbox"], "junk": 0},
+                            {"id": "m2", "mailbox_ids": ["inbox"], "junk": 0},
+                        ],
+                    }
+                ],
+                "failed": [ACCOUNT],
+            },
+        )
 
     def test_a_list_clears_a_batch_at_a_time_until_none_is_left(self):
         _filter, returned, seen, _move = self.cleared("read", ["m1", "m2"], ["m3"], category="updates")
