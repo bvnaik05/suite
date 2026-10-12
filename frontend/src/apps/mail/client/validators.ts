@@ -655,6 +655,15 @@ export const operationUpdatePreferences: Validators<
             title: 'Undo Send Period',
             type: 'string',
           },
+          inbox_tabs: {
+            items: {
+              enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+              type: 'string',
+            },
+            title: 'Inbox Tabs',
+            type: 'array',
+          },
+          split_inbox: { enum: [0, 1], title: 'Split Inbox', type: 'integer' },
         },
         required: [],
         additionalProperties: false,
@@ -1466,6 +1475,8 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
                 title: 'Inbox Tabs',
                 type: 'array',
               },
+              split_inbox: { enum: [0, 1], title: 'Split Inbox', type: 'integer' },
+              email_classification: { title: 'Email Classification', type: 'boolean' },
               is_suite_cloud_configured: { title: 'Is Suite Cloud Configured', type: 'boolean' },
               accounts: {
                 items: { $ref: '#/$defs/UserAccount' },
@@ -1495,6 +1506,8 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'is_jmap_configured',
               'max_attachment_size',
               'inbox_tabs',
+              'split_inbox',
+              'email_classification',
               'is_suite_cloud_configured',
               'accounts',
             ],

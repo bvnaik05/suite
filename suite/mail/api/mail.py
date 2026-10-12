@@ -294,7 +294,7 @@ def get_threads(
     if filter_by in filter_map and not (mailbox == "starred" and filter_by == "starred"):
         conditions.append(filter_map[filter_by])
     if category:
-        conditions.append(tab_filter(validate_tab(category)))
+        conditions.append(tab_filter(validate_tab(category), classification.inbox_tabs()))
 
     if len(conditions) == 1:
         filter = conditions[0]
@@ -575,7 +575,7 @@ def count_unread_by_tab(account: str, mailboxes: list[str]) -> dict[Category, in
             tab: b.mail.email.query(
                 filter={
                     "operator": "AND",
-                    "conditions": [in_mailboxes, {"notKeyword": "$seen"}, tab_filter(tab)],
+                    "conditions": [in_mailboxes, {"notKeyword": "$seen"}, tab_filter(tab, tabs)],
                 },
                 collapseThreads=True,
                 calculate_total=True,

@@ -45,6 +45,9 @@ class UserInfo(TypedDict):
     is_jmap_configured: bool
     max_attachment_size: int
     inbox_tabs: list[Literal["primary", "updates", "forums", "promotions", "social"]]
+    split_inbox: Flag
+    # Whether the site sorts mail into categories at all, so whether there is a choice of tabs to offer.
+    email_classification: bool
     is_suite_cloud_configured: bool
     accounts: list[UserAccount]
 

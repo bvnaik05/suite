@@ -760,3 +760,54 @@ class InboxTabs(unittest.TestCase):
                 {"category": "social", "unread_threads": 0},
             ],
         )
+
+
+class ChosenInboxTabs(unittest.TestCase):
+    """Each person picks which categories get a tab; a category without one keeps its mail in Primary."""
+
+    def setUp(self):
+        for patch in (
+            mock.patch.object(classification, "is_enabled", return_value=True),
+            mock.patch.object(classification, "chosen_tabs", return_value=(True, classification.INBOX_TABS)),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def choose(self, tabs: list[str], split: bool = True):
+        classification.chosen_tabs.return_value = (split, classification.normalize_tabs(tabs))
+
+    def test_someone_who_never_chose_has_every_category(self):
+        self.assertEqual(
+            [tab.value for tab in classification.inbox_tabs()],
+            ["primary", "updates", "forums", "promotions", "social"],
+        )
+
+    def test_the_tabs_follow_their_own_order_with_primary_first(self):
+        self.choose(["social", "updates"])
+        self.assertEqual([tab.value for tab in classification.inbox_tabs()], ["primary", "updates", "social"])
+
+    def test_no_category_or_primary_alone_is_no_split(self):
+        for chosen in ([], ["primary"]):
+            with self.subTest(chosen=chosen):
+                self.choose(chosen)
+                self.assertEqual(classification.inbox_tabs(), ())
+
+    def test_a_category_turned_off_keeps_its_mail_in_primary(self):
+        self.choose(["updates"])
+        primary = classification.tab_filter(Category.PRIMARY, classification.inbox_tabs())
+
+        self.assertTrue(lists(primary, {"category_promotions"}))
+        self.assertFalse(lists(primary, {"category_updates"}))
+
+    def test_turning_the_split_off_only_hides_it(self):
+        self.choose(["updates", "social"], split=False)
+        self.assertEqual([tab.value for tab in classification.inbox_tabs()], ["primary", "updates", "social"])
+
+    def test_a_tab_turned_off_is_refused(self):
+        self.choose(["updates"])
+        with self.assertRaises(frappe.ValidationError):
+            mail_api.validate_tab("promotions")
+
+    def test_a_name_that_is_no_category_is_refused(self):
+        with self.assertRaises(frappe.ValidationError):
+            classification.normalize_tabs(["updates", "newsletters"])

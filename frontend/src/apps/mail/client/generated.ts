@@ -196,6 +196,8 @@ export type UpdatePreferencesInput = {
   group_messages_by?: ('None' | 'Day' | 'Month') | null
   show_reading_pane?: 0 | 1
   undo_send_period?: '5' | '10' | '20' | '30'
+  inbox_tabs?: Array<'primary' | 'updates' | 'forums' | 'promotions' | 'social'>
+  split_inbox?: 0 | 1
 }
 
 export type UpdatePreferencesOutput = null
@@ -784,6 +786,8 @@ export type GetUserInfoOutputUserInfo = {
   is_jmap_configured: boolean
   max_attachment_size: number
   inbox_tabs: Array<'primary' | 'updates' | 'forums' | 'promotions' | 'social'>
+  split_inbox: 0 | 1
+  email_classification: boolean
   is_suite_cloud_configured: boolean
   accounts: Array<GetUserInfoOutputUserAccount>
 }

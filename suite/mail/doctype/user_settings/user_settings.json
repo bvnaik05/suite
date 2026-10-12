@@ -28,7 +28,9 @@
   "column_break_cxak",
   "show_reading_pane",
   "compose_section",
-  "undo_send_period"
+  "undo_send_period",
+  "split_inbox",
+  "inbox_tabs"
  ],
  "fields": [
   {
@@ -207,6 +209,19 @@
    "label": "Undo Send Period",
    "options": "5\n10\n20\n30",
    "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Whether the Inbox is split into tabs by category. Off, it is one list, and the choice of tabs is kept for when it is on again.",
+   "fieldname": "split_inbox",
+   "fieldtype": "Check",
+   "label": "Split Inbox into Categories"
+  },
+  {
+   "description": "The categories the Inbox is split into, in the order of their tabs. Unset for every category.",
+   "fieldname": "inbox_tabs",
+   "fieldtype": "JSON",
+   "label": "Inbox Tabs"
   }
  ],
  "grid_page_length": 50,
@@ -218,7 +233,7 @@
    "link_fieldname": "user_settings"
   }
  ],
- "modified": "2026-09-17 12:30:00.000000",
+ "modified": "2026-10-12 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Mail",
  "name": "User Settings",
