@@ -335,11 +335,12 @@ afterEach(async () => {
 
 let signedIn = 'a@x.com'
 
-// An app whose editor writes schema `schema`, draws a position as it came and renders nothing
+// An app whose editor writes schema `schema`, draws a position as it came, and renders and binds nothing
 const adapterAt = (schema: number) => ({
   features: { schema },
   position: (raw: unknown) => raw as object,
   render: () => ({ html: '', text: '' }),
+  bind: () => null,
 })
 
 async function join(endpoints: CollabEndpoints, extra: Partial<OpenOptions> = {}) {

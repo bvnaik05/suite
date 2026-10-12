@@ -31,13 +31,15 @@ export interface CollabEndpoints {
 
 // What an app declares in the browser. The layer gives the rest: room opening, sync, the device store,
 // offline and signed-out state, and who is here
-export interface ContentAdapter {
+export interface ContentAdapter<Binding = unknown> {
   // The features file the server's fast check reads; its schema stamps every push
   features: { schema: number }
   // A peer's position, kept to what the app draws, or null when it is not one
   position(raw: unknown): object | null
   // The readable copy search, export, preview and publishing use
   render(doc: Y.Doc): { html: string; text: string }
+  // What ties the app's editor to a room's document and draws its peers
+  bind(room: CollabRoom): Binding
 }
 
 export interface OpenOptions {

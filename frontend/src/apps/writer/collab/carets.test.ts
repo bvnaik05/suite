@@ -1,6 +1,5 @@
-import type { Peer } from '@suite/collab-client'
+import type { CollabRoom, Peer } from '@suite/collab-client'
 import { Editor, type EditorOptions } from '@tiptap/core'
-import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
@@ -9,7 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-import { caretPosition, Carets, peopleOf } from './carets'
+import { writerAdapter } from './adapter'
+import { caretPosition, peopleOf } from './carets'
 
 const searchUsers = vi.hoisted(() => vi.fn())
 vi.mock('@/apps/writer/drive', () => ({ searchUsers }))
@@ -37,8 +37,7 @@ function openEditor() {
       Document,
       Paragraph,
       Text,
-      Collaboration.configure({ document: doc }),
-      Carets.configure({ presence }),
+      ...writerAdapter.bind({ doc, presence } as unknown as CollabRoom),
     ],
   }
   const editor = new Editor(editorOptions)
@@ -184,6 +183,12 @@ describe('Writer carets', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect([typing, still, isLabelIdle(editor)]).toEqual([false, true, false])
+  })
+
+  it('binds the editor to the document’s body', () => {
+    const { doc } = openEditor()
+
+    expect(doc.getXmlFragment('default').toString()).toBe('<paragraph>hello</paragraph>')
   })
 
   it('reads a caret as a pair of relative positions, and nothing else', () => {

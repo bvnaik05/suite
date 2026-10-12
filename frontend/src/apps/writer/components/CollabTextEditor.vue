@@ -19,13 +19,13 @@
 
 <script setup lang="ts">
 import type { CollabRoom } from '@suite/collab-client'
-import Collaboration from '@tiptap/extension-collaboration'
 import { toast } from 'frappe-ui'
 import { computed, onBeforeUnmount, provide, ref, shallowRef } from 'vue'
 import * as Y from 'yjs'
 
-import { BODY_FIELD, withinTenSeconds } from '@/apps/writer/collab'
-import { Carets, peopleOf } from '@/apps/writer/collab/carets'
+import { withinTenSeconds } from '@/apps/writer/collab'
+import { writerAdapter } from '@/apps/writer/collab/adapter'
+import { peopleOf } from '@/apps/writer/collab/carets'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
 
 import CoreEditor from './CoreEditor.vue'
@@ -58,8 +58,7 @@ defineExpose({ editor, peers })
 const comments = new Y.Doc().getMap('comments')
 
 const extensions = [
-  Collaboration.configure({ document: props.room.doc, field: BODY_FIELD }),
-  Carets.configure({ presence }),
+  ...writerAdapter.bind(props.room),
   PasteSizeGuard.configure({
     limits: () => props.room.limits,
     atLimit: () => props.room.atLimit,
