@@ -44,6 +44,14 @@ export async function listCopies(node?: string): Promise<RecoveryCopy[]> {
   return copies.sort((first, second) => second.savedAt.getTime() - first.savedAt.getTime())
 }
 
+/** How many copies this device keeps, without reading them. */
+export async function countCopies() {
+  const store = await writerDeviceStore()
+  const records = (await store?.allRecovery().catch(() => [])) ?? []
+  const pageKeys = Object.keys(localStorage).filter((key) => key.startsWith(PAGE_PREFIX))
+  return records.length + pageKeys.length
+}
+
 export async function discardCopy(copy: RecoveryCopy) {
   if (!copy.key.startsWith(STORE_PREFIX)) {
     localStorage.removeItem(copy.key)

@@ -54,4 +54,10 @@ export const routes: RouteRecordRaw[] = [
     props: { destination: 'trash' },
     meta: meta('Trash'),
   },
+  {
+    path: 'unsaved-work',
+    name: 'files-unsaved-work',
+    component: () => import('./UnsavedWorkPage.vue'),
+    meta: meta('Unsaved work'),
+  },
 ]

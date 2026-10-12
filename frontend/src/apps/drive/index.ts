@@ -73,6 +73,7 @@ export { formatModified as formatDriveListingDate } from '@/apps/drive/files/int
 
 /** A server stamp (RFC 3339 in UTC, Drive spec §11.3) as a full date and time in the viewer's zone. */
 export { formatDate as formatDriveDateTime } from '@/apps/drive/files/internal/format'
+export { formatBytes as formatDriveBytes } from '@/apps/drive/files/internal/format'
 
 export type { DriveNotification } from '@/apps/drive/client/notifications'
 

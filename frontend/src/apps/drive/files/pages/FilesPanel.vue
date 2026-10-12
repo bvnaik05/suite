@@ -30,6 +30,12 @@
         route="/drive/trash"
         :active="current === 'trash' || undefined"
       />
+      <SidebarItem
+        v-if="unsavedCount"
+        label="Unsaved work"
+        icon="lucide-hard-drive"
+        route="/drive/unsaved-work"
+      />
     </SidebarSection>
     <AreaSidebarFooter>
       <StorageMeter />
@@ -39,15 +45,19 @@
 
 <script setup lang="ts">
 import { SidebarItem, SidebarSection } from 'frappe-ui'
-import { computed } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { api, useQuery } from '@/api'
 import StorageMeter from '@/apps/drive/files/features/StorageMeter.vue'
 import { locationOf, type FilesLocation } from '@/apps/drive/files/internal/locations'
 import { AreaSidebarFooter } from '@/platform/area-sidebar'
+import { DOCUMENT_TYPES_KEY } from '@/platform/contracts'
 
 const route = useRoute()
+const documentTypes = inject(DOCUMENT_TYPES_KEY, [])
+// Work kept on this device that never reached the server, read again on each page
+const unsavedCount = ref(0)
 const discovered = useQuery(api.drive.roots.list, {})
 const folderId = computed(() =>
   route.name === 'files-folder' ? String(route.params.node ?? '') : '',
@@ -66,4 +76,11 @@ const current = computed<FilesLocation | 'trash' | null>(() => {
   if (folder.data.state === 'Trashed') return 'trash'
   return locationOf(folder.data, discovered.data)
 })
+
+async function countUnsaved() {
+  const counts = await Promise.all(documentTypes.map((type) => type.countUnsavedWork?.() ?? 0))
+  unsavedCount.value = counts.reduce((sum, count) => sum + count, 0)
+}
+
+watch(() => route.fullPath, countUnsaved, { immediate: true })
 </script>

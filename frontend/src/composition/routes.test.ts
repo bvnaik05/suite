@@ -20,6 +20,7 @@ describe('canonical route metadata', () => {
       '/drive/starred',
       '/drive/shared-with-me',
       '/drive/trash',
+      '/drive/unsaved-work',
       '/mail/:pathMatch(.*)*',
       '/calendar/:pathMatch(.*)*',
       '/people/:pathMatch(.*)*',

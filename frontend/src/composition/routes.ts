@@ -62,6 +62,11 @@ export const canonicalRoutes: RouteRecordRaw[] = [
     areaMeta('files', 'Shared with me'),
   ),
   placeholder('/drive/trash', 'area-placeholder-files-trash', areaMeta('files', 'Trash')),
+  placeholder(
+    '/drive/unsaved-work',
+    'area-placeholder-files-unsaved-work',
+    areaMeta('files', 'Unsaved work'),
+  ),
   // Mail owns its phone chrome by default: an open thread and the composer are
   // full screen. Its list pages ask the shell for its chrome through
   // `useShellPhoneChrome`. The area group copies this metadata, so every Mail

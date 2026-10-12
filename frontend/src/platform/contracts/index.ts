@@ -61,6 +61,10 @@ export interface DocumentTypeDefinition {
   icon: Component
   /** Lazy document surface. It receives the prop `session: DocumentSession`. */
   loadSurface: () => Promise<Component>
+  /** Lazy list of this type's work kept on this device that never reached the server. */
+  loadUnsavedWork?: () => Promise<Component>
+  /** How many such copies this device keeps, without loading the list. */
+  countUnsavedWork?: () => Promise<number>
 }
 
 /**

@@ -5,6 +5,7 @@ import { writerDeviceStore } from '@/apps/writer/collab'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 
 import {
+  countCopies,
   discardCopy,
   downloadCopy,
   keepPageCopy,
@@ -60,6 +61,7 @@ describe('Writer recovery copies', () => {
       'node-1',
       'node-2',
     ])
+    expect(await countCopies()).toBe(3)
   })
 
   it('keeps a copy from before page loads were told apart', async () => {
