@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 
 import { classifyRefusal, isDisabled } from './access'
 import { readReply } from './answers'
-import { decodeFrame, type PullHeader, type Row } from './frames'
+import { decodeFrame, parseHeld, type PullHeader, type Row } from './frames'
 import type { Opening } from './opening'
 import { REMOTE } from './origins'
 import type { Room } from './room'
@@ -116,7 +116,7 @@ export class Puller {
       return room.markNeedsRebuild()
     }
 
-    room.setHeld(header.held ?? null)
+    room.setHeld(parseHeld(header.held))
     if (!room.follow(header.schema)) return
 
     if (room.suspect.isJudging) {

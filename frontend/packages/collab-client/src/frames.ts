@@ -46,7 +46,16 @@ export interface PullHeader extends DocumentHeader {
   judged?: number
   verdict?: string
   // The document waits for an admin: `change` for one change, `bad_checkpoint` for its saved content
-  held?: Held
+  held?: unknown
+}
+
+// Any held reason other than `bad_checkpoint` is a held change
+export function parseHeld(held: unknown): Held | null {
+  if (!held) {
+    return null
+  }
+
+  return held === 'bad_checkpoint' ? 'bad_checkpoint' : 'change'
 }
 
 // One session's seqs `from` through `to`, as one change
