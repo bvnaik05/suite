@@ -1,6 +1,6 @@
 <template>
-  <!-- The icon shows the layout you are in, not the click: the pane open beside the
-	     list while the split is up, closed against it once the list runs full width.
+  <!-- The icon shows the layout you are in, not the click: the reading pane open on the
+	     list's right while the split is up, closed once the list runs full width.
 	     The tooltip is the half that says what the click does. -->
   <Button
     variant="ghost"
@@ -8,14 +8,14 @@
     @click="toggleReadingPane()"
   >
     <template #icon>
-      <component :is="showReadingPane ? PanelLeftOpen : PanelLeftClose" class="icon" />
+      <component :is="showReadingPane ? PanelRight : PanelRightClose" class="icon" />
     </template>
   </Button>
 </template>
 
 <script setup lang="ts">
 import { Button } from 'frappe-ui'
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next'
+import { PanelRight, PanelRightClose } from 'lucide-vue-next'
 
 import { useReadingPane, useToggleReadingPane } from '@/apps/mail/utils/composables'
 
