@@ -153,6 +153,31 @@ describe('collab room on a device', () => {
     expect(text(await join(server.endpoints(), { device: kept }))).toBe('')
   })
 
+  it('a closed tab’s work refused to the next tab is kept as a copy that reads with the text it was typed on', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const kept = await device()
+    const first = await join(server.endpoints(), { device: kept })
+    first.doc.getText('t').insert(0, 'base')
+    await first.flush()
+    await first.close()
+    server.access.online = false
+    const offline = await join(server.endpoints(), { device: kept })
+    offline.doc.getText('t').insert(4, ' mine')
+    await vi.advanceTimersByTimeAsync(0)
+    await offline.close()
+    server.sessions.set('taken', { cid: offline.doc.clientID, acked: 0, shas: [] })
+
+    server.access.online = true
+    await join(server.endpoints(), { device: kept })
+    await idle()
+
+    const [record] = await kept.store.recovery('D')
+    const readable = new Y.Doc()
+    Y.applyUpdate(readable, record.state!)
+    expect([record.reason, readable.getText('t').toString()]).toEqual(['id_clash', 'base mine'])
+  })
+
   it('a clash keeps only the clashing tab’s work aside; another tab’s unsent work is still committed', async () => {
     fakeTime()
     const server = fakeServer()
@@ -305,6 +330,29 @@ describe('collab room on a device', () => {
       'seq_conflict',
     ])
     expect(text(await join(server.endpoints(), { device: kept }))).toBe('')
+  })
+
+  it('a refused tab keeps one copy that reads as the whole document under its title, late typing included', async () => {
+    const server = fakeServer()
+    const kept = { ...(await device()), title: () => 'Plan' }
+    const room = await join(server.endpoints(), { device: kept })
+    room.doc.getText('t').insert(0, 'saved')
+    await room.flush()
+    server.access.refuse = reply(409, { collab: 'seq_conflict' })
+
+    room.doc.getText('t').insert(5, ' refused')
+    await room.flush()
+    room.doc.getText('t').insert(13, ' late')
+    await idle()
+
+    const copies = await kept.store.recovery('D')
+    const readable = new Y.Doc()
+    Y.applyUpdate(readable, copies[0].state!)
+    expect([copies.length, copies[0].title, readable.getText('t').toString()]).toEqual([
+      1,
+      'Plan',
+      'saved refused late',
+    ])
   })
 
   it('a change from a session the server closed is kept aside and the tab asks to be rebuilt', async () => {

@@ -253,10 +253,12 @@ export class Room implements CollabRoom {
     this.stopReason = reason
     if (!this.device) return
 
-    for (const box of this.outboxes) {
-      const stored = box.toStoredEntries(this.device.doc)
-      await this.device.recover(box.sid, reason, stored)
-    }
+    // One copy for the tab, under its own session, holding what it adopted too
+    const boxes = [this.ownOutbox, ...this.outboxes.filter((box) => box !== this.ownOutbox)]
+    const sids = boxes.map((box) => box.sid)
+    const doc = this.device.doc
+    const stored = boxes.flatMap((box) => box.toStoredEntries(doc))
+    await this.device.recover(sids, reason, stored, Y.encodeStateAsUpdate(this.doc))
   }
 
   // Without a device store nothing typed offline would survive the tab, so editing stops until the server answers
@@ -460,7 +462,7 @@ export class Room implements CollabRoom {
 
     const entry = this.ownOutbox.createEntry(update)
     const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
-    void this.device.recover(this.ownOutbox.sid, reason, stored)
+    void this.device.recover([this.ownOutbox.sid], reason, stored, Y.encodeStateAsUpdate(this.doc))
   }
 
   private onVisibilityChange = () => {

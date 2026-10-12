@@ -145,7 +145,7 @@ describe('device store', () => {
     await store.saveSession({ doc: 'D', sid: 's', lineage: 'L', cid: 5, bound: true })
     await store.capture(session('s'), [entry('s', 1, typed('a').update)])
 
-    await store.recover('D', 's', 'id_clash', [entry('s', 2, typed('b').update)])
+    await store.recover('D', ['s'], 'id_clash', [entry('s', 2, typed('b').update)])
 
     const [record] = await store.recovery('D')
     expect([record.reason, record.entries.map((stored) => stored.seq)]).toEqual([
@@ -153,6 +153,20 @@ describe('device store', () => {
       [1, 2],
     ])
     expect([await store.entries('D', 's'), await store.sessions('D')]).toEqual([[], []])
+  })
+
+  it('lists every document’s recovery records until one is discarded', async () => {
+    const store = await freshStore()
+    for (const doc of ['D', 'E']) {
+      await store.saveSession({ ...session('s'), doc })
+      await store.recover(doc, ['s'], 'disabled', [{ ...entry('s', 1, typed('a').update), doc }])
+    }
+
+    const [first, second] = await store.allRecovery()
+    await store.discard(first.id!)
+
+    expect([first.doc, second.doc]).toEqual(['D', 'E'])
+    expect((await store.allRecovery()).map((record) => record.doc)).toEqual(['E'])
   })
 
   it('refuses a second session of the document with the same client id', async () => {

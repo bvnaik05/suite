@@ -29,7 +29,14 @@ export interface DeviceCopy {
   bytes: Uint8Array
 }
 
-export interface RecoveryRecord {
+// The whole document as a tab held it when its work was kept, so the copy reads without the server
+export interface RecoverySnapshot {
+  state: Uint8Array
+  title?: string
+}
+
+// One tab's work that can never be committed. Kept until the person discards it
+export interface RecoveryRecord extends Partial<RecoverySnapshot> {
   id?: number
   doc: string
   sid: string
@@ -59,12 +66,21 @@ export interface DeviceStore {
   // Adds rows up to `rev` to the device copy; a new lineage replaces it
   commit(doc: string, copy: Omit<DeviceCopy, 'bytes'>, bytes: Uint8Array | null): Promise<void>
   copy(doc: string): Promise<DeviceCopy | null>
-  // Moves every remaining entry of the session, plus `extra`, to a recovery record and forgets the session
-  recover(doc: string, sid: string, reason: string, extra?: StoredEntry[]): Promise<void>
+  // Moves every remaining entry of the sessions, plus `extra`, into the first session's recovery record and forgets them
+  recover(
+    doc: string,
+    sids: string[],
+    reason: string,
+    extra?: StoredEntry[],
+    snapshot?: RecoverySnapshot,
+  ): Promise<void>
   // Drops the session unless it still holds entries, so another tab's ack can't orphan what its own tab typed since.
   // Resolves whether the session was dropped
   release(doc: string, sid: string): Promise<boolean>
   recovery(doc: string): Promise<RecoveryRecord[]>
+  // Every document's recovery records on the device
+  allRecovery(): Promise<RecoveryRecord[]>
+  discard(id: number): Promise<void>
   close(): void
 }
 
@@ -153,6 +169,14 @@ class IndexedDeviceStore implements DeviceStore {
     return this.read<RecoveryRecord[]>('recovery', (tx) =>
       tx.objectStore('recovery').index('doc').getAll(doc),
     )
+  }
+
+  allRecovery() {
+    return this.read<RecoveryRecord[]>('recovery', (tx) => tx.objectStore('recovery').getAll())
+  }
+
+  discard(id: number) {
+    return this.write(['recovery'], (tx) => tx.objectStore('recovery').delete(id))
   }
 
   async copy(doc: string): Promise<DeviceCopy | null> {
@@ -244,28 +268,29 @@ class IndexedDeviceStore implements DeviceStore {
     return this.write(['meta', 'copies'], addToCopy)
   }
 
-  recover(doc: string, sid: string, reason: string, extra: StoredEntry[] = []) {
+  recover(
+    doc: string,
+    sids: string[],
+    reason: string,
+    extra: StoredEntry[] = [],
+    snapshot?: RecoverySnapshot,
+  ) {
     const moveToRecovery = (tx: IDBTransaction) => {
       const entries = tx.objectStore('entries')
-      const remainingRequest = entries.getAll(sessionRange(doc, sid))
-      remainingRequest.onsuccess = () => {
-        const stored: StoredEntry[] = remainingRequest.result
-        const seen = new Set(stored.map((entry) => entry.seq))
-        const unseen = extra.filter((entry) => !seen.has(entry.seq))
-        const allEntries = [...stored, ...unseen]
-        if (allEntries.length) {
-          const record: RecoveryRecord = {
-            doc,
-            sid,
-            reason,
-            created: Date.now(),
-            entries: allEntries,
-          }
-          tx.objectStore('recovery').add(record)
-        }
+      const remaining: StoredEntry[] = []
+      for (const sid of sids) {
+        const remainingRequest = entries.getAll(sessionRange(doc, sid))
+        remainingRequest.onsuccess = () => remaining.push(...remainingRequest.result)
+      }
 
-        entries.delete(sessionRange(doc, sid))
-        tx.objectStore('sessions').delete([doc, sid])
+      // Requests answer in order, so every session's entries are in by now
+      const keptRequest = tx.objectStore('recovery').index('doc').getAll(doc)
+      keptRequest.onsuccess = () => {
+        const records: RecoveryRecord[] = keptRequest.result
+        const fresh = { doc, sid: sids[0], reason, created: Date.now(), entries: [] }
+        const record = records.find((kept) => kept.sid === sids[0]) ?? fresh
+        putRecovery(tx, record, [...remaining, ...extra], snapshot)
+        forgetSessions(tx, doc, sids)
       }
     }
     return this.write(['sessions', 'entries', 'recovery'], moveToRecovery)
@@ -333,6 +358,27 @@ function addPiece(tx: IDBTransaction, doc: string, bytes: Uint8Array) {
       }
       pieces.add(merged)
     }
+  }
+}
+
+// Adds the entries to the record, each once, with the newer snapshot
+function putRecovery(
+  tx: IDBTransaction,
+  record: RecoveryRecord,
+  added: StoredEntry[],
+  snapshot?: RecoverySnapshot,
+) {
+  const allEntries = [...record.entries, ...added]
+  const byKey = new Map(allEntries.map((entry) => [`${entry.sid}:${entry.seq}`, entry]))
+  if (byKey.size) {
+    tx.objectStore('recovery').put({ ...record, ...snapshot, entries: [...byKey.values()] })
+  }
+}
+
+function forgetSessions(tx: IDBTransaction, doc: string, sids: string[]) {
+  for (const sid of sids) {
+    tx.objectStore('entries').delete(sessionRange(doc, sid))
+    tx.objectStore('sessions').delete([doc, sid])
   }
 }
 

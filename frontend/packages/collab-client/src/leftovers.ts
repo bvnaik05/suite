@@ -2,10 +2,12 @@ import * as Y from 'yjs'
 
 import { classifyRefusal } from './access'
 import { readReply } from './answers'
+import type { Device } from './device'
 import { holdLock } from './locks'
 import { ADOPT } from './origins'
 import { Outbox } from './outbox'
 import type { Room } from './room'
+import type { StoredEntry } from './store'
 import type { Answer, Claim } from './types'
 
 export const lostReason = (verdict: string) => (verdict === 'clash' ? 'id_clash' : verdict)
@@ -47,6 +49,17 @@ export async function claimClientId(room: Room, box: Outbox): Promise<string | n
   return reply.collab ?? null
 }
 
+// The device copy with the work on top, when the copy is still the history the work was typed on
+async function readableState(device: Device, lineage: string, entries: StoredEntry[]) {
+  const copy = await device.copy()
+  const updates = entries.map((entry) => entry.bytes)
+  if (copy?.lineage !== lineage) {
+    return Y.mergeUpdates(updates)
+  }
+
+  return Y.mergeUpdates([copy.bytes, ...updates])
+}
+
 // Unsent work other tabs of this document left on the device, once no live tab holds it
 export async function adoptLeftovers(room: Room) {
   const device = room.device
@@ -86,7 +99,8 @@ export async function adoptLeftovers(room: Room) {
     if (claimVerdict !== 'ok') {
       if (claimVerdict) {
         const reason = lostReason(claimVerdict)
-        await device.recover(session.sid, reason)
+        const state = await readableState(device, session.lineage, entries)
+        await device.recover([session.sid], reason, [], state)
       }
       release()
       continue

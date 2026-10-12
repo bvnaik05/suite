@@ -46,6 +46,8 @@ export interface ContentAdapter<Binding = unknown> {
 export interface DeviceDoc {
   store: DeviceStore
   doc: string
+  // The document's name, kept with a recovery copy so the copy reads after access is gone
+  title?: () => string
 }
 
 export interface OpenOptions {

@@ -5,12 +5,14 @@ import type { DeviceDoc } from './types'
 export class Device {
   readonly store: DeviceStore
   readonly doc: string
+  private readonly title?: () => string
   // Tells this document's other tabs on the device that its stored work changed; a hint, as each tab reads the store
   private notices: BroadcastChannel | null = null
 
-  constructor({ store, doc }: DeviceDoc) {
+  constructor({ store, doc, title }: DeviceDoc) {
     this.store = store
     this.doc = doc
+    this.title = title
     if (globalThis.BroadcastChannel) {
       this.notices = new BroadcastChannel(`suite-collab:${doc}`)
     }
@@ -22,6 +24,10 @@ export class Device {
 
   entries(sid: string): Promise<StoredEntry[]> {
     return this.store.entries(this.doc, sid).catch(() => [])
+  }
+
+  copy(): Promise<DeviceCopy | null> {
+    return this.store.copy(this.doc).catch(() => null)
   }
 
   saveSession(session: StoredSession): Promise<void> {
@@ -44,8 +50,11 @@ export class Device {
     return this.store.commit(this.doc, copy, bytes).catch(() => {})
   }
 
-  async recover(sid: string, reason: string, extra?: StoredEntry[]) {
-    await this.store.recover(this.doc, sid, reason, extra).catch(() => {})
+  // `state` is the whole document holding the work, so the copy reads on its own
+  async recover(sids: string[], reason: string, extra?: StoredEntry[], state?: Uint8Array) {
+    const snapshot = state && { state, title: this.title?.() }
+    const recovered = this.store.recover(this.doc, sids, reason, extra, snapshot)
+    await recovered.catch(() => {})
     this.changed()
   }
 

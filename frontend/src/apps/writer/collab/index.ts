@@ -104,6 +104,7 @@ export async function openWriterRoom(session: DocumentSession): Promise<Opened> 
   const device = store && {
     store,
     doc: session.nodeId,
+    title: () => session.title.value,
   }
   const options: OpenOptions = {
     endpoints: writerEndpoints(session, principal),
