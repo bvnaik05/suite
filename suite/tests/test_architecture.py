@@ -106,6 +106,10 @@ BASELINE_DEBT = {
             # The collab reader case needs a READ grant, which has no public call yet.
             "suite/writer/content/tests/test_collab.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_collab.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_collab_rooms.py|import|suite.drive._core.access",
+            "suite/writer/content/tests/test_collab_rooms.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_collab_stage.py|import|suite.drive._core.access",
+            "suite/writer/content/tests/test_collab_stage.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_suspect.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_suspect.py|import|suite.drive._core.principals",
             # The callback cases run Drive's media sweep on one document, and
