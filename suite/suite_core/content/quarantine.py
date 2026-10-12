@@ -28,6 +28,109 @@ class TailRow:
     update: updates.Update | None
 
 
+def locked_control_row(adapter: str, doc_id: str) -> frappe._dict | None:
+    """The control row under its lock, or None when the log is gone."""
+    # The lock must be the first statement of a fresh transaction
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    locked = frappe.db.sql(
+        f"""SELECT `node`, `lineage`, `body_rev`, `start_clocks`, `mode`, `q_epoch` FROM `{table(adapter, "doc")}`
+        WHERE `id` = %s FOR UPDATE""",
+        doc_id,
+        as_dict=True,
+    )
+    if not locked or locked[0].mode == "purged":
+        return None
+
+    return locked[0]
+
+
+def tail_rows(adapter: str, doc_id: str, body_rev: int) -> list[frappe._dict]:
+    return frappe.db.sql(
+        f"""SELECT `u`.`rev`, `u`.`client_id`, `u`.`payload`, `s`.`principal`
+        FROM `{table(adapter, "update")}` `u` LEFT JOIN `{table(adapter, "session")}` `s`
+        ON `s`.`doc_id` = `u`.`doc_id` AND `s`.`sid` = `u`.`sid`
+        WHERE `u`.`doc_id` = %s AND `u`.`rev` > %s AND `u`.`state` = 'ok' ORDER BY `u`.`rev`""",
+        (doc_id, body_rev),
+        as_dict=True,
+    )
+
+
+def keep_recovery_copies(
+    adapter: str,
+    doc_id: str,
+    control_row: frappe._dict,
+    picked_rows: list[frappe._dict],
+    document_owner: str | None,
+    reason: str,
+) -> None:
+    """Keep each picked row's bytes for the writer who sent it, or for the owner when its session is gone."""
+    now = now_datetime()
+    for row in picked_rows:
+        payload = bytes(row.payload)
+        recovery_values = (
+            frappe.generate_hash(length=20),
+            doc_id,
+            control_row.node,
+            row.principal or document_owner,
+            reason,
+            control_row.lineage,
+            hashlib.sha256(payload).hexdigest(),
+            len(payload),
+            payload.hex(),
+            int(row.rev),
+            now,
+        )
+        try:
+            frappe.db.sql(
+                f"""INSERT INTO `{table(adapter, "recovery")}`
+                (`id`, `doc_id`, `node`, `owner`, `reason`, `lineage`, `sha256`, `nbytes`, `payload`, `context_rev`, `created`)
+                VALUES (%s, %s, %s, %s, %s, %s, UNHEX(%s), %s, UNHEX(%s), %s, %s)""",
+                recovery_values,
+            )
+        except Exception as error:
+            # The owner already has a copy of these exact bytes
+            if not frappe.db.is_duplicate_entry(error):
+                raise
+
+
+def take_out_rows(adapter: str, doc_id: str, picked: set[int], cut_clocks: dict[int, int]) -> None:
+    """Empty the picked rows, drop any fallback holding them and close the sessions past the cut."""
+    frappe.db.sql(
+        f"""UPDATE `{table(adapter, "update")}` SET `state` = 'quarantined', `payload` = '', `bound` = 0
+        WHERE `doc_id` = %s AND `rev` IN %s""",
+        (doc_id, tuple(picked)),
+    )
+    frappe.db.sql(
+        f"DELETE FROM `{table(adapter, 'checkpoint')}` WHERE `doc_id` = %s AND `through_rev` >= %s",
+        (doc_id, min(picked)),
+    )
+    for client, clock in cut_clocks.items():
+        # Other writers' rows that need a clock at or past `clock` are refused from now on
+        frappe.db.sql(
+            f"""UPDATE `{table(adapter, "session")}` SET `closed` = 1, `next_clock` = %s
+            WHERE `doc_id` = %s AND `client_id` = %s""",
+            (clock, doc_id, client),
+        )
+
+
+def recount_tail(adapter: str, doc_id: str, body_rev: int) -> None:
+    """Bump the quarantine epoch and recount the tail after the base."""
+    base_rev = max(body_rev, fallback_rev(adapter, doc_id))
+    tail_params = {
+        "doc": doc_id,
+        "base": base_rev,
+    }
+    frappe.db.sql(
+        f"""UPDATE `{table(adapter, "doc")}` SET `q_epoch` = `q_epoch` + 1,
+        `tail_bytes` = (SELECT COALESCE(SUM(LENGTH(`payload`)), 0) FROM `{table(adapter, "update")}`
+            WHERE `doc_id` = %(doc)s AND `rev` > %(base)s),
+        `tail_bound` = (SELECT COALESCE(SUM(COALESCE(`bound`, LENGTH(`payload`))), 0) FROM `{table(adapter, "update")}`
+            WHERE `doc_id` = %(doc)s AND `rev` > %(base)s)
+        WHERE `id` = %(doc)s""",
+        tail_params,
+    )
+
+
 def quarantine(
     adapter: str, doc_id: str, revs: set[int], reason: str, owner_of: Callable[[str], str | None]
 ) -> list[int]:
@@ -37,31 +140,17 @@ def quarantine(
     holding a quarantined row goes with it.
     A row whose session is gone has its recovery copy kept for `owner_of(node)`, the document's owner.
     """
-    # The lock must be the first statement of a fresh transaction
-    frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    locked = frappe.db.sql(
-        f"""SELECT `node`, `lineage`, `body_rev`, `start_clocks`, `mode`, `q_epoch` FROM `{table(adapter, "doc")}`
-        WHERE `id` = %s FOR UPDATE""",
-        doc_id,
-        as_dict=True,
-    )
+    control_row = locked_control_row(adapter, doc_id)
     try:
-        if not locked or locked[0].mode == "purged":
+        if control_row is None:
             frappe.db.rollback()
             return []
 
-        control_row = locked[0]
-        if min(revs) <= int(control_row.body_rev):
+        body_rev = int(control_row.body_rev)
+        if min(revs) <= body_rev:
             raise ValueError("a row in the body can't be quarantined")
 
-        rows = frappe.db.sql(
-            f"""SELECT `u`.`rev`, `u`.`client_id`, `u`.`payload`, `s`.`principal`
-            FROM `{table(adapter, "update")}` `u` LEFT JOIN `{table(adapter, "session")}` `s`
-            ON `s`.`doc_id` = `u`.`doc_id` AND `s`.`sid` = `u`.`sid`
-            WHERE `u`.`doc_id` = %s AND `u`.`rev` > %s AND `u`.`state` = 'ok' ORDER BY `u`.`rev`""",
-            (doc_id, control_row.body_rev),
-            as_dict=True,
-        )
+        rows = tail_rows(adapter, doc_id, body_rev)
         tail = [TailRow(int(row.rev), int(row.client_id), parse_or_none(bytes(row.payload))) for row in rows]
         kept_clocks = floor_clocks(adapter, control_row)
         picked, cut_clocks = dependents(tail, revs, kept_clocks)
@@ -69,71 +158,15 @@ def quarantine(
             frappe.db.rollback()
             return []
 
-        now = now_datetime()
-        sessionless_revs = [int(row.rev) for row in rows if int(row.rev) in picked and not row.principal]
+        picked_rows = [row for row in rows if int(row.rev) in picked]
+        sessionless_revs = [int(row.rev) for row in picked_rows if not row.principal]
         document_owner = owner_of(control_row.node) if sessionless_revs else None
         if sessionless_revs and not document_owner:
             raise RuntimeError(f"revs {sessionless_revs} have no session and the document no owner")
 
-        for row in rows:
-            if int(row.rev) not in picked:
-                continue
-
-            payload = bytes(row.payload)
-            recovery_values = (
-                frappe.generate_hash(length=20),
-                doc_id,
-                control_row.node,
-                row.principal or document_owner,
-                reason,
-                control_row.lineage,
-                hashlib.sha256(payload).hexdigest(),
-                len(payload),
-                payload.hex(),
-                int(row.rev),
-                now,
-            )
-            try:
-                frappe.db.sql(
-                    f"""INSERT INTO `{table(adapter, "recovery")}`
-                    (`id`, `doc_id`, `node`, `owner`, `reason`, `lineage`, `sha256`, `nbytes`, `payload`, `context_rev`, `created`)
-                    VALUES (%s, %s, %s, %s, %s, %s, UNHEX(%s), %s, UNHEX(%s), %s, %s)""",
-                    recovery_values,
-                )
-            except Exception as error:
-                # The owner already has a copy of these exact bytes
-                if not frappe.db.is_duplicate_entry(error):
-                    raise
-        frappe.db.sql(
-            f"""UPDATE `{table(adapter, "update")}` SET `state` = 'quarantined', `payload` = '', `bound` = 0
-            WHERE `doc_id` = %s AND `rev` IN %s""",
-            (doc_id, tuple(picked)),
-        )
-        frappe.db.sql(
-            f"DELETE FROM `{table(adapter, 'checkpoint')}` WHERE `doc_id` = %s AND `through_rev` >= %s",
-            (doc_id, min(picked)),
-        )
-        for client, clock in cut_clocks.items():
-            # Other writers' rows that need a clock at or past `clock` are refused from now on
-            frappe.db.sql(
-                f"""UPDATE `{table(adapter, "session")}` SET `closed` = 1, `next_clock` = %s
-                WHERE `doc_id` = %s AND `client_id` = %s""",
-                (clock, doc_id, client),
-            )
-        base_rev = max(int(control_row.body_rev), fallback_rev(adapter, doc_id))
-        tail_params = {
-            "doc": doc_id,
-            "base": base_rev,
-        }
-        frappe.db.sql(
-            f"""UPDATE `{table(adapter, "doc")}` SET `q_epoch` = `q_epoch` + 1,
-            `tail_bytes` = (SELECT COALESCE(SUM(LENGTH(`payload`)), 0) FROM `{table(adapter, "update")}`
-                WHERE `doc_id` = %(doc)s AND `rev` > %(base)s),
-            `tail_bound` = (SELECT COALESCE(SUM(COALESCE(`bound`, LENGTH(`payload`))), 0) FROM `{table(adapter, "update")}`
-                WHERE `doc_id` = %(doc)s AND `rev` > %(base)s)
-            WHERE `id` = %(doc)s""",
-            tail_params,
-        )
+        keep_recovery_copies(adapter, doc_id, control_row, picked_rows, document_owner, reason)
+        take_out_rows(adapter, doc_id, picked, cut_clocks)
+        recount_tail(adapter, doc_id, body_rev)
         frappe.log_error(
             title=f"Collab rows quarantined: {reason}",
             message=f"{adapter} document {doc_id}: revs {sorted(picked)} quarantined, {len(cut_clocks)} sessions closed",
