@@ -1,5 +1,6 @@
 """The apps whose documents the content layer keeps, found through the `suite_content_adapters` hook."""
 
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,16 +48,71 @@ class NodeHooks:
     touch: Callable[[ContentAdapterSpec, str], None]
 
 
+CODECS = frozenset({"yjs1"})
+# Short enough that every table name the layer makes from it fits MariaDB's 64 characters
+NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
+# The specs this process has checked, by hook path
+checked: dict[str, ContentAdapterSpec] = {}
+
+
 def adapters() -> dict[str, ContentAdapterSpec]:
     found: dict[str, ContentAdapterSpec] = {}
     for path in frappe.get_hooks("suite_content_adapters") or ():
-        spec = frappe.get_attr(path)
-        if not isinstance(spec, ContentAdapterSpec) or spec.name in found:
-            raise ValueError(f"Invalid content adapter {path}")
+        spec = load(path)
+        if spec.name in found:
+            raise ValueError(f"Two content adapters are named {spec.name}")
 
         found[spec.name] = spec
 
     return found
+
+
+def load(path: str) -> ContentAdapterSpec:
+    try:
+        spec = frappe.get_attr(path)
+    except TypeError as missing:
+        raise ValueError(f"The content adapter {path} is missing a declaration: {missing}") from missing
+
+    if not isinstance(spec, ContentAdapterSpec):
+        raise ValueError(f"{path} is not a content adapter")
+
+    if checked.get(path) is spec:
+        return spec
+
+    wrong = wrong_declarations(spec)
+    if wrong:
+        raise ValueError(f"The content adapter {path} ({spec.name}) declares {', '.join(wrong)} wrongly")
+
+    checked[path] = spec
+    return spec
+
+
+def wrong_declarations(spec: ContentAdapterSpec) -> list[str]:
+    def text(value: object) -> bool:
+        return isinstance(value, str) and bool(value)
+
+    def size(value: object) -> bool:
+        return type(value) is int and value > 0
+
+    right = {
+        "name": isinstance(spec.name, str) and NAME.fullmatch(spec.name) is not None,
+        "content_type": text(spec.content_type),
+        "body_field": text(spec.body_field),
+        "node_field": text(spec.node_field),
+        "roots": isinstance(spec.roots, Mapping)
+        and bool(spec.roots)
+        and all(text(root) and isinstance(kind, type) for root, kind in spec.roots.items()),
+        "schema": isinstance(spec.schema, EditorSchema),
+        "kernel": isinstance(spec.kernel, Path),
+        "codec": spec.codec in CODECS,
+        "max_state": size(spec.max_state),
+        "max_change": size(spec.max_change),
+        "check_copy": callable(spec.check_copy),
+        "convert": callable(spec.convert),
+        "file_values": callable(spec.file_values),
+        "rewrite_files": callable(spec.rewrite_files),
+    }
+    return [field for field, ok in right.items() if not ok]
 
 
 def spec_of(name: str) -> ContentAdapterSpec:
