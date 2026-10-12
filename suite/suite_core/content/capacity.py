@@ -11,7 +11,6 @@ from datetime import datetime
 import frappe
 
 from suite.suite_core.content import ingest, updates
-from suite.suite_core.content.scheduling import STATE_MAX
 
 SPLIT_COST = 32
 # Deleting content shrinks the next compaction, so a full document still takes deletes up to this far past the cap
@@ -19,14 +18,14 @@ DELETE_ROOM = 512 * 2**10
 TAIL_ROWS_MAX = 20_000
 COMPACTION_MS = 2000
 FULL_RETRY_MS = 300_000
-EDIT_MAX = 4 * 2**20
 
 
-def edit_max() -> int:
-    """The largest change one push may commit; escaping can double its bytes on the way to the database."""
+def edit_max(max_change: int) -> int:
+    """The largest change one push may commit, at most the app's `max_change`; escaping can double its bytes on
+    the way to the database."""
     packet_rows = frappe.db.sql("SELECT @@max_allowed_packet")
     max_packet = int(packet_rows[0][0])
-    return min(EDIT_MAX, (max_packet - 2**20) // 2)
+    return min(max_change, (max_packet - 2**20) // 2)
 
 
 class Full(Exception):
@@ -49,8 +48,8 @@ def row_bound(update: updates.Update, row_bytes: int) -> int:
     return row_bytes + SPLIT_COST * len(splits)
 
 
-def admit(control_row, update: updates.Update, row_bound_bytes: int, now: datetime) -> None:
-    """Raise `Full` unless the locked `control_row` has room for a row of `row_bound_bytes`.
+def admit(control_row, update: updates.Update, row_bound_bytes: int, now: datetime, max_state: int) -> None:
+    """Raise `Full` unless the locked `control_row` has room under `max_state` for a row of `row_bound_bytes`.
 
     A push that only deletes gets `DELETE_ROOM` past the cap. With no tail left
     to compact, nothing can make room, so a push that adds and doesn't fit is full
@@ -60,10 +59,10 @@ def admit(control_row, update: updates.Update, row_bound_bytes: int, now: dateti
     tail_bound = int(control_row.tail_bound)
     tail_rows = int(control_row.tail_rows)
     adds_content = bool(update.structs)
-    if adds_content and state_bytes >= STATE_MAX:
+    if adds_content and state_bytes >= max_state:
         raise Full("doc_full", FULL_RETRY_MS)
 
-    cap_bytes = STATE_MAX if adds_content else STATE_MAX + DELETE_ROOM
+    cap_bytes = max_state if adds_content else max_state + DELETE_ROOM
     under_cap = state_bytes + tail_bound + row_bound_bytes <= cap_bytes
     tail_has_room = tail_rows < TAIL_ROWS_MAX
     if under_cap and tail_has_room:

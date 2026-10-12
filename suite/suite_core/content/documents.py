@@ -66,7 +66,7 @@ def live_checkpoint(adapter: str, node: str) -> tuple[dict, bytes] | None:
 
     # pycrdt cannot be interrupted, so a web worker only takes on what a compaction job would
     total_bytes = len(log_read["checkpoint"] or b"") + sum(len(row) for row in rows)
-    too_big = total_bytes > scheduling.STATE_MAX
+    too_big = total_bytes > spec_of(adapter).max_state
     too_many_rows = len(rows) > scheduling.TAIL_ROWS
     if too_big or too_many_rows:
         raise compaction.CompactionFailed("too_large")

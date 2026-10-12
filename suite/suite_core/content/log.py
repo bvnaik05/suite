@@ -188,12 +188,13 @@ def open_header(log_read: dict, *, can_write: bool) -> dict:
     }
 
 
-def limits(doc: frappe._dict) -> dict:
+def limits(adapter: str, doc: frappe._dict) -> dict:
     """The sizes a tab checks a change against before it enters the document."""
+    spec = spec_of(adapter)
     return {
         "fragment": stage.PIECE_MAX,
-        "edit_max": capacity.edit_max(),
-        "state_max": scheduling.STATE_MAX,
+        "edit_max": capacity.edit_max(spec.max_change),
+        "state_max": spec.max_state,
         "state_bytes": int(doc.state_bytes),
         "tail_bound": int(doc.tail_bound),
     }
@@ -446,10 +447,10 @@ def lock_clause(adapter: str, doc_id: str, final: bool) -> Iterator[str]:
             redis.eval(admission.RELEASE_SCRIPT, 1, key, token)
 
 
-def push(
-    adapter: str, doc_id: str, header: dict, payload: bytes, principal: str, schema: ingest.EditorSchema
-) -> dict:
+def push(adapter: str, doc_id: str, header: dict, payload: bytes, principal: str) -> dict:
     """Commit one session's contiguous seq range as the next rev, or refuse it."""
+    spec = spec_of(adapter)
+    schema = spec.schema
     session = session_for(adapter, doc_id, header, principal)
     head = frappe.db.sql(f"SELECT `head_rev` FROM `{table(adapter, 'doc')}` WHERE `id` = %s", doc_id)[0][0]
     replayed = replay(adapter, doc_id, header, int(session.acked_seq), int(head))
@@ -461,6 +462,9 @@ def push(
 
     if "stage_id" in header:
         payload = assembled_payload(adapter, doc_id, header)
+
+    if len(payload) > spec.max_change:
+        raise Refusal(400, "malformed")
 
     try:
         row = ingest.check_row(payload, header["cid"])
@@ -526,7 +530,7 @@ def push(
             raise Refusal(409, "diverged")
 
         try:
-            capacity.admit(doc, row.update, row_bound, now_datetime())
+            capacity.admit(doc, row.update, row_bound, now_datetime(), spec.max_state)
         except capacity.Full as full:
             raise Refusal(423, full.reason, retry_ms=full.retry_ms) from None
 
@@ -616,13 +620,13 @@ def assembled_payload(adapter: str, doc_id: str, header: dict) -> bytes:
         raise Refusal(409, "stage_incomplete") from None
 
 
-def parse_piece(body: bytes, stage_id: str, index_text: str) -> tuple[dict, int, bytes]:
+def parse_piece(adapter: str, body: bytes, stage_id: str, index_text: str) -> tuple[dict, int, bytes]:
     """Split `u32 hlen | header JSON | piece`; the header names the change the piece belongs to."""
     if not stage.valid_id(stage_id):
         raise Refusal(400, "malformed")
 
     try:
-        return stage.parse_piece(body, index_text)
+        return stage.parse_piece(body, index_text, capacity.edit_max(spec_of(adapter).max_change))
     except stage.Malformed:
         raise Refusal(400, "malformed") from None
     except stage.TooLarge:

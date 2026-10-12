@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 
 import frappe
 
-from suite.suite_core.content import capacity
 from suite.suite_core.content.tables import table
 
 PIECE_MAX = 256 * 2**10
@@ -51,8 +50,8 @@ def piece_count(total_len: int) -> int:
     return -(-total_len // PIECE_MAX)
 
 
-def parse_piece(body: bytes, index_text: str) -> tuple[dict, int, bytes]:
-    """Split `u32 hlen | header JSON | piece` and check the piece's place in its change."""
+def parse_piece(body: bytes, index_text: str, edit_max: int) -> tuple[dict, int, bytes]:
+    """Split `u32 hlen | header JSON | piece` and check the piece's place in a change of at most `edit_max`."""
     if len(body) < 4:
         raise Malformed
 
@@ -82,7 +81,7 @@ def parse_piece(body: bytes, index_text: str) -> tuple[dict, int, bytes]:
     if header["from"] < 1 or header["to"] < header["from"] or header["total_len"] < 1:
         raise Malformed
 
-    if header["total_len"] > capacity.edit_max():
+    if header["total_len"] > edit_max:
         raise TooLarge
 
     if not index_text.isdigit() or int(index_text) >= piece_count(header["total_len"]):

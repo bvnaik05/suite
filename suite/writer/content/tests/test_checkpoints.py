@@ -831,7 +831,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
         self.set_doc(
             node,
             body_rev=1,
-            state_bytes=scheduling.STATE_MAX - 300 * 1024,
+            state_bytes=writer_content.SPEC.max_state - 300 * 1024,
             tail_rows=0,
             tail_bytes=0,
         )
@@ -845,7 +845,9 @@ class TestWriterCompactionTriggers(CheckpointCase):
     def test_a_tail_that_could_fill_half_the_room_left_asks_even_while_its_bytes_are_few(self):
         node = self.new_document()
         self.push_bytes(node, [100])
-        self.set_doc(node, state_bytes=scheduling.STATE_MAX - 512 * 1024, tail_bound=256 * 1024 - 200)
+        self.set_doc(
+            node, state_bytes=writer_content.SPEC.max_state - 512 * 1024, tail_bound=256 * 1024 - 200
+        )
         self.requested.clear()
 
         self.push_bytes(node, [100])
@@ -1130,14 +1132,14 @@ class TestWriterAdmission(CheckpointCase):
         tab = self.open_session(node)
         abc, de = typed_updates(tab[1], ["abc", "de"])
         self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
-        self.set_doc(node, state_bytes=scheduling.STATE_MAX - len(abc) - len(de) + 1)
+        self.set_doc(node, state_bytes=writer_content.SPEC.max_state - len(abc) - len(de) + 1)
         self.requested.clear()
 
         self.assertEqual(self.push(node, tab, 2, de), (423, {"collab": "compacting", "retry_ms": 2000}))
         self.assertEqual((self.row_count(node), self.doc_row(node).tail_bound), (1, len(abc)))
         self.assertEqual(self.requested, [self.doc_row(node).id])
 
-        self.set_doc(node, state_bytes=scheduling.STATE_MAX - len(abc) - len(de))
+        self.set_doc(node, state_bytes=writer_content.SPEC.max_state - len(abc) - len(de))
         self.assertEqual(self.push(node, tab, 2, de)[0], 200)
 
     def test_a_document_at_the_cap_takes_deletes_and_nothing_that_adds(self):
@@ -1145,7 +1147,7 @@ class TestWriterAdmission(CheckpointCase):
         writing, deleting = self.open_session(node), self.open_session(node)
         abc, de = typed_updates(writing[1], ["abc", "de"])
         self.assertEqual(self.push(node, writing, 1, abc)[0], 200)
-        self.set_doc(node, state_bytes=scheduling.STATE_MAX)
+        self.set_doc(node, state_bytes=writer_content.SPEC.max_state)
 
         self.assertEqual(self.push(node, writing, 2, de), (423, {"collab": "doc_full", "retry_ms": 300_000}))
         removal = self.edited_update(deleting[1], [abc], lambda text: text.__delitem__(slice(1, 2)))
@@ -1159,7 +1161,7 @@ class TestWriterAdmission(CheckpointCase):
         self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
         doc = self.doc_row(node)
         room = live.rooms(writer_content.ADAPTER, doc.id, doc.lineage)["keys"][0]
-        self.set_doc(node, state_bytes=scheduling.STATE_MAX)
+        self.set_doc(node, state_bytes=writer_content.SPEC.max_state)
 
         with patch("frappe.publish_realtime") as publish:
             self.compact(node)
@@ -1177,7 +1179,7 @@ class TestWriterAdmission(CheckpointCase):
         node = self.new_document()
         tab = self.open_session(node)
         abc, de = typed_updates(tab[1], ["abc", "de"])
-        self.set_doc(node, state_bytes=scheduling.STATE_MAX)
+        self.set_doc(node, state_bytes=writer_content.SPEC.max_state)
         ahead = push_body(self.doc_row(node).lineage, *tab, 1, 1, abc)
 
         self.assertEqual(self.push(node, tab, 2, de), (409, {"collab": "seq", "acked": 0}))
@@ -1188,7 +1190,7 @@ class TestWriterAdmission(CheckpointCase):
         node = self.new_document()
         tab = self.open_session(node)
         [abc] = typed_updates(tab[1], ["abc"])
-        self.set_doc(node, state_bytes=scheduling.STATE_MAX - len(abc) + 1)
+        self.set_doc(node, state_bytes=writer_content.SPEC.max_state - len(abc) + 1)
 
         self.assertEqual(self.push(node, tab, 1, abc), (423, {"collab": "doc_full", "retry_ms": 300_000}))
         self.assertEqual((self.row_count(node), self.requested), (0, []))

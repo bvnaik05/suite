@@ -157,7 +157,7 @@ def open_document(node: str) -> Response:
     documents.consider_compaction(adapter, doc.id)
     header = {
         **content.open_header(snapshot, can_write=can_write),
-        "limits": content.limits(doc),
+        "limits": content.limits(adapter, doc),
         "rooms": content.rooms(adapter, doc.id, doc.lineage),
     }
     rows = content.with_tombstones(snapshot)
@@ -191,7 +191,7 @@ def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
         "q_epoch": epoch,
         "judged": int(doc.judged),
         "schema": schema,
-        "limits": content.limits(doc),
+        "limits": content.limits(adapter, doc),
         "rooms": content.rooms(adapter, doc.id, doc.lineage),
     }
     if doc.verdict:
@@ -209,8 +209,7 @@ def push_rows(node: str) -> Response:
     content.require_enabled(adapter)
     doc = require_log(adapter, node)
     try:
-        schema = adapters.spec_of(adapter).schema
-        answer = content.push(adapter, doc.id, header, payload, frappe.session.user, schema)
+        answer = content.push(adapter, doc.id, header, payload, frappe.session.user)
     except content.Refusal as refusal:
         if refusal.body["collab"] == "compacting":
             documents.consider_compaction(adapter, doc.id, refused=True)
@@ -226,7 +225,7 @@ def stage_piece(node: str, stage_id: str, idx: str) -> Response:
     adapter = authorize_node(node, drive.EDIT, principal)
     content.require_enabled(adapter)
     body = frappe.request.get_data()
-    header, index, piece = content.parse_piece(body, stage_id, idx)
+    header, index, piece = content.parse_piece(adapter, body, stage_id, idx)
     doc = require_log(adapter, node)
     answer = content.put_piece(adapter, doc.id, stage_id, header, index, piece, frappe.session.user)
     return json_response(200, answer)

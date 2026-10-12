@@ -11,10 +11,10 @@ import frappe
 from frappe.utils import now_datetime
 
 from suite.suite_core.content import stage
+from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.admission import TIMEOUT
 from suite.suite_core.content.tables import table
 
-STATE_MAX = 4 * 2**20
 TAIL_MIN = 256 * 2**10
 TAIL_ROWS = 2000
 TAIL_AGE = timedelta(minutes=10)
@@ -57,11 +57,11 @@ def request_if_due(
             (doc_id, final_from, now_datetime() - QUIET_SPAN),
         )
 
-    if compaction_due(due_rows[0], now_datetime(), closing=closing):
+    if compaction_due(due_rows[0], now_datetime(), spec_of(adapter).max_state, closing=closing):
         request_compaction(adapter, doc_id, compact_method)
 
 
-def compaction_due(doc, now, *, closing: bool = False) -> bool:
+def compaction_due(doc, now, max_state: int, *, closing: bool = False) -> bool:
     """Whether a document's tail calls for a compaction now. `closing`: the tab that closed was the last one typing,
     or a push waits for room.
 
@@ -76,7 +76,7 @@ def compaction_due(doc, now, *, closing: bool = False) -> bool:
         return False
 
     state_bytes = int(doc.state_bytes)
-    room_left = STATE_MAX - state_bytes
+    room_left = max_state - state_bytes
     tail_bytes_big = int(doc.tail_bytes) >= max(TAIL_MIN, min(state_bytes // 4, room_left // 2))
     tail_bound_big = int(doc.tail_bound) >= max(TAIL_MIN, room_left // 2)
     tail_rows_many = int(doc.tail_rows) >= TAIL_ROWS

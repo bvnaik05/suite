@@ -222,8 +222,13 @@ class TestWriterDriveCallbacks(CheckpointCase):
         size = len(snapshot["checkpoint"] or b"") + sum(len(payload) for _rev, payload in snapshot["rows"])
         parent = frappe.db.get_value("Drive Node", node, "parent_node")
 
-        for limits in ({"STATE_MAX": size - 1}, {"TAIL_ROWS": 1}):
-            with self.subTest(limits=limits), patch.multiple(scheduling, **limits):
+        smaller = replace(writer_content.SPEC, max_state=size - 1)
+        for spec, tail_rows in ((smaller, scheduling.TAIL_ROWS), (writer_content.SPEC, 1)):
+            with (
+                self.subTest(max_state=spec.max_state, tail_rows=tail_rows),
+                patch.object(writer_content, "SPEC", spec),
+                patch.object(scheduling, "TAIL_ROWS", tail_rows),
+            ):
                 with self.assertRaisesRegex(
                     drive.DriveConflict, "is not available for this document right now"
                 ):
@@ -232,7 +237,8 @@ class TestWriterDriveCallbacks(CheckpointCase):
                     drive.copy(node, parent)
                 frappe.db.rollback()
 
-        with patch.multiple(scheduling, STATE_MAX=size, TAIL_ROWS=2):
+        at_size = replace(writer_content.SPEC, max_state=size)
+        with patch.object(writer_content, "SPEC", at_size), patch.object(scheduling, "TAIL_ROWS", 2):
             version = version_of(self.docname_of(node))
             state_gz = base64.b64decode(version["state"])
             state = gzip.decompress(state_gz)
@@ -529,7 +535,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         header, payload = content.parse_push(body)
 
         with self.assertRaises(content.Refusal) as refused:
-            content.push(writer_content.ADAPTER, doc_id, header, payload, WRITER, writer_content.SCHEMA)
+            content.push(writer_content.ADAPTER, doc_id, header, payload, WRITER)
 
         self.assertEqual((refused.exception.status, refused.exception.body), (404, {"collab": "not_found"}))
         self.assertEqual(self.row_counts(doc_id)["update"], 1)

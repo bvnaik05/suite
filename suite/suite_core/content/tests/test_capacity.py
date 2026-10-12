@@ -82,11 +82,11 @@ class TestAdmit(UnitTestCase):
 
     def refusal(self, doc, update, bound):
         with self.assertRaises(capacity.Full) as raised:
-            capacity.admit(doc, update, bound, NOW)
+            capacity.admit(doc, update, bound, NOW, STATE_CAP)
         return raised.exception.reason, raised.exception.retry_ms
 
     def test_a_push_that_fits_under_the_cap_with_the_tail_is_admitted(self):
-        capacity.admit(doc_row(state_bytes=STATE_CAP - 300, tail_bound=200), self.adds, 100, NOW)
+        capacity.admit(doc_row(state_bytes=STATE_CAP - 300, tail_bound=200), self.adds, 100, NOW, STATE_CAP)
 
     def test_a_push_one_byte_past_the_cap_waits_for_the_next_compaction(self):
         doc = doc_row(state_bytes=STATE_CAP - 300, tail_bound=200)
@@ -120,7 +120,11 @@ class TestAdmit(UnitTestCase):
 
     def test_a_full_document_still_takes_deletes_up_to_half_a_mebibyte_past_the_cap(self):
         capacity.admit(
-            doc_row(state_bytes=STATE_CAP, tail_bound=200, tail_rows=1), self.deletes, 512 * 2**10 - 200, NOW
+            doc_row(state_bytes=STATE_CAP, tail_bound=200, tail_rows=1),
+            self.deletes,
+            512 * 2**10 - 200,
+            NOW,
+            STATE_CAP,
         )
 
         doc = doc_row(state_bytes=STATE_CAP, tail_bound=200, tail_rows=1)
@@ -129,11 +133,15 @@ class TestAdmit(UnitTestCase):
 
     def test_a_delete_is_never_full_for_good_however_far_past_the_cap(self):
         capacity.admit(
-            doc_row(state_bytes=STATE_CAP + 2**20, tail_bound=0, tail_rows=0), self.deletes, 2**20, NOW
+            doc_row(state_bytes=STATE_CAP + 2**20, tail_bound=0, tail_rows=0),
+            self.deletes,
+            2**20,
+            NOW,
+            STATE_CAP,
         )
 
     def test_a_tail_of_twenty_thousand_rows_waits_for_a_compaction_however_small(self):
-        capacity.admit(doc_row(tail_rows=19_999), self.adds, 1, NOW)
+        capacity.admit(doc_row(tail_rows=19_999), self.adds, 1, NOW, STATE_CAP)
 
         reason = self.refusal(doc_row(tail_rows=20_000), self.adds, 1)[0]
         self.assertEqual(reason, "compacting")
@@ -142,7 +150,7 @@ class TestAdmit(UnitTestCase):
 class TestEditMax(UnitTestCase):
     def edit_max(self, packet: int) -> int:
         with patch.object(frappe.db, "sql", return_value=[[packet]]):
-            return capacity.edit_max()
+            return capacity.edit_max(4 * 2**20)
 
     def test_a_database_that_takes_big_packets_allows_four_mebibyte_changes(self):
         self.assertEqual(self.edit_max(64 * 2**20), 4 * 2**20)

@@ -75,7 +75,7 @@ def leave_no_room(node: str) -> dict:
     doc_id = find_log(node)["id"]
     frappe.db.sql(
         f"""UPDATE `{table(writer_content.ADAPTER, "doc")}` SET `state_bytes` = %s - `tail_bound` WHERE `id` = %s""",
-        (scheduling.STATE_MAX, doc_id),
+        (writer_content.SPEC.max_state, doc_id),
     )
     return state(node)
 
@@ -86,7 +86,7 @@ def fill_up(node: str) -> dict:
     doc_id = find_log(node)["id"]
     frappe.db.sql(
         f"""UPDATE `{table(writer_content.ADAPTER, "doc")}` SET `state_bytes` = %s WHERE `id` = %s""",
-        (scheduling.STATE_MAX, doc_id),
+        (writer_content.SPEC.max_state, doc_id),
     )
     return state(node)
 

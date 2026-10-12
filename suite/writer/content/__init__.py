@@ -38,6 +38,9 @@ SPEC = ContentAdapterSpec(
     roots=ROOTS,
     schema=SCHEMA,
     kernel=KERNEL,
+    codec="yjs1",
+    max_state=4 * 2**20,
+    max_change=4 * 2**20,
 )
 
 
@@ -47,7 +50,7 @@ def version_payload(snapshot: dict, state: bytes) -> dict:
     encoded_state = base64.b64encode(compressed).decode("ascii")
     return {
         "schema": "writer-document/2",
-        "codec": "yjs1",
+        "codec": SPEC.codec,
         "lineage": snapshot["lineage"],
         "through_rev": snapshot["head_rev"],
         "chain": snapshot["head_chain"].hex(),

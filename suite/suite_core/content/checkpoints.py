@@ -269,7 +269,7 @@ class Compaction:
 
     def announce_room(self, control_row: frappe._dict) -> None:
         """Tabs measured a full document from what it held before."""
-        if control_row.room_used >= scheduling.STATE_MAX:
+        if control_row.room_used >= spec_of(self.adapter).max_state:
             live.publish_change(self.adapter, self.doc_id, "room")
 
     def count_attempt(self) -> None:

@@ -14,7 +14,8 @@ class ContentAdapterSpec:
     """One app's plug-in. `name` is also its table prefix; `content_type` is its Drive content type and
     the doctype whose row holds each document's latest checked body, base64, in `body_field`, found by
     its node in `node_field`; `roots` names every root type it writes; `kernel` is the Node bundle that
-    judges suspect documents."""
+    judges suspect documents. `codec` names the update format of its state, `max_state` the most a compacted
+    document may hold and `max_change` the most one change may, in bytes."""
 
     name: str
     content_type: str
@@ -23,6 +24,9 @@ class ContentAdapterSpec:
     roots: Mapping[str, type]
     schema: EditorSchema
     kernel: Path
+    codec: str
+    max_state: int
+    max_change: int
 
 
 @dataclass(frozen=True)

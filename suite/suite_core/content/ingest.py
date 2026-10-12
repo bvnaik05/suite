@@ -8,7 +8,6 @@ import frappe
 from suite.suite_core.content import updates
 from suite.suite_core.content.tables import table
 
-MAX_BYTES = 4 * 2**20
 # ContentJSON, ContentBinary and ContentDoc: no collab adapter writes them
 REFUSED_KINDS = {2, 3, 9}
 SKIP_KIND = 10
@@ -61,10 +60,7 @@ class Row:
 
 
 def check_row(payload: bytes, client_id: int) -> Row:
-    """The row `client_id` pushed, or `ValueError` when it is malformed: too large, unreadable, or refused by `admit_update`."""
-    if len(payload) > MAX_BYTES:
-        raise ValueError("update too large")
-
+    """The row `client_id` pushed, or `ValueError` when it is malformed: unreadable, or refused by `admit_update`."""
     update = updates.parse(payload)
     return admit_update(update, client_id)
 

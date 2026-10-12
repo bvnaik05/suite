@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 import pycrdt
 from frappe.tests import UnitTestCase
 
@@ -162,12 +160,3 @@ class TestIngest(UnitTestCase):
         for case, update in misnamed.items():
             with self.subTest(case):
                 self.assertFalse(schema.could_write(update))
-
-    def test_a_row_over_the_size_cap_is_malformed(self):
-        [payload] = typed(5, ["abc"])
-
-        with patch.object(ingest, "MAX_BYTES", len(payload)):
-            ingest.check_row(payload, 5)
-
-        with patch.object(ingest, "MAX_BYTES", len(payload) - 1), self.assertRaises(ValueError):
-            ingest.check_row(payload, 5)
