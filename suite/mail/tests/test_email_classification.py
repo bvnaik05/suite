@@ -655,6 +655,12 @@ class CategoryFilter(unittest.TestCase):
                     },
                 )
 
+    def test_unknown_senders_filter_by_the_unscreened_keyword(self):
+        self.assertEqual(
+            self.filter("unscreened"),
+            {"operator": "AND", "conditions": [{"inMailbox": "inbox"}, {"hasKeyword": "unscreened"}]},
+        )
+
     def test_a_keyword_that_is_no_category_is_not_filtered_by(self):
         for filter_by in ("category_spam", "$seen", None):
             with self.subTest(filter_by=filter_by):

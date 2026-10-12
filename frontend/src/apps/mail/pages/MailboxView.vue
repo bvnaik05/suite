@@ -1058,6 +1058,7 @@ const { filter, reloadFilter, FILTER_OPTIONS, filterTitle } = useStoredFilter({
   scope: () => mailbox,
   onChange: () => resetThreads(false),
   starrable: () => ![mailboxIds.trash, 'starred'].includes(mailbox),
+  screenable: () => mailbox === mailboxIds.inbox && screener.active.value,
 })
 const isMailboxLoaded = ref(false)
 

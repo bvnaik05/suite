@@ -216,6 +216,7 @@ import { tabName, useInboxTabs, type ClearScope } from '@/apps/mail/composables/
 import { useListRows } from '@/apps/mail/composables/useListRows'
 import { useMailRemoval } from '@/apps/mail/composables/useMailRemoval'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
+import { useScreener } from '@/apps/mail/composables/useScreener'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Mail, Mailbox, MailboxData, Thread, UnifiedFolder } from '@/apps/mail/types'
 import {
@@ -325,6 +326,9 @@ const {
   scope: () => `unified:${folder}`,
   onChange: () => resetThreads(),
   starrable: () => folder !== STARRED_FOLDER && !isTrashFolder.value,
+  // The merged Inbox, when any of the accounts screens new senders.
+  screenable: () =>
+    folder === 'inbox' && !!store.userResource.data?.accounts?.some((a) => a.enable_screening),
 })
 
 // The Inbox's category tabs, across every account; `inboxTab` is the open one, and undefined in any
@@ -394,6 +398,10 @@ const refreshThreads = (reloadCounts = true) => {
   void threads.refetch().catch(() => {})
   if (reloadCounts) refreshCounts()
 }
+
+// A verdict on a sender, from the pane or anywhere else, changes which rows are waiting: the
+// "Unknown senders" filter drops the ones decided.
+watch(useScreener().version, () => refreshThreads(false))
 
 // The layout's composer, announcing that it sent something (see useListReload). A refresh rather
 // than a reset, so the reader keeps their place in a list that spans every account.

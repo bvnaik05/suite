@@ -1,4 +1,4 @@
-import { Mail as MailIcon, Mails, Paperclip, Star } from 'lucide-vue-next'
+import { Mail as MailIcon, Mails, Paperclip, Star, UserRoundSearch } from 'lucide-vue-next'
 import { computed, ref, type Component } from 'vue'
 
 import { userStore } from '@/apps/mail/stores/user'
@@ -25,10 +25,15 @@ interface StoredFilterOptions {
    * where it would filter a list to itself.
    */
   starrable?: () => boolean
+  /**
+   * Whether "Unknown senders" is offered: in an Inbox that screens new senders, where their mail
+   * waits marked until someone decides on them.
+   */
+  screenable?: () => boolean
 }
 
 /**
- * The list filter — All / Unread / Starred / Has attachments — remembered per list, its menu, and the
+ * The list filter — All / Unread / Starred / Has attachments / Unknown senders — remembered per list, its menu, and the
  * title the toolbar shows for it. All three were duplicated verbatim between the mailbox list and the
  * merged All Inboxes list, down to the localStorage key's shape.
  */
@@ -36,6 +41,7 @@ export const useStoredFilter = ({
   scope,
   onChange,
   starrable = () => true,
+  screenable = () => false,
 }: StoredFilterOptions) => {
   const { userResource } = userStore()
 
@@ -81,6 +87,13 @@ export const useStoredFilter = ({
       onClick: () => setFilter('has_attachments'),
       selected: filter.value === 'has_attachments',
     },
+    {
+      label: __('Unknown senders'),
+      icon: UserRoundSearch,
+      onClick: () => setFilter('unscreened'),
+      condition: screenable,
+      selected: filter.value === 'unscreened',
+    },
   ])
 
   /** What the toolbar's filter selector reads. Callers may show something else instead — a
@@ -93,6 +106,8 @@ export const useStoredFilter = ({
         return __('Starred Mails')
       case 'has_attachments':
         return __('With Attachments')
+      case 'unscreened':
+        return __('Unknown Senders')
       default:
         return __('All Mails')
     }

@@ -290,6 +290,8 @@ def get_threads(
         "starred": {"someInThreadHaveKeyword": "$flagged"},
         "unread": {"notKeyword": "$seen"},
         "has_attachments": {"hasAttachment": True},
+        # Mail from senders nobody has decided on yet (see the screening gate).
+        "unscreened": {"hasKeyword": UNSCREENED_KEYWORD},
         # A category is asked for by its keyword: "category_promotions".
         **{category.keyword: {"hasKeyword": category.keyword} for category in Category},
     }
