@@ -1783,6 +1783,7 @@ import { AC_FUNS, useFormulaAutocomplete } from './useFormulaAutocomplete.js'
 import { useHistory } from './useHistory.js'
 import { usePersistence } from './usePersistence.js'
 import { usePivotIntegration } from './usePivotIntegration.js'
+import { useProtection } from './useProtection.js'
 import { useSheetTabs } from './useSheetTabs.js'
 import { useShortcuts } from './useShortcuts.js'
 import { useSlicers } from './useSlicers.js'
@@ -4419,132 +4420,32 @@ function _cutSourceElsewhere(sn) {
   return { sheet: sheetName, rect: clipboard.getSourceSel() }
 }
 
-// ── Protection enforcement ────────────────────────────────────────────────────
-// The single gate every user-initiated write consults. Each helper returns true
-// — and flashes a transient notice — when the target is protected, so callers
-// bail with `if (…) return`. Programmatic paths (undo/restore/collab) never call
-// these, so they can still rewrite protected cells.
-//
-// A dedicated notice ref — NOT saveError — so a "protected" message renders as a
-// neutral badge and doesn't arm the save-error watchdog / retry affordance.
-const protectionNotice = ref('')
-function _flashProtected(sn) {
-  const msg = protection.isSheetLocked(sn)
-    ? 'This sheet is protected'
-    : 'This range is protected and can’t be edited'
-  protectionNotice.value = msg
-  setTimeout(() => {
-    if (protectionNotice.value === msg) protectionNotice.value = ''
-  }, 3500)
-}
-function _rectBlocked(rect, sn = currentSheet.value) {
-  if (!rect || !protection.isAnyProtected(rect, sn)) return false
-  _flashProtected(sn)
-  return true
-}
-function _cellBlocked(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  if (!p || !protection.isProtected(p.row, p.col, sn)) return false
-  _flashProtected(sn)
-  return true
-}
-function _cellsBlocked(ids, sn = currentSheet.value) {
-  const hit = ids.some((id) => _cellSilentlyProtected(id, sn))
-  if (hit) _flashProtected(sn)
-  return hit
-}
-function _cellSilentlyProtected(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return !!(p && protection.isProtected(p.row, p.col, sn))
-}
-// A fill writes only the destination — the strip(s) of `total` outside `src`.
-// Checking the whole extent would wrongly block a fill that merely *starts*
-// from a protected cell (reading a protected source is fine; only writes are
-// guarded). A fill extends in one direction, so at most one strip is non-empty.
-function _fillDestBlocked(src, total, sn = currentSheet.value) {
-  const strips = []
-  if (total.r1 > src.r1)
-    strips.push({
-      r0: src.r1 + 1,
-      r1: total.r1,
-      c0: total.c0,
-      c1: total.c1,
-    })
-  if (total.r0 < src.r0)
-    strips.push({
-      r0: total.r0,
-      r1: src.r0 - 1,
-      c0: total.c0,
-      c1: total.c1,
-    })
-  if (total.c1 > src.c1)
-    strips.push({
-      r0: total.r0,
-      r1: total.r1,
-      c0: src.c1 + 1,
-      c1: total.c1,
-    })
-  if (total.c0 < src.c0)
-    strips.push({
-      r0: total.r0,
-      r1: total.r1,
-      c0: total.c0,
-      c1: src.c0 - 1,
-    })
-  if (!strips.some((s) => protection.isAnyProtected(s, sn))) return false
-  _flashProtected(sn)
-  return true
-}
-
-// ── Protection UI actions ─────────────────────────────────────────────────────
-function protectSelection() {
-  contextMenu.open = false
-  const sel = grid?.getSelection?.()
-  if (!sel) return
-  protection.addRange(sel, '', currentSheet.value)
-  history.push()
-  isDirty.value = true
-  grid?.render?.()
-}
-function unprotectSelection() {
-  contextMenu.open = false
-  const sel = grid?.getSelection?.()
-  if (!sel) return
-  const sn = currentSheet.value
-  // Drop every protected range that overlaps the selection.
-  for (const r of [...protection.getRanges(sn)]) {
-    if (sel.r0 <= r.r1 && sel.r1 >= r.r0 && sel.c0 <= r.c1 && sel.c1 >= r.c0) {
-      protection.removeRange(r.id, sn)
-    }
-  }
-  history.push()
-  isDirty.value = true
-  grid?.render?.()
-}
-function toggleSheetProtection(name) {
-  tabMenu.open = false
-  protection.setSheetLocked(!protection.isSheetLocked(name), name)
-  history.push()
-  isDirty.value = true
-  grid?.render?.()
-}
-// Menu-label reads. These are plain functions (not computed) so the template
-// re-evaluates them against the live selection each time the menu re-renders —
-// a computed would cache a stale answer when neither dep happened to change.
-// selectionHasProtectedRange looks only at ranges: the whole-sheet lock is a
-// separate affordance in the tab menu, so "Remove protection" here never lies
-// about a lock it can't clear.
-function selectionHasProtectedRange() {
-  const sel = grid?.getSelection?.()
-  if (!sel) return false
-  const sn = currentSheet.value
-  return protection
-    .getRanges(sn)
-    .some((r) => sel.r0 <= r.r1 && sel.r1 >= r.r0 && sel.c0 <= r.c1 && sel.c1 >= r.c0)
-}
-function tabMenuSheetLocked() {
-  return !!tabMenu.name && protection.isSheetLocked(tabMenu.name)
-}
+// ── Protection ────────────────────────────────────────────────────────────────
+// Write guards and the protect/unprotect actions (see useProtection.js).
+const {
+  protectionNotice,
+  flashProtected: _flashProtected,
+  rectBlocked: _rectBlocked,
+  cellBlocked: _cellBlocked,
+  cellsBlocked: _cellsBlocked,
+  cellSilentlyProtected: _cellSilentlyProtected,
+  fillDestBlocked: _fillDestBlocked,
+  protectSelection,
+  unprotectSelection,
+  toggleSheetProtection,
+  selectionHasProtectedRange,
+  tabMenuSheetLocked,
+} = useProtection({
+  protection,
+  currentSheet,
+  contextMenu,
+  tabMenu,
+  history,
+  getGrid: () => grid,
+  markDirty: () => {
+    isDirty.value = true
+  },
+})
 
 // Diff two id→value maps, returning the ids whose value changed.  Used to
 // trim noisy before/after pairs down to the cells that actually moved.
