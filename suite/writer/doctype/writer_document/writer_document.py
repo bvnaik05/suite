@@ -12,6 +12,8 @@ COLLISION_ERRORS = (
     frappe.exceptions.QueryDeadlockError,
     frappe.exceptions.TimestampMismatchError,
 )
+# A document with a log keeps these through it, so nothing else writes them
+LOGGED_FIELDS = ("content", "html", "ycomments", "collab")
 
 
 class WriterDocument(drive.DriveContent, Document):
@@ -67,8 +69,7 @@ class WriterDocument(drive.DriveContent, Document):
         self.drive_touch()
 
     def validate(self):
-        body_changed = self.has_value_changed("content") or self.has_value_changed("html")
-        if not self.is_new() and body_changed:
+        if not self.is_new() and any(self.has_value_changed(field) for field in LOGGED_FIELDS):
             self.refuse_if_logged()
 
     def apply_fieldlevel_read_permissions(self):

@@ -23,6 +23,7 @@ from suite.suite_core import content
 from suite.suite_core.content import documents, log, scheduling, touches
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
+from suite.writer.api.docs import save_comments
 from suite.writer.content.tests.support import (
     WRITER,
     CheckpointCase,
@@ -550,7 +551,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         node = self.new_document()
         self.type_into(node, ["one"])
         self.compact(node)
-        fields = ("content", "html")
+        fields = ("content", "html", "ycomments")
         before = frappe.db.get_value("Writer Document", self.docname_of(node), fields)
         document = frappe.get_doc("Writer Document", self.docname_of(node))
 
@@ -560,6 +561,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
             for save in (
                 lambda: document.save_doc("AAA=", html="<p>older</p>"),
                 lambda: document.save_html("<p>older</p>"),
+                lambda: save_comments(document.name, "AQID"),
             ):
                 with self.subTest(mode=mode), self.assertRaisesRegex(drive.DriveConflict, "reload it"):
                     save()
@@ -573,13 +575,15 @@ class TestWriterDriveCallbacks(CheckpointCase):
         self.type_into(node, ["one"])
         self.compact(node)
         name = self.docname_of(node)
-        fields = ("content", "html")
+        fields = ("content", "html", "ycomments", "collab")
         before = frappe.db.get_value("Writer Document", name, fields)
 
         # frappe.client.set_value, and a REST PUT, which updates the row and saves it
         for write in (
             lambda: frappe.client.set_value("Writer Document", name, "content", "AAA="),
             lambda: frappe.client.set_value("Writer Document", name, "html", "<p>older</p>"),
+            lambda: frappe.client.set_value("Writer Document", name, "ycomments", "AQID"),
+            lambda: frappe.client.set_value("Writer Document", name, "collab", 0),
             lambda: frappe.get_doc("Writer Document", name).update({"content": "AAA="}).save(),
         ):
             with self.subTest(), self.assertRaisesRegex(drive.DriveConflict, "reload it"):
