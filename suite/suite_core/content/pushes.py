@@ -117,7 +117,7 @@ def unacked_part(header: PushHeader, payload: bytes, acked: int, next_clock: int
 
 
 def assembled_payload(adapter: str, doc_id: str, stage_id: str, header: PushHeader) -> bytes:
-    """The staged pieces joined into the change, refused when they conflict or some are missing."""
+    """Join the staged pieces into the change; refused when they conflict or some are missing."""
     try:
         return stage.assemble(adapter, doc_id, stage_id, header.sid, header.seq_from, header.seq_to)
     except stage.Conflict:
