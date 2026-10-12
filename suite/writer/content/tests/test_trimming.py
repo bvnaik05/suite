@@ -168,9 +168,7 @@ class TestWriterTrimming(CheckpointCase):
         self.assertEqual((self.revs_of(node), self.doc_row(node).trimmed_rev), ([1, 2, 3], 0))
         self.assertEqual(frappe.db.count("Error Log", logged), 1)
 
-    def test_a_body_missing_a_row_keeps_every_row(self):
-        node = self.compacted_document(["one ", "two ", "three"])
-        self.age_rows(node)
+    def shorten_body(self, node: str):
         (_rev, first_row), *_later = self.rows_of(node)
         short_body = compaction.load_doc([first_row]).get_update()
         frappe.db.set_value(
@@ -181,12 +179,55 @@ class TestWriterTrimming(CheckpointCase):
             (hashlib.sha256(short_body).hexdigest(), node),
         )
         frappe.db.commit()
+
+    def test_a_body_missing_a_row_keeps_every_row(self):
+        node = self.compacted_document(["one ", "two ", "three"])
+        self.age_rows(node)
+        self.shorten_body(node)
         logged = self.alerted("not_held")
 
         self.trim(node)
 
         self.assertEqual(self.revs_of(node), [1, 2, 3])
         self.assertEqual(frappe.db.count("Error Log", logged), 1)
+
+    def test_a_fallback_past_the_body_is_never_the_base(self):
+        node = self.compacted_document(["one ", "two ", "three"])
+        self.type_into(node, [" four"])
+        full = compaction.load_doc([payload for _rev, payload in self.rows_of(node)]).get_update()
+        doc = self.doc_row(node)
+        frappe.db.sql(
+            """INSERT INTO `__writer_content_checkpoint`
+            (`doc_id`, `through_rev`, `chain`, `sha256`, `nbytes`, `gz`, `integrated`, `kernel_schema`, `report`, `created`)
+            VALUES (%s, 4, UNHEX(%s), UNHEX(%s), %s, UNHEX(%s), 0, %s, '{}', NOW(6))""",
+            (
+                doc.id,
+                bytes(doc.head_chain).hex(),
+                hashlib.sha256(full).hexdigest(),
+                len(full),
+                gzip.compress(full).hex(),
+                compaction.KERNEL,
+            ),
+        )
+        self.age_rows(node)
+        self.shorten_body(node)
+        logged = self.alerted("not_held")
+
+        self.trim(node)
+
+        self.assertEqual(self.revs_of(node), [1, 2, 3, 4])
+        self.assertEqual(frappe.db.count("Error Log", logged), 1)
+
+    def test_suspect_and_purged_documents_keep_every_row(self):
+        for values in ({"suspect": "client"}, {"mode": "purged"}):
+            with self.subTest(**values):
+                node = self.compacted_document(["one ", "two ", "three"])
+                self.age_rows(node)
+                self.set_doc(node, **values)
+
+                self.trim(node)
+
+                self.assertEqual(self.revs_of(node), [1, 2, 3])
 
     def test_a_body_that_fails_its_stamp_keeps_every_row(self):
         for reason, values in (("body_sha", {"body_sha": b"x" * 32}), ("chain", {"body_chain": b"x" * 32})):
@@ -260,6 +301,9 @@ class TestWriterTrimming(CheckpointCase):
 
     def test_a_document_marked_suspect_during_the_check_deletes_nothing(self):
         self.assert_nothing_deleted_when_changed_during_the_check(suspect="client")
+
+    def test_a_trim_point_moved_during_the_check_deletes_nothing(self):
+        self.assert_nothing_deleted_when_changed_during_the_check(trimmed_rev=1)
 
     def test_every_version_still_restores_after_trimming(self):
         node = self.new_document()
