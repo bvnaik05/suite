@@ -463,7 +463,7 @@ def push(adapter: str, doc_id: str, header: dict, payload: bytes, principal: str
     if "stage_id" in header:
         payload = assembled_payload(adapter, doc_id, header)
 
-    if len(payload) > spec.max_change:
+    if len(payload) > capacity.edit_max(spec.max_change):
         raise Refusal(400, "malformed")
 
     try:

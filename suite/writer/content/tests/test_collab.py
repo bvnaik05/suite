@@ -1368,6 +1368,18 @@ class TestWriterCollab(IntegrationTestCase):
         with patch.object(writer_content, "SPEC", at_cap):
             self.assertEqual(self.push(node, sid, client_id, 1, payload)[0], 200)
 
+    def test_a_change_sent_whole_over_what_the_database_takes_is_malformed(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+        payload = self.typed_update(client_id, 1, "abc")
+
+        with patch.object(capacity, "edit_max", return_value=len(payload) - 1):
+            self.assertEqual(self.push(node, sid, client_id, 1, payload), (400, {"collab": "malformed"}))
+
+        with patch.object(capacity, "edit_max", return_value=len(payload)):
+            self.assertEqual(self.push(node, sid, client_id, 1, payload)[0], 200)
+
     def test_pieces_of_a_change_over_what_the_database_takes_are_refused_as_too_large(self):
         self.set_mode("on")
         node = self.new_document()
