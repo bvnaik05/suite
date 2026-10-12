@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import uuid
+from dataclasses import replace
 from unittest.mock import patch
 
 import frappe
@@ -200,7 +201,7 @@ class TestWriterCheckpoints(CheckpointCase):
         snapshot = routes.content.read("writer", doc_id)
         rows = snapshot.payloads()
         compacted = compaction.compact(None, rows, writer_content.ROOTS)
-        other_lineage = {**snapshot, "lineage": "0" * 32}
+        other_lineage = replace(snapshot, lineage="0" * 32)
 
         self.compaction_job(doc_id).install(other_lineage, compacted)
 
