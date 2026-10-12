@@ -288,6 +288,15 @@ def advance_session(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class Incoming:
+    """A push's seqs, its change and the row the change makes."""
+
+    header: PushHeader
+    payload: bytes
+    row: ingest.Row
+
+
 def push(adapter: str, doc_id: str, header: PushHeader, payload: bytes, principal: str) -> dict:
     """Commit one session's contiguous seq range as the next rev, or refuse it."""
     spec = spec_of(adapter)
@@ -301,45 +310,66 @@ def push(adapter: str, doc_id: str, header: PushHeader, payload: bytes, principa
     if header.stage_id is not None:
         payload = assembled_payload(adapter, doc_id, header.stage_id, header)
 
-    row = admissible_row(spec, header, payload)
+    incoming = Incoming(header, payload, admissible_row(spec, header, payload))
     doc = locked_doc(adapter, doc_id, header.is_final)
+    return push_locked(adapter, doc_id, doc, incoming, principal, spec.max_state)
+
+
+def push_locked(
+    adapter: str, doc_id: str, doc: frappe._dict, incoming: Incoming, principal: str, max_state: int
+) -> dict:
+    """Commit the push under the control row's lock; a repeat of committed seqs gets its first answer."""
     try:
-        check_doc_open(doc, header)
-        session = session_for(adapter, doc_id, header, principal)
+        check_doc_open(doc, incoming.header)
+        session = session_for(adapter, doc_id, incoming.header, principal)
         acked = int(session.acked_seq)
         head = int(doc.head_rev)
-        replayed = replay(adapter, doc_id, header, acked, head)
+        replayed = replay(adapter, doc_id, incoming.header, acked, head)
         if replayed:
             frappe.db.rollback()
             return replayed
 
-        if header.seq_from <= acked:
-            header, payload = unacked_part(header, payload, acked, int(session.next_clock))
-            row = checked_row(payload, header.client_id)
-
-        check_seqs(header, acked, head)
-        row_bound = capacity.row_bound(row.update, len(payload))
-        admit_row(adapter, doc_id, doc, header, row, row_bound, spec.max_state)
-        rev = head + 1
-        now = now_datetime()
-        chain = insert_row(adapter, doc_id, doc, header, payload, row_bound, rev, now)
-        if header.stage_id is not None:
-            stage.drop_stage(adapter, doc_id, header.stage_id)
-
-        advance_session(adapter, doc_id, header, row, session, now)
-        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        unsent = unsent_part(incoming, acked, int(session.next_clock))
+        check_seqs(unsent.header, acked, head)
+        rev, chain = commit_row(adapter, doc_id, doc, unsent, session, max_state)
     except BaseException:
         frappe.db.rollback()
         raise
 
-    live.publish_row(adapter, doc_id, doc.lineage, rev, header.schema, payload)
-    return {
-        "rev": rev,
-        "head": rev,
-        "chain": chain.hex(),
-        "acked": header.seq_to,
-        "pace_ms": PACE_MS,
-    }
+    live.publish_row(adapter, doc_id, doc.lineage, rev, unsent.header.schema, unsent.payload)
+    return {"rev": rev, "head": rev, "chain": chain.hex(), "acked": unsent.header.seq_to, "pace_ms": PACE_MS}
+
+
+def unsent_part(incoming: Incoming, acked: int, next_clock: int) -> Incoming:
+    """Cut the push to the seqs its session has not committed."""
+    if incoming.header.seq_from > acked:
+        return incoming
+
+    header, payload = unacked_part(incoming.header, incoming.payload, acked, next_clock)
+    return Incoming(header, payload, checked_row(payload, header.client_id))
+
+
+def commit_row(
+    adapter: str,
+    doc_id: str,
+    doc: frappe._dict,
+    unsent: Incoming,
+    session: frappe._dict,
+    max_state: int,
+) -> tuple[int, bytes]:
+    """Write the push as the next rev, move its session on and commit; answers the rev and its chain."""
+    header = unsent.header
+    row_bound = capacity.row_bound(unsent.row.update, len(unsent.payload))
+    admit_row(adapter, doc_id, doc, header, unsent.row, row_bound, max_state)
+    rev = int(doc.head_rev) + 1
+    now = now_datetime()
+    chain = insert_row(adapter, doc_id, doc, header, unsent.payload, row_bound, rev, now)
+    if header.stage_id is not None:
+        stage.drop_stage(adapter, doc_id, header.stage_id)
+
+    advance_session(adapter, doc_id, header, unsent.row, session, now)
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    return rev, chain
 
 
 def put_piece(
