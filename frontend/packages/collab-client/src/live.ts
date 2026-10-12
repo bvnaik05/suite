@@ -1,4 +1,6 @@
+import { decodeBase64 } from './bytes'
 import type { RoomKeys, Row } from './frames'
+import { Hub, type HubMember } from './hub'
 import { Presence, type PresenceHooks } from './presence'
 import type { LiveSocket, LiveState } from './types'
 
@@ -14,7 +16,6 @@ const MAX_MISSED_OWN_ROWS = 3
 const HOLE_MS = 1000
 // A peer's caret can ask for a pull this often at most
 const CARET_PULL_MS = 10_000
-const ROOMS_MAX = 8
 const HEARD_MAX = 256
 
 export interface LiveHooks {
@@ -34,9 +35,34 @@ type JoinAnswer = { pid?: unknown; count?: number } | null
 // A row as the realtime service relays it
 type HeardRow = Partial<Record<'lineage' | 'rev' | 'schema' | 'u', unknown>> | null
 
+// One pending timer at most; setting it again replaces the one waiting
+class TimerSlot {
+  private timer: ReturnType<typeof setTimeout> | null = null
+
+  get isSet() {
+    return this.timer !== null
+  }
+
+  set(callback: () => void, ms: number) {
+    this.clear()
+    const run = () => {
+      this.timer = null
+      callback()
+    }
+    this.timer = setTimeout(run, ms)
+  }
+
+  clear() {
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+  }
+}
+
 // Rows reach the room over the realtime socket as they commit. Anything missed is pulled after a jittered
 // delay, so a realtime restart doesn't send every tab to the server at once
-export class Live {
+export class Live implements HubMember {
   state: LiveState = 'joining'
   readonly presence: Presence
   private readonly hub: Hub
@@ -57,9 +83,9 @@ export class Live {
   private readonly awaitedRevs = new Map<number, ReturnType<typeof setTimeout>>()
 
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
-  private refreshTimer: ReturnType<typeof setTimeout> | null = null
-  private repairTimer: ReturnType<typeof setTimeout> | null = null
-  private holeTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly refreshTimer = new TimerSlot()
+  private readonly repairTimer = new TimerSlot()
+  private readonly holeTimer = new TimerSlot()
   private lastCaretPullAt = -Infinity
 
   constructor(
@@ -104,15 +130,11 @@ export class Live {
     const nextEpochStart = (keys.epoch + 1) * keys.epoch_seconds
     const refreshAt = nextEpochStart + Math.random() * 0.8 * keys.epoch_seconds
     const pullIfVisible = () => {
-      this.refreshTimer = null
       if (document.visibilityState === 'visible') {
         this.hooks.pull()
       }
     }
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer)
-    }
-    this.refreshTimer = setTimeout(pullIfVisible, this.msUntilServerTime(refreshAt))
+    this.refreshTimer.set(pullIfVisible, this.msUntilServerTime(refreshAt))
 
     // Each key leaves the set when its epoch ends
     const dropEndedKey = () => {
@@ -157,27 +179,22 @@ export class Live {
 
   // Rows wait in order behind a missing rev; if it is still missing in a second it is pulled
   pullHoleLater(stillMissing: () => boolean) {
-    if (this.holeTimer || this.closed) return
+    if (this.holeTimer.isSet || this.closed) return
 
     const repairIfStillMissing = () => {
-      this.holeTimer = null
       if (stillMissing()) {
         this.repair()
       }
     }
-    this.holeTimer = setTimeout(repairIfStillMissing, HOLE_MS)
+    this.holeTimer.set(repairIfStillMissing, HOLE_MS)
   }
 
   // One pull, after a random share of a delay that grows with the room
   repair() {
-    if (this.repairTimer || this.closed) return
+    if (this.repairTimer.isSet || this.closed) return
 
     const spread = Math.min(30_000, 50 * this.memberCount)
-    const pull = () => {
-      this.repairTimer = null
-      this.hooks.pull()
-    }
-    this.repairTimer = setTimeout(pull, Math.random() * spread)
+    this.repairTimer.set(() => this.hooks.pull(), Math.random() * spread)
   }
 
   answered(rawAnswer: unknown, rooms: string[]) {
@@ -229,10 +246,8 @@ export class Live {
     for (const timer of [...this.timers, ...this.awaitedRevs.values()]) {
       clearTimeout(timer)
     }
-    for (const timer of [this.refreshTimer, this.repairTimer, this.holeTimer]) {
-      if (timer) {
-        clearTimeout(timer)
-      }
+    for (const slot of [this.refreshTimer, this.repairTimer, this.holeTimer]) {
+      slot.clear()
     }
 
     this.presence.close()
@@ -346,67 +361,4 @@ export class Live {
     const timer = setTimeout(runOnce, ms)
     this.timers.add(timer)
   }
-}
-
-// A socket's room set belongs to every document open on it, so it is sent whole
-class Hub {
-  private static hubs = new WeakMap<LiveSocket, Hub>()
-  readonly members = new Set<Live>()
-  private roomSetVersion = 0
-
-  static forSocket(socket: LiveSocket) {
-    let hub = Hub.hubs.get(socket)
-    if (!hub) {
-      hub = new Hub(socket)
-      Hub.hubs.set(socket, hub)
-    }
-    return hub
-  }
-
-  private constructor(private readonly socket: LiveSocket) {
-    const connected = () => {
-      for (const member of this.members) {
-        member.connected()
-      }
-      this.sendRoomSet()
-    }
-    const dropped = () => {
-      this.roomSetVersion++
-      for (const member of this.members) {
-        member.dropped()
-      }
-    }
-    socket.on('connect', connected)
-    socket.on('disconnect', dropped)
-  }
-
-  sendRoomSet() {
-    const keys = [...this.members].flatMap((member) => member.currentKeys())
-    const rooms = [...new Set(keys)].slice(0, ROOMS_MAX)
-    const version = ++this.roomSetVersion
-    if (!this.socket.connected) return
-
-    const answered = (rawAnswer: unknown) => {
-      if (version !== this.roomSetVersion) return
-
-      for (const member of this.members) {
-        member.answered(rawAnswer, rooms)
-      }
-    }
-    this.socket.emit('suite_collab_rooms', { rooms }, answered)
-  }
-
-  leave(member: Live) {
-    this.members.delete(member)
-    this.sendRoomSet()
-  }
-}
-
-function decodeBase64(base64: string) {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let at = 0; at < binary.length; at++) {
-    bytes[at] = binary.charCodeAt(at)
-  }
-  return bytes
 }
