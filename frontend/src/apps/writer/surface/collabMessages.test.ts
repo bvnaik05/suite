@@ -117,6 +117,12 @@ describe('collab stop copy', () => {
     )
   })
 
+  it('says saving stopped because collaboration was switched off, and where the unsent work went', () => {
+    expect(bannerText({ failed: true, stopped: 'disabled', recoveryKept: true })).toBe(
+      'Collaboration was switched off for this app, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',
+    )
+  })
+
   it('says a document at its size limit frees space as content is deleted, and where the latest changes went', () => {
     expect(bannerText({ atLimit: true })).toBe(
       'This document is at its size limit. Delete content to free space.',

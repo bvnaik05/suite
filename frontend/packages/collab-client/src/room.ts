@@ -260,6 +260,11 @@ export class Room implements CollabRoom {
     const applyPull = (answer: Answer) => {
       if (answer.status !== 200) {
         const reply = readReply(answer)
+        if (isDisabled(reply)) {
+          void this.stopForGood('disabled')
+          return
+        }
+
         this.classifyRefusal(reply, 'lost_read')
         return
       }
@@ -594,7 +599,9 @@ export class Room implements CollabRoom {
     } else {
       // Only a verdict counts against this browser; a failing server or a lapsed sign-in is asked again
       const blocked = this.classifyRefusal(reply, 'lost_read')
-      if (!blocked || isRecoverable(blocked)) {
+      if (isDisabled(reply)) {
+        await this.stopForGood('disabled')
+      } else if (!blocked || isRecoverable(blocked)) {
         this.reportSuspectAfter(backoffMs())
       }
     }
@@ -1229,6 +1236,9 @@ function replaces(next: Blocked, current: Blocked) {
 }
 
 const lostReason = (verdict: string) => (verdict === 'clash' ? 'id_clash' : verdict)
+
+// The app's collaboration was switched off, so no request of this room will be taken again
+const isDisabled = (reply: Reply) => reply.status === 409 && reply.collab === 'disabled'
 
 function recordStrike(lineage: string) {
   const now = Date.now()

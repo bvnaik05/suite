@@ -2161,6 +2161,29 @@ describe('collab room on a device', () => {
     expect((await kept.store.recovery('D')).map((copy) => copy.reason)).toEqual(['client_closed'])
   })
 
+  it('a tab told collaboration is off keeps its unsent work as a recovery copy and stops', async () => {
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    server.access.refuse = reply(409, { collab: 'disabled' })
+
+    room.doc.getText('t').insert(0, 'typed before the switch')
+    await room.flush()
+
+    expect([room.stopped, room.saveState, room.canWrite]).toEqual(['disabled', 'failed', false])
+    expect((await kept.store.recovery('D')).map((copy) => copy.reason)).toEqual(['disabled'])
+  })
+
+  it('a tab with nothing unsent stops once a pull says collaboration is off', async () => {
+    const server = fakeServer()
+    const room = await join(server.endpoints())
+    server.access.refuse = reply(409, { collab: 'disabled' })
+
+    await room.pull()
+
+    expect([room.stopped, room.canWrite]).toEqual(['disabled', false])
+  })
+
   it('a change refused by a full document is kept aside and the tab asks to be rebuilt', async () => {
     const server = fakeServer()
     const kept = await device()
