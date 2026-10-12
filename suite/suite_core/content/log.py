@@ -65,7 +65,7 @@ def find(adapter: str, node: str) -> frappe._dict | None:
     """`node`'s log, or None when it has none or its log is purged."""
     rows = frappe.db.sql(
         f"""SELECT `id`, `lineage`, `head_rev`, `head_chain`, `q_epoch`, `verdict`, `judged`, `schema_steps`,
-        `suspect_held`, `state_bytes`, `tail_bound` FROM `{table(adapter, "doc")}` WHERE `node` = %s AND `mode` != 'purged'""",
+        `suspect_held`, `state_bytes`, `tail_bound`, `trimmed_rev` FROM `{table(adapter, "doc")}` WHERE `node` = %s AND `mode` != 'purged'""",
         node,
         as_dict=True,
     )
