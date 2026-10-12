@@ -33,6 +33,14 @@ def enable_collab(node: str) -> dict:
 
 
 @whitelist_for_tests(methods=["POST"])
+def disable_collab(node: str) -> dict:
+    """Turn Writer's collaboration off, leaving `node`'s document and log as they are."""
+    content.set_mode(writer_content.ADAPTER, "off")
+    frappe.db.commit()
+    return state(node)
+
+
+@whitelist_for_tests(methods=["POST"])
 def compact_now(node: str) -> dict:
     """Compact `node`'s collab log in this request, as the queued job would."""
     doc_id = find_log(node)["id"]

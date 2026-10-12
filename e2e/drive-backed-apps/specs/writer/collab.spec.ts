@@ -5,6 +5,7 @@ import {
 	bodyLimitProxy,
 	collabState,
 	compactNow,
+	disableCollab,
 	editorBlocks,
 	enableCollab,
 	expectConverged,
@@ -415,6 +416,28 @@ test.describe("Writer collaboration", () => {
 		letPullsThrough();
 		await expect(writerEditor(collaborator.page)).toHaveAttribute("contenteditable", "true");
 		await expectConverged(testApi, node, [owner.page, collaborator.page], ["Kept line"]);
+	});
+
+	test("switching Writer's collaboration off stops a tab and keeps its unsent edits as a recovery copy", async ({
+		owner,
+		testApi,
+	}) => {
+		await openWriterDocument(owner.page, node);
+		await typeParagraph(owner.page, "Saved line");
+		await expectSaved(owner.page);
+
+		await disableCollab(testApi, node);
+		await typeParagraph(owner.page, "Typed after the switch");
+
+		await expect(
+			owner.page.getByText(
+				"Collaboration was switched off for this app, so saving stopped in this tab. Unsent changes were kept as a recovery copy.",
+			),
+		).toBeVisible();
+		await expect(writerEditor(owner.page)).toHaveAttribute("contenteditable", "false");
+		const stored = await serverBlocks(testApi, node);
+		expect(stored).toContain("Saved line");
+		expect(stored).not.toContain("Typed after the switch");
 	});
 
 	test("an edit that waits for room is saved once a compaction makes it", async ({

@@ -38,6 +38,10 @@ async function callTestHook<T>(testApi: APIRequestContext, name: string, node: s
 export const enableCollab = (testApi: APIRequestContext, node: string) =>
 	callTestHook<CollabState>(testApi, "enable_collab", node);
 
+/** Turn Writer's collaboration off; the next test's `enableCollab` turns it on again. */
+export const disableCollab = (testApi: APIRequestContext, node: string) =>
+	callTestHook<CollabState>(testApi, "disable_collab", node);
+
 export const compactNow = (testApi: APIRequestContext, node: string) =>
 	callTestHook<CollabState>(testApi, "compact_now", node);
 
