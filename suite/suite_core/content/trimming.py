@@ -13,7 +13,7 @@ stopped. Each check takes one of the bench's compaction places.
 
 import hashlib
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -79,8 +79,9 @@ def run(adapter: str, roots: Mapping[str, type], bundle: Path) -> None:
 
 def trim(adapter: str, doc_id: str, roots: Mapping[str, type], bundle: Path) -> None:
     """Delete the document's rows past the window, a chunk at a time, each checked first."""
-    while True:
-        chunk = next_chunk(adapter, doc_id, now_datetime())
+    bound = trim_bound(adapter, doc_id, now_datetime())
+    while bound is not None:
+        chunk = next_chunk(adapter, doc_id, bound)
         if chunk is None:
             return
 
@@ -104,28 +105,78 @@ def trim(adapter: str, doc_id: str, roots: Mapping[str, type], bundle: Path) -> 
             return
 
 
-def next_chunk(adapter: str, doc_id: str, now: datetime) -> Chunk | None:
-    """Read the next rows to trim from one snapshot, or None when none is past the window."""
+def trim_bound(adapter: str, doc_id: str, now: datetime) -> tuple[int, int] | None:
+    """Answer the document's `body_rev` and the last rev it covers past the window, or None."""
     with repeatable_read():
         doc = control_row(adapter, doc_id)
         if doc is None:
             return None
 
-        span = trim_span(adapter, doc, now)
-        app_row = body_row(adapter, doc.node)
-        if span is None or app_row is None:
+        start = window_start(adapter, doc, now)
+
+    body_rev = int(doc.body_rev)
+    # The row at `body_rev` stays, so the body's chain can be checked against it
+    return body_rev, min(start - 1, body_rev - 1)
+
+
+def window_start(adapter: str, doc: frappe._dict, now: datetime) -> int:
+    """Answer the lowest rev in the evidence window: under a day old, among the newest `max(4 MiB, 2 * state)` bytes."""
+    window_bytes = max(WINDOW_BYTES, 2 * int(doc.state_bytes))
+    cutoff = now - WINDOW_AGE
+    update_table = table(adapter, "update")
+    found = frappe.db.sql(
+        f"""SELECT COALESCE(MAX(CASE WHEN `newer` >= %s OR `created` < %s THEN `rev` END) + 1, MIN(`rev`), 0)
+        FROM (SELECT `rev`, `created`, COALESCE(SUM(LENGTH(`payload`)) OVER (
+            ORDER BY `rev` DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS `newer`
+            FROM `{update_table}` WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s) AS `covered`""",
+        (window_bytes, cutoff, doc.id, int(doc.trimmed_rev), int(doc.body_rev)),
+    )
+    return int(found[0][0])
+
+
+def next_chunk(adapter: str, doc_id: str, bound: tuple[int, int]) -> Chunk | None:
+    """Read the next rows to trim from one snapshot, or None when none is left or the body moved on."""
+    body_rev, last = bound
+    with repeatable_read():
+        doc = control_row(adapter, doc_id)
+        if doc is None or int(doc.body_rev) != body_rev:
             return None
 
-        after, through = span
+        after = int(doc.trimmed_rev)
+        through = chunk_end(adapter, doc_id, after, last)
+        app_row = body_row(adapter, doc.node)
+        if through <= after or app_row is None:
+            return None
+
         return Chunk(
             after=after,
             through=through,
             body=app_row.body,
             body_sha=bytes(doc.body_sha or b""),
             body_chain=bytes(doc.body_chain or b""),
-            stamp_chain=row_chain(adapter, doc_id, int(doc.body_rev)),
+            stamp_chain=row_chain(adapter, doc_id, body_rev),
             rows=ok_payloads(adapter, doc_id, after, through),
         )
+
+
+def chunk_end(adapter: str, doc_id: str, after: int, last: int) -> int:
+    """Answer the last rev of the chunk after `after`, at most `last`, or `after` when it is empty."""
+    update_table = table(adapter, "update")
+    rows = frappe.db.sql(
+        f"""SELECT `rev`, LENGTH(`payload`) FROM `{update_table}`
+        WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s ORDER BY `rev` LIMIT %s""",
+        (doc_id, after, last, CHUNK_ROWS),
+    )
+    end = after
+    nbytes = 0
+    for rev, row_bytes in rows:
+        if end > after and nbytes + int(row_bytes) > CHUNK_BYTES:
+            break
+
+        end = int(rev)
+        nbytes += int(row_bytes)
+
+    return end
 
 
 def ok_payloads(adapter: str, doc_id: str, after: int, through: int) -> list[bytes]:
@@ -164,64 +215,6 @@ def control_row(adapter: str, doc_id: str) -> frappe._dict | None:
         return None
 
     return found[0]
-
-
-def trim_span(adapter: str, doc: frappe._dict, now: datetime) -> tuple[int, int] | None:
-    """Answer the revs after which and through which the next chunk runs, or None when it is empty."""
-    after = int(doc.trimmed_rev)
-    body_rev = int(doc.body_rev)
-    update_table = table(adapter, "update")
-    covered = frappe.db.sql(
-        f"""SELECT `rev`, `created`, LENGTH(`payload`) FROM `{update_table}`
-        WHERE `doc_id` = %s AND `rev` > %s AND `rev` <= %s ORDER BY `rev`""",
-        (doc.id, after, body_rev),
-    )
-    # The row at `body_rev` stays, so the body's chain can be checked against it
-    last_trimmable = min(window_start(covered, int(doc.state_bytes), now) - 1, body_rev - 1)
-    through = chunk_end(covered, last_trimmable)
-    if through <= after:
-        return None
-
-    return after, through
-
-
-def window_start(covered: Sequence[tuple], state_bytes: int, now: datetime) -> int:
-    """Answer the lowest rev in the evidence window: under a day old, among the newest `max(4 MiB, 2 * state)` bytes."""
-    window_bytes = max(WINDOW_BYTES, 2 * state_bytes)
-    newer_bytes = 0
-    start = None
-    for rev, created, nbytes in reversed(covered):
-        if newer_bytes >= window_bytes or created < now - WINDOW_AGE:
-            break
-
-        newer_bytes += int(nbytes)
-        start = int(rev)
-
-    if start is not None:
-        return start
-
-    if not covered:
-        return 0
-
-    # With every row past the window, it starts after the newest
-    return int(covered[-1][0]) + 1
-
-
-def chunk_end(covered: Sequence[tuple], through: int) -> int:
-    """Answer the last rev of the first chunk of `covered` through `through`."""
-    end = 0
-    count = 0
-    nbytes = 0
-    for rev, _created, row_bytes in covered:
-        too_big = count and nbytes + int(row_bytes) > CHUNK_BYTES
-        if int(rev) > through or count >= CHUNK_ROWS or too_big:
-            break
-
-        end = int(rev)
-        count += 1
-        nbytes += int(row_bytes)
-
-    return end
 
 
 def check(chunk: Chunk, roots: Mapping[str, type], bundle: Path) -> None:

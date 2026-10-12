@@ -139,6 +139,24 @@ class TestWriterTrimming(CheckpointCase):
         self.assertEqual([call.args[0].through for call in check.call_args_list], [2, 4, 5])
         self.assertEqual((self.revs_of(node), self.doc_row(node).trimmed_rev), ([6], 5))
 
+    def test_a_body_that_moves_on_between_chunks_stops_the_trimming(self):
+        node = self.compacted_document(["a", "b", "c", "d", "e", "f"])
+        self.age_rows(node)
+        deleted = trimming.delete
+
+        def compacted_meanwhile(*args):
+            done = deleted(*args)
+            self.set_doc(node, body_rev=7)
+            return done
+
+        with (
+            patch.object(trimming, "CHUNK_ROWS", 2),
+            patch.object(trimming, "delete", side_effect=compacted_meanwhile),
+        ):
+            self.trim(node)
+
+        self.assertEqual((self.revs_of(node), self.doc_row(node).trimmed_rev), ([3, 4, 5, 6], 2))
+
     def test_a_body_that_does_not_hold_the_rows_keeps_every_row_and_alerts(self):
         node = self.compacted_document(["one ", "two ", "three"])
         self.age_rows(node)
