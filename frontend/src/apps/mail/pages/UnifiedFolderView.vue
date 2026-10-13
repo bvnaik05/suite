@@ -73,7 +73,6 @@
             :show-filter="!selections.length"
             :show-actions="!selections.length"
             :fetching="isFetching"
-            :loading="threads.isFetching"
             @refresh="refreshThreads()"
           >
             <template v-if="!isMobile" #lead>

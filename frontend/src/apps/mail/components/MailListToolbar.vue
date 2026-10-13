@@ -1,9 +1,8 @@
 <template>
   <!-- Mobile: the filter selector alone, in a row the caller places and borders. The
 	     mailbox's row sits inside a header block (title, auto-delete banner, selection
-	     variant) whose border and loading bar span all of it; All Inboxes has no such
-	     block. So the row owns neither — pass `loading` only where the caller isn't
-	     already rendering a bar of its own. -->
+	     variant) whose border spans all of it; All Inboxes has no such block. So the row
+	     owns no border of its own. -->
   <div v-if="isMobile" class="relative flex h-12 items-center px-4">
     <!-- The selector label carries the active filters ("Unread", "Unread +1");
 		     unticking them in the sheet clears them, so no dismissal chip needed. -->
@@ -16,7 +15,6 @@
     </AdaptiveDropdown>
     <!-- Actions on the list as a whole, such as clearing an Inbox tab. -->
     <div class="-mr-1.5 ml-auto flex items-center"><slot name="mobile-actions" /></div>
-    <LoadingBar v-if="loading" />
   </div>
 
   <!-- Desktop -->
@@ -79,9 +77,6 @@
         </Button>
       </template>
     </div>
-
-    <!-- Subtle loading bar: a segment sliding across the bottom outline (no layout shift) -->
-    <LoadingBar v-if="loading" />
   </div>
 </template>
 
@@ -91,7 +86,6 @@ import { Button, Dropdown } from 'frappe-ui'
 import { ChevronDown, ListFilter, RefreshCw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
-import LoadingBar from '@/apps/mail/components/LoadingBar.vue'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import type { FilterOption } from '@/apps/mail/utils/listFilter'
 import AdaptiveDropdown from '@/components/AdaptiveDropdown.vue'
@@ -107,7 +101,6 @@ const {
   showFilter = true,
   showActions = true,
   fetching = false,
-  loading = false,
 } = defineProps<{
   /** What the selector reads: usually the filter's name, sometimes a count. */
   title: string
@@ -117,7 +110,6 @@ const {
   /** False hands the right-hand cluster entirely to the `actions` slot. */
   showActions?: boolean
   fetching?: boolean
-  loading?: boolean
 }>()
 
 const emit = defineEmits<{ refresh: [] }>()

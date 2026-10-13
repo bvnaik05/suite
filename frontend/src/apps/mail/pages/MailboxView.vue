@@ -126,9 +126,6 @@
                 <ClearListMenu :scope="clearScope" :target="{ account: accountId, mailbox }" />
               </template>
             </MailListToolbar>
-
-            <!-- Loading bar -->
-            <LoadingBar v-if="activeThreads.isFetching" />
           </div>
 
           <!-- Toolbar/Actions -->
@@ -139,7 +136,6 @@
             :show-filter="!selections.length && mailbox !== 'search'"
             :show-actions="!selections.length"
             :fetching="isFetching"
-            :loading="activeThreads.isFetching"
             @refresh="refreshThreads()"
           >
             <template #lead>
@@ -385,7 +381,6 @@ import MobileSelectionBar from '@/apps/mail/components/ListSelection/MobileSelec
 import MobileSelectionHeader from '@/apps/mail/components/ListSelection/MobileSelectionHeader.vue'
 import SelectActionButtons from '@/apps/mail/components/ListSelection/SelectActionButtons.vue'
 import SelectAllCheckbox from '@/apps/mail/components/ListSelection/SelectAllCheckbox.vue'
-import LoadingBar from '@/apps/mail/components/LoadingBar.vue'
 import MailGroupHeader from '@/apps/mail/components/MailGroupHeader.vue'
 import MailListItem from '@/apps/mail/components/MailListItem.vue'
 import MailListToolbar from '@/apps/mail/components/MailListToolbar.vue'
