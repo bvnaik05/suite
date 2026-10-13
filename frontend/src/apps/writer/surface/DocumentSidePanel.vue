@@ -12,7 +12,10 @@ import {
   type DocumentThread,
   type DocumentVersion,
 } from '@/apps/drive'
+import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
+import { confirm } from '@/platform/feedback'
 
+import { groupThreads, type ThreadGroup } from './threadGroups'
 import { useDocumentPanel, versionLabel } from './useDocumentPanel'
 
 type ThreadComment = DocumentThread['comments'][number]
@@ -21,6 +24,10 @@ const props = defineProps<{
   session: DocumentSession
   canComment: boolean
   canSaveVersion: boolean
+  threads: DocumentThread[]
+  /** Where each thread shows in the editor; null when the editor can't tell. */
+  places: ThreadPlaces | null
+  refreshThreads: () => Promise<void>
   /** Saves the document's pending edits, throwing why it couldn't. */
   saveFirst: () => Promise<void>
 }>()
@@ -31,9 +38,12 @@ const previewedVersion = defineModel<DocumentVersion | null>('previewedVersion',
   required: true,
 })
 
-const { lists, load, loadMoreVersions, addComment, saveVersion } = useDocumentPanel(props.session)
+const { lists, load, loadMoreVersions, addComment, reply, resolve, removeComment, saveVersion } =
+  useDocumentPanel(props.session, props.refreshThreads)
 
 const commentText = ref('')
+const replyingTo = ref<string | null>(null)
+const replyText = ref('')
 const isSavingVersion = ref(false)
 
 // Guests may sign their comments. Signed-in users never see the field (spec §10.5)
@@ -48,7 +58,9 @@ const {
 const isCommentsPanel = computed(() => panel.value === 'comments')
 const title = computed(() => (isCommentsPanel.value ? 'Comments' : 'Versions'))
 const isCommentBlank = computed(() => !commentText.value.trim())
-const hasNoThreads = computed(() => !lists.threads.length)
+const threadGroups = computed(() => groupThreads(props.threads, props.places))
+const hasNoThreads = computed(() => !props.threads.length)
+const isReplyBlank = computed(() => !replyText.value.trim())
 const hasNoVersions = computed(() => !lists.versions.length)
 const showsSaveVersion = computed(() => panel.value === 'versions' && props.canSaveVersion)
 const saveVersionLabel = computed(() => (isSavingVersion.value ? 'Saving first…' : 'Save version'))
@@ -86,6 +98,56 @@ async function submitComment() {
 
   if (await addComment(text, takeGuestName())) {
     commentText.value = ''
+  }
+}
+
+function startReply(thread: DocumentThread) {
+  replyingTo.value = thread.name
+  replyText.value = ''
+}
+
+async function submitReply(thread: DocumentThread) {
+  const text = replyText.value.trim()
+  if (!text || !props.canComment) {
+    return
+  }
+
+  if (await reply(thread.name, text, takeGuestName())) {
+    replyingTo.value = null
+    replyText.value = ''
+  }
+}
+
+// Untitled when the editor can't group threads, so it isn't a named region then
+function groupLabel(group: ThreadGroup) {
+  return group.title || undefined
+}
+
+function isReplying(thread: DocumentThread) {
+  return replyingTo.value === thread.name
+}
+
+function toggleResolved(thread: DocumentThread) {
+  void resolve(thread.name, !thread.resolved)
+}
+
+function resolveLabel(thread: DocumentThread) {
+  if (thread.resolved) {
+    return 'Reopen'
+  }
+
+  return 'Resolve'
+}
+
+async function deleteComment(comment: ThreadComment) {
+  const isConfirmed = await confirm({
+    title: 'Delete comment?',
+    message: "It can't be brought back.",
+    confirmLabel: 'Delete',
+    destructive: true,
+  })
+  if (isConfirmed) {
+    await removeComment(comment.name)
   }
 }
 
@@ -193,30 +255,75 @@ function versionByline(version: DocumentVersion) {
                 <Button type="submit" label="Add" :disabled="isCommentBlank" />
               </div>
             </form>
-            <article
-              v-for="thread in lists.threads"
-              :key="thread.name"
-              class="space-y-2 rounded-4 bg-surface-gray-1 p-3"
-              :class="threadClass(thread)"
+            <section
+              v-for="group in threadGroups"
+              :key="group.title"
+              class="space-y-2"
+              :aria-label="groupLabel(group)"
             >
-              <div v-for="comment in thread.comments" :key="comment.name">
-                <p class="flex items-center gap-2 text-sm-medium text-ink-gray-8">
-                  <Avatar
-                    v-if="comment.person"
-                    :image="authorImage(comment)"
-                    :label="comment.person.full_name"
-                    size="sm"
-                    shape="circle"
+              <h3 v-if="group.title" class="text-sm-medium text-ink-gray-5">{{ group.title }}</h3>
+              <article
+                v-for="{ thread, quote } in group.threads"
+                :key="thread.name"
+                class="space-y-2 rounded-4 bg-surface-gray-1 p-3"
+                :class="threadClass(thread)"
+              >
+                <p v-if="quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
+                  {{ quote }}
+                </p>
+                <div v-for="comment in thread.comments" :key="comment.name">
+                  <div class="flex items-center gap-2">
+                    <p class="flex flex-1 items-center gap-2 text-sm-medium text-ink-gray-8">
+                      <Avatar
+                        v-if="comment.person"
+                        :image="authorImage(comment)"
+                        :label="comment.person.full_name"
+                        size="sm"
+                        shape="circle"
+                      />
+                      <DriveCommentAuthor
+                        :author="comment.author"
+                        :author-name="comment.author_name"
+                        >{{ authorLabel(comment) }}</DriveCommentAuthor
+                      >
+                    </p>
+                    <Button
+                      v-if="canComment"
+                      size="sm"
+                      variant="ghost"
+                      icon="lucide-trash-2"
+                      aria-label="Delete comment"
+                      @click="deleteComment(comment)"
+                    />
+                  </div>
+                  <p class="whitespace-pre-wrap text-p-sm text-ink-gray-7">
+                    {{ comment.content }}
+                  </p>
+                </div>
+                <form
+                  v-if="isReplying(thread)"
+                  class="flex gap-2"
+                  @submit.prevent="submitReply(thread)"
+                >
+                  <TextInput
+                    v-model="replyText"
+                    class="flex-1"
+                    placeholder="Reply"
+                    aria-label="Reply"
                   />
-                  <DriveCommentAuthor :author="comment.author" :author-name="comment.author_name">{{
-                    authorLabel(comment)
-                  }}</DriveCommentAuthor>
-                </p>
-                <p class="whitespace-pre-wrap text-p-sm text-ink-gray-7">
-                  {{ comment.content }}
-                </p>
-              </div>
-            </article>
+                  <Button type="submit" label="Send" :disabled="isReplyBlank" />
+                </form>
+                <div v-else-if="canComment" class="flex gap-1">
+                  <Button size="sm" variant="ghost" label="Reply" @click="startReply(thread)" />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    :label="resolveLabel(thread)"
+                    @click="toggleResolved(thread)"
+                  />
+                </div>
+              </article>
+            </section>
             <p v-if="hasNoThreads" class="text-sm text-ink-gray-5">No comments yet.</p>
           </template>
           <template v-else>

@@ -9,7 +9,7 @@ import * as Y from 'yjs'
 import type { DocumentThread } from '@/apps/drive'
 
 import { encodeAnchor } from './anchors'
-import { redrawThreads, ThreadHighlights } from './highlights'
+import { redrawThreads, ThreadHighlights, type ThreadPlaces } from './highlights'
 
 const editors: Editor[] = []
 afterEach(() => {
@@ -18,7 +18,11 @@ afterEach(() => {
   }
 })
 
-function openEditor(doc: Y.Doc, threads: { list: DocumentThread[] }) {
+function openEditor(
+  doc: Y.Doc,
+  threads: { list: DocumentThread[] },
+  placed: (places: ThreadPlaces) => void = () => {},
+) {
   const editor = new Editor({
     element: document.createElement('div'),
     extensions: [
@@ -26,7 +30,7 @@ function openEditor(doc: Y.Doc, threads: { list: DocumentThread[] }) {
       Paragraph,
       Text,
       Collaboration.configure({ document: doc }),
-      ThreadHighlights.configure({ threads: () => threads.list }),
+      ThreadHighlights.configure({ threads: () => threads.list, placed }),
     ],
   })
   editors.push(editor)
@@ -82,5 +86,23 @@ describe('thread highlights', () => {
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(remote, before))
 
     expect([editor.getText(), highlighted(editor)]).toEqual(['oh, hello world', ['open:world']])
+  })
+
+  it('tells the app where each thread is whenever the threads or the text change', () => {
+    const doc = new Y.Doc()
+    const threads = { list: [] as DocumentThread[] }
+    const told: string[][] = []
+    function placed(places: ThreadPlaces) {
+      told.push([...places].map(([name, place]) => `${name}:${place.kind}`))
+    }
+
+    const editor = openEditor(doc, threads, placed)
+    editor.commands.setContent('<p>hello world</p>')
+    threads.list = [threadOn(doc, 'open', 6, 11)]
+    redrawThreads(editor.view)
+    editor.commands.setTextSelection(1)
+    editor.commands.deleteRange({ from: 7, to: 12 })
+
+    expect(told).toEqual([[], [], ['open:text'], ['open:deleted']])
   })
 })

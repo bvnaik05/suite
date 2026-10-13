@@ -1,12 +1,11 @@
 import { toast } from 'frappe-ui'
 import { reactive } from 'vue'
 
-import type { DocumentPanel, DocumentSession, DocumentThread, DocumentVersion } from '@/apps/drive'
+import type { DocumentPanel, DocumentSession, DocumentVersion } from '@/apps/drive'
 
 type PanelSession = Pick<DocumentSession, 'comments' | 'versions'>
 
 interface PanelLists {
-  threads: DocumentThread[]
   versions: DocumentVersion[]
   versionsCursor: string | null
   isLoading: boolean
@@ -26,16 +25,12 @@ function showError(error: unknown, fallback: string) {
   toast.error(fallback)
 }
 
-async function loadPanel(session: PanelSession, lists: PanelLists, kind: DocumentPanel) {
+async function loadVersions(session: PanelSession, lists: PanelLists) {
   lists.isLoading = true
   try {
-    if (kind === 'comments') {
-      lists.threads = (await session.comments.list()).threads
-    } else {
-      const page = await session.versions.list()
-      lists.versions = page.rows
-      lists.versionsCursor = page.next_cursor
-    }
+    const page = await session.versions.list()
+    lists.versions = page.rows
+    lists.versionsCursor = page.next_cursor
   } catch (error) {
     showError(error, 'Could not load this panel.')
   } finally {
@@ -61,22 +56,40 @@ async function loadMoreVersions(session: PanelSession, lists: PanelLists) {
   }
 }
 
-// Whether the comment went in; the list is read again after it does
-async function addComment(
-  session: PanelSession,
-  lists: PanelLists,
-  text: string,
-  authorName?: string,
+// Whether the change went in; the threads are read again after it does
+async function changeThreads(
+  change: () => Promise<unknown>,
+  refreshThreads: () => Promise<void>,
+  fallback: string,
 ) {
   try {
-    await session.comments.create('document', text, authorName)
+    await change()
   } catch (error) {
-    showError(error, 'Could not add the comment.')
+    showError(error, fallback)
     return false
   }
 
-  await loadPanel(session, lists, 'comments')
+  await refreshThreads()
   return true
+}
+
+/** Adds, replies to, resolves and deletes the document's comments. */
+function threadActions(session: PanelSession, refreshThreads: () => Promise<void>) {
+  function change(action: () => Promise<unknown>, fallback: string) {
+    return changeThreads(action, refreshThreads, fallback)
+  }
+
+  const { comments } = session
+  return {
+    addComment: (text: string, authorName?: string) =>
+      change(() => comments.create('document', text, authorName), 'Could not add the comment.'),
+    reply: (thread: string, text: string, authorName?: string) =>
+      change(() => comments.reply(thread, text, authorName), 'Could not add the reply.'),
+    resolve: (thread: string, isResolved: boolean) =>
+      change(() => comments.resolve(thread, isResolved), 'Could not change the thread.'),
+    removeComment: (comment: string) =>
+      change(() => comments.remove(comment), 'Could not delete the comment.'),
+  }
 }
 
 // Whether the version was taken; `saveFirst` saves the tab's edits and throws why it couldn't
@@ -95,25 +108,33 @@ async function saveVersion(
   }
 
   toast.success('Version saved')
-  await loadPanel(session, lists, 'versions')
+  await loadVersions(session, lists)
   return true
 }
 
-// The side panel's comments and versions, loaded when the panel opens
-export function useDocumentPanel(session: PanelSession) {
+// The side panel's comments and versions; comments are the document's threads, read again when the panel opens
+export function useDocumentPanel(session: PanelSession, refreshThreads: () => Promise<void>) {
   const lists = reactive<PanelLists>({
-    threads: [],
     versions: [],
     versionsCursor: null,
     isLoading: false,
     isLoadingMore: false,
   })
+  async function load(kind: DocumentPanel) {
+    if (kind === 'comments') {
+      await refreshThreads()
+      return
+    }
+
+    await loadVersions(session, lists)
+  }
+
   return {
     lists,
-    load: (kind: DocumentPanel) => loadPanel(session, lists, kind),
+    load,
     loadMoreVersions: () => loadMoreVersions(session, lists),
-    addComment: (text: string, authorName?: string) => addComment(session, lists, text, authorName),
     saveVersion: (label: string, saveFirst: () => Promise<void>) =>
       saveVersion(session, lists, label, saveFirst),
+    ...threadActions(session, refreshThreads),
   }
 }

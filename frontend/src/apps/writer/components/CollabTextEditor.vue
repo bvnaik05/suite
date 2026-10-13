@@ -26,7 +26,7 @@ import * as Y from 'yjs'
 
 import type { DocumentThread } from '@/apps/drive'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
-import { redrawThreads, ThreadHighlights } from '@/apps/writer/collab/highlights'
+import { redrawThreads, ThreadHighlights, type ThreadPlaces } from '@/apps/writer/collab/highlights'
 import { peopleOf } from '@/apps/writer/collab/peers'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
@@ -61,7 +61,8 @@ const stopListening = presence?.onChange(() => (roster.value = presence.peers))
 onBeforeUnmount(() => stopListening?.())
 
 const peers = computed(() => peopleOf(roster.value))
-defineExpose({ editor, peers })
+const places = shallowRef<ThreadPlaces>(new Map())
+defineExpose({ editor, peers, places })
 
 // Collaborative documents carry no comments yet
 const comments = new Y.Doc().getMap('comments')
@@ -74,7 +75,12 @@ const extensions = [
     onTooLarge: () => toast.error('This is too large to add in one go. Add it in smaller parts.'),
     onNearFull: () => toast.warning('This document is nearly full. Some changes may not save.'),
   }),
-  ThreadHighlights.configure({ threads: () => props.threads }),
+  ThreadHighlights.configure({
+    threads: () => props.threads,
+    placed: (placed) => {
+      places.value = placed
+    },
+  }),
 ]
 
 watch(

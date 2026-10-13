@@ -22,6 +22,7 @@ import {
   type DocumentThread,
   type DocumentVersion,
 } from '@/apps/drive'
+import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import CollabTextEditor from '@/apps/writer/components/CollabTextEditor.vue'
 import DocumentStrip from '@/apps/writer/components/DocumentStrip.vue'
@@ -78,6 +79,8 @@ interface EditorSurface {
   editor?: Editor | null
   /** Other people in the document; only the collaborative editor has them. */
   peers?: CollaborationUser[]
+  /** Where each comment thread shows; only the collaborative editor places them. */
+  places?: ThreadPlaces
 }
 
 const props = defineProps<{ session: DocumentSession }>()
@@ -235,6 +238,7 @@ const editorFile = computed(() => {
 })
 
 const peers = computed(() => editorSurface.value?.peers ?? [])
+const threadPlaces = computed(() => editorSurface.value?.places ?? null)
 
 // The non-collaborative editors bind `dirty` as a model
 function dirtyModel() {
@@ -660,6 +664,9 @@ onBeforeUnmount(() => {
                 :session="session"
                 :can-comment="canComment"
                 :can-save-version="canSaveVersion"
+                :threads="threads"
+                :places="threadPlaces"
+                :refresh-threads="refreshThreads"
                 :save-first="saveBeforeVersion"
                 @update:previewed-version="showVersion"
                 @closed="header?.focusPanelToggle($event)"
