@@ -1007,355 +1007,46 @@
         </template>
       </Dialog>
 
-      <!-- Right-click context menu (cursor-anchored; uses Frappe UI Buttons internally) -->
-      <div
+      <!-- Right-click context menu (SheetContextMenu.vue) -->
+      <SheetContextMenu
         v-if="contextMenu.open"
-        class="sn-ctx-menu"
-        :style="
-          contextMenu.useBottom
-            ? {
-                left: contextMenu.x + 'px',
-                bottom: contextMenu.bottom + 'px',
-                maxHeight: contextMenu.maxH + 'px',
-              }
-            : {
-                left: contextMenu.x + 'px',
-                top: contextMenu.y + 'px',
-                maxHeight: contextMenu.maxH + 'px',
-              }
-        "
-      >
-        <!-- Column-header menu -->
-        <template v-if="contextMenu.mode === 'colHeader'">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-left"
-            label="Insert column left"
-            @click="doInsertCol(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-right"
-            label="Insert column right"
-            @click="doInsertCol(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-plus"
-            label="Insert N columns…"
-            @click="openInsertMany('col', false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete column"
-            @click="doDeleteCol()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            v-if="contextMenu.targetCol > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-chevron-left"
-            label="Move column left"
-            @click="doMoveColLeft()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-chevron-right"
-            label="Move column right"
-            @click="doMoveColRight()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-maximize-2"
-            label="Auto-fit width"
-            @click="doAutoFitCol()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye-off"
-            label="Hide column"
-            @click="doHideCols()"
-          />
-          <Button
-            v-if="manualHiddenCols.size > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye"
-            label="Unhide all columns"
-            @click="doUnhideAllCols()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze up to this column"
-            @click="doFreezeCol()"
-          />
-          <Button
-            v-if="freezeCols > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze columns"
-            @click="doUnfreezeCols()"
-          />
-        </template>
-
-        <!-- Row-header menu -->
-        <template v-else-if="contextMenu.mode === 'rowHeader'">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-up"
-            label="Insert row above"
-            @click="doInsertRow(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-down"
-            label="Insert row below"
-            @click="doInsertRow(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-plus"
-            label="Insert N rows…"
-            @click="openInsertMany('row', false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete row"
-            @click="doDeleteRow()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-maximize-2"
-            label="Auto-fit height"
-            @click="doAutoFitRow()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye-off"
-            label="Hide row"
-            @click="doHideRows()"
-          />
-          <Button
-            v-if="manualHiddenRows.size > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye"
-            label="Unhide all rows"
-            @click="doUnhideAllRows()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze up to this row"
-            @click="doFreezeRow()"
-          />
-          <Button
-            v-if="freezeRows > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze rows"
-            @click="doUnfreezeRows()"
-          />
-        </template>
-
-        <!-- Cell menu (default) -->
-        <template v-else>
-          <Button
-            v-if="clipboardHas"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-clipboard"
-            label="Paste values only"
-            @click="doPasteSpecial('values')"
-          />
-          <Button
-            v-if="clipboardHas"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-clipboard"
-            label="Paste formats only"
-            @click="doPasteSpecial('formats')"
-          />
-          <Button
-            v-if="clipboardHas"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-clipboard"
-            label="Paste formulas only"
-            @click="doPasteSpecial('formulas')"
-          />
-          <hr v-if="clipboardHas" class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-up"
-            label="Insert row above"
-            @click="doInsertRow(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-down"
-            label="Insert row below"
-            @click="doInsertRow(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete row"
-            @click="doDeleteRow()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-left"
-            label="Insert column left"
-            @click="doInsertCol(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-right"
-            label="Insert column right"
-            @click="doInsertCol(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete column"
-            @click="doDeleteCol()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze rows to here"
-            @click="doFreezeRow()"
-          />
-          <Button
-            v-if="freezeRows > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze rows"
-            @click="doUnfreezeRows()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze cols to here"
-            @click="doFreezeCol()"
-          />
-          <Button
-            v-if="freezeCols > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze cols"
-            @click="doUnfreezeCols()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-square-check"
-            label="Data validation…"
-            @click="fromContextMenu(openValidationDialog)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-blend"
-            label="Conditional format…"
-            @click="fromContextMenu(() => openCfDialog(null))"
-          />
-          <Button
-            v-if="!selectionHasProtectedRange()"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Protect range"
-            @click="protectSelection()"
-          />
-          <Button
-            v-else
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Remove protection"
-            @click="unprotectSelection()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-columns"
-            label="Split text to columns"
-            @click="doSplitTextToColumns()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-layout"
-            label="Insert pivot table…"
-            @click="openPivotDialog()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-chart-bar"
-            label="Insert chart…"
-            @click="openChartDialog()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-filter"
-            label="Insert slicer"
-            @click="insertSlicer()"
-          />
-          <hr v-if="props.id !== 'new'" class="sn-ctx-sep" />
-          <Button
-            v-if="props.id !== 'new'"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-history"
-            :label="`Cell history for ${activeCell}`"
-            @click="openCellHistory()"
-          />
-        </template>
-      </div>
+        :menu="contextMenu"
+        :freeze-rows="freezeRows"
+        :freeze-cols="freezeCols"
+        :has-hidden-rows="manualHiddenRows.size > 0"
+        :has-hidden-cols="manualHiddenCols.size > 0"
+        :can-paste="clipboardHas"
+        :range-protected="selectionHasProtectedRange()"
+        :show-cell-history="props.id !== 'new'"
+        :active-cell="activeCell"
+        @insert-row="doInsertRow"
+        @insert-col="doInsertCol"
+        @insert-many="(kind) => openInsertMany(kind, false)"
+        @delete-row="doDeleteRow()"
+        @delete-col="doDeleteCol()"
+        @move-col-left="doMoveColLeft()"
+        @move-col-right="doMoveColRight()"
+        @auto-fit-row="doAutoFitRow()"
+        @auto-fit-col="doAutoFitCol()"
+        @hide-rows="doHideRows()"
+        @hide-cols="doHideCols()"
+        @unhide-all-rows="doUnhideAllRows()"
+        @unhide-all-cols="doUnhideAllCols()"
+        @freeze-row="doFreezeRow()"
+        @freeze-col="doFreezeCol()"
+        @unfreeze-rows="doUnfreezeRows()"
+        @unfreeze-cols="doUnfreezeCols()"
+        @paste-special="doPasteSpecial"
+        @validation="fromContextMenu(openValidationDialog)"
+        @cond-format="fromContextMenu(() => openCfDialog(null))"
+        @protect="protectSelection()"
+        @unprotect="unprotectSelection()"
+        @split-text="doSplitTextToColumns()"
+        @pivot="openPivotDialog()"
+        @chart="openChartDialog()"
+        @slicer="insertSlicer()"
+        @cell-history="openCellHistory()"
+      />
 
       <!-- Pivot dialog -->
       <PivotDialog
@@ -1720,6 +1411,7 @@ import LinkPreviewCard from './LinkPreviewCard.vue'
 import NamedRangesDialog from './NamedRangesDialog.vue'
 import NotesPanel from './NotesPanel.vue'
 import PivotDialog from './PivotDialog.vue'
+import SheetContextMenu from './SheetContextMenu.vue'
 import SlicerPanel from './SlicerPanel.vue'
 import SplitTextPopover from './SplitTextPopover.vue'
 import { buildAlignOptions, buildBorderOptions, buildMoreToolbarOptions } from './toolbar.config.js'
