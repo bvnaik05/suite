@@ -615,6 +615,14 @@ class FakeSuiteCloud:
         ]
         return {"items": rows[start : start + limit], "total": len(rows)}
 
+    def mailing_lists__list_all_recipients(self, start=0, limit=1000) -> dict:
+        rows = [
+            {"mailing_list": email, "email": r, "enabled": bool(v)}
+            for email, ml in sorted(self.lists.items())
+            for r, v in sorted(ml["recipients"].items())
+        ]
+        return {"items": rows[start : start + limit], "total": len(rows)}
+
     def mailing_lists__add_recipients(self, email, recipients=None) -> dict:
         ml = self._require(self.lists, email)
         added = [r for r in recipients or [] if r not in ml["recipients"]]

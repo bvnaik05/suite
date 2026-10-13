@@ -4,11 +4,12 @@ Accounts, groups, mailing lists and domains are identified by their addresses. E
 goes through the Suite Cloud client; nothing touches the cluster directly.
 """
 
+import time
+
 import frappe
 from frappe import _
-from frappe.utils.caching import redis_cache
 
-from suite.mail.suite_cloud import get_client, is_suite_cloud_configured
+from suite.mail.suite_cloud import SuiteCloudUnavailableError, get_client, is_suite_cloud_configured
 from suite.mail.utils import log_mail_error
 from suite.mail.utils.user import get_account_email
 
@@ -17,6 +18,9 @@ GB = 1024**3
 RECIPIENT_PAGE = 1000
 LIST_PAGE = 500  # groups and lists per call, the cap Suite Cloud allows
 MAX_PAGES = 200  # more than any site holds; a peer that never ends must not hold a worker
+INDEX_KEY = "mail:mailing_list_index"
+INDEX_TTL = 60  # seconds an index is served before Suite Cloud is asked again
+INDEX_KEEP = 24 * 3600  # the last good index stays this long to cover a refresh Suite Cloud refuses
 
 
 def get_domains() -> list[dict]:
@@ -31,26 +35,45 @@ def get_active_domain_names() -> list[str]:
     return sorted(d["domain"] for d in get_domains() if d.get("enabled") and d.get("is_verified"))
 
 
-@redis_cache(ttl=60)
 def get_mailing_list_index() -> dict[str, list[str]]:
-    """``{list address: [recipient addresses]}`` for every list (cached briefly).
+    """``{list address: [recipient addresses]}`` for every list, refreshed once a minute.
 
-    Membership edits are visible once the cache expires; mail routing itself is unaffected, so the
-    only window is between a membership change and the next calendar invitation.
+    Membership edits are visible once the index expires; mail routing itself is unaffected, so the
+    only window is between a membership change and the next calendar invitation. When Suite Cloud
+    refuses or cannot answer a refresh, the last good index is served: a rate limit hit by other
+    traffic must not turn a list invitation into one sent to nobody.
     """
 
-    client = get_client()
-    return {
-        ml["email"]: _all_recipients(client, ml["email"])
-        for ml in all_pages("mail.mailing_lists.list_mailing_lists")
-    }
+    cached = frappe.cache.get_value(INDEX_KEY)
+    if cached and cached["fresh_until"] > time.time():
+        return cached["index"]
+
+    try:
+        index = build_mailing_list_index()
+    except frappe.TooManyRequestsError, SuiteCloudUnavailableError:
+        if not cached:
+            raise
+        log_mail_error("Mailing list index could not be refreshed; the previous one is in use")
+        return cached["index"]
+
+    frappe.cache.set_value(
+        INDEX_KEY, {"index": index, "fresh_until": time.time() + INDEX_TTL}, expires_in_sec=INDEX_KEEP
+    )
+    return index
 
 
-def _all_recipients(client, email: str) -> list[str]:
-    """Every enabled recipient of a list, paged through in full so no list is silently cut."""
+def build_mailing_list_index() -> dict[str, list[str]]:
+    """The index read from Suite Cloud: every list, with its enabled recipients in address order."""
 
-    rows = all_pages("mail.mailing_lists.list_recipients", email=email, limit=RECIPIENT_PAGE)
-    return [r["email"] for r in rows if r.get("enabled", True)]
+    index = {ml["email"]: [] for ml in all_pages("mail.mailing_lists.list_mailing_lists")}
+    for row in all_pages("mail.mailing_lists.list_all_recipients", limit=RECIPIENT_PAGE):
+        if row.get("enabled", True):
+            index.setdefault(row["mailing_list"], []).append(row["email"])
+    return index
+
+
+def clear_mailing_list_index() -> None:
+    frappe.cache.delete_value(INDEX_KEY)
 
 
 def all_pages(method: str, limit: int = LIST_PAGE, **params) -> list[dict]:

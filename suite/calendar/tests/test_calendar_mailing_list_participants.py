@@ -20,7 +20,7 @@ from suite.calendar.doctype.calendar_event.mailing_lists import (
 from suite.calendar.doctype.calendar_exchange.calendar_exchange import jscalendar_to_vevent
 from suite.calendar.jmap_events import participants_map
 from suite.mail.api.admin import add_mailing_list_recipients, get_mailing_list
-from suite.mail.directory import get_mailing_list_index
+from suite.mail.directory import clear_mailing_list_index
 from suite.mail.tests.base import StalwartIntegrationTestCase, unique_name
 
 MODULE = "suite.calendar.doctype.calendar_event.mailing_lists"
@@ -478,7 +478,7 @@ class TestMailingListInvite(StalwartIntegrationTestCase):
             list_email = get_mailing_list(list_id)["email"]
 
         # The list index is cached, and the list was created after this run started.
-        get_mailing_list_index.clear_cache()
+        clear_mailing_list_index()
 
         with self.set_user(self.organizer.email):
             event_id = add_calendar_event(
