@@ -20,10 +20,11 @@ defineExpose({ refresh })
 <template>
   <div
     v-if="latest"
-    class="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-outline-gray-1 bg-surface-gray-2 px-5 py-1 text-sm text-ink-gray-7"
+    class="flex shrink-0 items-center gap-2 border-b border-outline-gray-1 bg-surface-blue-2 px-5 py-1 text-sm text-ink-blue-7"
     role="status"
   >
-    <p>This device has unsaved work from {{ savedAtLabel(latest) }}</p>
-    <Button size="sm" variant="subtle" label="View" @click="$emit('view', latest)" />
+    <span class="lucide-history size-4 shrink-0" aria-hidden="true" />
+    <p class="min-w-0 flex-1">This device has unsaved work from {{ savedAtLabel(latest) }}</p>
+    <Button size="sm" variant="ghost" theme="blue" label="View" @click="$emit('view', latest)" />
   </div>
 </template>
