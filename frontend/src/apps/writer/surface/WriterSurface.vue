@@ -87,6 +87,8 @@ const panel = ref<DocumentPanel | null>(null)
 const previewedVersion = ref<DocumentVersion | null>(null)
 // A recovery copy shown read-only in the editor's place, like a version
 const previewedCopy = shallowRef<RecoveryCopy | null>(null)
+// The banner points at a copy, so it steps aside while one is shown
+const showsRecoveryBanner = computed(() => !previewedCopy.value)
 
 const recoveryBanner = ref<InstanceType<typeof RecoveryBanner> | null>(null)
 
@@ -422,7 +424,12 @@ onBeforeUnmount(() => {
       </template>
     </DriveDocumentHeader>
 
-    <RecoveryBanner ref="recoveryBanner" :node="session.nodeId" @view="viewCopy" />
+    <RecoveryBanner
+      v-show="showsRecoveryBanner"
+      ref="recoveryBanner"
+      :node="session.nodeId"
+      @view="viewCopy"
+    />
 
     <div
       v-if="shownBanner"

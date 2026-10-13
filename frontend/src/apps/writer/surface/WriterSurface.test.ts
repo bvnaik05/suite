@@ -266,6 +266,11 @@ const oneVersion = {
   }),
 } as unknown as Versions
 
+function recoveryBanner(root: Element) {
+  const statuses = [...root.querySelectorAll<HTMLElement>('[role="status"]')]
+  return statuses.find((status) => status.textContent?.includes('This device has unsaved work'))
+}
+
 const shownText = (root: Element) => root.querySelector('[data-editor] .ProseMirror')!.textContent
 
 describe('Writer surface', () => {
@@ -394,6 +399,22 @@ describe('Writer surface', () => {
     expect(otherTab.getXmlFragment('default').toString()).toContain('Typed here first')
     editor().commands.undo()
     expect(shownText(root)).not.toContain('Typed here first')
+  })
+
+  it('hides the recovery banner while a copy is shown, and brings it back after', async () => {
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const [copy] = await listCopies('node-1')
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(recoveryBanner(root)).toBeDefined())
+
+    buttonLabelled(recoveryBanner(root)!, 'View')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Viewing recovery copy from'))
+    expect(recoveryBanner(root)!.style.display).toBe('none')
+
+    buttonLabelled(root, 'Back to current')!.click()
+    await nextTick()
+    expect(recoveryBanner(root)!.style.display).toBe('')
+    await discardCopy(copy)
   })
 
   it('opens the recovery copy a link names, in place of the editor', async () => {
