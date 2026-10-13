@@ -56,7 +56,12 @@ describe('Drive recovery notice', () => {
     ]
     const { root, router } = await openedNotice()
 
-    expect(root.textContent).toContain("2 documents have changes that couldn't be saved.")
+    expect(root.textContent).toContain("2 documents have changes that couldn't be saved")
+    const review = root.querySelector('[data-layout="banner"] button')!
+    expect([
+      review.textContent?.trim(),
+      review.closest('[data-color]')?.getAttribute('data-color'),
+    ]).toEqual(['Review', 'gray'])
     button(root, 'Review')!.click()
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/drive/recovery'))
   })
@@ -65,7 +70,7 @@ describe('Drive recovery notice', () => {
     kept = [{ key: 'a', document: 'node-1' }]
     const { root } = await openedNotice()
 
-    expect(root.textContent).toContain("1 document has changes that couldn't be saved.")
+    expect(root.textContent).toContain("1 document has changes that couldn't be saved")
   })
 
   it('shows nothing when the device keeps no copies', async () => {

@@ -18,10 +18,10 @@ const shown = computed(() => copies.value.some((copy) => !dismissed.value.includ
 const title = computed(() => {
   const count = new Set(copies.value.map((copy) => copy.document)).size
   if (count === 1) {
-    return "1 document has changes that couldn't be saved."
+    return "1 document has changes that couldn't be saved"
   }
 
-  return `${count} documents have changes that couldn't be saved.`
+  return `${count} documents have changes that couldn't be saved`
 })
 const review = {
   label: 'Review',
@@ -69,8 +69,8 @@ function readDismissed(): string[] {
 <template>
   <Alert
     v-if="shown"
-    theme="blue"
     :title="title"
+    description="They're kept on this device until you discard them."
     :primary-action="review"
     dismissible
     @dismiss="dismiss"
