@@ -49,6 +49,14 @@ def make_legacy(node: str) -> int:
 
 
 @whitelist_for_tests(methods=["POST"])
+def drop_log(node: str) -> int:
+    """Purge `node`'s log so it opens as a document from before collaboration; answer 1 once it has none."""
+    documents.purge_log(writer_content.ADAPTER, node)
+    frappe.db.commit()
+    return int(content.find(writer_content.ADAPTER, node) is None)
+
+
+@whitelist_for_tests(methods=["POST"])
 def compact_now(node: str) -> dict:
     """Compact `node`'s collab log in this request, as the queued job would."""
     doc_id = find_log(node)["id"]

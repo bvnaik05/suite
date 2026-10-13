@@ -4,7 +4,7 @@ import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
 import {
-	disableCollab,
+	dropLog,
 	expectConverged,
 	expectSaved,
 	makeLegacy,
@@ -150,10 +150,10 @@ test.describe("Writer collaboration", () => {
 		testApi,
 	}) => {
 		const { page } = owner;
-		// Off before it is made, so the document gets no log
-		await disableCollab(testApi, node);
 		const plain = (await createWriterDocument(page.request, uniqueWriterTitle(run.run_id, "plain"))).name;
 		try {
+			// Other tests run alongside, so collaboration stays on and only this document loses its log
+			await dropLog(testApi, plain);
 			await makeLegacy(testApi, plain);
 			await openWriterDocument(page, plain);
 			await writerEditor(page).click();
