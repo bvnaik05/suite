@@ -13,9 +13,9 @@ const toneClass = computed(() => TONES[props.tone])
 </script>
 
 <template>
-  <!-- As tall as a line with a small button, so strips with and without actions match -->
+  <!-- As tall as the editor toolbar it can stand in for, with or without a button -->
   <div
-    class="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b px-5 py-1.5 text-sm"
+    class="flex min-h-[41px] shrink-0 items-center justify-between gap-3 border-b px-5 py-1.5 text-sm"
     :class="toneClass"
     role="status"
   >

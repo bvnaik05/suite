@@ -227,9 +227,16 @@ test.describe("Writer collaboration", () => {
 		expect(await serverBlocks(testApi, node)).not.toContain("Typed in the old editor");
 
 		const kept = owner.page.getByRole("status").filter({ hasText: "This device has unsaved work from" });
+		const stopped = owner.page.getByRole("status").filter({ hasText: "This document now saves as you edit" });
+		const keptHeight = (await kept.boundingBox())!.height;
 		await kept.getByRole("button", { name: "View" }).click();
 		const viewing = owner.page.getByRole("status").filter({ hasText: "Viewing recovery copy from" });
 		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
+		// A strip with a button and one without stand equally tall
+		expect([(await stopped.boundingBox())!.height, (await viewing.boundingBox())!.height]).toEqual([
+			keptHeight,
+			keptHeight,
+		]);
 		await expect(kept).toBeHidden();
 
 		const downloaded = owner.page.waitForEvent("download");
