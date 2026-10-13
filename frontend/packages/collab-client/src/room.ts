@@ -483,6 +483,7 @@ export class Room implements CollabRoom {
   private onVisibilityChange = () => {
     if (document.visibilityState === 'hidden') {
       this.sender.sendNow()
+      this.copier.pageHidden()
     } else {
       this.refreshDevice()
     }

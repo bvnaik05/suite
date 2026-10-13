@@ -153,4 +153,34 @@ describe('readable copy', () => {
 
     expect(server.copy.renders.map(({ rev }) => rev)).toEqual([1, 3])
   })
+
+  it('a tab that hides renders what it holds without being asked, once per change', async () => {
+    const server = fakeServer()
+    const room = await join(server.endpoints(), { adapter: rendering })
+    room.doc.getText('t').insert(0, 'one')
+    await room.flush()
+    async function hideAndSettle() {
+      await hidePage()
+      await idle()
+    }
+
+    await hideAndSettle()
+    await hideAndSettle()
+    room.doc.getText('t').insert(3, ' two')
+    await hideAndSettle()
+
+    expect(server.copy.renders.map(({ rev, html }) => [rev, html])).toEqual([
+      [1, '<p>one</p>'],
+      [2, '<p>one two</p>'],
+    ])
+  })
 })
+
+async function hidePage() {
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+  try {
+    document.dispatchEvent(new Event('visibilitychange'))
+  } finally {
+    delete (document as { visibilityState?: string }).visibilityState
+  }
+}

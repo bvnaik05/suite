@@ -31,6 +31,7 @@ export class Copier {
   private committedRev = 0
   private sending = false
   private lastSentAt = -Infinity
+  private renderedRev = 0
 
   constructor(private readonly room: CopierRoom) {}
 
@@ -39,6 +40,15 @@ export class Copier {
     this.committedRev = Math.max(this.committedRev, rev)
     if (copy && Date.now() - this.lastSentAt >= RENDER_GAP_MS) {
       this.asked = true
+    }
+  }
+
+  // A hidden tab may not come back, so the copy takes what it holds that no render of its own has
+  pageHidden() {
+    const room = this.room
+    if (room.saveState !== 'clean' || room.appliedThrough > this.renderedRev) {
+      this.asked = true
+      this.sendWhenClean()
     }
   }
 
@@ -71,17 +81,19 @@ export class Copier {
 
     const { endpoints, principal } = room.options
     const stageId = randomHex(STAGE_ID_BYTES)
+    const rev = room.appliedThrough
     const place = {
       lineage: room.lineage,
       principal,
       sid: room.ownOutbox.sid,
       purpose: 'render' as const,
-      rev: room.appliedThrough,
+      rev,
       q_epoch: room.epoch,
     }
     const refused = await putPieces(endpoints, stageId, place, html)
     if (!refused) {
       await endpoints.render(stageId)
+      this.renderedRev = rev
     }
   }
 }
