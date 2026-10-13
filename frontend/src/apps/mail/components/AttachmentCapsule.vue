@@ -1,6 +1,6 @@
 <template>
   <div
-    class="group/capsule hover:border-outline-gray-3 flex cursor-pointer items-center space-x-2 rounded-full border px-2 py-1.5"
+    class="group/capsule hover:border-outline-gray-3 flex cursor-pointer items-center space-x-1.5 rounded-full border px-2 py-1"
   >
     <div class="text-ink-gray-4">
       <Loader v-if="isDownloading" class="h-4 w-4 shrink-0 animate-spin" />

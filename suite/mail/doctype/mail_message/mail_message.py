@@ -27,6 +27,7 @@ from suite.mail.doctype.mail_queue.mail_queue import MailQueue
 from suite.mail.doctype.sieve_script.sieve_script import UNSCREENED_KEYWORD
 from suite.mail.doctype.user_account.user_account import get_user_for_jmap_account
 from suite.mail.jmap import (
+    SetResult,
     SuiteJMAPClient,
     account_view,
     chunked_get,
@@ -985,7 +986,7 @@ def get_message_ids(
 
 def _update_emails(
     account: str, emails: list[dict], replace_keywords: bool = False, replace_mailboxes: bool = False
-) -> None:
+) -> SetResult:
     """Update email keywords/mailboxes, as whole-value replacement or per-key patches."""
 
     payload = {}
@@ -1008,7 +1009,7 @@ def _update_emails(
             raise ValueError("At least one of 'keywords' or 'mailbox_ids' must be provided for update.")
 
     client = get_account_client(account)
-    chunked_set(client, lambda b, chunk: b.mail.email.set(update=chunk), payload)
+    return chunked_set(client, lambda b, chunk: b.mail.email.set(update=chunk), payload)
 
 
 def _delete_emails(account: str, ids: list[str]) -> None:
@@ -1084,6 +1085,32 @@ def move_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> N
         frappe.throw(_("Failed to move mail(s) to mailbox."))
 
 
+def _try_update_emails(
+    account: str, emails: list[dict], error: str, **replace: bool
+) -> tuple[list[str], bool]:
+    """Updates emails as far as the server will, returning the ids it updated and whether that was
+    all of them: a failure part way still says what it had already updated."""
+
+    try:
+        result = _update_emails(account, emails, **replace)
+        complete = not result.not_updated
+    except Exception as e:
+        log_mail_error(error, frappe.get_traceback(with_context=True))
+        result, complete = getattr(e, "applied", None) or SetResult(), False
+    return [email["id"] for email in emails if email["id"] in result.updated], complete
+
+
+def try_move_messages(account: str, ids: list[str], mailbox_id: str) -> tuple[list[str], bool]:
+    """Moves messages to a mailbox as far as the server will (see `_try_update_emails`)."""
+
+    emails = [{"id": id, "mailbox_ids": {mailbox_id: True}} for id in ids]
+    moved, complete = _try_update_emails(
+        account, emails, _("Failed to move mail(s) to mailbox"), replace_mailboxes=True
+    )
+    _remove_cached_messages(account, moved)
+    return moved, complete
+
+
 def set_messages_mailboxes(account: str, mails: list[dict]) -> None:
     """Restore each message to an exact mailbox membership and junk status (used to undo a move)."""
 
@@ -1109,6 +1136,24 @@ def set_messages_mailboxes(account: str, mails: list[dict]) -> None:
             frappe.get_traceback(with_context=True),
         )
         frappe.throw(_("Failed to restore mailbox membership for mail(s)."))
+
+
+def get_messages_mailboxes(account: str, ids: list[str]) -> list[dict]:
+    """Each message's mailbox membership and junk status, as `set_messages_mailboxes` restores them."""
+
+    emails = chunked_get(
+        get_account_client(account),
+        lambda b, chunk: b.mail.email.get(ids=chunk, properties=["id", "mailboxIds", "keywords"]),
+        ids,
+    )
+    return [
+        {
+            "id": email["id"],
+            "mailbox_ids": [mailbox_id for mailbox_id, held in email["mailboxIds"].items() if held],
+            "junk": int(bool((email.get("keywords") or {}).get("$junk"))),
+        }
+        for email in (e.to_wire() for e in emails)
+    ]
 
 
 def add_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> None:
@@ -1147,6 +1192,35 @@ def remove_messages_from_mailbox(account: str, ids: list[str], mailbox_id: str) 
         frappe.throw(_("Failed to remove mail(s) from mailbox."))
 
 
+def _cache_seen(account: str, ids: list[str], seen: bool) -> None:
+    """Bring the cached copies of these messages in line with their new seen status."""
+
+    messages_to_cache = {}
+    for message_id, message in _get_cached_messages(account, ids).items():
+        if message:
+            keywords = json.loads(message["keywords"])
+            keywords["$seen"] = bool(seen)
+
+            message["seen"] = cint(seen)
+            message["keywords"] = json.dumps(keywords, indent=4)
+
+            messages_to_cache[message_id] = message
+
+    if messages_to_cache:
+        _cache_messages(account, messages_to_cache)
+
+
+def try_set_seen(account: str, ids: list[str], seen: bool = True) -> tuple[list[str], bool]:
+    """Sets the seen status of messages as far as the server will (see `_try_update_emails`)."""
+
+    emails = [{"id": id, "keywords": {"$seen": seen}} for id in ids]
+    changed, complete = _try_update_emails(
+        account, emails, _("Failed to set seen status for mail(s)"), replace_keywords=False
+    )
+    _cache_seen(account, changed, seen)
+    return changed, complete
+
+
 def set_seen_status(account: str, ids: list[str], seen: bool = True) -> None:
     """Set the seen status for messages."""
 
@@ -1156,20 +1230,7 @@ def set_seen_status(account: str, ids: list[str], seen: bool = True) -> None:
     try:
         emails = [{"id": id, "keywords": {"$seen": seen}} for id in ids]
         _update_emails(account, emails, replace_keywords=False)
-
-        messages_to_cache = {}
-        for message_id, message in _get_cached_messages(account, ids).items():
-            if message:
-                keywords = json.loads(message["keywords"])
-                keywords["$seen"] = bool(seen)
-
-                message["seen"] = cint(seen)
-                message["keywords"] = json.dumps(keywords, indent=4)
-
-                messages_to_cache[message_id] = message
-
-        if messages_to_cache:
-            _cache_messages(account, messages_to_cache)
+        _cache_seen(account, ids, seen)
 
     except Exception:
         log_mail_error(

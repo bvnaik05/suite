@@ -3,10 +3,13 @@
   <!-- hidden on mobile: the title row carries the folder name, and the header's
 	     actions are the compose button and the sidebar sheet. Hidden (not v-if) so HeaderActions'
 	     modals stay mounted for the views' v-model bindings. -->
-  <header class="hidden items-center justify-between border-b px-3 py-2.5 sm:flex sm:px-5">
-    <div class="flex items-center space-x-2">
+  <!-- Stretched, the padding inside, so a split Inbox's tabs can run the header's full height and
+       underline on its border. -->
+  <header class="hidden items-stretch border-b px-3 sm:flex sm:px-5">
+    <div class="flex min-w-0 flex-1 items-center space-x-2 py-2.5">
       <!-- -ml-0.5 cancels the crumb's own padding so the title sits on the px-5 axis -->
       <Breadcrumbs
+        v-if="!inboxTab"
         class="-ml-0.5"
         :items="[
           {
@@ -15,8 +18,19 @@
           },
         ]"
       />
+      <!-- A split Inbox's tabs stand in for its title, starting on the header's own px-5 axis so
+           the first tab's icon lines up with the checkboxes and chips below. -->
+      <InboxHeaderTabs
+        v-else
+        class="-my-2.5 min-w-0 self-stretch"
+        :tabs="inboxTabs"
+        :active="inboxTab"
+        :route-for="routeForTab"
+      />
     </div>
-    <HeaderActions />
+    <div class="flex shrink-0 items-center py-2.5">
+      <HeaderActions view-menu :inbox="mailbox === mailboxIds.inbox" />
+    </div>
   </header>
 
   <!-- On mobile this banner renders below the title header instead (inside the mobile
@@ -42,7 +56,9 @@
       </div>
     </div>
 
-    <template v-else-if="threadRows.length || filter || mailbox === 'search'">
+    <template
+      v-else-if="threadRows.length || filter || filterChanged || mailbox === 'search' || inboxTab"
+    >
       <ThreadPane
         :thread-open="!!threadID"
         @touch-start="onThreadTouchStart"
@@ -83,6 +99,13 @@
               <Button :label="__('Delete Now')" variant="ghost" @click="showEmptyMailbox = true" />
             </div>
 
+            <InboxTabs
+              v-if="inboxTab && !selections.length"
+              :tabs="inboxTabs"
+              :active="inboxTab"
+              :route-for="routeForTab"
+            />
+
             <!-- Both toolbar variants share h-12 so toggling selection mode doesn't shift the list. -->
             <!-- px-1/gap-1 match the title row above, so the ✕ shares the hamburger's
 						     axis and the count text starts where the title does. -->
@@ -98,21 +121,21 @@
               v-else-if="mailbox !== 'search'"
               :title="title"
               :filter-options="FILTER_OPTIONS"
-            />
-
-            <!-- Loading bar -->
-            <LoadingBar v-if="activeThreads.isFetching" />
+            >
+              <template v-if="clearScope" #mobile-actions>
+                <ClearListMenu :scope="clearScope" :target="{ account: accountId, mailbox }" />
+              </template>
+            </MailListToolbar>
           </div>
 
           <!-- Toolbar/Actions -->
           <MailListToolbar
-            v-else
+            v-if="!isMobile"
             :title="title"
             :filter-options="FILTER_OPTIONS"
             :show-filter="!selections.length && mailbox !== 'search'"
             :show-actions="!selections.length"
             :fetching="isFetching"
-            :loading="activeThreads.isFetching"
             @refresh="refreshThreads()"
           >
             <template #lead>
@@ -121,7 +144,21 @@
               </div>
             </template>
 
+            <!-- The filters as chips, where the selector would go. -->
+            <template v-if="!selections.length && mailbox !== 'search'" #filter>
+              <ListFilterChips
+                :filter-options="FILTER_OPTIONS"
+                :filter="filter"
+                :clear="clearFilter"
+              />
+            </template>
+
             <template #actions>
+              <ClearListMenu
+                v-if="clearScope && !selections.length"
+                :scope="clearScope"
+                :target="{ account: accountId, mailbox }"
+              />
               <SelectActionButtons
                 v-if="selections.length"
                 :actions="selectActions"
@@ -160,9 +197,8 @@
           >
             <div v-for="(group, key) in groupedThreads" :key="key">
               <MailGroupHeader
-                v-if="groupMessagesBy !== 'None' && !isMobile"
+                v-if="groupedByDate && !isMobile"
                 :date-key="key"
-                :monthly="groupMessagesBy === 'Month'"
                 :collapsed="collapsedGroups.includes(key)"
                 :collapsible="!isLastGroup(key)"
                 :focused="focusedRowKey === `group:${key}`"
@@ -173,13 +209,13 @@
                 <template #lead>
                   <div
                     v-if="!isAllAccountsSearch && (!isMobile || mobileSelectionMode)"
-                    class="pr-7.5 checkbox-hitbox -m-3 cursor-pointer py-3 pl-3"
+                    class="checkbox-hitbox -mx-3 -my-2.5 flex cursor-pointer items-center py-2.5 pl-3 pr-8"
                     @click.stop.prevent="toggleSelect(getGroupThreads(key), !isGroupSelected(key))"
                   >
                     <Checkbox
                       :model-value="isGroupSelected(key)"
                       size="md"
-                      class="pointer-events-none"
+                      class="pointer-events-none [&_input]:mt-0"
                     />
                   </div>
                 </template>
@@ -259,7 +295,9 @@
             <p v-else class="text-ink-gray-5">
               {{
                 mailbox !== 'search'
-                  ? __('No mails found for the selected filter.')
+                  ? filter
+                    ? __('No mails found for the selected filter.')
+                    : __('You have no mails in this folder.')
                   : hasSearchQuery
                     ? __('No results found for the given query.')
                     : __('Search your mail')
@@ -332,13 +370,16 @@ import { computed, inject, onMounted, onUnmounted, ref, useTemplateRef, watch } 
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, client, useInfiniteQuery, useMutation, type InputOf } from '@/api'
+import ClearListMenu from '@/apps/mail/components/ClearListMenu.vue'
 import HeaderActions from '@/apps/mail/components/HeaderActions.vue'
 import NoMails from '@/apps/mail/components/Icons/NoMails.vue'
+import InboxHeaderTabs from '@/apps/mail/components/InboxHeaderTabs.vue'
+import InboxTabs from '@/apps/mail/components/InboxTabs.vue'
+import ListFilterChips from '@/apps/mail/components/ListFilterChips.vue'
 import MobileSelectionBar from '@/apps/mail/components/ListSelection/MobileSelectionBar.vue'
 import MobileSelectionHeader from '@/apps/mail/components/ListSelection/MobileSelectionHeader.vue'
 import SelectActionButtons from '@/apps/mail/components/ListSelection/SelectActionButtons.vue'
 import SelectAllCheckbox from '@/apps/mail/components/ListSelection/SelectAllCheckbox.vue'
-import LoadingBar from '@/apps/mail/components/LoadingBar.vue'
 import MailGroupHeader from '@/apps/mail/components/MailGroupHeader.vue'
 import MailListItem from '@/apps/mail/components/MailListItem.vue'
 import MailListToolbar from '@/apps/mail/components/MailListToolbar.vue'
@@ -347,6 +388,8 @@ import MobileTitleHeader from '@/apps/mail/components/mobile/MobileTitleHeader.v
 import SearchResultsHeader from '@/apps/mail/components/SearchResultsHeader.vue'
 import StackListItem from '@/apps/mail/components/StackListItem.vue'
 import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
+import { listScope } from '@/apps/mail/composables/useClearList'
+import { useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
 import { useListRows, type NavRow } from '@/apps/mail/composables/useListRows'
 import { useListSelection } from '@/apps/mail/composables/useListSelection'
 import { PAGE_LENGTH, usePaginatedThreads } from '@/apps/mail/composables/usePaginatedThreads'
@@ -370,7 +413,7 @@ import {
   useUndo,
 } from '@/apps/mail/utils/composables'
 import { utcDayEnd, utcDayStart } from '@/apps/mail/utils/datetime'
-import { useStoredFilter } from '@/apps/mail/utils/listFilter'
+import { useListFilter } from '@/apps/mail/utils/listFilter'
 import {
   hasCursor,
   isNavigationKey,
@@ -453,7 +496,7 @@ const screener = useScreener()
 // The date groups, the stacks and the keyboard cursor that walks them — all shared with the merged All
 // Inboxes list (see useListRows).
 const {
-  groupMessagesBy,
+  groupedByDate,
   groupedThreads,
   getGroupThreads,
   isLastGroup,
@@ -749,15 +792,42 @@ watch(
 
 // Main data
 
-// The remembered All/Unread/Starred/Has-attachments choice, its menu, and its own title (see
-// useStoredFilter) — all shared with the merged All Inboxes list. Starred is not offered inside
-// Trash, nor inside the Starred list itself, where it would filter a list to itself.
-const { filter, reloadFilter, FILTER_OPTIONS, filterTitle } = useStoredFilter({
-  scope: () => mailbox,
+// The list's filters, their menu, and its own title (see useListFilter) — all shared with the
+// merged All Inboxes list. Starred is not offered inside Trash, nor inside the Starred list itself,
+// where it would filter a list to itself.
+const {
+  filter,
+  changed: filterChanged,
+  reloadFilter,
+  clear: clearFilter,
+  FILTER_OPTIONS,
+  filterTitle,
+} = useListFilter({
   onChange: () => resetThreads(false),
   starrable: () => ![mailboxIds.trash, 'starred'].includes(mailbox),
+  screenable: () => mailbox === mailboxIds.inbox && screener.active.value,
 })
 const isMailboxLoaded = ref(false)
+
+// The Inbox's category tabs; `inboxTab` is the open one, and undefined in any other list or when the
+// Inbox isn't split.
+const {
+  tabs: inboxTabs,
+  active: inboxTab,
+  routeFor: routeForTab,
+  switched: tabSwitched,
+} = useInboxTabs(
+  () => mailbox === mailboxIds.inbox && 'account',
+  () => ({ name: 'mail-mailbox', params: { accountId, mailbox: route.params.mailbox } }),
+  () => resetThreads(false),
+)
+// What the list's menu clears (see listScope). Not offered where there is no folder to clear
+// (Starred, a search) or nothing unread to clear (Sent, Drafts).
+const clearScope = computed(() =>
+  ['search', 'starred', mailboxIds.sent, mailboxIds.drafts].includes(mailbox)
+    ? undefined
+    : listScope(inboxTab.value, mailboxName.value, filter.value),
+)
 
 // Reset resource for a mailbox: the window starts at the top and runs as deep as the composable asks
 // (see resetLimit) — one page on a reset, the loaded list on a refresh, so a refresh can tell which
@@ -771,6 +841,7 @@ const threads = useInfiniteQuery(api.mail.threads.list, () =>
         limit: PAGE_LENGTH,
         start: 0,
         filter_by: filter.value,
+        category: inboxTab.value,
       }
     : false,
 )
@@ -804,9 +875,14 @@ const isLoading = computed(() => {
   // across query changes — loading shows inline in the list area, never as the full spinner.
   // Checked first: entering the route resets isMailboxLoaded, which must not blank the view.
   if (mailbox === 'search') return false
+  if (tabSwitched.value && inboxTab.value) return false
+  // A new filter is a new query, pending as a mailbox's first is: checked before that.
+  if (filterChanged.value) return false
   if (!isMailboxLoaded.value) return true
   if (emptyMailbox.isPending) return true
   if (refillPending.value) return true
+  // A split Inbox keeps its tabs up while an emptied tab refills (an Undo, a refresh).
+  if (inboxTab.value) return false
   return !threadRows.value.length && activeThreads.value.isFetching
 })
 
@@ -879,6 +955,7 @@ watch(
     // every account, so a mere account switch mustn't reset it — keep the results and scroll position.
     if (isAllAccountsSearch.value && mailbox === 'search' && old?.[0] === 'search') return
     isMailboxLoaded.value = false
+    tabSwitched.value = false
     reloadFilter()
     focusedRowKey.value = undefined
     collapsedGroups.value = []
@@ -1220,9 +1297,8 @@ const mailboxName = computed(() => {
       return mailboxObj.value?._name ?? ''
   }
 })
-const unreadThreadsPrefix = computed(() =>
-  mailboxObj.value?.unread_threads ? `(${mailboxObj.value.unread_threads})` : '',
-)
+const unreadThreads = computed(() => mailboxObj.value?.unread_threads)
+const unreadThreadsPrefix = computed(() => (unreadThreads.value ? `(${unreadThreads.value})` : ''))
 const currentThread = computed(() =>
   threadRows.value?.find((t: Thread) => t.thread_id === threadID),
 )

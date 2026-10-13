@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch, type Ref } from 'vue'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Thread } from '@/apps/mail/types'
 import { useScreenSize } from '@/apps/mail/utils/composables'
-import dayjs from '@/apps/mail/utils/dayjs'
+import { dateGroup } from '@/apps/mail/utils/dateGroups'
 import { buildListRows, type ListRow, type StackRow } from '@/apps/mail/utils/threadStacks'
 
 /**
@@ -65,20 +65,18 @@ export const useListRows = ({
   const { isMobile } = useScreenSize()
   const { userResource } = userStore()
 
-  const groupMessagesBy = computed(() => userResource.data?.group_messages_by)
+  const groupedByDate = computed(() => !!userResource.data?.group_by_date)
 
   // Date headers are a desktop affordance: on mobile both lists render one continuous run, so there
   // is no header to click, nothing can be collapsed, and the cursor has no headers to walk. The
   // collapse state is gated on the same thing, because only a header's own click can fill it.
-  const headersVisible = computed(() => groupMessagesBy.value !== 'None' && !isMobile.value)
+  const headersVisible = computed(() => groupedByDate.value && !isMobile.value)
 
   // ── Date groups ─────────────────────────────────────────────────────────────────────────────────
 
   const groupedThreads = computed<Record<string, Thread[]>>(() =>
     threads().reduce((groups: Record<string, Thread[]>, thread: Thread) => {
-      const date = dayjs(thread.received_at).format(
-        groupMessagesBy.value === 'Day' ? 'YYYY-MM-DD' : 'YYYY-MM',
-      )
+      const date = dateGroup(thread.received_at)
       if (!groups[date]) groups[date] = []
       groups[date].push(thread)
       return groups
@@ -93,7 +91,7 @@ export const useListRows = ({
 
   const collapsedGroups = ref<string[]>([])
 
-  watch(groupMessagesBy, () => (collapsedGroups.value = []))
+  watch(groupedByDate, () => (collapsedGroups.value = []))
 
   // ── Stacks ──────────────────────────────────────────────────────────────────────────────────────
   //
@@ -289,7 +287,7 @@ export const useListRows = ({
   }
 
   return {
-    groupMessagesBy,
+    groupedByDate,
     groupedThreads,
     getGroupThreads,
     isLastGroup,

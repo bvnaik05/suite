@@ -14,13 +14,14 @@ from frappe.utils import add_to_date, cint, now, random_string
 from jmap import MethodError
 from werkzeug.wrappers import Response
 
+from suite.mail import classification
 from suite.mail.api.contacts import (
     create_contacts_if_not_exists,
     enrich_contacts_with_user_images,
     get_contacts,
 )
 from suite.mail.api.utils import get_avatar_url
-from suite.mail.classification import Category
+from suite.mail.classification import Category, tab_filter
 from suite.mail.doctype.mail_message.mail_message import (
     add_messages_to_mailbox,
     delete_messages,
@@ -30,8 +31,10 @@ from suite.mail.doctype.mail_message.mail_message import (
     fetch_thread,
     fetch_threads,
     get_messages,
+    get_messages_mailboxes,
     is_unscreened_message,
     move_messages_to_mailbox,
+    query_message_ids,
     remove_messages_from_mailbox,
     search_messages,
     set_flagged_status,
@@ -39,6 +42,8 @@ from suite.mail.doctype.mail_message.mail_message import (
     set_seen_status,
     set_spam_status,
     set_unscreened_status,
+    try_move_messages,
+    try_set_seen,
 )
 from suite.mail.doctype.mail_queue.mail_queue import MailQueue
 from suite.mail.doctype.mailbox.mailbox import add_mailbox, delete_mailboxes, fetch_mailboxes
@@ -256,9 +261,52 @@ def add_user_images_to_emails(account: str, mails: list[dict], is_thread: bool =
     return mails
 
 
+def all_of(conditions: list[dict]) -> dict | None:
+    """A JMAP filter matching every one of `conditions`, or None for none."""
+
+    if len(conditions) > 1:
+        return {"operator": "AND", "conditions": conditions}
+    return conditions[0] if conditions else None
+
+
+def list_filter(filter_by: str | None, skip: tuple[str, ...] = ()) -> dict | None:
+    """The condition a list's filter (`filter_by`) adds to what it shows, if any.
+
+    `filter_by` is one key or several, comma-joined: each narrows the list further. A key in `skip`
+    is left out (Starred inside the Starred list), and an unknown one is ignored.
+    """
+
+    conditions_by_key = {
+        "starred": {"someInThreadHaveKeyword": "$flagged"},
+        "unread": {"notKeyword": "$seen"},
+        "has_attachments": {"hasAttachment": True},
+        # Mail from senders nobody has decided on yet (see the screening gate).
+        "unscreened": {"hasKeyword": UNSCREENED_KEYWORD},
+        # A category is asked for by its keyword: "category_promotions".
+        **{category.keyword: {"hasKeyword": category.keyword} for category in Category},
+    }
+    return all_of(
+        [
+            conditions_by_key[key]
+            for key in dict.fromkeys((filter_by or "").split(","))
+            if key in conditions_by_key and key not in skip
+        ]
+    )
+
+
 @frappe.whitelist()
-def get_threads(account: str, mailbox: str, limit: int, start: int = 0, filter_by: str | None = None) -> dict:
-    """Returns a page of threads from the selected mailbox for the account."""
+def get_threads(
+    account: str,
+    mailbox: str,
+    limit: int,
+    start: int = 0,
+    filter_by: str | None = None,
+    category: str | None = None,
+) -> dict:
+    """Returns a page of threads from the selected mailbox for the account.
+
+    `category` narrows the list to one of the Inbox's tabs (see `classification.inbox_tabs`).
+    """
 
     if mailbox == "starred":
         conditions = [
@@ -273,22 +321,12 @@ def get_threads(account: str, mailbox: str, limit: int, start: int = 0, filter_b
     else:
         conditions = [{"inMailbox": mailbox}]
 
-    filter_map = {
-        "starred": {"someInThreadHaveKeyword": "$flagged"},
-        "unread": {"notKeyword": "$seen"},
-        "has_attachments": {"hasAttachment": True},
-        # A category is asked for by its keyword: "category_promotions".
-        **{category.keyword: {"hasKeyword": category.keyword} for category in Category},
-    }
-    if filter_by in filter_map and not (mailbox == "starred" and filter_by == "starred"):
-        conditions.append(filter_map[filter_by])
+    if condition := list_filter(filter_by, skip=("starred",) if mailbox == "starred" else ()):
+        conditions.append(condition)
+    if category:
+        conditions.append(tab_filter(validate_tab(category), classification.inbox_tabs()))
 
-    if len(conditions) == 1:
-        filter = conditions[0]
-    else:
-        filter = {"operator": "AND", "conditions": conditions}
-
-    conversations = fetch_threads(account, filter, start, limit)
+    conversations = fetch_threads(account, all_of(conditions), start, limit)
 
     # Four roles are needed below, so they come off one cached mailbox list rather than a lookup each:
     # every `get_mailbox_id_by_role` resolves the account's user and client again on the way in.
@@ -472,7 +510,9 @@ def is_listed_mailbox(mailbox: dict) -> bool:
 
 
 @frappe.whitelist()
-def get_unified_threads(folder: str, limit: int, start: int = 0, filter_by: str | None = None) -> dict:
+def get_unified_threads(
+    folder: str, limit: int, start: int = 0, filter_by: str | None = None, category: str | None = None
+) -> dict:
     """Returns a merged, newest-first page of a folder's threads across all of the user's accounts.
 
     `folder` is a slug (see mailbox_slug) or "starred". Each account contributes the threads of every
@@ -501,19 +541,13 @@ def get_unified_threads(folder: str, limit: int, start: int = 0, filter_by: str 
     for account in accounts:
         account_id = account["name"]
         mailboxes = get_cached_mailboxes(account_id)
-        if folder == STARRED_FOLDER:
-            view_mailboxes = [STARRED_FOLDER]
-        else:
-            view_mailboxes = [
-                m["id"] for m in mailboxes if is_listed_mailbox(m) and mailbox_slug(m) == folder
-            ]
-
+        view_mailboxes = [STARRED_FOLDER] if folder == STARRED_FOLDER else folder_mailboxes(mailboxes, folder)
         ids_by_role = {(m.get("role") or "").lower(): m["id"] for m in mailboxes}
         # Two folders of one account can share a slug ("Receipts" and "receipts"), and a thread can sit
         # in both — it is listed once, from the first.
         seen: set[str] = set()
         for view_mailbox in view_mailboxes:
-            threads = get_threads(account_id, view_mailbox, per_account_limit, 0, filter_by)["rows"]
+            threads = get_threads(account_id, view_mailbox, per_account_limit, 0, filter_by, category)["rows"]
             for thread in threads:
                 if thread["thread_id"] in seen:
                     continue
@@ -528,6 +562,195 @@ def get_unified_threads(folder: str, limit: int, start: int = 0, filter_by: str 
     merged.sort(key=lambda thread: thread["received_at"], reverse=True)
     rows = merged[start : start + limit]
     return {"rows": rows, "has_more": len(rows) == limit and start + limit < ALL_INBOX_MAX_FETCH}
+
+
+def validate_tab(category: str) -> Category:
+    """The Inbox tab `category` names, or a ValidationError if it names none."""
+
+    tab = next((tab for tab in classification.inbox_tabs() if tab.value == category), None)
+    if not tab:
+        frappe.throw(_("{0} is not a tab of the Inbox.").format(category), frappe.ValidationError)
+    return tab
+
+
+def count_unread_by_tab(account: str, mailboxes: list[str]) -> dict[Category, int]:
+    """How many threads in an account's `mailboxes` are unread, per Inbox tab.
+
+    A thread is unread when a message of it in one of the mailboxes is; one batch asks for every tab.
+    """
+
+    tabs = classification.inbox_tabs()
+    if not tabs or not mailboxes:
+        return {}
+
+    in_mailboxes = (
+        {"inMailbox": mailboxes[0]}
+        if len(mailboxes) == 1
+        else {"operator": "OR", "conditions": [{"inMailbox": mailbox} for mailbox in mailboxes]}
+    )
+    client = get_account_client(account)
+    with client.batch() as b:
+        queries = {
+            tab: b.mail.email.query(
+                filter={
+                    "operator": "AND",
+                    "conditions": [in_mailboxes, {"notKeyword": "$seen"}, tab_filter(tab, tabs)],
+                },
+                collapseThreads=True,
+                calculate_total=True,
+                limit=0,
+            )
+            for tab in tabs
+        }
+    return {tab: query.result.total or 0 for tab, query in queries.items()}
+
+
+def tab_counts(unread: dict[Category, int]) -> list[dict]:
+    """The Inbox's tabs, in order, each with its count in `unread`."""
+
+    return [
+        {"category": tab.value, "unread_threads": unread.get(tab, 0)} for tab in classification.inbox_tabs()
+    ]
+
+
+@frappe.whitelist()
+def get_tab_counts(account: str, mailbox: str) -> list[dict]:
+    """The Inbox's tabs, in order, each with how many of its threads in `mailbox` are unread.
+
+    Empty when the Inbox isn't split into tabs.
+    """
+
+    return tab_counts(count_unread_by_tab(account, [mailbox]))
+
+
+def folder_mailboxes(mailboxes: list[dict], folder: str) -> list[str]:
+    """The ids among an account's `mailboxes` that make up a merged `folder`, a slug as for
+    `get_unified_threads`."""
+
+    return [m["id"] for m in mailboxes if is_listed_mailbox(m) and mailbox_slug(m) == folder]
+
+
+@frappe.whitelist()
+def get_unified_tab_counts(folder: str) -> list[dict]:
+    """The Inbox's tabs, in order, each with how many of its threads are unread across the user's accounts.
+
+    `folder` is a slug, as for `get_unified_threads`. An account that answers with an error is left out
+    rather than failing the rest.
+    """
+
+    unread: dict[Category, int] = {}
+    for account in get_user_jmap_accounts():
+        account_id = account["name"]
+        try:
+            counts = count_unread_by_tab(
+                account_id, folder_mailboxes(get_cached_mailboxes(account_id), folder)
+            )
+        except MethodError:
+            continue
+        for tab, count in counts.items():
+            unread[tab] = unread.get(tab, 0) + count
+
+    return tab_counts(unread)
+
+
+# How many messages a clearing takes at a time. It goes on, a batch at a time, until none are left.
+CLEAR_BATCH = 1000
+
+
+def clearing_filter(mailbox: str, tab: Category | None, read: bool, filter_by: str | None) -> dict:
+    """The messages a clearing takes from a `mailbox`: those its list shows (the Inbox `tab`, as far as
+    the list's filter, `filter_by`, shows it), only the unread ones when marking `read`."""
+
+    conditions: list[dict] = [{"inMailbox": mailbox}]
+    if tab:
+        conditions.append(tab_filter(tab, classification.inbox_tabs()))
+    if condition := list_filter(filter_by):
+        conditions.append(condition)
+    if read:
+        conditions.append({"notKeyword": "$seen"})
+    return all_of(conditions)
+
+
+@frappe.whitelist()
+def clear_list(
+    action: str,
+    account: str | None = None,
+    mailbox: str | None = None,
+    folder: str | None = None,
+    category: str | None = None,
+    filter_by: str | None = None,
+) -> dict:
+    """Clears a list in one go: marks its unread mail read (`read`), or archives it or moves it to Trash.
+
+    The list is an account's `mailbox`, or a `folder` across every account (a slug, as for
+    `get_unified_threads`), narrowed as it shows to an Inbox `category` and by its filter
+    (`filter_by`). Only reading reaches Primary or a whole mailbox: archiving or trashing everything
+    at once is for the tabs that hold bulk mail, not the mail that needs you.
+
+    It goes a batch at a time until nothing is left. Returns what each account cleared, for Undo (and
+    for a move, where each message was), and the accounts that failed part way: what they cleared
+    before failing is kept, so it can still be undone.
+    """
+
+    if action not in ("read", "archive", "trash"):
+        frappe.throw(_("Unknown clearing: {0}").format(action), frappe.ValidationError)
+    read = action == "read"
+    tab = validate_tab(category) if category else None
+    if not read and tab in (None, Category.PRIMARY):
+        frappe.throw(_("Only a category other than Primary is cleared all at once."), frappe.ValidationError)
+    if folder:
+        accounts = [a["name"] for a in get_user_jmap_accounts()]
+    elif account and mailbox:
+        accounts = [account]
+    else:
+        frappe.throw(_("A mailbox or a folder is required."), frappe.ValidationError)
+
+    cleared: list[dict] = []
+    failed: list[str] = []
+    for account_id in accounts:
+        done: dict = {"account": account_id, "ids": []}
+        if not read:
+            done["mails"] = []
+        # A message the clear left where it was is not taken again, so the clearing ends.
+        taken: set[str] = set()
+        try:
+            for mailbox_id in (
+                folder_mailboxes(get_cached_mailboxes(account_id), folder) if folder else [mailbox]
+            ):
+                filter = clearing_filter(mailbox_id, tab, read, filter_by)
+                while ids := [
+                    id
+                    for id in query_message_ids(account_id, filter, 0, CLEAR_BATCH)["ids"]
+                    if id not in taken
+                ]:
+                    taken.update(ids)
+                    if read:
+                        # Only what the server marked read counts, so Undo marks unread nothing else.
+                        changed, complete = try_set_seen(account_id, ids, True)
+                        done["ids"].extend(changed)
+                        if not complete:
+                            raise frappe.ValidationError(_("Not all mail could be marked as read."))
+                        continue
+                    before = get_messages_mailboxes(account_id, ids)
+                    moved, complete = try_move_messages(
+                        account_id,
+                        ids,
+                        get_mailbox_id_by_role(
+                            account_id, action, create_if_not_exists=True, raise_exception=True
+                        ),
+                    )
+                    # Where each moved message was, for Undo to put it back: only the ones moved, so
+                    # Undo never touches mail the clearing left alone.
+                    done["ids"].extend(moved)
+                    moved_ids = set(moved)
+                    done["mails"].extend(m for m in before if m["id"] in moved_ids)
+                    if not complete:
+                        raise frappe.ValidationError(_("Not all mail could be moved."))
+        except (MethodError, frappe.ValidationError):
+            failed.append(account_id)
+        if done["ids"]:
+            cleared.append(done)
+    return {"cleared": cleared, "failed": failed}
 
 
 @frappe.whitelist()

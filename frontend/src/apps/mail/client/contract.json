@@ -562,21 +562,13 @@
       "query": null,
       "body": {
         "properties": {
-          "group_messages_by": {
-            "anyOf": [
-              {
-                "enum": [
-                  "None",
-                  "Day",
-                  "Month"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "group_by_date": {
+            "enum": [
+              0,
+              1
             ],
-            "title": "Group Messages By"
+            "title": "Group By Date",
+            "type": "integer"
           },
           "show_reading_pane": {
             "enum": [
@@ -595,6 +587,28 @@
             ],
             "title": "Undo Send Period",
             "type": "string"
+          },
+          "inbox_tabs": {
+            "items": {
+              "enum": [
+                "primary",
+                "updates",
+                "forums",
+                "promotions",
+                "social"
+              ],
+              "type": "string"
+            },
+            "title": "Inbox Tabs",
+            "type": "array"
+          },
+          "split_inbox": {
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Split Inbox",
+            "type": "integer"
           }
         },
         "title": "UserPreferences",
@@ -2579,16 +2593,13 @@
                 "title": "System Time Zone",
                 "type": "string"
               },
-              "group_messages_by": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
+              "group_by_date": {
+                "enum": [
+                  0,
+                  1
                 ],
-                "title": "Group Messages By"
+                "title": "Group By Date",
+                "type": "integer"
               },
               "show_reading_pane": {
                 "enum": [
@@ -2629,6 +2640,32 @@
                 "title": "Max Attachment Size",
                 "type": "integer"
               },
+              "inbox_tabs": {
+                "items": {
+                  "enum": [
+                    "primary",
+                    "updates",
+                    "forums",
+                    "promotions",
+                    "social"
+                  ],
+                  "type": "string"
+                },
+                "title": "Inbox Tabs",
+                "type": "array"
+              },
+              "split_inbox": {
+                "enum": [
+                  0,
+                  1
+                ],
+                "title": "Split Inbox",
+                "type": "integer"
+              },
+              "email_classification": {
+                "title": "Email Classification",
+                "type": "boolean"
+              },
               "is_suite_cloud_configured": {
                 "title": "Is Suite Cloud Configured",
                 "type": "boolean"
@@ -2654,7 +2691,7 @@
               "api_key",
               "time_zone",
               "system_time_zone",
-              "group_messages_by",
+              "group_by_date",
               "show_reading_pane",
               "undo_send_period",
               "user_settings",
@@ -2662,6 +2699,9 @@
               "is_system_manager",
               "is_jmap_configured",
               "max_attachment_size",
+              "inbox_tabs",
+              "split_inbox",
+              "email_classification",
               "is_suite_cloud_configured",
               "accounts"
             ],
@@ -14526,6 +14566,17 @@
             ],
             "title": "Filter By"
           },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
           "mailbox": {
             "title": "Mailbox",
             "type": "string"
@@ -15311,6 +15362,17 @@
             ],
             "title": "Filter By"
           },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
           "folder": {
             "title": "Folder",
             "type": "string"
@@ -16044,6 +16106,313 @@
           "has_more"
         ],
         "title": "UnifiedThreadPage",
+        "type": "object"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "get_tab_counts",
+      "kind": "query",
+      "publicName": "tabs.counts",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.get_tab_counts",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "mailbox": {
+            "title": "Mailbox",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "mailbox"
+        ],
+        "title": "TabCountsInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "TabCount": {
+            "properties": {
+              "category": {
+                "enum": [
+                  "primary",
+                  "updates",
+                  "forums",
+                  "promotions",
+                  "social"
+                ],
+                "title": "Category",
+                "type": "string"
+              },
+              "unread_threads": {
+                "title": "Unread Threads",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "category",
+              "unread_threads"
+            ],
+            "title": "TabCount",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/TabCount"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "get_unified_tab_counts",
+      "kind": "query",
+      "publicName": "unified.tabCounts",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.get_unified_tab_counts",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder"
+        ],
+        "title": "UnifiedTabCountsInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "TabCount": {
+            "properties": {
+              "category": {
+                "enum": [
+                  "primary",
+                  "updates",
+                  "forums",
+                  "promotions",
+                  "social"
+                ],
+                "title": "Category",
+                "type": "string"
+              },
+              "unread_threads": {
+                "title": "Unread Threads",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "category",
+              "unread_threads"
+            ],
+            "title": "TabCount",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/TabCount"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "clear_list",
+      "kind": "mutation",
+      "publicName": "messages.clearList",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.clear_list",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "action": {
+            "enum": [
+              "read",
+              "archive",
+              "trash"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account"
+          },
+          "mailbox": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mailbox"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "filter_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter By"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ClearListInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ClearedMail": {
+            "properties": {
+              "account": {
+                "title": "Account",
+                "type": "string"
+              },
+              "ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Ids",
+                "type": "array"
+              },
+              "mails": {
+                "items": {
+                  "$ref": "#/$defs/Membership"
+                },
+                "title": "Mails",
+                "type": "array"
+              }
+            },
+            "required": [
+              "account",
+              "ids"
+            ],
+            "title": "ClearedMail",
+            "type": "object"
+          },
+          "Membership": {
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "mailbox_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Mailbox Ids",
+                "type": "array"
+              },
+              "junk": {
+                "title": "Junk",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "mailbox_ids",
+              "junk"
+            ],
+            "title": "Membership",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "cleared": {
+            "items": {
+              "$ref": "#/$defs/ClearedMail"
+            },
+            "title": "Cleared",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cleared",
+          "failed"
+        ],
+        "title": "Cleared",
         "type": "object"
       },
       "errors": [

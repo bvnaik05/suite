@@ -120,7 +120,19 @@ export const registration: OwnerRegistration = {
     if (reference.id === 'update_preferences')
       return {
         effects: {
-          invalidates: ['mail.get_user_info'],
+          // The Inbox's categories are preferences too: a category turned off moves its mail into
+          // Primary, so the lists and their counts follow. No other preference touches them, and a
+          // split view toggle refetching the whole list was a reload for nothing.
+          invalidates: (input) =>
+            isRecord(input) && ('inbox_tabs' in input || 'split_inbox' in input)
+              ? [
+                  'mail.get_user_info',
+                  'mail.get_threads',
+                  'mail.get_unified_threads',
+                  'mail.get_tab_counts',
+                  'mail.get_unified_tab_counts',
+                ]
+              : ['mail.get_user_info'],
           optimisticReads: {
             references: ['mail.get_user_info'],
             update(input, _query, data) {
@@ -248,11 +260,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// A write names its account, or a `folder` across every account (clearing an All accounts folder):
+// that one reaches every account's reads, not none of them. A write naming neither (a delete by
+// account-qualified names) still reaches no account's reads, so it can't touch another account's.
 function matchingAccount(input: unknown, queryInput: unknown): boolean {
   return (
     !isRecord(input) ||
     !isRecord(queryInput) ||
     !('account' in queryInput) ||
+    (!input.account && typeof input.folder === 'string') ||
     input.account === queryInput.account
   )
 }
@@ -283,6 +299,8 @@ const messageReaders = [
   'search_mails',
   'get_mailboxes',
   'get_unified_folders',
+  'get_tab_counts',
+  'get_unified_tab_counts',
   'get_all_inbox_unread_count',
   'inbox_summary',
   'get_submissions',

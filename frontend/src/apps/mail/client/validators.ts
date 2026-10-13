@@ -49,6 +49,8 @@ import type {
   CancelScheduledMailOutput,
   ChangeMemberPasswordInput,
   ChangeMemberPasswordOutput,
+  ClearListInput,
+  ClearListOutput,
   ContactCardAddToAddressBookInput,
   ContactCardAddToAddressBookOutput,
   ContactCardRemoveFromAddressBookInput,
@@ -223,6 +225,8 @@ import type {
   GetSignupSettingsOutput,
   GetSubmissionsInput,
   GetSubmissionsOutput,
+  GetTabCountsInput,
+  GetTabCountsOutput,
   GetThreadInput,
   GetThreadOutput,
   GetThreadsInput,
@@ -235,6 +239,8 @@ import type {
   GetTlsSummaryOutput,
   GetUnifiedFoldersInput,
   GetUnifiedFoldersOutput,
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput,
   GetUnifiedThreadsInput,
   GetUnifiedThreadsOutput,
   GetUserForResetPasswordKeyInput,
@@ -641,16 +647,22 @@ export const operationUpdatePreferences: Validators<
       {
         type: 'object',
         properties: {
-          group_messages_by: {
-            anyOf: [{ enum: ['None', 'Day', 'Month'], type: 'string' }, { type: 'null' }],
-            title: 'Group Messages By',
-          },
+          group_by_date: { enum: [0, 1], title: 'Group By Date', type: 'integer' },
           show_reading_pane: { enum: [0, 1], title: 'Show Reading Pane', type: 'integer' },
           undo_send_period: {
             enum: ['5', '10', '20', '30'],
             title: 'Undo Send Period',
             type: 'string',
           },
+          inbox_tabs: {
+            items: {
+              enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+              type: 'string',
+            },
+            title: 'Inbox Tabs',
+            type: 'array',
+          },
+          split_inbox: { enum: [0, 1], title: 'Split Inbox', type: 'integer' },
         },
         required: [],
         additionalProperties: false,
@@ -1440,10 +1452,7 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               api_key: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Api Key' },
               time_zone: { title: 'Time Zone', type: 'string' },
               system_time_zone: { title: 'System Time Zone', type: 'string' },
-              group_messages_by: {
-                anyOf: [{ type: 'string' }, { type: 'null' }],
-                title: 'Group Messages By',
-              },
+              group_by_date: { enum: [0, 1], title: 'Group By Date', type: 'integer' },
               show_reading_pane: { enum: [0, 1], title: 'Show Reading Pane', type: 'integer' },
               undo_send_period: {
                 anyOf: [{ type: 'string' }, { type: 'null' }],
@@ -1454,6 +1463,16 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               is_system_manager: { title: 'Is System Manager', type: 'boolean' },
               is_jmap_configured: { title: 'Is Jmap Configured', type: 'boolean' },
               max_attachment_size: { title: 'Max Attachment Size', type: 'integer' },
+              inbox_tabs: {
+                items: {
+                  enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                  type: 'string',
+                },
+                title: 'Inbox Tabs',
+                type: 'array',
+              },
+              split_inbox: { enum: [0, 1], title: 'Split Inbox', type: 'integer' },
+              email_classification: { title: 'Email Classification', type: 'boolean' },
               is_suite_cloud_configured: { title: 'Is Suite Cloud Configured', type: 'boolean' },
               accounts: {
                 items: { $ref: '#/$defs/UserAccount' },
@@ -1474,7 +1493,7 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'api_key',
               'time_zone',
               'system_time_zone',
-              'group_messages_by',
+              'group_by_date',
               'show_reading_pane',
               'undo_send_period',
               'user_settings',
@@ -1482,6 +1501,9 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'is_system_manager',
               'is_jmap_configured',
               'max_attachment_size',
+              'inbox_tabs',
+              'split_inbox',
+              'email_classification',
               'is_suite_cloud_configured',
               'accounts',
             ],
@@ -6785,6 +6807,7 @@ export const operationGetThreads: Validators<GetThreadsInput, GetThreadsOutput> 
           limit: { title: 'Limit', type: 'integer' },
           start: { title: 'Start', type: 'integer' },
           filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
           mailbox: { title: 'Mailbox', type: 'string' },
         },
         required: ['account', 'limit', 'mailbox'],
@@ -7050,6 +7073,7 @@ export const operationGetUnifiedThreads: Validators<
           limit: { title: 'Limit', type: 'integer' },
           start: { title: 'Start', type: 'integer' },
           filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
           folder: { title: 'Folder', type: 'string' },
         },
         required: ['limit', 'folder'],
@@ -7297,6 +7321,154 @@ export const operationGetUnifiedThreads: Validators<
         type: 'object',
       },
       'get_unified_threads output',
+    )
+  },
+}
+
+export const operationGetTabCounts: Validators<GetTabCountsInput, GetTabCountsOutput> = {
+  validateInput(value: unknown): asserts value is GetTabCountsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          mailbox: { title: 'Mailbox', type: 'string' },
+        },
+        required: ['account', 'mailbox'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_tab_counts input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetTabCountsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          TabCount: {
+            properties: {
+              category: {
+                enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                title: 'Category',
+                type: 'string',
+              },
+              unread_threads: { title: 'Unread Threads', type: 'integer' },
+            },
+            required: ['category', 'unread_threads'],
+            title: 'TabCount',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/TabCount' },
+        type: 'array',
+      },
+      'get_tab_counts output',
+    )
+  },
+}
+
+export const operationGetUnifiedTabCounts: Validators<
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput
+> = {
+  validateInput(value: unknown): asserts value is GetUnifiedTabCountsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { folder: { title: 'Folder', type: 'string' } },
+        required: ['folder'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_unified_tab_counts input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetUnifiedTabCountsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          TabCount: {
+            properties: {
+              category: {
+                enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                title: 'Category',
+                type: 'string',
+              },
+              unread_threads: { title: 'Unread Threads', type: 'integer' },
+            },
+            required: ['category', 'unread_threads'],
+            title: 'TabCount',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/TabCount' },
+        type: 'array',
+      },
+      'get_unified_tab_counts output',
+    )
+  },
+}
+
+export const operationClearList: Validators<ClearListInput, ClearListOutput> = {
+  validateInput(value: unknown): asserts value is ClearListInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          action: { enum: ['read', 'archive', 'trash'], title: 'Action', type: 'string' },
+          account: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Account' },
+          mailbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailbox' },
+          folder: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Folder' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'clear_list input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is ClearListOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          ClearedMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
+            },
+            required: ['account', 'ids'],
+            title: 'ClearedMail',
+            type: 'object',
+          },
+          Membership: {
+            properties: {
+              id: { title: 'Id', type: 'string' },
+              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
+              junk: { title: 'Junk', type: 'integer' },
+            },
+            required: ['id', 'mailbox_ids', 'junk'],
+            title: 'Membership',
+            type: 'object',
+          },
+        },
+        properties: {
+          cleared: { items: { $ref: '#/$defs/ClearedMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'Cleared',
+        type: 'object',
+      },
+      'clear_list output',
     )
   },
 }

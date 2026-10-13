@@ -763,12 +763,12 @@ const recipientsSummary = (mail: Mail) => {
 // Rows state clock time only while day dividers state the date (multi-day thread, grouping
 // on, desktop). Otherwise the row's timestamp is the only date there is, and stays relative.
 const showsClockTime = computed(
-  () => !isMobile.value && mailsByDay.value.length > 1 && user.data.group_messages_by === 'Day',
+  () => !isMobile.value && mailsByDay.value.length > 1 && !!user.data.group_by_date,
 )
 const shouldShowDateDivider = (mails: Mail[]) =>
   !isMobile.value &&
   mailsByDay.value.length > 1 &&
-  user.data.group_messages_by === 'Day' &&
+  !!user.data.group_by_date &&
   !mails.every((m) => collapsedMailNames.value.has(m.name))
 const collapsedMailNames = computed(() => {
   if (!firstMailOfCollapsedGroup.value) return new Set<string>()

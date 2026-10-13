@@ -128,6 +128,33 @@ export const userStore = defineStore('mail-user', () => {
 
   const mailboxIds = computed(() => deriveMailboxIds(mailboxes.data))
 
+  // The categories the Inbox is split into, in the order of their tabs (none, no tabs), and each tab's
+  // unread count: in the active account's Inbox, and across every account's.
+  const inboxTabs = computed(() => {
+    const data = userResource.data
+    return data?.email_classification && data.split_inbox ? data.inbox_tabs : []
+  })
+  const tabCounts = useQuery(api.mail.tabs.counts, () =>
+    accountId.value && mailboxIds.value.inbox && inboxTabs.value.length
+      ? { account: accountId.value, mailbox: mailboxIds.value.inbox }
+      : false,
+  )
+  const unifiedTabCounts = useQuery(api.mail.unified.tabCounts, () =>
+    (userResource.data?.accounts.length ?? 0) > 1 && inboxTabs.value.length
+      ? // A system folder's slug is its role.
+        { folder: 'inbox' }
+      : false,
+  )
+  // In step with the mailbox counts, as the unified folders are: after any thread action and on the
+  // periodic poll.
+  watch(
+    () => mailboxes.data,
+    () => {
+      if (tabCounts.data) void tabCounts.refetch().catch(() => {})
+      if (unifiedTabCounts.data) void unifiedTabCounts.refetch().catch(() => {})
+    },
+  )
+
   // Short display labels for the merged views (All Inboxes, all-accounts search), keyed by the
   // account's full name. Only the odd ones out get labelled: the currently open account is
   // where the reader already is, so its rows stay bare ('' here — the row hides an empty
@@ -169,6 +196,9 @@ export const userStore = defineStore('mail-user', () => {
     screenedAddresses,
     globalScreenedAddresses,
     unifiedFolders,
+    inboxTabs,
+    tabCounts,
+    unifiedTabCounts,
     reset,
   }
 })

@@ -17,6 +17,7 @@ from suite.mail.http.message_shapes import (
     SearchPage,
     SubmissionDetail,
     SubmissionPage,
+    TabCount,
     ThreadPage,
     UnifiedThreadPage,
 )
@@ -31,6 +32,7 @@ class Window(TypedDict):
     limit: int
     start: NotRequired[int]
     filter_by: NotRequired[str | None]
+    category: NotRequired[str | None]
 
 
 class ThreadsInput(AccountInput, Window):
@@ -39,6 +41,25 @@ class ThreadsInput(AccountInput, Window):
 
 class UnifiedThreadsInput(Window):
     folder: str
+
+
+class TabCountsInput(AccountInput):
+    mailbox: str
+
+
+class UnifiedTabCountsInput(TypedDict):
+    folder: str
+
+
+class ClearListInput(TypedDict):
+    action: Literal["read", "archive", "trash"]
+    # An account's mailbox, or a folder across every account.
+    account: NotRequired[str | None]
+    mailbox: NotRequired[str | None]
+    folder: NotRequired[str | None]
+    category: NotRequired[str | None]
+    # The list's filter: only what it shows is cleared.
+    filter_by: NotRequired[str | None]
 
 
 class SearchInput(AccountInput):
@@ -90,6 +111,19 @@ class Membership(TypedDict):
     id: str
     mailbox_ids: list[str]
     junk: int
+
+
+class ClearedMail(TypedDict):
+    account: str
+    ids: list[str]
+    # Where each moved message was, for Undo to put it back.
+    mails: NotRequired[list[Membership]]
+
+
+class Cleared(TypedDict):
+    cleared: list[ClearedMail]
+    # Accounts that failed part way; what they cleared first is in `cleared`.
+    failed: list[str]
 
 
 class SetFoldersInput(AccountInput):
@@ -251,6 +285,16 @@ _OPERATIONS: tuple[
         UnifiedThreadPage,
         {"offset": "start", "rows": "rows", "more": "has_more"},
     ),
+    (mail.get_tab_counts, "query", "tabs.counts", TabCountsInput, list[TabCount], None),
+    (
+        mail.get_unified_tab_counts,
+        "query",
+        "unified.tabCounts",
+        UnifiedTabCountsInput,
+        list[TabCount],
+        None,
+    ),
+    (mail.clear_list, "mutation", "messages.clearList", ClearListInput, Cleared, None),
     (mail.get_thread, "query", "threads.get", ThreadInput, list[Message], None),
     (
         mail.search_mails,

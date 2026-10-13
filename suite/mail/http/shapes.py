@@ -36,7 +36,7 @@ class UserInfo(TypedDict):
     api_key: str | None
     time_zone: str
     system_time_zone: str
-    group_messages_by: str | None
+    group_by_date: Flag
     show_reading_pane: Flag
     undo_send_period: str | None
     user_settings: str
@@ -44,6 +44,10 @@ class UserInfo(TypedDict):
     is_system_manager: bool
     is_jmap_configured: bool
     max_attachment_size: int
+    inbox_tabs: list[Literal["primary", "updates", "forums", "promotions", "social"]]
+    split_inbox: Flag
+    # Whether the site sorts mail into categories at all, so whether there is a choice of tabs to offer.
+    email_classification: bool
     is_suite_cloud_configured: bool
     accounts: list[UserAccount]
 

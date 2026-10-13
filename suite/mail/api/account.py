@@ -208,7 +208,7 @@ def get_user_info() -> dict | None:
             USER.username,
             USER.api_key,
             USER.time_zone,
-            USER_SETTINGS.group_messages_by,
+            USER_SETTINGS.group_by_date,
             USER_SETTINGS.show_reading_pane,
             USER_SETTINGS.undo_send_period,
             USER_SETTINGS.name.as_("user_settings"),
@@ -235,6 +235,11 @@ def get_user_info() -> dict | None:
     data.max_attachment_size = MAX_ATTACHMENT_SIZE
     # Whether mail is being sorted into categories, and so whether the lists offer them as filters.
     data.email_classification = classification.is_enabled()
+    # Whether the Inbox is split, and its tabs for when it is: kept apart, so the choice of tabs
+    # survives the split being turned off.
+    split, chosen = classification.chosen_tabs(user)
+    data.split_inbox = int(split)
+    data.inbox_tabs = [tab.value for tab in chosen]
     # The Admin Dashboard is offered only on a site connected to a Suite Cloud, and only admins
     # are told whether it is.
     data.is_suite_cloud_configured = (

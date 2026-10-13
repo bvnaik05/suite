@@ -193,9 +193,11 @@ const operationUpdateCredentials: MutationRef<
 }
 
 export type UpdatePreferencesInput = {
-  group_messages_by?: ('None' | 'Day' | 'Month') | null
+  group_by_date?: 0 | 1
   show_reading_pane?: 0 | 1
   undo_send_period?: '5' | '10' | '20' | '30'
+  inbox_tabs?: Array<'primary' | 'updates' | 'forums' | 'promotions' | 'social'>
+  split_inbox?: 0 | 1
 }
 
 export type UpdatePreferencesOutput = null
@@ -775,7 +777,7 @@ export type GetUserInfoOutputUserInfo = {
   api_key: string | null
   time_zone: string
   system_time_zone: string
-  group_messages_by: string | null
+  group_by_date: 0 | 1
   show_reading_pane: 0 | 1
   undo_send_period: string | null
   user_settings: string
@@ -783,6 +785,9 @@ export type GetUserInfoOutputUserInfo = {
   is_system_manager: boolean
   is_jmap_configured: boolean
   max_attachment_size: number
+  inbox_tabs: Array<'primary' | 'updates' | 'forums' | 'promotions' | 'social'>
+  split_inbox: 0 | 1
+  email_classification: boolean
   is_suite_cloud_configured: boolean
   accounts: Array<GetUserInfoOutputUserAccount>
 }
@@ -5219,6 +5224,7 @@ export type GetThreadsInput = {
   limit: number
   start?: number
   filter_by?: string | null
+  category?: string | null
   mailbox: string
 }
 
@@ -5353,6 +5359,7 @@ export type GetUnifiedThreadsInput = {
   limit: number
   start?: number
   filter_by?: string | null
+  category?: string | null
   folder: string
 }
 
@@ -5383,6 +5390,101 @@ const operationGetUnifiedThreads: PageRef<
   entity: null,
   errors: ['PermissionError', 'ValidationError'],
   loadValidators: async () => (await import('./validators')).operationGetUnifiedThreads,
+}
+
+export type GetTabCountsOutputTabCount = {
+  category: 'primary' | 'updates' | 'forums' | 'promotions' | 'social'
+  unread_threads: number
+}
+
+export type GetTabCountsInput = { account: string; mailbox: string }
+
+export type GetTabCountsOutput = Array<GetTabCountsOutputTabCount>
+
+export type GetTabCountsError = 'PermissionError' | 'ValidationError'
+
+const operationGetTabCounts: QueryRef<GetTabCountsInput, GetTabCountsOutput, GetTabCountsError> = {
+  id: 'get_tab_counts',
+  owner: 'mail',
+  kind: 'query',
+  publicName: 'tabs.counts',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.get_tab_counts',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationGetTabCounts,
+}
+
+export type GetUnifiedTabCountsOutputTabCount = {
+  category: 'primary' | 'updates' | 'forums' | 'promotions' | 'social'
+  unread_threads: number
+}
+
+export type GetUnifiedTabCountsInput = { folder: string }
+
+export type GetUnifiedTabCountsOutput = Array<GetUnifiedTabCountsOutputTabCount>
+
+export type GetUnifiedTabCountsError = 'PermissionError' | 'ValidationError'
+
+const operationGetUnifiedTabCounts: QueryRef<
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput,
+  GetUnifiedTabCountsError
+> = {
+  id: 'get_unified_tab_counts',
+  owner: 'mail',
+  kind: 'query',
+  publicName: 'unified.tabCounts',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.get_unified_tab_counts',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationGetUnifiedTabCounts,
+}
+
+export type ClearListOutputClearedMail = {
+  account: string
+  ids: Array<string>
+  mails?: Array<ClearListOutputMembership>
+}
+
+export type ClearListOutputMembership = { id: string; mailbox_ids: Array<string>; junk: number }
+
+export type ClearListInput = {
+  action: 'read' | 'archive' | 'trash'
+  account?: string | null
+  mailbox?: string | null
+  folder?: string | null
+  category?: string | null
+  filter_by?: string | null
+}
+
+export type ClearListOutput = { cleared: Array<ClearListOutputClearedMail>; failed: Array<string> }
+
+export type ClearListError = 'PermissionError' | 'ValidationError'
+
+const operationClearList: MutationRef<ClearListInput, ClearListOutput, ClearListError> = {
+  id: 'clear_list',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.clearList',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.clear_list',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationClearList,
 }
 
 export type GetThreadOutputAttachment = {
@@ -6804,6 +6906,7 @@ export const api = {
   unified: {
     folders: operationGetUnifiedFolders,
     threads: operationGetUnifiedThreads,
+    tabCounts: operationGetUnifiedTabCounts,
   },
   participantIdentities: {
     list: operationGetParticipantIdentities,
@@ -6860,7 +6963,11 @@ export const api = {
     list: operationGetThreads,
     get: operationGetThread,
   },
+  tabs: {
+    counts: operationGetTabCounts,
+  },
   messages: {
+    clearList: operationClearList,
     search: operationSearchMails,
     mime: operationGetMimeMessage,
     deliveryStatus: operationGetDeliveryStatus,
