@@ -26,6 +26,7 @@ const props = defineProps<{
 }>()
 
 const panel = defineModel<DocumentPanel | null>('panel', { required: true })
+const emit = defineEmits<{ closed: [panel: DocumentPanel] }>()
 const previewedVersion = defineModel<DocumentVersion | null>('previewedVersion', {
   required: true,
 })
@@ -70,7 +71,11 @@ watch(
 )
 
 function closePanel() {
+  const closed = panel.value
   panel.value = null
+  if (closed) {
+    emit('closed', closed)
+  }
 }
 
 async function submitComment() {

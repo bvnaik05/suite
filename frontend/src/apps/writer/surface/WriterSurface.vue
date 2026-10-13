@@ -303,6 +303,7 @@ async function downloadVersion(shown: DocumentVersion) {
   }
 }
 
+const header = shallowRef<{ focusPanelToggle(name: DocumentPanel): void } | null>(null)
 const sidePanel = shallowRef<InstanceType<typeof DocumentSidePanel> | null>(null)
 const isRestoringVersion = ref(false)
 const canRestoreVersion = computed(() => {
@@ -511,6 +512,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-surface-base">
     <DriveDocumentHeader
+      ref="header"
       v-model:panel="panel"
       :session="session"
       title-label="Document title"
@@ -654,6 +656,7 @@ onBeforeUnmount(() => {
                 :can-save-version="canSaveVersion"
                 :save-first="saveBeforeVersion"
                 @update:previewed-version="showVersion"
+                @closed="header?.focusPanelToggle($event)"
               />
             </template>
           </component>

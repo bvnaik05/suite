@@ -216,7 +216,7 @@ const loadDocumentHeader = () => import('@/apps/drive/files/features/document/Do
  * and optionally `save-state`, `view-only`, `recoverable` with
  * `@download-changes`, `panels` with `v-model:panel`, `location`, and `mime`
  * for a file. Slots: `status` (after the badges) and `actions` (before the
- * panel toggles). Exposes `focusTitle()`.
+ * panel toggles). Exposes `focusTitle()` and `focusPanelToggle(name)`.
  */
 export const DriveDocumentHeader = defineAsyncComponent(loadDocumentHeader)
 

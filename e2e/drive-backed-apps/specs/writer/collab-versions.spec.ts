@@ -312,6 +312,22 @@ test.describe("Writer collaboration", () => {
 		await expect(panel.getByRole("button", { name: /^Offline try/ })).toHaveCount(0);
 	});
 
+	test("closing the Versions or Comments panel returns focus to the button that opened it", async ({
+		owner,
+	}) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		for (const name of ["Versions", "Comments"]) {
+			const opener = page.getByRole("banner").getByRole("button", { name, exact: true });
+			await opener.click();
+			await page
+				.getByRole("complementary", { name })
+				.getByRole("button", { name: "Close panel" })
+				.click();
+			await expect(opener).toBeFocused();
+		}
+	});
+
 	test("the Versions panel takes the table of contents' place on the right and moves the text like it", async ({
 		owner,
 	}) => {
