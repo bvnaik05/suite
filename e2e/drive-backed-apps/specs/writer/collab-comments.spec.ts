@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
-import { expectSaved, openForCollab, typeParagraph } from "../../helpers/collab";
+import { expectSaved, openForCollab, saveNamedVersion, typeParagraph } from "../../helpers/collab";
 import { discardNode } from "../../helpers/drive";
 import {
 	createWriterDocument,
@@ -117,6 +117,36 @@ test.describe("Writer collaboration comments", () => {
 		const deleted = panel.getByRole("region", { name: "Original text deleted" });
 		await expect(deleted).toContainText("About this word");
 		await expect(deleted).toContainText("sentence");
+	});
+
+	test("restoring a version puts a comment back on the words it brought back, for good", async ({
+		owner,
+	}) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		const drafts = await startCommentOnLastWord(page, "the commented sentence");
+		await drafts.getByLabel("Comment on the text").fill("About this word");
+		await drafts.getByRole("button", { name: "Comment" }).click();
+		const panel = page.getByRole("complementary", { name: "Comments" });
+		await expect(panel.getByRole("region", { name: "On the text" })).toContainText("About this word");
+		await saveNamedVersion(owner.context.request, node, "With the word");
+		await writerEditor(page).locator("[data-thread]").dblclick();
+		await page.keyboard.press("Backspace");
+		await expect(panel.getByRole("region", { name: "Original text deleted" })).toContainText("About this word");
+		await expectSaved(page);
+
+		await page.getByRole("button", { name: /versions/i }).first().click();
+		await page.getByRole("complementary", { name: "Versions" }).getByRole("button", { name: /^With the word/ }).click();
+		await page.getByRole("button", { name: "Restore", exact: true }).click();
+		await page.getByRole("dialog").getByRole("button", { name: "Restore", exact: true }).click();
+		await expect(page.getByText("Version restored")).toBeVisible();
+
+		await expect(writerEditor(page).locator("[data-thread]")).toHaveText("sentence");
+		await page.reload();
+		await expect(writerEditor(page).locator("[data-thread]")).toHaveText("sentence");
+		const reopened = await openComments(page);
+		await expect(reopened.getByRole("region", { name: "On the text" })).toContainText("About this word");
+		await expect(reopened.getByRole("region", { name: "Original text deleted" })).toHaveCount(0);
 	});
 
 	test("an unposted comment stays on the device through a reload until discarded", async ({
