@@ -38,6 +38,8 @@ export class Room implements CollabRoom {
   held: Held | null = null
   newerSchema = false
   appliedThrough = 0
+  // The rev of the last restore this tab heard of
+  restoreRev = 0
   limits: Limits | null = null
   needsRebuild = false
   readonly lineage: string
@@ -103,6 +105,7 @@ export class Room implements CollabRoom {
     this.unheard = !!opening.offline
     this.limits = opening.limits ?? null
     this.fence.follow(opening.restoringMs)
+    this.restoreRev = opening.restoreRev ?? 0
     this.follow(opening.schema)
     this.puller.applyRows(opening.rows, opening)
     if (this.writable) {
@@ -338,9 +341,33 @@ export class Room implements CollabRoom {
   controlHeard(heard: Record<string, unknown>) {
     if (heard.kind === 'restoring') {
       this.fence.follow(heard.fence_ms)
-    } else if (heard.kind === 'restored' || heard.kind === 'restore_ended') {
+    } else if (heard.kind === 'restored') {
+      this.followRestore(heard.restore_rev)
+      this.fence.lift()
+    } else if (heard.kind === 'restore_ended') {
       this.fence.lift()
     }
+  }
+
+  // A restore this tab's unsent work predates stops it: the work becomes a recovery copy and
+  // the tab is rebuilt from the server. False when it stopped the tab
+  followRestore(rev: unknown) {
+    if (typeof rev !== 'number' || rev <= this.restoreRev) {
+      return true
+    }
+
+    this.restoreRev = rev
+    if (!this.outboxes.some((box) => box.isStaleAfter(rev))) {
+      return true
+    }
+
+    void this.setAsideForRestore()
+    return false
+  }
+
+  private async setAsideForRestore() {
+    await this.stopForGood('restored')
+    this.markNeedsRebuild()
   }
 
   // A held document's pushes wait minutes between tries, so its release sends at once
@@ -475,7 +502,7 @@ export class Room implements CollabRoom {
 
     if (!this.writable) return
 
-    const entry = this.ownOutbox.add(update)
+    const entry = this.ownOutbox.add(update, this.appliedThrough)
     if (this.device) {
       const session = this.ownSession(this.device)
       const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
@@ -492,7 +519,7 @@ export class Room implements CollabRoom {
   private recoverLateTyping(update: Uint8Array, reason: string) {
     if (!this.device) return
 
-    const entry = this.ownOutbox.createEntry(update)
+    const entry = this.ownOutbox.createEntry(update, this.appliedThrough)
     const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
     void this.keepCopy(this.device, [this.ownOutbox.sid], reason, stored)
   }

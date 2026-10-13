@@ -345,6 +345,20 @@ describe('writer collab rebuild', () => {
     )
   })
 
+  it('says a restore set the edits aside once the room is rebuilt after one', async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    const collab = await openCollab(() => true)
+    const oldRoom = fakeRooms.room
+    fakeRooms.room = fakeRooms.makeRoom()
+
+    becomesOn(oldRoom, { stopped: 'restored', saveState: 'failed', unsent: 1, needsRebuild: true })
+
+    await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
+    expect(collab.banner.value?.text).toBe(
+      'A version of this document was restored. Your edits from before it were kept as a recovery copy.',
+    )
+  })
+
   it("keeps a later room's unsent work on screen when this time no copy could be kept", async () => {
     let keepsLeft = 1
     fakeRooms.room = fakeRooms.makeRoom()

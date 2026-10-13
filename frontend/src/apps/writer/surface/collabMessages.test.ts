@@ -29,7 +29,7 @@ const defaultState = {
   onDevice: true,
   recoveryKept: false,
   copyFailed: false,
-  setAside: false,
+  setAside: null,
   isNewerAfterReload: false,
   unsent: 1,
   polling: false,
@@ -158,15 +158,21 @@ describe('collab stop copy', () => {
     expect(bannerText({ atLimit: true })).toBe(
       'This document is at its size limit. Delete content to free space.',
     )
-    expect(bannerText({ atLimit: true, setAside: true })).toBe(
+    expect(bannerText({ atLimit: true, setAside: 'document_full' })).toBe(
       'This document is at its size limit. Your latest changes went to a recovery copy. Delete content to free space.',
     )
   })
 
   it('says nothing while saving goes on, unless an earlier room set edits aside', () => {
     expect(bannerFor(defaultState)).toBeNull()
-    expect(bannerText({ setAside: true })).toBe(
+    expect(bannerText({ setAside: 'poison' })).toBe(
       "Your last edits couldn't be saved here and were kept as a recovery copy.",
+    )
+  })
+
+  it('says a restore stopped the work typed before it, and where it went', () => {
+    expect(bannerText({ stopped: 'restored', failed: true, recoveryKept: true })).toBe(
+      "A version of this document was restored, so changes made in this tab before it weren't saved. Unsent changes were kept as a recovery copy. Reload to keep editing.",
     )
   })
 

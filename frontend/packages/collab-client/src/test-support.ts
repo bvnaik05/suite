@@ -142,6 +142,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
         limits: limits(),
         rooms: roomKeys(),
         restoring_ms: restoringMs(),
+        restore_rev: restore.rev,
       }
       return frame(header, tail, checkpoint.bytes)
     },
@@ -164,6 +165,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
           limits: limits(),
           rooms: roomKeys(),
           restoring_ms: restoringMs(),
+          restore_rev: restore.rev,
         },
         rows.filter((row) => row.rev > since),
       )
@@ -231,6 +233,8 @@ export function fakeServer(state = 'live', lineage = 'L') {
             copy: copy.wanted,
           })
       }
+      if (header.seen_rev < restore.rev)
+        return reply(409, { collab: 'restored', restore_rev: restore.rev })
       if (header.from > session.acked + 1)
         return reply(409, { collab: 'seq', acked: session.acked })
       let bytes = inline
@@ -301,7 +305,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
     publish('suite_collab_ctl', { kind: 'quarantine', q_epoch: epoch.now })
   }
   // A restore under way holds the document until `until`; 0 when none is
-  const restore = { until: 0 }
+  const restore = { until: 0, rev: 0 }
   const restoringMs = () => Math.max(0, restore.until - Date.now()) || undefined
   // A restore begins for `ms`, or ends as `kind`: `restored` when it lands, `restore_ended` when called off
   const fence = (ms: number | null, kind = 'restore_ended') => {
@@ -310,6 +314,17 @@ export function fakeServer(state = 'live', lineage = 'L') {
       publish('suite_collab_ctl', { kind: 'restoring', fence_ms: ms })
     } else {
       publish('suite_collab_ctl', { kind })
+    }
+  }
+  // Another tab's restore lands as the next row, `bytes` making the document the version;
+  // `isNoticeLost` drops the notice that follows the row
+  const landRestore = (bytes: Uint8Array, isNoticeLost = false) => {
+    rows.push({ rev: rows.length + 1, bytes })
+    restore.rev = rows.length
+    restore.until = 0
+    publish('suite_collab_row', { rev: rows.length, schema: 0, u: base64(bytes), restore: true })
+    if (!isNoticeLost) {
+      publish('suite_collab_ctl', { kind: 'restored', restore_rev: restore.rev })
     }
   }
   // An admin holds the document or releases it
@@ -338,6 +353,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
     quarantine,
     hold,
     fence,
+    landRestore,
     realtime,
     socket,
     roomKeys,

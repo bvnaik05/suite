@@ -17,6 +17,7 @@ export interface LeftoverRoom extends AccessRoom {
   readonly bound: boolean
   readonly closed: boolean
   readonly stopReason: string | null
+  readonly restoreRev: number
   // Adopted outboxes go in ahead of this tab's own
   readonly outboxes: Outbox[]
   readonly sender: { scheduleSend(): void }
@@ -153,6 +154,10 @@ async function takeOver(
 async function claimVerdictOf(room: LeftoverRoom, session: StoredSession, box: Outbox) {
   if (session.lineage !== room.lineage) {
     return 'lineage'
+  }
+
+  if (box.isStaleAfter(room.restoreRev)) {
+    return 'restored'
   }
 
   if (session.bound) {

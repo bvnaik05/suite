@@ -514,7 +514,7 @@ describe('collab room on a device', () => {
     stale.on('update', (update: Uint8Array) => (bytes = update))
     stale.getText('t').insert(0, 'old')
     const old = { doc: 'D', sid: 'old', lineage: 'GONE', cid: 99, bound: true }
-    await kept.store.capture(old, [{ doc: 'D', sid: 'old', seq: 1, bytes, sha: 'x' }])
+    await kept.store.capture(old, [{ doc: 'D', sid: 'old', seq: 1, bytes, sha: 'x', seenRev: 0 }])
 
     const room = await join(server.endpoints(), { device: kept })
 

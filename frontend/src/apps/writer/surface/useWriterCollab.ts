@@ -50,7 +50,7 @@ export function useWriterCollab(
   const openReason = ref<string | null>(null)
   const openStatus = ref<number | null>(null)
   const recoveryKept = ref(false)
-  const setAside = ref(false)
+  const setAside = ref<string | null>(null)
   const isNewerAfterReload = ref(false)
   let isNewerSchemaMarked = false
   let stopWatching = () => {}
@@ -122,7 +122,10 @@ export function useWriterCollab(
   // The old room sends what it can; the new one takes the rest over from the device
   async function rebuildRoom(oldRoom: CollabRoom) {
     stopWatching()
-    setAside.value = !!(oldRoom.stopped && oldRoom.unsent)
+    setAside.value = null
+    if (oldRoom.unsent) {
+      setAside.value = oldRoom.stopped
+    }
     room.value = null
     mode.value = 'opening'
     await nextTick()

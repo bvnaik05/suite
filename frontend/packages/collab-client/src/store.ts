@@ -17,6 +17,8 @@ export interface StoredEntry {
   seq: number
   bytes: Uint8Array
   sha: string
+  // The rev the tab had applied when it was typed
+  seenRev: number
 }
 
 // What the server committed, as this device last saw it: enough to reopen the document offline

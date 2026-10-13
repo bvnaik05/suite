@@ -84,6 +84,7 @@ export async function openCollabRoom(options: OpenOptions): Promise<Opened> {
     rooms: header.rooms,
     paceMs: header.pace_ms,
     restoringMs: header.restoring_ms,
+    restoreRev: header.restore_rev,
   }
   const room = new Room(init, options)
   await room.start(opening)

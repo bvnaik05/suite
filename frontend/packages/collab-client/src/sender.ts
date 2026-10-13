@@ -295,7 +295,7 @@ export class Sender {
       from: entries[0].seq,
       to: entries[entries.length - 1].seq,
       cid: box.cid,
-      seen_rev: room.appliedThrough,
+      seen_rev: Math.min(...entries.map((entry) => entry.seenRev)),
       shas: entries.map((entry) => entry.sha),
       final: isFinal,
     }
@@ -397,8 +397,8 @@ export class Sender {
     }
 
     await room.stopForGood(reply.collab)
-    // The server quarantined a change of this session, which this copy still holds
-    if (reply.collab === 'client_closed') {
+    // The server quarantined a change of this session, or holds a restore this copy predates
+    if (reply.collab === 'client_closed' || reply.collab === 'restored') {
       room.markNeedsRebuild()
     }
   }

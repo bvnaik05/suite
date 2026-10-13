@@ -23,6 +23,7 @@ export interface Opening {
   rooms?: RoomKeys
   paceMs?: number
   restoringMs?: number
+  restoreRev?: number
   // Opened from the device copy, so the server hasn't answered yet
   offline?: boolean
 }

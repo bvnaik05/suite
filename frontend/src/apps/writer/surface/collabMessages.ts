@@ -29,8 +29,8 @@ export type BannerState = Pick<
   failed: boolean
   // The editor's HTML was kept in this browser as a recovery copy
   recoveryKept: boolean
-  // An earlier room of this page set its unsent work aside as a recovery copy
-  setAside: boolean
+  // Why an earlier room of this page set its unsent work aside as a recovery copy
+  setAside: string | null
   // No live updates reach this tab, so it polls
   polling: boolean
   // The newer-schema banner showed before this tab's last reload too
@@ -44,6 +44,8 @@ const STOP_MESSAGES: Record<string, string> = {
   document_full: "This document is at its size limit, so a change in this tab couldn't be saved.",
   disabled: 'Collaboration was switched off for this app, so saving stopped in this tab.',
   schema: 'This document was edited in a newer version of Writer, so saving stopped in this tab.',
+  restored:
+    "A version of this document was restored, so changes made in this tab before it weren't saved.",
 }
 // Stops a reload would only repeat
 const LASTING_STOPS = new Set(['browser'])
@@ -84,6 +86,12 @@ function savingBanner(state: BannerState): Banner | null {
     const setAsideNote = state.setAside ? ' Your latest changes went to a recovery copy.' : ''
     return {
       text: `This document is at its size limit.${setAsideNote} Delete content to free space.`,
+    }
+  }
+
+  if (state.setAside === 'restored') {
+    return {
+      text: 'A version of this document was restored. Your edits from before it were kept as a recovery copy.',
     }
   }
 

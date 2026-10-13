@@ -12,8 +12,14 @@ export const MAX_PUSH_BYTES = 256 * 1024
 export const KEEPALIVE_QUOTA = 63 * 1024
 export const MAX_KEEPALIVE_BYTES = KEEPALIVE_QUOTA - MAX_HEADER_BYTES
 
-// `sha` lets the server tell a resent seq from a different one under the same number
-export type Entry = { seq: number; bytes: Uint8Array; sha: string }
+// `sha` lets the server tell a resent seq from a different one under the same number;
+// `seenRev` is the rev the tab had applied when it was typed
+export interface Entry {
+  seq: number
+  bytes: Uint8Array
+  sha: string
+  seenRev: number
+}
 
 // One session's unsent work: this tab's own, or one adopted from a tab that closed
 export class Outbox {
@@ -29,23 +35,24 @@ export class Outbox {
     // What a closed tab left on the device
     stored: StoredEntry[] = [],
   ) {
-    this.pending = stored.map(({ seq, bytes, sha }) => ({ seq, bytes, sha }))
+    this.pending = stored.map(({ seq, bytes, sha, seenRev }) => ({ seq, bytes, sha, seenRev }))
     this.nextSeq = stored.length ? stored[stored.length - 1].seq + 1 : 1
     this.acked = stored.length ? stored[0].seq - 1 : 0
   }
 
   // The next seq's entry, not yet queued
-  createEntry(bytes: Uint8Array): Entry {
+  createEntry(bytes: Uint8Array, seenRev: number): Entry {
     const sha = hex(digest(bytes))
     return {
       seq: this.nextSeq++,
       bytes,
       sha,
+      seenRev,
     }
   }
 
-  add(bytes: Uint8Array): Entry {
-    const entry = this.createEntry(bytes)
+  add(bytes: Uint8Array, seenRev: number): Entry {
+    const entry = this.createEntry(bytes, seenRev)
     this.pending.push(entry)
     return entry
   }
@@ -60,6 +67,11 @@ export class Outbox {
 
     this.pending = this.pending.filter((entry) => entry.seq > this.acked)
     return Y.mergeUpdates(committed.map((entry) => entry.bytes))
+  }
+
+  // Holds work typed before the restore at `restoreRev`
+  isStaleAfter(restoreRev: number) {
+    return this.pending.some((entry) => entry.seenRev < restoreRev)
   }
 
   // Pending work no longer continues from what the server acknowledged

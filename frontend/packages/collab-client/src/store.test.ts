@@ -40,6 +40,7 @@ const entry = (sid: string, seq: number, bytes: Uint8Array) => ({
   seq,
   bytes,
   sha: String(seq),
+  seenRev: 0,
 })
 
 describe('device store', () => {
