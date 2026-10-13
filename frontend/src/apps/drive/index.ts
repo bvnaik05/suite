@@ -75,11 +75,8 @@ export { formatModified as formatDriveListingDate } from '@/apps/drive/files/int
 export { formatDate as formatDriveDateTime } from '@/apps/drive/files/internal/format'
 export { formatBytes as formatDriveBytes } from '@/apps/drive/files/internal/format'
 
-/** A node's type icon and its ink, as Drive's listings draw it. */
-export {
-  nodeIcon as driveNodeIcon,
-  nodeIconTint as driveNodeIconTint,
-} from '@/apps/drive/files/internal/icons'
+/** A document type's icon and its ink, as Drive's listings draw it. */
+export { documentIcon as driveDocumentIcon } from '@/apps/drive/files/internal/icons'
 
 export type { DriveNotification } from '@/apps/drive/client/notifications'
 

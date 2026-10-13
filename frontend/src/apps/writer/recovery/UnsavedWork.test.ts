@@ -3,8 +3,7 @@ import { createApp, h } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 
 vi.mock('@/apps/drive', () => ({
-  driveNodeIcon: () => 'file-icon-doc',
-  driveNodeIconTint: () => 'text-ink-blue-6',
+  driveDocumentIcon: () => ['file-icon-doc', 'text-ink-blue-6'],
   formatDriveBytes: (bytes: number) => `${bytes} B`,
   formatDriveListingDate: () => 'Just now',
   loadDriveNodeSummary: async (node: string) => {

@@ -5,13 +5,13 @@ import { computed, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
-  driveNodeIcon,
-  driveNodeIconTint,
+  driveDocumentIcon,
   driveNodeRoute,
   formatDriveBytes,
   formatDriveListingDate,
   loadDriveNodeSummary,
 } from '@/apps/drive'
+import { writerDocument } from '@/apps/writer'
 
 import { savedAtLabel, type RecoveryCopy } from './copies'
 import RecoveryCopyActions from './RecoveryCopyActions.vue'
@@ -30,8 +30,7 @@ const COLUMNS = {
   base: ['minmax(0,1fr)', '6rem', '2.5rem'],
   md: ['minmax(0,1fr)', '6rem', '8rem', '2.5rem'],
 }
-const DOCUMENT = { kind: 'document', title: '', mime: null, content_doctype: 'Writer Document' }
-const icon = [driveNodeIcon(DOCUMENT), driveNodeIconTint(DOCUMENT)]
+const icon = driveDocumentIcon(writerDocument.contentDoctype)
 // A copy whose document can't be opened shows on this page instead
 const shownCopy = computed(() => copies.value.find((copy) => copy.key === route.query.copy))
 
