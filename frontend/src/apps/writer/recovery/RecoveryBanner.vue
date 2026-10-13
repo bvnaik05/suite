@@ -2,6 +2,8 @@
 import { Button } from 'frappe-ui'
 import { computed, onMounted } from 'vue'
 
+import DocumentStrip from '@/apps/writer/surface/DocumentStrip.vue'
+
 import { savedAtLabel, type RecoveryCopy } from './copies'
 import { useRecoveryCopies } from './useRecoveryCopies'
 
@@ -18,13 +20,8 @@ defineExpose({ refresh })
 </script>
 
 <template>
-  <div
-    v-if="latest"
-    class="flex shrink-0 items-center gap-2 border-b border-outline-gray-1 bg-surface-blue-2 px-5 py-1 text-sm text-ink-blue-7"
-    role="status"
-  >
-    <span class="lucide-history size-4 shrink-0" aria-hidden="true" />
-    <p class="min-w-0 flex-1">This device has unsaved work from {{ savedAtLabel(latest) }}</p>
+  <DocumentStrip v-if="latest" tone="blue">
+    <p class="truncate">This device has unsaved work from {{ savedAtLabel(latest) }}</p>
     <Button size="sm" variant="ghost" theme="blue" label="View" @click="$emit('view', latest)" />
-  </div>
+  </DocumentStrip>
 </template>

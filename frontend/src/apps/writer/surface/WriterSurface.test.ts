@@ -276,6 +276,17 @@ const oneVersion = {
   }),
 } as unknown as Versions
 
+function statusWith(root: Element, text: string) {
+  const statuses = [...root.querySelectorAll<HTMLElement>('[role="status"]')]
+  return statuses.find((status) => status.textContent?.includes(text))
+}
+
+// A strip's classes without its colours
+function shapeOf(strip: Element) {
+  const colours = /^(bg-surface-|text-ink-|border-outline-)/
+  return [...strip.classList].filter((name) => !colours.test(name)).sort()
+}
+
 function recoveryBanner(root: Element) {
   const statuses = [...root.querySelectorAll<HTMLElement>('[role="status"]')]
   return statuses.find((status) => status.textContent?.includes('This device has unsaved work'))
@@ -448,6 +459,29 @@ describe('Writer surface', () => {
     buttonLabelled(bar, 'Back to current')!.click()
     await vi.waitFor(() => expect(root.textContent).not.toContain('Viewing recovery copy from'))
     await previewAndReturn(root)
+    await discardCopy(copy)
+  })
+
+  it('draws the recovery banner, the recovery bar and the version bar alike but for colour', async () => {
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const [copy] = await listCopies('node-1')
+    const root = await openedSurface(oneVersion)
+    await vi.waitFor(() => expect(recoveryBanner(root)).toBeDefined())
+    const banner = recoveryBanner(root)!
+    buttonLabelled(banner, 'View')!.click()
+    await vi.waitFor(() => expect(statusWith(root, 'Viewing recovery copy from')).toBeDefined())
+    const copyBar = statusWith(root, 'Viewing recovery copy from')!
+    const copyShape = shapeOf(copyBar)
+    buttonLabelled(copyBar, 'Back to current')!.click()
+    await nextTick()
+
+    let versionShape: string[] = []
+    await previewAndReturn(root, () => {
+      versionShape = shapeOf(statusWith(root, 'Viewing Before review')!)
+    })
+
+    expect([shapeOf(banner), copyShape]).toEqual([versionShape, versionShape])
+    expect(banner.querySelector('[class*="lucide-"]')).toBeNull()
     await discardCopy(copy)
   })
 

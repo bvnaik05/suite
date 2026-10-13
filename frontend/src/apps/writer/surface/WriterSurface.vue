@@ -44,6 +44,7 @@ import { belowMinBuild } from '@/platform/build'
 
 import { refusedSaveBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
+import DocumentStrip from './DocumentStrip.vue'
 import {
   resolveDocumentUnload,
   useDocumentLeaveGuard,
@@ -431,20 +432,18 @@ onBeforeUnmount(() => {
       @view="viewCopy"
     />
 
-    <div
-      v-if="shownBanner"
-      class="shrink-0 border-b border-outline-gray-1 bg-surface-amber-2 px-5 py-2 text-sm text-ink-amber-7"
-      role="status"
-    >
-      {{ shownBanner.text
-      }}<a
-        v-if="shownBanner.link"
-        :href="shownBanner.link.href"
-        target="_blank"
-        class="underline"
-        >{{ shownBanner.link.label }}</a
-      >{{ shownBanner.after }}
-    </div>
+    <DocumentStrip v-if="shownBanner" tone="amber">
+      <p>
+        {{ shownBanner.text
+        }}<a
+          v-if="shownBanner.link"
+          :href="shownBanner.link.href"
+          target="_blank"
+          class="underline"
+          >{{ shownBanner.link.label }}</a
+        >{{ shownBanner.after }}
+      </p>
+    </DocumentStrip>
 
     <div class="relative flex min-h-0 flex-1 flex-col">
       <div v-if="!readable" class="m-auto text-center">
@@ -479,31 +478,21 @@ onBeforeUnmount(() => {
             :editable="editable"
           >
             <template v-if="previewedVersion" #toolbar>
-              <div
-                class="flex shrink-0 items-center justify-between gap-3 border-b border-outline-elevation-2 px-5 py-1.5"
-                role="status"
-              >
-                <p class="truncate text-sm text-ink-gray-7">
-                  Viewing {{ versionLabel(previewedVersion) }}
-                </p>
+              <DocumentStrip>
+                <p class="truncate">Viewing {{ versionLabel(previewedVersion) }}</p>
                 <Button size="sm" variant="ghost" label="Back to current" @click="closePreview" />
-              </div>
+              </DocumentStrip>
             </template>
             <template v-else-if="previewedCopy" #toolbar>
-              <div
-                class="flex shrink-0 items-center justify-between gap-3 border-b border-outline-elevation-2 px-5 py-1.5"
-                role="status"
-              >
-                <p class="truncate text-sm text-ink-gray-7">
-                  Viewing recovery copy from {{ savedAtLabel(previewedCopy) }}
-                </p>
+              <DocumentStrip>
+                <p class="truncate">Viewing recovery copy from {{ savedAtLabel(previewedCopy) }}</p>
                 <RecoveryCopyActions
                   :copy="previewedCopy"
                   can-go-back
                   @back="closeCopy"
                   @discarded="discardedCopy"
                 />
-              </div>
+              </DocumentStrip>
             </template>
             <template v-if="previewedVersion" #cover>
               <VersionPreview :session="session" :seq="previewedVersion.seq" :settings="settings" />
