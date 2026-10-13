@@ -6,6 +6,7 @@
     v-bind="{ ...props, ...commentsDetail }"
     :yjs-doc="doc"
     :extensions
+    collaborative
     @save="
       (manual = false, html, func) => {
         save(manual, html).then(func).catch(reportSaveError)

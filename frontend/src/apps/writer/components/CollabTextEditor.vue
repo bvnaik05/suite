@@ -9,6 +9,7 @@
     :editable
     :comments
     :extensions
+    collaborative
     @save="save"
   >
     <template v-for="(_, name) in $slots" #[name]>

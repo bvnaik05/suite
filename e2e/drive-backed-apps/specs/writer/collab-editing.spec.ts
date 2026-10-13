@@ -76,6 +76,34 @@ test.describe("Writer collaboration", () => {
 		await expect.poll(() => editorBlocks(owner.page)).toEqual(convergedBlocks);
 	});
 
+	test("undo takes back this tab's typing and leaves the other person's", async ({
+		owner,
+		collaborator,
+		testApi,
+	}) => {
+		await openWriterDocument(owner.page, node);
+		await openWriterDocument(collaborator.page, node);
+		await typeParagraph(owner.page, "Owner typed this");
+		await expectSaved(owner.page);
+		await typeParagraph(collaborator.page, "Collaborator typed this");
+		await expectConverged(
+			testApi,
+			node,
+			[owner.page, collaborator.page],
+			["Owner typed this", "Collaborator typed this"],
+		);
+
+		await owner.page.keyboard.press("ControlOrMeta+z");
+
+		const blocks = await expectConverged(
+			testApi,
+			node,
+			[owner.page, collaborator.page],
+			["Collaborator typed this"],
+		);
+		expect(blocks.join("\n")).not.toContain("Owner typed this");
+	});
+
 	test("an edit reaches the other tab over the realtime socket, without a poll", async ({
 		owner,
 		collaborator,

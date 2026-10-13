@@ -131,6 +131,7 @@ const props = defineProps({
   document: Object,
   settings: Object,
   editable: Boolean,
+  collaborative: Boolean,
   yjsDoc: { required: false, default: null },
   extensions: { type: Array, default: () => [] },
   comments: Object,
@@ -238,12 +239,11 @@ const onCommentActivated = (id) => {
   }
 }
 
-const hasCollaboration = props.extensions?.some((ext) => ext?.name === 'collaboration')
 const { users } = useUsers()
 const renameDocument = inject(RENAME_DOCUMENT, null)
 
 const writerEditorOptions = {
-  collaborative: hasCollaboration,
+  collaborative: props.collaborative,
   mentionItems: () => users.value,
   onMentionQuery: searchMentions,
   onCommentActivated,
