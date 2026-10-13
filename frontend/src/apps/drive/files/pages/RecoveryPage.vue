@@ -4,10 +4,12 @@
       <FilesPanel />
     </AreaSidebar>
     <PageHeader class="hidden md:flex">
-      <h1 class="text-lg-semibold text-ink-gray-9">Recovery</h1>
+      <h1 class="text-lg-semibold text-ink-gray-9">{{ RECOVERY_COPIES_TITLE }}</h1>
     </PageHeader>
     <PageHeaderMobile class="md:hidden">
-      <span class="block truncate text-lg font-medium text-ink-gray-9">Recovery</span>
+      <span class="block truncate text-lg font-medium text-ink-gray-9">{{
+        RECOVERY_COPIES_TITLE
+      }}</span>
     </PageHeaderMobile>
     <div class="mx-auto w-full max-w-3xl space-y-6 px-5 py-6">
       <p class="text-p-sm text-ink-gray-6">
@@ -27,6 +29,7 @@ import { AreaSidebar } from '@/platform/area-sidebar'
 import { DOCUMENT_TYPES_KEY } from '@/platform/contracts'
 
 import FilesPanel from './FilesPanel.vue'
+import { RECOVERY_COPIES_TITLE } from './recoveryCopies'
 
 /** Each document type's work kept on this device, listed by the type itself. */
 const documentTypes = inject(DOCUMENT_TYPES_KEY, [])

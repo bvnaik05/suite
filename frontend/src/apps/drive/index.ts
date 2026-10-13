@@ -97,6 +97,8 @@ export type DriveNodeSummary = Pick<
   | 'favourite'
 >
 
+export { RECOVERY_COPIES_TITLE } from '@/apps/drive/files/pages/recoveryCopies'
+
 export const filesArea: AreaDefinition = {
   id: 'files',
   label: () => __('Drive'),
