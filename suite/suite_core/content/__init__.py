@@ -9,6 +9,7 @@ because `suite_core` never imports Drive or a product.
 
 from suite.suite_core.content.backfill import backfill_clocks
 from suite.suite_core.content.checkpoints import replace_start
+from suite.suite_core.content.copies import readable_copy
 from suite.suite_core.content.copies import submit as submit_render
 from suite.suite_core.content.ingest import EditorSchema
 from suite.suite_core.content.live import rooms
@@ -60,6 +61,7 @@ __all__ = [
     "push",
     "put_piece",
     "read",
+    "readable_copy",
     "replace_start",
     "require_enabled",
     "rooms",

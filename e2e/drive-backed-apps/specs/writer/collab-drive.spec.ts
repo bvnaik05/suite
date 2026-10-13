@@ -142,7 +142,7 @@ test.describe("Writer collaboration", () => {
 		expect(await serverBlocks(testApi, node)).toEqual(unchangedBlocks);
 	});
 
-	test("Drive refuses to export a collab document and points to the editor", async ({ owner }) => {
+	test("Drive refuses to export a collab document with no checked copy and points to the editor", async ({ owner }) => {
 		await openWriterDocument(owner.page, node);
 		await typeParagraph(owner.page, "Export me");
 		await expectSaved(owner.page);
@@ -152,6 +152,6 @@ test.describe("Writer collaboration", () => {
 		);
 
 		expect(exportResponse.status()).toBe(409);
-		expect(await exportResponse.text()).toContain("Open the document to download it");
+		expect(await exportResponse.text()).toContain("Open the document to refresh its export");
 	});
 });

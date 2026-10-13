@@ -222,8 +222,8 @@ def keep_copy(adapter: str, doc_id: str, rev: int, html: str) -> None:
     )
 
 
-def keep_evidence(adapter: str, doc_id: str, reason: str, html: str, rev: int | None) -> None:
-    """Keep `html` in the recovery table for no writer; the same bytes are kept once."""
+def keep_evidence(adapter: str, doc_id: str, reason: str, html: str, rev: int | None) -> bool:
+    """Keep `html` in the recovery table for no writer; the same bytes are kept once, and answer whether they are new."""
     doc_table = table(adapter, "doc")
     recovery_table = table(adapter, "recovery")
     payload = html.encode()
@@ -247,6 +247,45 @@ def keep_evidence(adapter: str, doc_id: str, reason: str, html: str, rev: int | 
     except Exception as error:
         if not frappe.db.is_duplicate_entry(error):
             raise
+
+        return False
+
+    return True
+
+
+def readable_copy(adapter: str, doc_id: str) -> str | None:
+    """Return the copy when a check wrote it and it covers the head; a value written by anything else is kept."""
+    spec = spec_of(adapter)
+    doc_table = table(adapter, "doc")
+    projection_table = table(adapter, "projection")
+    found = frappe.db.sql(
+        f"""SELECT `app`.`{spec.copy_field}` AS `written`, `doc`.`head_rev`, `projection`.`projected_rev`,
+        `projection`.`projection_hash`
+        FROM `{doc_table}` `doc`
+        JOIN `{projection_table}` `projection` ON `projection`.`doc_id` = `doc`.`id`
+        JOIN `tab{spec.content_type}` `app` ON `app`.`{spec.node_field}` = `doc`.`node`
+        WHERE `doc`.`id` = %s AND `doc`.`mode` != 'purged' ORDER BY `app`.`name` LIMIT 1""",
+        doc_id,
+        as_dict=True,
+    )
+    if not found:
+        return None
+
+    (copy,) = found
+    written = copy.written or ""
+    if sha_of(written) != bytes(copy.projection_hash).hex():
+        if keep_evidence(adapter, doc_id, "copy_foreign", written, None):
+            frappe.db.commit()  # nosemgrep: frappe-manual-commit
+            db.alert(
+                "Collab readable copy: written elsewhere", f"{adapter} document {doc_id}, kept as evidence"
+            )
+
+        return None
+
+    if int(copy.projected_rev) != int(copy.head_rev):
+        return None
+
+    return written
 
 
 def sha_of(html: str) -> str:

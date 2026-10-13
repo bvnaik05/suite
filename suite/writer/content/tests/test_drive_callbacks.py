@@ -387,7 +387,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         [image] = documents.live_state("writer", copied).get("default", type=pycrdt.XmlFragment).children
         self.assertEqual(dict(image.attributes), {"src": embed(copied_picture)})
         self.assertEqual(version_of(self.docname_of(node))["schema"], "writer-document/2")
-        with self.assertRaisesRegex(drive.DriveConflict, "Open the document to download it"):
+        with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
             writer_drive.export(self.docname_of(node), "html")
 
     def test_a_copys_start_cannot_change_once_a_tab_has_a_session(self):
@@ -620,12 +620,47 @@ class TestWriterDriveCallbacks(CheckpointCase):
         self.assertEqual((row["name"], row.get("content")), (self.docname_of(node), None))
         self.assertEqual(self.text_of(self.body_of(node)), "one")
 
-    def test_drive_refuses_to_export_a_collab_document(self):
+    def test_drive_exports_a_collab_document_only_from_a_checked_copy_of_its_head(self):
         node = self.new_document()
         self.type_into(node, ["one"])
+        refresh = "Open the document to refresh its export"
 
-        with self.assertRaisesRegex(drive.DriveConflict, "Open the document to download it"):
+        with self.assertRaisesRegex(drive.DriveConflict, refresh):
             writer_drive.export(self.docname_of(node), "html")
+
+        doc = self.doc_row(node)
+        copies.install(writer_content.ADAPTER, doc.id, 1, doc.lineage, doc.q_epoch, "<p>one</p>")
+        exported, _mime = writer_drive.export(self.docname_of(node), "html")
+        self.assertEqual(exported.read(), b"<p>one</p>")
+
+        self.type_into(node, [" two"])
+        with self.assertRaisesRegex(drive.DriveConflict, refresh):
+            writer_drive.export(self.docname_of(node), "html")
+
+    def test_drive_never_exports_a_copy_something_else_wrote_and_keeps_it_once(self):
+        node = self.new_document()
+        self.type_into(node, ["one"])
+        doc = self.doc_row(node)
+        copies.install(writer_content.ADAPTER, doc.id, 1, doc.lineage, doc.q_epoch, "<p>one</p>")
+        frappe.db.set_value(
+            "Writer Document", self.docname_of(node), "html", "<p>foreign</p>", update_modified=False
+        )
+        frappe.db.commit()
+        alerts = frappe.db.count("Error Log", {"method": "Collab readable copy: written elsewhere"})
+
+        for _attempt in range(2):
+            with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
+                writer_drive.export(self.docname_of(node), "html")
+
+        evidence = frappe.db.sql(
+            "SELECT `reason`, `payload` FROM `__writer_content_recovery` WHERE `doc_id` = %s", doc.id
+        )
+        self.assertEqual(
+            [(reason, bytes(payload)) for reason, payload in evidence], [("copy_foreign", b"<p>foreign</p>")]
+        )
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Collab readable copy: written elsewhere"}), alerts + 1
+        )
 
     def purging_on_find(self):
         """A purge that lands after a log is found and before it is read."""

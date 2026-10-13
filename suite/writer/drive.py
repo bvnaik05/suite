@@ -150,8 +150,8 @@ def duplicate(source_docname: str, node: str) -> str:
 def export(docname: str, format: str) -> tuple[io.BytesIO, str]:
     """Stream one document as HTML, which Drive's Download asks for by default.
 
-    A collab document has no checked readable copy yet (ticket 37), and its `html`
-    is stale, so it is downloaded from the editor instead.
+    A collab document is exported from its checked readable copy, and only while
+    that copy covers the head; otherwise the person opens it to render a new one.
     """
     if format != HTML_FORMAT:
         frappe.throw(_("Writer exports {0} only").format(HTML_FORMAT), frappe.ValidationError)
@@ -159,10 +159,14 @@ def export(docname: str, format: str) -> tuple[io.BytesIO, str]:
     if not row:
         frappe.throw(_("That Writer document was not found"), frappe.DoesNotExistError)
 
-    if content.find(ADAPTER, row.node):
-        raise drive.DriveConflict(_("Open the document to download it"))
+    html = row.html or ""
+    doc = content.find(ADAPTER, row.node)
+    if doc:
+        html = content.readable_copy(ADAPTER, doc.id)
+        if html is None:
+            raise drive.DriveConflict(_("Open the document to refresh its export"))
 
-    html_bytes = (row.html or "").encode("utf-8")
+    html_bytes = html.encode("utf-8")
     return io.BytesIO(html_bytes), HTML_MIME
 
 
