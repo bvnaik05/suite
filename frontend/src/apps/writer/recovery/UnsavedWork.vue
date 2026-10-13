@@ -105,7 +105,7 @@ function details(copy: RecoveryCopy) {
       Changes that couldn't be saved stay here, on this device, until you discard them.
     </p>
   </div>
-  <List v-else :columns="COLUMNS" :row-height="40" class="-mx-3 mt-3 list-row-px-3">
+  <List v-else :columns="COLUMNS" :row-height="40" class="-mx-3 list-row-px-3">
     <ListHeader>
       <ListHeaderCell class="text-sm-medium text-ink-gray-5">Name</ListHeaderCell>
       <ListHeaderCell class="justify-end text-sm-medium text-ink-gray-5">Size</ListHeaderCell>
