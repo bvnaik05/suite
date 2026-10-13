@@ -18,7 +18,7 @@ from suite.drive._core.comments import (
     resolve,
     threads,
 )
-from suite.drive._core.errors import DriveForbidden, DriveNotFound
+from suite.drive._core.errors import DriveConflict, DriveForbidden, DriveNotFound
 from suite.drive._core.nodes import update
 from suite.drive._core.principals import Principals
 from suite.drive._core.roles import COMMENT, READ
@@ -102,6 +102,56 @@ class TestCommentWorkflows(IntegrationTestCase):
             frappe.db.count("Drive Activity", {"node": self.document.name, "action": "comment"}),
             3,
         )
+
+    def test_a_resent_thread_or_reply_answers_the_first_and_writes_nothing(self):
+        first = create_thread(self.commenter, self.document.name, "anchor", "Hello", client_id="t-1")
+        again = create_thread(self.commenter, self.document.name, "anchor", "Hello", client_id="t-1")
+        replied = reply(self.owner, first.name, "Hi", client_id="r-1")
+        replied_again = reply(self.owner, first.name, "Hi", client_id="r-1")
+
+        self.assertEqual((again.name, replied_again.name), (first.name, replied.name))
+        listed = threads(self.owner, self.document.name)
+        self.assertEqual([row.content for row in listed[0].comments], ["Hello", "Hi"])
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(
+            frappe.db.count("Drive Activity", {"node": self.document.name, "action": "comment"}),
+            2,
+        )
+
+    def test_a_reply_id_used_in_another_thread_is_refused(self):
+        one = create_thread(self.commenter, self.document.name, "one", "First").name
+        two = create_thread(self.commenter, self.document.name, "two", "Second").name
+        reply(self.commenter, one, "Answer", client_id="r-1")
+
+        with self.assertRaises(DriveConflict):
+            reply(self.commenter, two, "Answer", client_id="r-1")
+
+        _first, second = threads(self.owner, self.document.name)
+        self.assertEqual(len(second.comments), 1)
+
+    def test_writes_without_a_client_id_never_collide(self):
+        create_thread(self.commenter, self.document.name, "anchor", "Same")
+        create_thread(self.commenter, self.document.name, "anchor", "Same")
+
+        self.assertEqual(len(threads(self.owner, self.document.name)), 2)
+
+    def test_a_malformed_client_id_is_refused(self):
+        for client_id in ("", "has space", "x" * 65, 7):
+            with self.subTest(client_id=client_id), self.assertRaises(frappe.ValidationError):
+                create_thread(self.commenter, self.document.name, "anchor", "Text", client_id=client_id)
+
+    def test_the_database_keeps_a_client_id_unique_per_node(self):
+        create_thread(self.commenter, self.document.name, "anchor", "Text", client_id="t-1")
+
+        with self.assertRaises(frappe.UniqueValidationError):
+            frappe.get_doc(
+                {
+                    "doctype": "Drive Comment Thread",
+                    "node": self.document.name,
+                    "anchor": "other",
+                    "client_id": "t-1",
+                }
+            ).insert(ignore_permissions=True)
 
     def test_author_can_edit_at_read_but_non_author_cannot(self):
         thread = create_thread(self.commenter, self.document.name, "anchor", "Original").name

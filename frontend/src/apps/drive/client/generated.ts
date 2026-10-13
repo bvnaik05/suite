@@ -2152,6 +2152,7 @@ export type NodeThreadCreateInput = {
   anchor: string
   text: string
   author_name?: string
+  client_id?: string
   node: string
 }
 
@@ -2239,7 +2240,12 @@ export type ThreadCommentCreateOutputPerson = {
   user_image: string | null
 }
 
-export type ThreadCommentCreateInput = { text: string; author_name?: string; thread: string }
+export type ThreadCommentCreateInput = {
+  text: string
+  author_name?: string
+  client_id?: string
+  thread: string
+}
 
 export type ThreadCommentCreateOutput = {
   name: string

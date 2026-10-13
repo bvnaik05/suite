@@ -3521,6 +3521,7 @@ export const operationNodeThreadCreate: Validators<NodeThreadCreateInput, NodeTh
             anchor: { title: 'Anchor', type: 'string' },
             text: { title: 'Text', type: 'string' },
             author_name: { title: 'Author Name', type: 'string' },
+            client_id: { title: 'Client Id', type: 'string' },
             node: { type: 'string' },
           },
           required: ['anchor', 'text', 'node'],
@@ -3704,6 +3705,7 @@ export const operationThreadCommentCreate: Validators<
         properties: {
           text: { title: 'Text', type: 'string' },
           author_name: { title: 'Author Name', type: 'string' },
+          client_id: { title: 'Client Id', type: 'string' },
           thread: { type: 'string' },
         },
         required: ['text', 'thread'],

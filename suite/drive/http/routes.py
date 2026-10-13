@@ -1156,6 +1156,7 @@ def node_thread_create(
     anchor: Given = None,
     text: Given = None,
     author_name: Given = None,
+    client_id: Given = None,
 ) -> shapes.ThreadShape:
     """Open one thread and its first comment in one write (§9.3).
 
@@ -1171,6 +1172,7 @@ def node_thread_create(
             shapes.required_text(anchor, "anchor"),
             shapes.required_text(text, "text"),
             author_name=shapes.text(author_name, "author_name"),
+            client_id=shapes.text(client_id, "client_id"),
         )
     )
 
@@ -1193,6 +1195,7 @@ def thread_comment_create(
     thread: Given = None,
     text: Given = None,
     author_name: Given = None,
+    client_id: Given = None,
 ) -> shapes.CommentShape:
     """Append one comment to an existing thread. COMMENT on its node."""
     return shapes.comment_shape(
@@ -1201,6 +1204,7 @@ def thread_comment_create(
             shapes.required_text(thread, "thread"),
             shapes.required_text(text, "text"),
             author_name=shapes.text(author_name, "author_name"),
+            client_id=shapes.text(client_id, "client_id"),
         )
     )
 

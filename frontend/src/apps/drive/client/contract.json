@@ -8340,6 +8340,10 @@
           "author_name": {
             "title": "Author Name",
             "type": "string"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
           }
         },
         "required": [
@@ -8786,6 +8790,10 @@
           },
           "author_name": {
             "title": "Author Name",
+            "type": "string"
+          },
+          "client_id": {
+            "title": "Client Id",
             "type": "string"
           }
         },

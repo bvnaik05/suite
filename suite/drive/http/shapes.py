@@ -559,6 +559,8 @@ class ThreadOpen(TypedDict):
     text: str
     # A guest's typed display name; a user's identity comes from the session (§6.7).
     author_name: NotRequired[str]
+    # The client's own id for this thread; a resend with it answers the first thread
+    client_id: NotRequired[str]
 
 
 class ThreadResolve(TypedDict):
@@ -568,6 +570,8 @@ class ThreadResolve(TypedDict):
 class CommentWrite(TypedDict):
     text: str
     author_name: NotRequired[str]
+    # The client's own id for this reply; a resend with it answers the first reply
+    client_id: NotRequired[str]
 
 
 class CommentEdit(TypedDict):
