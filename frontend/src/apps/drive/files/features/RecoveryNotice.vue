@@ -20,7 +20,7 @@ const title = computed(() => {
 })
 const review = {
   label: 'Review',
-  iconRight: 'lucide-arrow-right',
+  iconRight: 'lucide-chevron-right',
   onClick: () => {
     void router.push('/drive/recovery')
   },

@@ -62,12 +62,12 @@ describe('Drive recovery notice', () => {
     expect(root.querySelector('[role="status"]')!.getAttribute('data-color')).toBe('gray')
   })
 
-  it('points Review onward with a trailing arrow', async () => {
+  it('points Review onward with a trailing chevron', async () => {
     kept = [{ document: 'node-1' }]
     const { root } = await openedNotice()
 
     const review = button(root, 'Review')!
-    expect(review.lastElementChild!.classList).toContain('lucide-arrow-right')
+    expect(review.lastElementChild!.classList).toContain('lucide-chevron-right')
   })
 
   it('names a single document in the singular', async () => {
