@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { bounds, isFreeDraw, isLine, type Shape } from '../canvas/selection'
 import { screenToWorld, type Point, type Viewport } from '../canvas/geometry'
 import {
@@ -20,10 +20,14 @@ const props = defineProps<{
   canvasSize: Point
 }>()
 const emit = defineEmits<{ panTo: [point: Point] }>()
-
 const svg = ref<SVGSVGElement>()
-const width = 136
-const height = 80
+
+const width = 160
+const height = 96
+const visible = ref(false)
+let hideTimer: ReturnType<typeof setTimeout> | undefined
+let anchor: { x: number; y: number; width: number; height: number } | undefined
+let anchorScale = props.viewport.scale
 const viewportBounds = computed(() => {
   const topLeft = screenToWorld({ x: 0, y: 0 }, props.viewport)
   return {
@@ -33,8 +37,32 @@ const viewportBounds = computed(() => {
     height: props.canvasSize.y / props.viewport.scale,
   }
 })
+watch(viewportBounds, current => {
+  if (current.width <= 0 || current.height <= 0) return
+  if (!anchor) { anchor = { ...current }; anchorScale = props.viewport.scale; return }
+  const overlapWidth = Math.max(0, Math.min(anchor.x + anchor.width, current.x + current.width) - Math.max(anchor.x, current.x))
+  const overlapHeight = Math.max(0, Math.min(anchor.y + anchor.height, current.y + current.height) - Math.max(anchor.y, current.y))
+  const zoomChanged = Math.abs(props.viewport.scale - anchorScale) > 0.30
+  if (!zoomChanged && overlapWidth * overlapHeight >= current.width * current.height / 2) return
+  anchor = { ...current }
+  anchorScale = props.viewport.scale
+  visible.value = true
+  clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => { visible.value = false }, 3000)
+})
+watch(() => [props.canvasSize.x, props.canvasSize.y], () => {
+  anchor = undefined
+  visible.value = false
+  clearTimeout(hideTimer)
+}, { flush: 'sync' })
+onBeforeUnmount(() => clearTimeout(hideTimer))
+
 const viewBox = computed(() => {
-  const content = bounds(props.shapes) ?? viewportBounds.value
+  const scene = bounds(props.shapes) ?? viewportBounds.value
+  const view = viewportBounds.value
+  const x = Math.min(scene.x, view.x)
+  const y = Math.min(scene.y, view.y)
+  const content = { x, y, width: Math.max(scene.x + scene.width, view.x + view.width) - x, height: Math.max(scene.y + scene.height, view.y + view.height) - y }
   const paddedWidth = Math.max(content.width * 1.16, 64)
   const paddedHeight = Math.max(content.height * 1.16, 64 * height / width)
   const scale = Math.max(paddedWidth / width, paddedHeight / height)
@@ -53,6 +81,15 @@ const textLayouts = computed(() => new Map(props.shapes.filter(isText).map(shape
 const labelLayouts = computed(() => new Map(props.shapes.filter((shape): shape is RectangleShape => !isLine(shape) && !isFreeDraw(shape) && Boolean(shape.label)).map(shape => [
   shape.id, layoutText(shape.label ?? '', labelWidth(shape), shape.labelFontSize ?? 16, true, { fontFamily: shape.labelFontFamily }),
 ])))
+
+function navigateTo(event: MouseEvent) {
+  const matrix = svg.value?.getScreenCTM()
+  if (!matrix) return
+  const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+  emit('panTo', { x: point.x, y: point.y })
+  clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => { visible.value = false }, 3000)
+}
 
 function isImage(shape: Shape): shape is ImageShape {
   return 'kind' in shape && shape.kind === 'image'
@@ -93,37 +130,18 @@ function textX(shape: TextShape): number {
   return shape.x
 }
 
-function panAt(event: PointerEvent) {
-  const matrix = svg.value?.getScreenCTM()
-  if (!matrix) return
-  const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
-  emit('panTo', { x: point.x, y: point.y })
-}
-
-function onPointerDown(event: PointerEvent) {
-  if (event.button !== 0) return
-  svg.value?.setPointerCapture(event.pointerId)
-  panAt(event)
-  event.preventDefault()
-}
-
-function onPointerMove(event: PointerEvent) {
-  if (svg.value?.hasPointerCapture(event.pointerId)) panAt(event)
-}
 </script>
 
 <template>
+  <Transition name="minimap-reveal">
   <svg
+    v-if="visible"
     ref="svg"
+    @click.stop="navigateTo"
     class="canvas-minimap"
     :viewBox="viewBoxValue"
     role="img"
-    aria-label="Canvas minimap. Click or drag to move the view."
-    @pointerdown.stop="onPointerDown"
-    @pointermove.stop="onPointerMove"
-    @pointerup.stop
-    @pointercancel.stop
-    @dblclick.stop
+    aria-label="Drawing overview. Click to move the viewport."
   >
     <g v-for="shape in shapes" :key="shape.id" :opacity="shape.opacity ?? 1" pointer-events="none">
       <template v-if="isLine(shape)">
@@ -193,19 +211,48 @@ function onPointerMove(event: PointerEvent) {
         </text>
       </g>
     </g>
+    <rect class="minimap-viewport" :x="viewportBounds.x" :y="viewportBounds.y" :width="viewportBounds.width" :height="viewportBounds.height" />
   </svg>
+  </Transition>
 </template>
 
 <style scoped>
 .canvas-minimap {
   display: block;
-  width: 136px;
-  height: 80px;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  width: min(160px, calc(100vw - 32px));
+  height: 96px;
   overflow: hidden;
-  border-radius: 2px;
-  background: transparent;
+  border: 1px solid var(--outline-gray-2);
+  border-radius: 12px;
+  background: var(--surface-base);
+  box-shadow: var(--shadow-sm);
   cursor: crosshair;
-  touch-action: none;
+  touch-action: manipulation;
+}
+.minimap-viewport {
+  fill: rgb(0 112 204 / 10%);
+  stroke: #0070cc;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.minimap-reveal-enter-active,
+.minimap-reveal-leave-active {
+  transition: opacity 120ms ease-out;
+}
+.minimap-reveal-enter-from,
+.minimap-reveal-leave-to {
+  opacity: 0;
+}
+.minimap-reveal-enter-to,
+.minimap-reveal-leave-from {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .minimap-reveal-enter-active,
+  .minimap-reveal-leave-active { transition: none; }
 }
 .minimap-stroke {
   stroke-width: 1px;

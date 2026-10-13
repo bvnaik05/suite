@@ -2,7 +2,7 @@
 import { loadDrawing, queueSave, drawingTitle, warnUnsaved, saveDrawing, drawingLoading } from '../canvas/persistence'
 import { bounds, transformShape, isFreeDraw, isLine, parseScene, type Shape } from '../canvas/selection'
 import { Button, Icon, Select, Tooltip, TooltipProvider } from 'frappe-ui'
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Italic, Minus, Plus, Redo2, Underline, Undo2 } from 'lucide-vue-next'
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, ChevronUp, Italic, Minus, Plus, Redo2, Underline, Undo2 } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   MAX_SCALE,
@@ -121,7 +121,6 @@ let cycleClickPoint: Point | undefined
 let cycleClickShape: Shape | undefined
 const size = reactive<Point>({ x: 0, y: 0 })
 const viewport = reactive<Viewport>({ translationX: 0, translationY: 0, scale: 1 })
-const minimapOpen = ref(false)
 const pointers = new Map<number, PointerSample>()
 const isPanning = ref(false)
 const isSpacePressed = ref(false)
@@ -3306,8 +3305,9 @@ onBeforeUnmount(() => {
         <Redo2 class="history-control-icon" aria-hidden="true" />
       </Button>
     </div>
-    <div class="viewport-panel" :class="{ 'is-open': minimapOpen }" @pointerdown.stop @pointermove.stop @pointerup.stop @pointercancel.stop @dblclick.stop>
-    <div class="viewport-controls" role="group" aria-label="Canvas zoom and minimap controls">
+    <div class="viewport-panel" @pointerdown.stop @pointermove.stop @pointerup.stop @pointercancel.stop @dblclick.stop>
+    <CanvasMinimap :shapes="allShapes" :viewport="viewport" :canvas-size="size" @pan-to="panToMinimapPoint" />
+    <div class="viewport-controls" role="group" aria-label="Canvas zoom controls">
             <TooltipProvider>
               <Tooltip text="Zoom out" placement="top">
                 <Button
@@ -3345,25 +3345,7 @@ onBeforeUnmount(() => {
                   <Plus class="viewport-control-icon" aria-hidden="true" />
                 </Button>
               </Tooltip>
-              <Tooltip :text="minimapOpen ? 'Hide minimap' : 'Toggle minimap'" placement="top">
-                <Button
-                  class="minimap-toggle"
-                  size="md"
-                  variant="ghost"
-                  theme="gray"
-                  :label="minimapOpen ? 'Hide minimap' : 'Toggle minimap'"
-                  :aria-expanded="minimapOpen"
-                  aria-controls="canvas-minimap"
-                  @click="minimapOpen = !minimapOpen"
-                >
-                  <ChevronLeft v-if="minimapOpen" class="viewport-control-icon" aria-hidden="true" />
-                  <ChevronRight v-else class="viewport-control-icon" aria-hidden="true" />
-                </Button>
-              </Tooltip>
             </TooltipProvider>
-    </div>
-    <div v-if="minimapOpen" id="canvas-minimap" class="minimap-view">
-      <CanvasMinimap :shapes="allShapes" :viewport="viewport" :canvas-size="size" @pan-to="panToMinimapPoint" />
     </div>
     </div>
 
@@ -3726,10 +3708,6 @@ onBeforeUnmount(() => {
   background: var(--surface-base);
   box-shadow: var(--shadow-sm);
 }
-.viewport-panel.is-open {
-  width: 168px;
-  overflow: hidden;
-}
 .viewport-controls {
   display: flex;
   align-items: center;
@@ -3738,7 +3716,6 @@ onBeforeUnmount(() => {
   height: 36px;
   padding: 3px;
 }
-.minimap-view { display: flex; justify-content: center; padding: 0 11px 11px; }
 
 .viewport-controls :deep(button) {
   width: 28px;
