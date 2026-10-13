@@ -117,6 +117,18 @@ describe('VersionPreview', () => {
     preview.unmount()
   })
 
+  it('shows a version that ends in a tab without an added empty line', async () => {
+    const html = '<p>Intro</p><div data-tab-id="t" data-tab-label="Notes"><p>Tab text</p></div>'
+    const session = fakeSession(async () => new Response(storedVersion(html)))
+    const preview = mountPreview(session)
+
+    await vi.waitFor(() => expect(preview.root.textContent).toContain('Tab text'))
+    await settle()
+
+    expect(preview.root.querySelectorAll('p')).toHaveLength(2)
+    preview.unmount()
+  })
+
   it("says a version that can't be read can't be shown", async () => {
     const session = fakeSession(async () => new Response(null, { status: 500 }))
     const preview = mountPreview(session)

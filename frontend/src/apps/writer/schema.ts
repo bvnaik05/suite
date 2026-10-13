@@ -56,7 +56,8 @@ export const WRITER_STARTER_KIT = { paragraph: false } as const
 
 export const writerSchema = () => [
   RichTextKit.configure({
-    starterKit: WRITER_STARTER_KIT,
+    // A preview shows the stored content as is, with no paragraph appended
+    starterKit: { ...WRITER_STARTER_KIT, trailingNode: false },
     heading: false,
     image: false,
     video: false,
