@@ -6,8 +6,8 @@ import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
-import { DOCUMENT_ANCHOR, encodeAnchor } from './anchors'
-import { placeThread } from './places'
+import { anchorEnds, DOCUMENT_ANCHOR, encodeAnchor } from './anchors'
+import { anchorSelection, placeThread } from './places'
 
 const editors: Editor[] = []
 afterEach(() => {
@@ -108,5 +108,47 @@ describe('where a thread shows', () => {
 
     expect(placeThread(editor.state, DOCUMENT_ANCHOR)).toEqual({ kind: 'document' })
     expect(placeThread(editor.state, '5f0c2e6a-old-comment')).toEqual({ kind: 'unplaced' })
+  })
+})
+
+describe('an anchor on the selection', () => {
+  it('holds its first and last characters, so text typed at either edge stays outside', () => {
+    const doc = new Y.Doc()
+    const editor = openEditor(doc)
+    editor.commands.setContent('<p>hello world</p><p>second line</p>')
+    editor.commands.setTextSelection({ from: 7, to: 20 })
+    const anchor = anchorSelection(editor.state)!
+
+    editor.commands.insertContentAt(20, '!')
+    editor.commands.insertContentAt(7, '[')
+
+    expect([placeThread(editor.state, anchor), editor.getText({ blockSeparator: '|' })]).toEqual([
+      { kind: 'text', from: 8, to: 21, quote: 'world second' },
+      'hello [world|second! line',
+    ])
+  })
+
+  it('names the characters at its ends for the saved check', () => {
+    const doc = new Y.Doc()
+    const editor = openEditor(doc)
+    editor.commands.setContent('<p>hello world</p>')
+    editor.commands.setTextSelection({ from: 7, to: 12 })
+    const text = paragraphText(doc)
+    const [first, last] = [6, 10].map((index) => {
+      const item = Y.createRelativePositionFromTypeIndex(text, index, 0).item!
+      return [item.client, item.clock]
+    })
+
+    const ends = anchorEnds(anchorSelection(editor.state)!).map((id) => [id.client, id.clock])
+
+    expect(ends).toEqual([first, last])
+  })
+
+  it('is none for an empty selection, and a document anchor has no ends', () => {
+    const editor = openEditor()
+    editor.commands.setContent('<p>hello</p>')
+    editor.commands.setTextSelection(3)
+
+    expect([anchorSelection(editor.state), anchorEnds(DOCUMENT_ANCHOR)]).toEqual([null, []])
   })
 })

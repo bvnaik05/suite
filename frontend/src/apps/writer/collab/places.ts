@@ -1,8 +1,12 @@
 import type { EditorState } from '@tiptap/pm/state'
-import { relativePositionToAbsolutePosition, ySyncPluginKey } from '@tiptap/y-tiptap'
+import {
+  absolutePositionToRelativePosition,
+  relativePositionToAbsolutePosition,
+  ySyncPluginKey,
+} from '@tiptap/y-tiptap'
 import * as Y from 'yjs'
 
-import { readAnchor } from './anchors'
+import { encodeAnchor, readAnchor } from './anchors'
 
 /** Where a thread shows in this tab. */
 export type ThreadPlace =
@@ -36,6 +40,26 @@ export function placeThread(state: EditorState, anchor: string): ThreadPlace {
   }
 
   return { kind: 'text', from, to, quote: read.quote }
+}
+
+/** The anchor for the selected text: from its first character to its last, with its words as the quote. */
+export function anchorSelection(state: EditorState): string | null {
+  const { from, to } = state.selection
+  const sync = ySyncPluginKey.getState(state)
+  if (from === to || !sync?.binding) {
+    return null
+  }
+
+  const { doc, type, binding } = sync
+  const start = positionAt(doc, absolutePositionToRelativePosition(from, type, binding.mapping), 0)
+  const end = positionAt(doc, absolutePositionToRelativePosition(to, type, binding.mapping), -1)
+  return encodeAnchor(start, end, state.doc.textBetween(from, to, ' '))
+}
+
+// The same place, held by the character after it (0) or before it (-1)
+function positionAt(doc: Y.Doc, position: Y.RelativePosition, assoc: number) {
+  const absolute = Y.createAbsolutePositionFromRelativePosition(position, doc)!
+  return Y.createRelativePositionFromTypeIndex(absolute.type, absolute.index, assoc)
 }
 
 // Yjs can't tell text not received yet from text deleted for good, so this asks first
