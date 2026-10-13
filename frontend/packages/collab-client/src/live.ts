@@ -29,6 +29,8 @@ export interface LiveHooks {
   position(raw: unknown): object | null
   // A control message for this document, such as a restore beginning or ending
   controlHeard(heard: Record<string, unknown>): void
+  // The socket is back, and notices sent while it was away are lost
+  reconnected(): void
 }
 
 // One pending timer at most; setting it again replaces the one waiting
@@ -216,6 +218,7 @@ export class Live implements HubMember {
     this.runAfter(JOIN_MS, () => this.updateState())
     this.repair()
     this.updateState()
+    this.hooks.reconnected()
   }
 
   dropped() {

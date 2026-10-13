@@ -126,6 +126,7 @@ export class Room implements CollabRoom {
         showsCaret: () => this.canWrite && this.bound && !this.closed,
         position: this.options.adapter.position,
         controlHeard: (heard) => this.controlHeard(heard),
+        reconnected: () => this.options.threadsChanged?.(),
       }
       this.realtime = new Live(this.options.socket, this.lineage, liveHooks)
       if (opening.rooms) {
@@ -356,6 +357,8 @@ export class Room implements CollabRoom {
       this.fence.lift()
     } else if (heard.kind === 'restore_ended') {
       this.fence.lift()
+    } else if (heard.kind === 'threads') {
+      this.options.threadsChanged?.()
     }
   }
 

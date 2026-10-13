@@ -284,4 +284,36 @@ describe('collab room live', () => {
 
     expect([reader.live, oddPulls, server.pulls.length]).toEqual(['live', 0, 3])
   })
+  it("tells the app when another tab changes the document's comments, and only for this document", async () => {
+    fakeTime()
+    const server = fakeServer()
+    const threadsChanged = vi.fn()
+    await join(server.endpoints(), { socket: server.socket(), threadsChanged })
+    await vi.advanceTimersByTimeAsync(0)
+    threadsChanged.mockClear()
+
+    server.threadsChanged()
+    server.realtime.sockets[0].hear('suite_collab_ctl', { lineage: 'another', kind: 'threads' })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(threadsChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells the app to read the comments again once the socket is back, since notices sent meanwhile are lost', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const threadsChanged = vi.fn()
+    await join(server.endpoints(), { socket: server.socket(), threadsChanged })
+    await vi.advanceTimersByTimeAsync(0)
+    threadsChanged.mockClear()
+
+    server.realtime.sockets[0].drop()
+    server.threadsChanged()
+    await vi.advanceTimersByTimeAsync(5000)
+    const whileDown = threadsChanged.mock.calls.length
+    server.realtime.sockets[0].back()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect([whileDown, threadsChanged.mock.calls.length]).toEqual([0, 1])
+  })
 })

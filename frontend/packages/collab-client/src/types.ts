@@ -67,6 +67,8 @@ export interface OpenOptions {
   // The realtime socket rows and presence arrive on; without one the room polls
   socket?: LiveSocket | null
   pollMs?: number
+  // Told when the document's comment threads may have changed: another tab's notice, or a reconnect that missed some
+  threadsChanged?: () => void
 }
 
 export interface LiveSocket {

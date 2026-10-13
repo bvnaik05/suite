@@ -375,6 +375,8 @@ export function fakeServer(state = 'live', lineage = 'L') {
       publish('suite_collab_ctl', { kind: 'restored', restore_rev: restore.rev })
     }
   }
+  // Another tab wrote to the document's comment threads
+  const threadsChanged = () => publish('suite_collab_ctl', { kind: 'threads' })
   // An admin holds the document or releases it
   const hold = (why?: string) => {
     judge.held = why
@@ -402,6 +404,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
     hold,
     fence,
     landRestore,
+    threadsChanged,
     realtime,
     socket,
     roomKeys,
