@@ -208,7 +208,7 @@ def get_user_info() -> dict | None:
             USER.username,
             USER.api_key,
             USER.time_zone,
-            USER_SETTINGS.group_messages_by,
+            USER_SETTINGS.group_by_date,
             USER_SETTINGS.show_reading_pane,
             USER_SETTINGS.undo_send_period,
             USER_SETTINGS.name.as_("user_settings"),

@@ -647,10 +647,7 @@ export const operationUpdatePreferences: Validators<
       {
         type: 'object',
         properties: {
-          group_messages_by: {
-            anyOf: [{ enum: ['None', 'Day', 'Month'], type: 'string' }, { type: 'null' }],
-            title: 'Group Messages By',
-          },
+          group_by_date: { enum: [0, 1], title: 'Group By Date', type: 'integer' },
           show_reading_pane: { enum: [0, 1], title: 'Show Reading Pane', type: 'integer' },
           undo_send_period: {
             enum: ['5', '10', '20', '30'],
@@ -1455,10 +1452,7 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               api_key: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Api Key' },
               time_zone: { title: 'Time Zone', type: 'string' },
               system_time_zone: { title: 'System Time Zone', type: 'string' },
-              group_messages_by: {
-                anyOf: [{ type: 'string' }, { type: 'null' }],
-                title: 'Group Messages By',
-              },
+              group_by_date: { enum: [0, 1], title: 'Group By Date', type: 'integer' },
               show_reading_pane: { enum: [0, 1], title: 'Show Reading Pane', type: 'integer' },
               undo_send_period: {
                 anyOf: [{ type: 'string' }, { type: 'null' }],
@@ -1499,7 +1493,7 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'api_key',
               'time_zone',
               'system_time_zone',
-              'group_messages_by',
+              'group_by_date',
               'show_reading_pane',
               'undo_send_period',
               'user_settings',

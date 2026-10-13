@@ -193,7 +193,7 @@ const operationUpdateCredentials: MutationRef<
 }
 
 export type UpdatePreferencesInput = {
-  group_messages_by?: ('None' | 'Day' | 'Month') | null
+  group_by_date?: 0 | 1
   show_reading_pane?: 0 | 1
   undo_send_period?: '5' | '10' | '20' | '30'
   inbox_tabs?: Array<'primary' | 'updates' | 'forums' | 'promotions' | 'social'>
@@ -777,7 +777,7 @@ export type GetUserInfoOutputUserInfo = {
   api_key: string | null
   time_zone: string
   system_time_zone: string
-  group_messages_by: string | null
+  group_by_date: 0 | 1
   show_reading_pane: 0 | 1
   undo_send_period: string | null
   user_settings: string

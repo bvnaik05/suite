@@ -24,7 +24,7 @@
   "ui_tab",
   "appearance_section",
   "mail_list_section",
-  "group_messages_by",
+  "group_by_date",
   "column_break_cxak",
   "show_reading_pane",
   "compose_section",
@@ -177,12 +177,11 @@
    "label": "Mail List"
   },
   {
-   "default": "None",
-   "description": "Group email messages in the list by time period (e.g., day or month).",
-   "fieldname": "group_messages_by",
-   "fieldtype": "Select",
-   "label": "Group Messages By",
-   "options": "None\nDay\nMonth"
+   "default": "0",
+   "description": "Section the message list by date: by day this week, by week for the three before, then by month.",
+   "fieldname": "group_by_date",
+   "fieldtype": "Check",
+   "label": "Group by Date"
   },
   {
    "fieldname": "column_break_cxak",

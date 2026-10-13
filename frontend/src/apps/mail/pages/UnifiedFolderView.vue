@@ -120,9 +120,8 @@
             </p>
             <div v-for="(rows, key) in groupedRows" :key="key">
               <MailGroupHeader
-                v-if="groupMessagesBy !== 'None' && !isMobile"
+                v-if="groupedByDate && !isMobile"
                 :date-key="key"
-                :monthly="groupMessagesBy === 'Month'"
                 :collapsed="collapsedGroups.includes(key)"
                 :collapsible="!isLastGroup(key)"
                 :focused="focusedRowKey === `group:${key}`"
@@ -133,7 +132,7 @@
                 <template #lead>
                   <div
                     v-if="!isMobile || mobileSelectionMode"
-                    class="checkbox-hitbox -mx-3 -my-2 flex cursor-pointer items-center py-2 pl-3 pr-8"
+                    class="checkbox-hitbox -mx-3 -my-2.5 flex cursor-pointer items-center py-2.5 pl-3 pr-8"
                     @click.stop.prevent="toggleSelect(getGroupThreads(key), !isGroupSelected(key))"
                   >
                     <Checkbox
@@ -506,7 +505,7 @@ const reloadPaneThread = () => refreshThreads()
 // this merged list. And not in the same folders: every row in Sent or Drafts is from the reader, and
 // Starred is curated by hand (see MailboxView's stackingEnabled).
 const {
-  groupMessagesBy,
+  groupedByDate,
   getGroupThreads,
   isLastGroup,
   collapsedGroups,

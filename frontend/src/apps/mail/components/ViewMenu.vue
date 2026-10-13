@@ -13,7 +13,7 @@
 
 <script setup lang="ts">
 import { Button, Dropdown } from 'frappe-ui'
-import { computed, h } from 'vue'
+import { computed } from 'vue'
 
 import { api, client } from '@/api'
 import { useTabChoiceMenu } from '@/apps/mail/composables/useInboxTabs'
@@ -27,67 +27,32 @@ const showReadingPane = useReadingPane()
 const toggleReadingPane = useToggleReadingPane()
 const { categoriesSwitch, tabGroups } = useTabChoiceMenu()
 
-// Grouping the list by date: the same choice as Settings → Layout, saved as it is picked.
+// Grouping the list by date (see dateGroup): the same switch as Settings → Layout, saved as it is
+// flipped.
 const { userResource } = userStore()
-const GROUPINGS = [
-  { value: 'None', label: () => __('None') },
-  { value: 'Day', label: () => __('Day') },
-  { value: 'Month', label: () => __('Month') },
-] as const
-const groupBy = (value: (typeof GROUPINGS)[number]['value']) =>
-  void client.mutation(api.mail.settings.updatePreferences, { group_messages_by: value })
-const current = computed(
-  () =>
-    GROUPINGS.find((grouping) => grouping.value === userResource.data?.group_messages_by) ??
-    GROUPINGS[0],
-)
+const groupedByDate = computed(() => !!userResource.data?.group_by_date)
+const groupByDate = (on: boolean) =>
+  void client.mutation(api.mail.settings.updatePreferences, {
+    group_by_date: on ? 1 : 0,
+  })
 
 const menu = computed(() => [
   {
     group: __('Layout'),
     options: [
-      // Grouping by date, a submenu of its own, leading so the switches sit together below it
-      // (Categories last, over the tabs it shows). The row names the current choice, as the switches
-      // show theirs, and the submenu ticks it (a selected row's fill reads as hover). The row's
-      // suffix takes the chevron's place, so it brings its own.
-      {
-        label: __('Group by'),
-        icon: 'lucide-calendar-days',
-        slots: {
-          suffix: () =>
-            h(
-              'span',
-              { class: 'ml-auto flex items-center gap-1 pl-4 leading-tighter text-ink-gray-5' },
-              [
-                current.value.label(),
-                h('span', {
-                  class: 'lucide-chevron-right size-4 text-ink-gray-6',
-                  'aria-hidden': 'true',
-                }),
-              ],
-            ),
-        },
-        submenu: GROUPINGS.map((grouping) => ({
-          label: grouping.label(),
-          slots:
-            grouping === current.value
-              ? {
-                  suffix: () =>
-                    h('span', {
-                      class: 'lucide-check size-4 text-ink-gray-7',
-                      'aria-hidden': 'true',
-                    }),
-                }
-              : undefined,
-          onClick: () => groupBy(grouping.value),
-        })),
-      },
       {
         label: __('Split view'),
         icon: 'lucide-panel-left',
         switch: true as const,
         switchValue: showReadingPane.value,
         onClick: () => void toggleReadingPane(),
+      },
+      {
+        label: __('Group by date'),
+        icon: 'lucide-calendar-days',
+        switch: true as const,
+        switchValue: groupedByDate.value,
+        onClick: (on: boolean) => groupByDate(on),
       },
       ...(inbox && categoriesSwitch.value ? [categoriesSwitch.value] : []),
     ],

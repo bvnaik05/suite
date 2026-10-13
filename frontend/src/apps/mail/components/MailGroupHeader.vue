@@ -5,7 +5,7 @@
     <!-- A quiet label: a short tinted row, the date, with the day's checkbox and the
          fold's chevron. -->
     <div
-      class="text-ink-gray-5 group flex h-8 items-center border-b border-l-transparent bg-surface-gray-1 px-3.5 text-xs-semibold sm:border-l sm:px-5"
+      class="text-ink-gray-5 group flex h-9 items-center border-b border-l-transparent bg-surface-gray-1 px-3.5 text-xs-semibold sm:border-l sm:px-5"
       :class="{
         '!bg-surface-blue-1': selected,
         'sm:hover:bg-surface-gray-2': collapsible,
@@ -21,7 +21,7 @@
       </div>
 
       <span class="select-none pt-[2px]">
-        {{ getFormattedDate(dateKey, monthly) }}
+        {{ dateGroupLabel(dateKey) }}
       </span>
 
       <component
@@ -37,7 +37,7 @@
 import { Tooltip } from 'frappe-ui'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 
-import { getFormattedDate } from '@/apps/mail/utils'
+import { dateGroupLabel } from '@/apps/mail/utils/dateGroups'
 
 /**
  * A date header in a thread list: the day (or month) it covers, a chevron that folds it, and whatever
@@ -48,10 +48,8 @@ import { getFormattedDate } from '@/apps/mail/utils'
  */
 
 defineProps<{
-  /** The group's key: 'YYYY-MM-DD', or 'YYYY-MM' when grouping by month. */
+  /** The group's key (see dateGroup): a recent group's name, or an older month's 'YYYY-MM'. */
   dateKey: string
-  /** Grouping by month rather than by day, which the date is formatted for. */
-  monthly: boolean
   /** Currently folded. */
   collapsed: boolean
   /**

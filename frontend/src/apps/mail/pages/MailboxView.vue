@@ -197,9 +197,8 @@
           >
             <div v-for="(group, key) in groupedThreads" :key="key">
               <MailGroupHeader
-                v-if="groupMessagesBy !== 'None' && !isMobile"
+                v-if="groupedByDate && !isMobile"
                 :date-key="key"
-                :monthly="groupMessagesBy === 'Month'"
                 :collapsed="collapsedGroups.includes(key)"
                 :collapsible="!isLastGroup(key)"
                 :focused="focusedRowKey === `group:${key}`"
@@ -210,7 +209,7 @@
                 <template #lead>
                   <div
                     v-if="!isAllAccountsSearch && (!isMobile || mobileSelectionMode)"
-                    class="checkbox-hitbox -mx-3 -my-2 flex cursor-pointer items-center py-2 pl-3 pr-8"
+                    class="checkbox-hitbox -mx-3 -my-2.5 flex cursor-pointer items-center py-2.5 pl-3 pr-8"
                     @click.stop.prevent="toggleSelect(getGroupThreads(key), !isGroupSelected(key))"
                   >
                     <Checkbox
@@ -497,7 +496,7 @@ const screener = useScreener()
 // The date groups, the stacks and the keyboard cursor that walks them — all shared with the merged All
 // Inboxes list (see useListRows).
 const {
-  groupMessagesBy,
+  groupedByDate,
   groupedThreads,
   getGroupThreads,
   isLastGroup,

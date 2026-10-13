@@ -36,7 +36,7 @@ class UserInfo(TypedDict):
     api_key: str | None
     time_zone: str
     system_time_zone: str
-    group_messages_by: str | None
+    group_by_date: Flag
     show_reading_pane: Flag
     undo_send_period: str | None
     user_settings: str

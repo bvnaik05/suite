@@ -562,21 +562,13 @@
       "query": null,
       "body": {
         "properties": {
-          "group_messages_by": {
-            "anyOf": [
-              {
-                "enum": [
-                  "None",
-                  "Day",
-                  "Month"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "group_by_date": {
+            "enum": [
+              0,
+              1
             ],
-            "title": "Group Messages By"
+            "title": "Group By Date",
+            "type": "integer"
           },
           "show_reading_pane": {
             "enum": [
@@ -2601,16 +2593,13 @@
                 "title": "System Time Zone",
                 "type": "string"
               },
-              "group_messages_by": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
+              "group_by_date": {
+                "enum": [
+                  0,
+                  1
                 ],
-                "title": "Group Messages By"
+                "title": "Group By Date",
+                "type": "integer"
               },
               "show_reading_pane": {
                 "enum": [
@@ -2702,7 +2691,7 @@
               "api_key",
               "time_zone",
               "system_time_zone",
-              "group_messages_by",
+              "group_by_date",
               "show_reading_pane",
               "undo_send_period",
               "user_settings",

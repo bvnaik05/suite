@@ -12,7 +12,7 @@ from suite.mail.http.shapes import AccountInput, Flag
 
 
 class UserPreferences(TypedDict, total=False):
-    group_messages_by: Literal["None", "Day", "Month"] | None
+    group_by_date: Flag
     show_reading_pane: Flag
     undo_send_period: Literal["5", "10", "20", "30"]
     # The categories the Inbox is split into; empty for no split. Primary leads whenever any other is
@@ -98,7 +98,7 @@ def update_credentials(
 
 @frappe.whitelist(methods=["PATCH"])
 def update_preferences(
-    group_messages_by: str | None = None,
+    group_by_date: Flag | None = None,
     show_reading_pane: Flag | None = None,
     undo_send_period: str | None = None,
     inbox_tabs: list[str] | None = None,
@@ -107,7 +107,7 @@ def update_preferences(
     changes = {
         key: value
         for key, value in {
-            "group_messages_by": group_messages_by,
+            "group_by_date": group_by_date,
             "show_reading_pane": show_reading_pane,
             "undo_send_period": undo_send_period,
             "split_inbox": split_inbox,

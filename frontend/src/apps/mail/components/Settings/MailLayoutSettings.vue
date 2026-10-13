@@ -26,14 +26,12 @@
         </SettingsRow>
         <SettingsRow
           class="!py-0"
-          :title="__('Group Messages By')"
-          :description="__('Organize the message list into date-based sections.')"
+          :title="__('Group by date')"
+          :description="
+            __('Section the message list by date: today, yesterday, this week, and so on.')
+          "
         >
-          <Select
-            :model-value="groupMessagesBy"
-            :options="GROUP_MESSAGES_OPTIONS"
-            @update:model-value="selectGrouping"
-          />
+          <Switch :model-value="groupByDate" @update:model-value="(v) => (groupByDate = v)" />
         </SettingsRow>
       </template>
 
@@ -73,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { Button, Select, SettingsRow, Switch } from 'frappe-ui'
+import { Button, SettingsRow, Switch } from 'frappe-ui'
 import { computed, ref } from 'vue'
 
 import { api, useMutation } from '@/api'
@@ -88,13 +86,7 @@ const user = userStore().userResource
 const { isMobile } = useScreenSize()
 
 const showReadingPane = ref(!!user.data?.show_reading_pane)
-const initialGrouping = user.data?.group_messages_by
-const groupMessagesBy = ref<'None' | 'Day' | 'Month'>(
-  initialGrouping === 'Day' || initialGrouping === 'Month' ? initialGrouping : 'None',
-)
-function selectGrouping(value: unknown) {
-  if (value === 'None' || value === 'Day' || value === 'Month') groupMessagesBy.value = value
-}
+const groupByDate = ref(!!user.data?.group_by_date)
 
 const { offered: tabsOffered, split, choices, tabsFor } = useTabChoice()
 const splitInbox = ref(split.value)
@@ -116,7 +108,7 @@ const TAB_DESCRIPTIONS: Record<InboxCategory, string> = {
 const isNotDirty = computed(
   () =>
     showReadingPane.value === !!user.data?.show_reading_pane &&
-    groupMessagesBy.value === user.data?.group_messages_by &&
+    groupByDate.value === !!user.data?.group_by_date &&
     splitInbox.value === split.value &&
     [...chosenTabs.value].sort().join() === savedTabs().sort().join(),
 )
@@ -127,17 +119,11 @@ const saving = computed(() => saveSettings.isPending)
 const saveLayout = async () => {
   await saveSettings.run({
     show_reading_pane: showReadingPane.value ? 1 : 0,
-    group_messages_by: groupMessagesBy.value,
+    group_by_date: groupByDate.value ? 1 : 0,
     ...(tabsOffered.value
       ? { split_inbox: splitInbox.value ? 1 : 0, inbox_tabs: tabsFor(chosenTabs.value) }
       : {}),
   })
   raiseToast(__('Mail layout updated.'))
 }
-
-const GROUP_MESSAGES_OPTIONS = [
-  { label: __('None'), value: 'None' },
-  { label: __('Day'), value: 'Day' },
-  { label: __('Month'), value: 'Month' },
-]
 </script>
