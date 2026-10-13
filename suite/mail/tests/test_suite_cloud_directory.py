@@ -457,6 +457,10 @@ class TestGroupsAndLists(SuiteCloudTestCase):
 
         self.fake.mailing_lists__list_all_recipients = refuse
         self.assertEqual(directory.get_mailing_list_index(), index)
+        # The refusal is not retried on every lookup: the index is served for another minute.
+        calls = len(self.fake.calls)
+        self.assertEqual(directory.get_mailing_list_index(), index)
+        self.assertEqual(len(self.fake.calls), calls)
 
         directory.clear_mailing_list_index()
         self.assertRaises(frappe.TooManyRequestsError, directory.get_mailing_list_index)

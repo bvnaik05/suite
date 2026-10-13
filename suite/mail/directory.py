@@ -40,8 +40,9 @@ def get_mailing_list_index() -> dict[str, list[str]]:
 
     Membership edits are visible once the index expires; mail routing itself is unaffected, so the
     only window is between a membership change and the next calendar invitation. When Suite Cloud
-    refuses or cannot answer a refresh, the last good index is served: a rate limit hit by other
-    traffic must not turn a list invitation into one sent to nobody.
+    refuses or cannot answer a refresh, the last good index is served for another minute before
+    the next attempt: a rate limit hit by other traffic must not turn a list invitation into one
+    sent to nobody, and retrying on every lookup would only keep the site over the limit.
     """
 
     cached = frappe.cache.get_value(INDEX_KEY)
@@ -54,12 +55,22 @@ def get_mailing_list_index() -> dict[str, list[str]]:
         if not cached:
             raise
         log_mail_error("Mailing list index could not be refreshed; the previous one is in use")
+        store_mailing_list_index(cached["index"], cached["built_at"])
         return cached["index"]
 
-    frappe.cache.set_value(
-        INDEX_KEY, {"index": index, "fresh_until": time.time() + INDEX_TTL}, expires_in_sec=INDEX_KEEP
-    )
+    store_mailing_list_index(index, time.time())
     return index
+
+
+def store_mailing_list_index(index: dict[str, list[str]], built_at: float) -> None:
+    """Serves ``index`` for the next ``INDEX_TTL`` seconds; the entry dies ``INDEX_KEEP`` after it was built."""
+
+    now = time.time()
+    frappe.cache.set_value(
+        INDEX_KEY,
+        {"index": index, "built_at": built_at, "fresh_until": now + INDEX_TTL},
+        expires_in_sec=max(1, int(built_at + INDEX_KEEP - now)),
+    )
 
 
 def build_mailing_list_index() -> dict[str, list[str]]:
