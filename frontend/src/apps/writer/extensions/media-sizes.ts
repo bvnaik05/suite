@@ -3,6 +3,7 @@ import { Plugin, PluginKey, type PluginSpec, type Transaction } from '@tiptap/pm
 import { Image as StockImage, Video as StockVideo } from 'frappe-ui/editor'
 
 import { isReceived } from './received-content-guard'
+import { stockPlugin } from './stock-plugin'
 
 type Size = { width: number; height: number }
 
@@ -185,9 +186,9 @@ export function healSizes(nodeName: string, measure: (src: string) => Promise<Si
 
 // The stock plugin sizes unsized media after any change, so opening a
 // document or receiving a collaborator's change would write
-function withoutBackfill(stockPlugin: Plugin) {
+function withoutBackfill(stock: Plugin) {
   const spec: PluginSpec<unknown> = {
-    ...stockPlugin.spec,
+    ...stock.spec,
     appendTransaction: undefined,
   }
   return new Plugin(spec)
@@ -195,14 +196,14 @@ function withoutBackfill(stockPlugin: Plugin) {
 
 export const Image = StockImage.extend({
   addProseMirrorPlugins() {
-    const [stockPlugin] = this.parent!()
-    return [withoutBackfill(stockPlugin), healSizes(this.name, measureImage)]
+    const stock = stockPlugin(this.parent)
+    return [withoutBackfill(stock), healSizes(this.name, measureImage)]
   },
 })
 
 export const Video = StockVideo.extend({
   addProseMirrorPlugins() {
-    const [stockPlugin] = this.parent!()
-    return [withoutBackfill(stockPlugin), healSizes(this.name, measureVideo)]
+    const stock = stockPlugin(this.parent)
+    return [withoutBackfill(stock), healSizes(this.name, measureVideo)]
   },
 })

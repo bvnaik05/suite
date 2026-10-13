@@ -5,6 +5,7 @@ import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import { ListJoin as StockListJoin } from 'frappe-ui/editor'
 
 import { changedRanges, touches } from './ranges'
+import { stockPlugin } from './stock-plugin'
 
 const isList = (node: Node) =>
   String(node.type.spec.group ?? '')
@@ -33,10 +34,16 @@ function boundariesNear(doc: Node, editedRanges: [number, number][]) {
 // untidy spot elsewhere would make the received content guard refuse
 export const ListJoin = StockListJoin.extend({
   addProseMirrorPlugins() {
-    const [stockPlugin] = this.parent!()
+    const stock = stockPlugin(this.parent)
     const spec: PluginSpec<unknown> = {
-      ...stockPlugin.spec,
-      view: (view) => (ySyncPluginKey.getState(view.state) ? {} : stockPlugin.spec.view!(view)),
+      ...stock.spec,
+      view(view) {
+        if (ySyncPluginKey.getState(view.state)) {
+          return {}
+        }
+
+        return stock.spec.view!(view)
+      },
       appendTransaction: (transactions, _oldState, newState) => {
         if (!transactions.some((tr) => tr.docChanged)) return null
 
