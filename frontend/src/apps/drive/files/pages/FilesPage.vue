@@ -380,12 +380,12 @@ const presentation = computed<PresentationState>(() => {
   }
   return shown
 })
+const isMyFiles = computed(() => props.destination === 'personal')
 /**
  * My files and its folders, where every row names the user as owner, so the
  * Owner column says nothing. A folder whose trail has not loaded counts as the
  * user's own; a folder shared from elsewhere has another root.
  */
-const isMyFiles = computed(() => props.destination === 'personal')
 const inOwnSpace = computed(() => {
   if (isSearching.value) return false
   if (props.destination === 'personal') return true
