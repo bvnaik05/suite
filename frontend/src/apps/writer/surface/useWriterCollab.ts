@@ -6,6 +6,7 @@ import { openWriterRoom } from '@/apps/writer/collab'
 import { TransportError } from '@/platform/transport'
 
 import { bannerFor, openFailureFor, type BannerState } from './collabMessages'
+import { markNewerSchemaShown } from './newerSchemaMark'
 
 export type CollabMode = 'opening' | 'legacy' | 'live' | 'failed'
 
@@ -49,6 +50,8 @@ export function useWriterCollab(
   const openStatus = ref<number | null>(null)
   const recoveryKept = ref(false)
   const setAside = ref(false)
+  const isNewerAfterReload = ref(false)
+  let isNewerSchemaMarked = false
   let stopWatching = () => {}
   let closed = false
 
@@ -105,6 +108,11 @@ export function useWriterCollab(
       liveRoom.saveState === 'failed' || (liveRoom.blocked && !isRecoverable(liveRoom.blocked))
     if (stopped && liveRoom.unsent && !recoveryKept.value) {
       recoveryKept.value = retainRecovery()
+    }
+
+    if (liveRoom.newerSchema && !isNewerSchemaMarked) {
+      isNewerSchemaMarked = true
+      isNewerAfterReload.value = markNewerSchemaShown(session.nodeId)
     }
     status.value = readStatus(liveRoom)
   }
@@ -186,6 +194,7 @@ export function useWriterCollab(
       recoveryKept: recoveryKept.value || (roomStatus.copiesKept > 0 && !roomStatus.copyFailed),
       setAside: setAside.value,
       polling: roomStatus.live === 'polling',
+      isNewerAfterReload: isNewerAfterReload.value,
     }
     return bannerFor(bannerState)
   })

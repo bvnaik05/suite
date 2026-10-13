@@ -32,6 +32,8 @@ export type BannerState = Pick<
   setAside: boolean
   // No live updates reach this tab, so it polls
   polling: boolean
+  // The newer-schema banner showed before this tab's last reload too
+  isNewerAfterReload: boolean
 }
 
 const STOP_MESSAGES: Record<string, string> = {
@@ -96,6 +98,13 @@ function savingBanner(state: BannerState): Banner | null {
 }
 
 function newerSchemaBanner(state: BannerState): Banner {
+  // A reload that still loads this Writer can't help, so it isn't offered again
+  if (state.isNewerAfterReload) {
+    return {
+      text: 'This document needs a newer version of Writer than this site has. Try again in a few minutes, or ask your admin.',
+    }
+  }
+
   const reloadTo = state.canEdit ? 'edit it' : 'see its latest changes'
   return { text: `This document was edited in a newer version of Writer. Reload to ${reloadTo}.` }
 }

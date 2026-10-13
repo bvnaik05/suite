@@ -29,6 +29,7 @@ const defaultState = {
   recoveryKept: false,
   copyFailed: false,
   setAside: false,
+  isNewerAfterReload: false,
   unsent: 1,
   polling: false,
 } as const
@@ -199,6 +200,15 @@ describe('collab stop copy', () => {
     expect(bannerText({ held: 'bad_checkpoint', unsent: 0 })).toBe(
       'This document is read-only while an admin checks it.',
     )
+  })
+
+  it('stops asking for a reload once a reload brought back the same Writer', () => {
+    const fallback =
+      'This document needs a newer version of Writer than this site has. Try again in a few minutes, or ask your admin.'
+    expect([
+      bannerText({ newerSchema: true, isNewerAfterReload: true }),
+      bannerText({ newerSchema: true, isNewerAfterReload: true, canEdit: false, unsent: 0 }),
+    ]).toEqual([fallback, fallback])
   })
 
   it('asks for a reload when a newer Writer edited the document', () => {

@@ -50,6 +50,19 @@ async function openCollab(retainRecovery = () => false, mayEdit = () => true) {
   return collab
 }
 
+// One page load's room for the document, once a newer Writer edited it
+async function newerSchemaBanner(load: typeof useWriterCollab, session: DocumentSession) {
+  fakeRooms.room = fakeRooms.makeRoom()
+  const collab = load(
+    session,
+    () => false,
+    () => true,
+  )
+  await collab.open()
+  becomes({ canWrite: false, newerSchema: true })
+  return collab.banner.value
+}
+
 function becomes(change: Partial<typeof fakeRooms.room>) {
   becomesOn(fakeRooms.room, change)
 }
@@ -165,6 +178,47 @@ describe('writer collab editing state', () => {
     becomes({ canWrite: false, newerSchema: true })
     expect(collab.banner.value).toEqual({
       text: 'This document was edited in a newer version of Writer. Reload to see its latest changes.',
+    })
+  })
+
+  it('says a reload will not help once the banner is back right after one', async () => {
+    const session = { nodeId: 'node-reloaded' } as DocumentSession
+    const firstLoad = await newerSchemaBanner(useWriterCollab, session)
+    vi.resetModules()
+    const reloaded = await import('./useWriterCollab')
+    const secondLoad = await newerSchemaBanner(reloaded.useWriterCollab, session)
+
+    expect([firstLoad, secondLoad]).toEqual([
+      { text: 'This document was edited in a newer version of Writer. Reload to edit it.' },
+      {
+        text: 'This document needs a newer version of Writer than this site has. Try again in a few minutes, or ask your admin.',
+      },
+    ])
+  })
+
+  it('keeps asking for a reload when the document opens again without one', async () => {
+    const session = { nodeId: 'node-reopened' } as DocumentSession
+    await newerSchemaBanner(useWriterCollab, session)
+    const reopened = await newerSchemaBanner(useWriterCollab, session)
+
+    expect(reopened).toEqual({
+      text: 'This document was edited in a newer version of Writer. Reload to edit it.',
+    })
+  })
+
+  it('keeps asking for a reload where the browser blocks this tab’s storage', async () => {
+    const session = { nodeId: 'node-blocked' } as DocumentSession
+    const blocked = vi.spyOn(globalThis, 'sessionStorage', 'get').mockImplementation(() => {
+      throw new DOMException('Blocked', 'SecurityError')
+    })
+    await newerSchemaBanner(useWriterCollab, session)
+    vi.resetModules()
+    const reloaded = await import('./useWriterCollab')
+    const secondLoad = await newerSchemaBanner(reloaded.useWriterCollab, session)
+    blocked.mockRestore()
+
+    expect(secondLoad).toEqual({
+      text: 'This document was edited in a newer version of Writer. Reload to edit it.',
     })
   })
 
