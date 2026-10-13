@@ -9,11 +9,13 @@ import {
 	expectSaved,
 	makeLegacy,
 	openForCollab,
+	pastePicture,
+	picturesLoaded,
 	serverBlocks,
 	saveNamedVersion,
 	typeParagraph,
 } from "../../helpers/collab";
-import { discardNode } from "../../helpers/drive";
+import { discardNode, getNode, mediaNodes, purgeNode, trashNode } from "../../helpers/drive";
 import {
 	createWriterDocument,
 	openWriterDocument,
@@ -181,6 +183,39 @@ test.describe("Writer collaboration", () => {
 		} finally {
 			await discardNode(owner.context.request, plain);
 		}
+	});
+
+	test("restoring a version takes its binned picture out of the bin", async ({ owner }) => {
+		const { page } = owner;
+		const picture = await pictureInVersion(page, node);
+		const { title: pictureTitle } = await getNode(page.request, picture);
+		await trashNode(page.request, picture);
+		await page.reload();
+		await expect.poll(() => picturesLoaded(page)).toEqual([false]);
+
+		const dialog = await openRestoreDialog(page);
+		await expect(dialog).toContainText(`These images are in the bin and come back with it: ${pictureTitle}.`);
+		await dialog.getByRole("button", { name: "Restore", exact: true }).click();
+
+		await expect(page.getByText("Version restored")).toBeVisible();
+		expect((await getNode(page.request, picture)).state).toBe("Active");
+		await expect.poll(() => picturesLoaded(page)).toEqual([true]);
+	});
+
+	test("restoring a version names its deleted picture, which then shows broken", async ({ owner }) => {
+		const { page } = owner;
+		const picture = await pictureInVersion(page, node);
+		await trashNode(page.request, picture);
+		await purgeNode(page.request, picture);
+		await page.reload();
+
+		const dialog = await openRestoreDialog(page);
+		await expect(dialog).toContainText("These images will show broken: An image with no name (deleted).");
+		await dialog.getByRole("button", { name: "Restore", exact: true }).click();
+
+		await expect(page.getByText("Version restored")).toBeVisible();
+		await expect(writerEditor(page)).not.toContainText("Typed after the version");
+		await expect.poll(() => picturesLoaded(page)).toEqual([false]);
 	});
 
 	test("the first edit to a document takes an automatic version the server keeps", async ({
@@ -488,6 +523,28 @@ async function nameVersion(page: Page, label: string) {
 	await page.getByRole("button", { name: "Save version" }).click();
 	await page.getByLabel("Name").fill(label);
 	await page.getByRole("button", { name: "Save", exact: true }).click();
+}
+
+// A version holding one picture, then more text so the restore changes something
+async function pictureInVersion(page: Page, node: string): Promise<string> {
+	await openWriterDocument(page, node);
+	await typeParagraph(page, "Words above the picture");
+	await page.keyboard.press("Enter");
+	await pastePicture(page);
+	await expect.poll(() => picturesLoaded(page)).toEqual([true]);
+	await expectSaved(page);
+	await saveNamedVersion(page.request, node, "With a picture");
+	await typeParagraph(page, "Typed after the version");
+	await expectSaved(page);
+	const [picture] = await mediaNodes(page.request, node);
+	return picture;
+}
+
+async function openRestoreDialog(page: Page): Promise<Locator> {
+	const panel = await openVersions(page);
+	await panel.getByRole("button", { name: /^With a picture/ }).click();
+	await page.getByRole("button", { name: "Restore", exact: true }).click();
+	return page.getByRole("dialog");
 }
 
 async function restoreFromPreview(page: Page, panel: Locator, label: string) {

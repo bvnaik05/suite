@@ -56,8 +56,15 @@ import { restoreVersion, type RestoreNotice } from './restoreVersion'
 import { saveFirst } from './saveFirst'
 import { versionLabel } from './useDocumentPanel'
 import { useWriterCollab } from './useWriterCollab'
+import {
+  imagesNotice,
+  missingImages,
+  restoreImages,
+  versionImages,
+  type MissingImage,
+} from './versionImages'
 import VersionPreview from './VersionPreview.vue'
-import { fetchVersion } from './versions'
+import { fetchVersion, readVersionBody } from './versions'
 import { createWriterDocument, editorFileOf, isLocked, type EditorFile } from './writerDocument'
 import WriterDocumentMenu from './WriterDocumentMenu.vue'
 import { createWriteGate, type DocumentWrite } from './writes'
@@ -306,28 +313,37 @@ const isVersionRestoreDisabled = computed(
   () => isVersionDownloadDisabled.value || isRestoringVersion.value,
 )
 
-function confirmRestore(shown: DocumentVersion) {
+async function confirmRestore(shown: DocumentVersion) {
+  isRestoringVersion.value = true
+  let images: MissingImage[]
+  try {
+    const body = await readVersionBody(await fetchVersion(props.session, shown.seq))
+    images = await missingImages(props.session, versionImages(body))
+  } catch (error) {
+    console.error(error)
+    toast.error("This version's images couldn't be checked, so nothing was restored.")
+    return
+  } finally {
+    isRestoringVersion.value = false
+  }
+
+  const message = [
+    'The document goes back to this version for everyone. Its current state is kept as a version first.',
+    imagesNotice(images),
+  ]
   dialog.confirm({
     title: 'Restore this version?',
-    message:
-      'The document goes back to this version for everyone. Its current state is kept as a version first.',
+    message: message.filter(Boolean).join(' '),
     confirmLabel: 'Restore',
-    onConfirm: () => restoreShownVersion(shown),
+    onConfirm: () => restoreShownVersion(shown, images),
   })
 }
 
-async function restoreShownVersion(shown: DocumentVersion) {
+async function restoreShownVersion(shown: DocumentVersion, images: MissingImage[]) {
   isRestoringVersion.value = true
   try {
-    const liveRoom = room.value
-    let notice: RestoreNotice
-    if (liveRoom) {
-      const bytes = await fetchVersion(props.session, shown.seq)
-      notice = await restoreVersion(liveRoom, shown.seq, bytes)
-    } else {
-      notice = await restoreStoredVersion(shown)
-    }
-
+    await restoreImages(props.session, images)
+    const notice = await restoreBody(shown)
     if (!notice.isRestored) {
       toast.error(notice.message)
       return
@@ -342,6 +358,16 @@ async function restoreShownVersion(shown: DocumentVersion) {
   } finally {
     isRestoringVersion.value = false
   }
+}
+
+async function restoreBody(shown: DocumentVersion): Promise<RestoreNotice> {
+  const liveRoom = room.value
+  if (!liveRoom) {
+    return restoreStoredVersion(shown)
+  }
+
+  const bytes = await fetchVersion(props.session, shown.seq)
+  return restoreVersion(liveRoom, shown.seq, bytes)
 }
 
 // A document edited without collaboration is restored on the server, then read again

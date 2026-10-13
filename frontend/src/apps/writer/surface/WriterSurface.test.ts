@@ -192,9 +192,12 @@ const { default: WriterSurface } = await import('./WriterSurface.vue')
 const { watchBuild } = await import('@/platform/build')
 const { discardCopy, keepPageCopy, listCopies } = await import('@/apps/writer/recovery/copies')
 
-async function serverMinBuilds(minBuilds: Record<string, string>) {
+async function serverMinBuilds(minBuilds: Record<string, string>, body = '{}') {
   const headers = { 'X-Suite-Min-Builds': JSON.stringify(minBuilds) }
-  const respond = async () => new Response('{}', { headers })
+  async function respond() {
+    return new Response(body, { headers })
+  }
+
   vi.stubGlobal('fetch', vi.fn(respond))
   watchBuild()
   await window.fetch('/api/method/ping')
@@ -401,12 +404,17 @@ describe('Writer surface', () => {
   it('restores a version of a document edited without collaboration and shows its text', async () => {
     // An earlier test unstubs every env, and the build floor is read only outside DEV
     vi.stubEnv('DEV', false)
-    await serverMinBuilds({ writer: '100' })
+    // Every request answers with the stored version, which shows no images
+    await serverMinBuilds({ writer: '100' }, '<p>Back then</p>')
     stored.html = '<p>Today</p>'
     const restore = vi.fn(async () => {
       stored.html = '<p>Back then</p>'
     })
-    const root = await openedSurface({ ...oneVersion, restore } as unknown as Versions)
+    const root = await openedSurface({
+      ...oneVersion,
+      contentUrl: () => '/version/3',
+      restore,
+    } as unknown as Versions)
     function editor() {
       return root.querySelector('[data-editor]')!
     }
