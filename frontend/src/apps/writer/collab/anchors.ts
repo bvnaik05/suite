@@ -61,6 +61,16 @@ export function readAnchor(anchor: string): ThreadAnchor {
   }
 }
 
+/** The text a text anchor was made on; empty for any other anchor. */
+export function anchorQuote(anchor: string) {
+  const read = readAnchor(anchor)
+  if (read.kind !== 'text') {
+    return ''
+  }
+
+  return read.quote
+}
+
 /** The Yjs items a text anchor's ends hold on to; none for any other anchor. */
 export function anchorEnds(anchor: string): Y.ID[] {
   const read = readAnchor(anchor)

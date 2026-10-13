@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import * as Y from 'yjs'
+
+import { encodeAnchor } from '@/apps/writer/collab/anchors'
 
 vi.mock('@/apps/drive', async (original) => ({
   ...(await original<typeof import('@/apps/drive')>()),
@@ -31,6 +34,7 @@ vi.mock('@/apps/writer/collab', async (original) => {
 })
 
 const { discardCopy, keepPageCopy, listCopies } = await import('./copies')
+const { keepDraft } = await import('./commentDrafts')
 const { default: UnsavedWork } = await import('./UnsavedWork.vue')
 
 async function openedPage(ready = (root: Element) => rowButton(root)) {
@@ -64,6 +68,18 @@ function placeholderRow(root: Element) {
   return root.querySelector('[data-slot="list-row"][aria-hidden="true"]')
 }
 
+// An anchor on the start of a text holding `quote`
+function anchorOn(quote: string) {
+  const content = new Y.XmlText()
+  new Y.Doc().getXmlFragment('default').insert(0, [content])
+  content.insert(0, quote)
+  return encodeAnchor(
+    Y.createRelativePositionFromTypeIndex(content, 0, 0),
+    Y.createRelativePositionFromTypeIndex(content, quote.length, -1),
+    quote,
+  )
+}
+
 function rowButton(root: Element) {
   return root.querySelector<HTMLElement>('button[data-slot="list-row"]')!
 }
@@ -73,6 +89,7 @@ afterEach(async () => {
   const copies = await listCopies()
   await Promise.all(copies.map(discardCopy))
   window.document.body.innerHTML = ''
+  localStorage.clear()
 })
 
 describe('Writer recovery copies page', () => {
@@ -129,5 +146,21 @@ describe('Writer recovery copies page', () => {
     expect(root.querySelector('[aria-label="Recovery copy"]')!.textContent).toBe(
       'Typed while offline',
     )
+  })
+
+  it("lists the document's unposted comments with its copy", async () => {
+    keepPageCopy('gone', 'Plan', '<p>Typed while offline</p>')
+    keepDraft('Guest', 'gone', { clientId: 'one', anchor: anchorOn('offline'), text: 'Why?' })
+    keepDraft('Guest', 'gone', { clientId: 'two', anchor: anchorOn('Typed'), text: '  ' })
+    keepDraft('Guest', 'other', { clientId: 'three', anchor: anchorOn('Plan'), text: 'Elsewhere' })
+    const { root } = await openedPage()
+
+    rowButton(root).click()
+
+    await vi.waitFor(() =>
+      expect(root.querySelector('[aria-label="Recovery copy"]')).not.toBeNull(),
+    )
+    const lines = root.querySelectorAll('[aria-label="Comments not posted"] li p')
+    expect([...lines].map((line) => line.textContent!.trim())).toEqual(['offline', 'Why?'])
   })
 })

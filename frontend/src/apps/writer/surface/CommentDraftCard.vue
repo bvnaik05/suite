@@ -2,7 +2,7 @@
 import { Button, Textarea } from 'frappe-ui'
 import { computed, onMounted, ref } from 'vue'
 
-import { readAnchor } from '@/apps/writer/collab/anchors'
+import { anchorQuote } from '@/apps/writer/collab/anchors'
 
 import type { ShownDraft } from './useCommentDrafts'
 
@@ -10,20 +10,11 @@ const props = defineProps<{ draft: ShownDraft }>()
 const emit = defineEmits<{ write: [text: string]; post: []; discard: [] }>()
 
 const field = ref<InstanceType<typeof Textarea> | null>(null)
-const quote = computed(() => quoteOf(props.draft.anchor))
+const quote = computed(() => anchorQuote(props.draft.anchor))
 const isPostDisabled = computed(() => props.draft.isPosting || !props.draft.text.trim())
 const postLabel = computed(() => (props.draft.isPosting ? 'Posting…' : 'Comment'))
 
 onMounted(() => field.value?.focus())
-
-function quoteOf(anchor: string) {
-  const read = readAnchor(anchor)
-  if (read.kind === 'text') {
-    return read.quote
-  }
-
-  return ''
-}
 </script>
 
 <template>

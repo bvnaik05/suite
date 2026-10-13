@@ -8,8 +8,9 @@ import type { LayoutSettings } from '@/apps/writer/utils/editor-layout'
 import { previewEditor } from '@/apps/writer/utils/preview-editor'
 
 import type { RecoveryCopy } from './copies'
+import UnpostedComments from './UnpostedComments.vue'
 
-/** A recovery copy, read-only in Writer's typography. It is never merged into the document. */
+/** A recovery copy, read-only in Writer's typography, under the document's unposted comments. It is never merged into the document. */
 const props = defineProps<{ copy: RecoveryCopy; settings: LayoutSettings }>()
 
 const media = inject(DOCUMENT_MEDIA, null)
@@ -31,7 +32,10 @@ onBeforeUnmount(() => editor.value?.destroy())
 </script>
 
 <template>
-  <PreviewPane :editor="editor" :settings="settings" label="Recovery copy" :is-failed="failed">
-    <template #failed>This copy can't be shown.</template>
-  </PreviewPane>
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+    <UnpostedComments :node="copy.node" />
+    <PreviewPane :editor="editor" :settings="settings" label="Recovery copy" :is-failed="failed">
+      <template #failed>This copy can't be shown.</template>
+    </PreviewPane>
+  </div>
 </template>
