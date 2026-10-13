@@ -148,7 +148,7 @@ def duplicate(source_docname: str, node: str) -> str:
 
 
 def export(docname: str, format: str) -> tuple[io.BytesIO, str]:
-    """Stream one document as HTML. `default_export` is None, so DAV never asks.
+    """Stream one document as HTML, which Drive's Download asks for by default.
 
     A collab document has no checked readable copy yet (ticket 37), and its `html`
     is stale, so it is downloaded from the editor instead.
@@ -294,9 +294,8 @@ SPEC = drive.ContentTypeSpec(
     mime=MIME,
     node_field=NODE_FIELD,
     listing_type="document",
-    # §10.7, accepted 2026-09-05: Writer stays hidden over WebDAV, and the
-    # explicit HTML export stays available through the content API's format.
-    default_export=None,
+    # Drive's Download sends no format; WebDAV hides documents by their node kind
+    default_export=HTML_FORMAT,
     export_formats=(HTML_FORMAT,),
     create_empty=create_empty,
     duplicate=duplicate,

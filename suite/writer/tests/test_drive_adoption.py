@@ -45,7 +45,7 @@ from frappe.utils import get_datetime
 
 from suite import drive
 from suite.drive._core.access import grant
-from suite.drive._core.content import clear_registry_cache, governs, spec_for
+from suite.drive._core.content import clear_registry_cache, export_document, governs, spec_for
 from suite.drive._core.errors import DriveConflict, DriveForbidden, DriveNotFound
 from suite.drive._core.nodes import create_file, purge, update
 from suite.drive._core.nodes import create_folder as create_node_folder
@@ -167,8 +167,8 @@ class TestWriterDeclaration(UnitTestCase):
         self.assertEqual(writer.SPEC.satellites, ())
         self.assertFalse(writer.SPEC.pushes_preview, "Drive never renders a Writer document")
 
-    def test_writer_stays_hidden_over_dav_and_keeps_its_explicit_html_export(self):
-        self.assertIsNone(writer.SPEC.default_export, "no default export means invisible over DAV")
+    def test_writer_exports_html_by_default_and_only_html(self):
+        self.assertEqual(writer.SPEC.default_export, "html")
         self.assertEqual(writer.SPEC.export_formats, ("html",))
         self.assertTrue(callable(writer.SPEC.export))
 
@@ -796,6 +796,12 @@ class TestWriterInDrive(IntegrationTestCase):
         frappe.db.set_value(DOCTYPE, self._docname(node), "html", "<p>bye</p>", update_modified=False)
         stream, mime = writer.SPEC.export(self._docname(node), "html")
         self.assertEqual((stream.read(), mime), (b"<p>bye</p>", "text/html"))
+
+    def test_drive_downloads_the_stored_body_when_no_format_is_asked_for(self):
+        node = self._document(title="Downloaded")
+        frappe.db.set_value(DOCTYPE, self._docname(node), "html", "<p>bye</p>", update_modified=False)
+        stream, mime, filename = export_document(self.person, node)
+        self.assertEqual((stream.read(), mime, filename), (b"<p>bye</p>", "text/html", "Downloaded.html"))
 
     def test_an_export_format_writer_does_not_offer_is_refused(self):
         node = self._document(title="Refused")

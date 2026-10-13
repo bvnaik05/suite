@@ -139,7 +139,7 @@ test.describe("Writer collaboration", () => {
 		await expectSaved(owner.page);
 
 		const exportResponse = await owner.context.request.get(
-			`${DRIVE}/nodes/${node}/content?format=html`,
+			`${DRIVE}/nodes/${node}/content?download=1`,
 		);
 
 		expect(exportResponse.status()).toBe(409);
