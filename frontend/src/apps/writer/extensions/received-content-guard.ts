@@ -1,15 +1,7 @@
 import { Extension } from '@tiptap/core'
 import type { Node } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type PluginSpec, type Transaction } from '@tiptap/pm/state'
-import {
-  AddMarkStep,
-  AddNodeMarkStep,
-  AttrStep,
-  RemoveMarkStep,
-  RemoveNodeMarkStep,
-  ReplaceAroundStep,
-  type Step,
-} from '@tiptap/pm/transform'
+import { ReplaceAroundStep, type Step } from '@tiptap/pm/transform'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 
 import { changedRanges, mapRanges, rangesChangedBy, touches, type Range } from './ranges'
@@ -21,18 +13,8 @@ export function isReceived(tr: Transaction) {
   return !!tr.getMeta(ySyncPluginKey)?.isChangeOrigin
 }
 
-// Attributes and marks settle to one value in Yjs, so these may follow up anywhere
+// Swapping only a wrapper sets attributes, which settle to one value in Yjs, so it may follow up anywhere
 function settlesToOneValue(step: Step, doc: Node) {
-  const setsAttrOrMark =
-    step instanceof AttrStep ||
-    step instanceof AddMarkStep ||
-    step instanceof RemoveMarkStep ||
-    step instanceof AddNodeMarkStep ||
-    step instanceof RemoveNodeMarkStep
-  if (setsAttrOrMark) {
-    return true
-  }
-
   if (!(step instanceof ReplaceAroundStep)) return false
 
   const { from, to, gapFrom, gapTo, insert, slice } = step

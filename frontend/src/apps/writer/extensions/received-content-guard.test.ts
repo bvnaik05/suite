@@ -1,12 +1,15 @@
-import { Editor } from '@tiptap/core'
+import { Editor, Extension, type AnyExtension } from '@tiptap/core'
+import Bold from '@tiptap/extension-bold'
 import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
+import HardBreak from '@tiptap/extension-hard-break'
 import Heading from '@tiptap/extension-heading'
 import { BulletList, ListItem } from '@tiptap/extension-list'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { TrailingNode } from '@tiptap/extensions'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { Plugin, type Transaction } from '@tiptap/pm/state'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
@@ -24,6 +27,8 @@ const extensions = [
   Document,
   Paragraph,
   Text,
+  Bold,
+  HardBreak,
   Heading,
   BulletList,
   ListItem,
@@ -55,7 +60,7 @@ function storedState(...content: object[]) {
   return Y.encodeStateAsUpdate(ydoc)
 }
 
-function openViewer(state: Uint8Array) {
+function openViewer(state: Uint8Array, more: AnyExtension[] = []) {
   const ydoc = new Y.Doc()
   Y.applyUpdate(ydoc, state, 'server')
   let writes = 0
@@ -74,7 +79,12 @@ function openViewer(state: Uint8Array) {
   }
   const editorOptions = {
     element,
-    extensions: [...extensions, ReceivedContentGuard, Collaboration.configure(collaboration)],
+    extensions: [
+      ...extensions,
+      ...more,
+      ReceivedContentGuard,
+      Collaboration.configure(collaboration),
+    ],
   }
   const editor = new Editor(editorOptions)
   editors.push(editor)
@@ -83,6 +93,32 @@ function openViewer(state: Uint8Array) {
     editor,
     writes: () => writes,
   }
+}
+
+// A normalizer that follows each of the person's own edits once with `fixUp`
+function followUp(fixUp: (tr: Transaction, far: number) => void) {
+  return Extension.create({
+    name: 'followUp',
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          appendTransaction(transactions, _oldState, newState) {
+            if (!transactions.some((tr) => tr.docChanged && !tr.getMeta('followUp'))) {
+              return null
+            }
+
+            let far = 0
+            newState.doc.descendants((node, pos) => {
+              far ||= node.type.name === 'heading' ? pos : 0
+            })
+            const tr = newState.tr.setMeta('followUp', true)
+            fixUp(tr, far)
+            return tr
+          },
+        }),
+      ]
+    },
+  })
 }
 
 const blockTypes = (editor: Editor) => editor.getJSON().content!.map((node) => node.type)
@@ -177,4 +213,62 @@ describe('received content guard', () => {
     }
     expect(viewerA.editor.getJSON()).toEqual(viewerB.editor.getJSON())
   })
+
+  function bold(tr: Transaction) {
+    return tr.doc.type.schema.marks.bold.create()
+  }
+
+  const farFixUps = [
+    [
+      'sets an attribute',
+      'kept',
+      (tr: Transaction, far: number) => tr.setNodeAttribute(far, 'level', 3),
+    ],
+    [
+      'adds a mark',
+      'kept',
+      (tr: Transaction, far: number) => tr.addMark(far + 1, far + 4, bold(tr)),
+    ],
+    [
+      'removes a mark',
+      'kept',
+      (tr: Transaction, far: number) => tr.removeMark(far + 5, far + 9, bold(tr)),
+    ],
+    [
+      'adds a node mark',
+      'kept',
+      (tr: Transaction, far: number) => tr.addNodeMark(far + 4, bold(tr)),
+    ],
+    ['inserts text', 'refused', (tr: Transaction, far: number) => tr.insertText('!', far + 1)],
+  ] as const
+
+  it.each(farFixUps)(
+    "a normalizer that %s far from the user's own edit is %s",
+    async (_name, outcome, fixUp) => {
+      const far = {
+        type: 'heading',
+        attrs: { level: 2 },
+        content: [
+          { type: 'text', text: 'far' },
+          { type: 'hardBreak' },
+          { type: 'text', text: 'bold', marks: [{ type: 'bold' }] },
+        ],
+      }
+      const viewer = openViewer(storedState(paragraph('typed'), far), [followUp(fixUp)])
+      await waitForUpdates()
+      const expected = viewer.editor.state.tr
+      fixUp(expected, viewer.editor.state.doc.child(0).nodeSize)
+
+      viewer.editor.commands.insertContentAt(1, 'x')
+
+      const before = expected.docs[0].child(1)
+      const fixedUp = expected.doc.child(1)
+      const shown = viewer.editor.state.doc.child(1)
+      expect([
+        fixedUp.eq(before),
+        shown.eq(fixedUp),
+        viewer.editor.state.doc.child(0).textContent,
+      ]).toEqual([false, outcome === 'kept', 'xtyped'])
+    },
+  )
 })
