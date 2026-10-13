@@ -22,6 +22,7 @@ export interface Opening {
   limits?: Limits
   rooms?: RoomKeys
   paceMs?: number
+  restoringMs?: number
   // Opened from the device copy, so the server hasn't answered yet
   offline?: boolean
 }

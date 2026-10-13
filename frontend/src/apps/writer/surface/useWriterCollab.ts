@@ -19,6 +19,7 @@ const STATUS_FIELDS = [
   'copiesKept',
   'copyFailed',
   'held',
+  'restoring',
   'newerSchema',
   'unsent',
   'othersUnsent',
@@ -160,7 +161,8 @@ export function useWriterCollab(
       return 'editing'
     }
 
-    const waiting = roomStatus.blocked || roomStatus.paused || roomStatus.held
+    const waiting =
+      roomStatus.blocked || roomStatus.paused || roomStatus.held || roomStatus.restoring
     if (waiting) {
       return 'paused'
     }

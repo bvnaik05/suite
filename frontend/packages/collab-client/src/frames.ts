@@ -28,6 +28,10 @@ interface DocumentHeader {
   schema?: number
   limits?: Limits
   rooms?: RoomKeys
+  // The rev of the last restored version; work made before it is refused
+  restore_rev?: number
+  // How long a restore under way still holds the document
+  restoring_ms?: number
 }
 
 export interface OpenHeader extends DocumentHeader {

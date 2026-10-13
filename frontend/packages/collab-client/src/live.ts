@@ -27,6 +27,8 @@ export interface LiveHooks {
   appliedThrough(): number
   showsCaret(): boolean
   position(raw: unknown): object | null
+  // A control message for this document, such as a restore beginning or ending
+  controlHeard(heard: Record<string, unknown>): void
 }
 
 // One pending timer at most; setting it again replaces the one waiting
@@ -276,6 +278,7 @@ export class Live implements HubMember {
   private onControl = (heard: unknown) => {
     if (this.closed || lineageOf(heard) !== this.lineage) return
 
+    this.hooks.controlHeard(heard as Record<string, unknown>)
     this.repair()
   }
 

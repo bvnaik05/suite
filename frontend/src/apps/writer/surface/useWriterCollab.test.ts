@@ -14,6 +14,7 @@ const fakeRooms = vi.hoisted(() => {
     copyFailed: false,
     paused: null as string | null,
     held: null as string | null,
+    restoring: false,
     newerSchema: false,
     needsRebuild: false,
     saveState: 'clean',
@@ -159,6 +160,27 @@ describe('writer collab editing state', () => {
       true,
       { text: 'This document is read-only while an admin checks it.' },
     ])
+  })
+
+  it('holds editing with a banner while a version is restored', async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    const collab = await openCollab()
+    becomes({ canWrite: false, restoring: true })
+    const whileRestoring = [
+      collab.allowsEditing.value,
+      collab.editingPaused.value,
+      collab.banner.value,
+    ]
+    becomes({ canWrite: true, restoring: false })
+
+    expect(whileRestoring).toEqual([
+      false,
+      true,
+      {
+        text: 'Someone is restoring a version of this document. You can edit again once it is done.',
+      },
+    ])
+    expect([collab.allowsEditing.value, collab.banner.value]).toEqual([true, null])
   })
 
   it('makes the document read-only with a banner once a newer Writer edited it', async () => {

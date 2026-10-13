@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { block } from './access'
 import { Copier } from './copier'
 import { Device } from './device'
+import { RestoreFence } from './fence'
 import type { Limits } from './frames'
 import { adoptLeftovers, claimClientId, lostReason } from './leftovers'
 import { Live, type LiveHooks } from './live'
@@ -61,6 +62,7 @@ export class Room implements CollabRoom {
   readonly puller = new Puller(this)
   readonly suspect: SuspectReport = new SuspectReport(this)
   readonly copier = new Copier(this)
+  readonly fence = new RestoreFence(() => this.notifyListeners())
   private connecting: Promise<void> | null = null
   private unsentSince = 0
   private pollTimer: ReturnType<typeof setInterval> | null = null
@@ -100,6 +102,7 @@ export class Room implements CollabRoom {
     this.sender.setPace(opening.paceMs)
     this.unheard = !!opening.offline
     this.limits = opening.limits ?? null
+    this.fence.follow(opening.restoringMs)
     this.follow(opening.schema)
     this.puller.applyRows(opening.rows, opening)
     if (this.writable) {
@@ -114,6 +117,7 @@ export class Room implements CollabRoom {
         appliedThrough: () => this.appliedThrough,
         showsCaret: () => this.canWrite && this.bound && !this.closed,
         position: this.options.adapter.position,
+        controlHeard: (heard) => this.controlHeard(heard),
       }
       this.realtime = new Live(this.options.socket, this.lineage, liveHooks)
       if (opening.rooms) {
@@ -129,7 +133,11 @@ export class Room implements CollabRoom {
   }
 
   get canWrite() {
-    return this.writable && !this.suspect.isJudging && !this.held
+    return this.writable && !this.suspect.isJudging && !this.held && !this.restoring
+  }
+
+  get restoring() {
+    return this.fence.standing
   }
 
   get live(): LiveState | null {
@@ -229,6 +237,7 @@ export class Room implements CollabRoom {
       clearInterval(this.pollTimer)
     }
     this.realtime?.close()
+    this.fence.close()
     this.clearTimers()
     this.doc.off('update', this.onDocUpdate)
     this.listeners.clear()
@@ -324,6 +333,14 @@ export class Room implements CollabRoom {
     this.writable = false
     this.notifyListeners()
     return false
+  }
+
+  controlHeard(heard: Record<string, unknown>) {
+    if (heard.kind === 'restoring') {
+      this.fence.follow(heard.fence_ms)
+    } else if (heard.kind === 'restored' || heard.kind === 'restore_ended') {
+      this.fence.lift()
+    }
   }
 
   // A held document's pushes wait minutes between tries, so its release sends at once

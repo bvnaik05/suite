@@ -141,6 +141,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
         schema: schema.now,
         limits: limits(),
         rooms: roomKeys(),
+        restoring_ms: restoringMs(),
       }
       return frame(header, tail, checkpoint.bytes)
     },
@@ -162,6 +163,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
           schema: schema.now,
           limits: limits(),
           rooms: roomKeys(),
+          restoring_ms: restoringMs(),
         },
         rows.filter((row) => row.rev > since),
       )
@@ -208,6 +210,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
       recordCall('push')
       if (access.refuse) return access.refuse
       if (judge.held) return reply(423, { collab: 'paused', reason: 'suspect', retry_ms: 300_000 })
+      if (restoringMs()) return reply(423, RESTORING)
       const { length, header, bytes: inline } = splitPush(body)
       finals.push(header.final)
       schemas.push(header.schema)
@@ -297,6 +300,18 @@ export function fakeServer(state = 'live', lineage = 'L') {
     epoch.now++
     publish('suite_collab_ctl', { kind: 'quarantine', q_epoch: epoch.now })
   }
+  // A restore under way holds the document until `until`; 0 when none is
+  const restore = { until: 0 }
+  const restoringMs = () => Math.max(0, restore.until - Date.now()) || undefined
+  // A restore begins for `ms`, or ends as `kind`: `restored` when it lands, `restore_ended` when called off
+  const fence = (ms: number | null, kind = 'restore_ended') => {
+    restore.until = Date.now() + (ms ?? 0)
+    if (ms) {
+      publish('suite_collab_ctl', { kind: 'restoring', fence_ms: ms })
+    } else {
+      publish('suite_collab_ctl', { kind })
+    }
+  }
   // An admin holds the document or releases it
   const hold = (why?: string) => {
     judge.held = why
@@ -322,11 +337,14 @@ export function fakeServer(state = 'live', lineage = 'L') {
     compact,
     quarantine,
     hold,
+    fence,
     realtime,
     socket,
     roomKeys,
   }
 }
+
+const RESTORING = { collab: 'paused', reason: 'restoring', retry_ms: 1000 }
 
 export const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
 

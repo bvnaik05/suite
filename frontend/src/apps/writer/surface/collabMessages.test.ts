@@ -20,6 +20,7 @@ const defaultState = {
   blocked: null,
   stopped: null,
   held: null,
+  restoring: false,
   newerSchema: false,
   canEdit: true,
   paused: null,
@@ -193,6 +194,12 @@ describe('collab stop copy', () => {
     )
     expect(bannerText({ held: 'change', unsent: 0 })).toBe(
       'This document is read-only while an admin checks it.',
+    )
+  })
+
+  it('says editing waits while a version is restored', () => {
+    expect(bannerText({ restoring: true, paused: 'restoring' })).toBe(
+      'Someone is restoring a version of this document. You can edit again once it is done.',
     )
   })
 

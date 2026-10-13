@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { classifyRefusal, isDisabled, type AccessRoom } from './access'
 import { readReply } from './answers'
 import type { Device } from './device'
+import type { RestoreFence } from './fence'
 import { decodeFrame, parseHeld, type Limits, type PullHeader, type Row } from './frames'
 import type { Live } from './live'
 import type { Opening } from './opening'
@@ -27,6 +28,7 @@ export interface PullerRoom extends AccessRoom {
   pull(): Promise<void>
   follow(schema?: number): boolean
   setHeld(held: Held | null): void
+  readonly fence: Pick<RestoreFence, 'follow'>
   updateLimits(limits: Limits): void
   markNeedsRebuild(): void
   stopForGood(reason: string): Promise<void>
@@ -143,6 +145,7 @@ export class Puller {
     }
 
     room.setHeld(parseHeld(header.held))
+    room.fence.follow(header.restoring_ms)
     if (!room.follow(header.schema)) return
 
     if (room.suspect.isJudging) {

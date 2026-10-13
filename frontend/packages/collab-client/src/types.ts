@@ -117,6 +117,8 @@ export interface CollabRoom {
   readonly copyFailed: boolean
   // The document waits for an admin, so nobody edits it
   readonly held: Held | null
+  // A version is being restored, so nobody edits until it lands or is called off
+  readonly restoring: boolean
   // A newer editor wrote to the document; this tab follows and sends nothing more until reloaded
   readonly newerSchema: boolean
   // This copy may hold a change the server has since quarantined; it follows nothing more and is to be opened again

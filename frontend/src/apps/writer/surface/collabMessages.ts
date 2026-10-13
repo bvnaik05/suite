@@ -15,6 +15,7 @@ export type BannerState = Pick<
   | 'blocked'
   | 'stopped'
   | 'held'
+  | 'restoring'
   | 'newerSchema'
   | 'paused'
   | 'atLimit'
@@ -220,6 +221,12 @@ export function bannerFor(state: BannerState): Banner | null {
 
   if (state.held) {
     return heldBanner(state)
+  }
+
+  if (state.restoring) {
+    return {
+      text: 'Someone is restoring a version of this document. You can edit again once it is done.',
+    }
   }
 
   const pauseMessage = messageFor(PAUSE_MESSAGES, state.paused)
