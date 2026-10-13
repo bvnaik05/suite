@@ -37,5 +37,5 @@ async function typeCopies(type: (typeof documentTypes)[number]) {
 </script>
 
 <template>
-  <Alert v-if="documents.length" theme="blue" :title="title" :primary-action="review" />
+  <Alert v-if="documents.length" :title="title" :primary-action="review" />
 </template>

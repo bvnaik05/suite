@@ -55,6 +55,13 @@ describe('Drive recovery notice', () => {
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/drive/recovery'))
   })
 
+  it('shows in the Alert’s gray, as Drive’s other notices do', async () => {
+    kept = [{ document: 'node-1' }]
+    const { root } = await openedNotice()
+
+    expect(root.querySelector('[role="status"]')!.getAttribute('data-color')).toBe('gray')
+  })
+
   it('names a single document in the singular', async () => {
     kept = [{ document: 'node-1' }]
     const { root } = await openedNotice()
