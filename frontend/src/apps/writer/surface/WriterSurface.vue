@@ -497,10 +497,12 @@ onBeforeUnmount(() => {
                 <p class="truncate text-sm text-ink-gray-7">
                   Viewing recovery copy from {{ savedAtLabel(previewedCopy) }}
                 </p>
-                <div class="flex shrink-0 items-center gap-1">
-                  <RecoveryCopyActions :copy="previewedCopy" @discarded="discardedCopy" />
-                  <Button size="sm" variant="ghost" label="Back to current" @click="closeCopy" />
-                </div>
+                <RecoveryCopyActions
+                  :copy="previewedCopy"
+                  can-go-back
+                  @back="closeCopy"
+                  @discarded="discardedCopy"
+                />
               </div>
             </template>
             <template v-if="previewedVersion" #cover>

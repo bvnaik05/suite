@@ -11,18 +11,31 @@ import {
   type RecoveryCopy,
 } from './copies'
 
-/** A recovery copy's menu: view it where `canView`, copy it, download it or discard it. */
-const props = defineProps<{ copy: RecoveryCopy; canView?: boolean }>()
-const emit = defineEmits<{ view: []; discarded: [] }>()
+/**
+ * A recovery copy's menu: view it where `canView`, leave it where `canGoBack`,
+ * copy it, download it or discard it.
+ */
+const props = defineProps<{ copy: RecoveryCopy; canView?: boolean; canGoBack?: boolean }>()
+const emit = defineEmits<{ view: []; back: []; discarded: [] }>()
 
 const viewOption = { label: 'View', icon: 'lucide-eye', onClick: () => emit('view') }
+const backOption = {
+  label: 'Back to current',
+  icon: 'lucide-arrow-left',
+  onClick: () => emit('back'),
+}
 const copyOptions = [
   { label: 'Copy', icon: 'lucide-copy', onClick: copyText },
   { label: 'Download', icon: 'lucide-download', onClick: download },
   { label: 'Discard', icon: 'lucide-trash-2', theme: 'red' as const, onClick: discard },
 ]
-const allOptions = [viewOption, ...copyOptions]
-const options = props.canView ? allOptions : copyOptions
+const options = [
+  { option: backOption, shown: props.canGoBack },
+  { option: viewOption, shown: props.canView },
+  ...copyOptions.map((option) => ({ option, shown: true })),
+]
+  .filter((entry) => entry.shown)
+  .map((entry) => entry.option)
 
 async function copyText() {
   try {

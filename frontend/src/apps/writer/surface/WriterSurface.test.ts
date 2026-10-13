@@ -22,7 +22,17 @@ vi.mock('frappe-ui', async () => {
   return {
     Avatar: emptyComponent,
     Badge: emptyComponent,
-    Dropdown: emptyComponent,
+    Dropdown: define({
+      props: { options: Array as () => { label: string; onClick: () => void }[] },
+      setup: (props) => () =>
+        render(
+          'div',
+          { 'data-menu': '' },
+          props.options?.map((option) =>
+            render('button', { onClick: option.onClick }, option.label),
+          ),
+        ),
+    }),
     Button: define({
       props: { label: String },
       emits: ['click'],
@@ -414,6 +424,30 @@ describe('Writer surface', () => {
     buttonLabelled(root, 'Back to current')!.click()
     await nextTick()
     expect(recoveryBanner(root)!.style.display).toBe('')
+    await discardCopy(copy)
+  })
+
+  it('keeps Back to current in the recovery bar’s menu, first, and the version bar’s as a button', async () => {
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const [copy] = await listCopies('node-1')
+    const root = await openedSurface(oneVersion)
+    await vi.waitFor(() => expect(recoveryBanner(root)).toBeDefined())
+
+    buttonLabelled(recoveryBanner(root)!, 'View')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Viewing recovery copy from'))
+    const bar = [...root.querySelectorAll('[role="status"]')].find((status) =>
+      status.textContent?.includes('Viewing recovery copy from'),
+    )!
+    const menu = [...bar.querySelectorAll('[data-menu] button')].map((item) => item.textContent)
+    const buttons = [...bar.querySelectorAll('button')].map((item) => item.textContent)
+    expect([menu, buttons]).toEqual([
+      ['Back to current', 'Copy', 'Download', 'Discard'],
+      ['Back to current', 'Copy', 'Download', 'Discard'],
+    ])
+
+    buttonLabelled(bar, 'Back to current')!.click()
+    await vi.waitFor(() => expect(root.textContent).not.toContain('Viewing recovery copy from'))
+    await previewAndReturn(root)
     await discardCopy(copy)
   })
 
