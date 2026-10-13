@@ -1,12 +1,13 @@
 import type { Page } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
-import { openForCollab } from "../../helpers/collab";
+import { expectSaved, openForCollab, typeParagraph } from "../../helpers/collab";
 import { discardNode } from "../../helpers/drive";
 import {
 	createWriterDocument,
 	openWriterDocument,
 	uniqueWriterTitle,
+	writerEditor,
 } from "../../helpers/writer";
 
 async function openComments(page: Page) {
@@ -19,6 +20,23 @@ async function commentOnDocument(page: Page, text: string) {
 	await panel.getByLabel("New comment").fill(text);
 	await panel.getByRole("button", { name: "Add" }).click();
 	return panel;
+}
+
+// Types a line, selects its last word and starts a comment on it from the bubble menu
+async function startCommentOnLastWord(page: Page, line: string) {
+	await typeParagraph(page, line);
+	await expectSaved(page);
+	const word = line.split(" ").at(-1) ?? "";
+	for (let left = word.length; left > 0; left--) {
+		await page.keyboard.press("Shift+ArrowLeft");
+	}
+
+	await page.locator('[data-slot="bubble-menu"]').getByRole("button", { name: "Comment" }).click();
+	const drafts = page.getByRole("complementary", { name: "Comments" }).getByRole("region", {
+		name: "Not posted yet",
+	});
+	await expect(drafts).toContainText(word);
+	return drafts;
 }
 
 test.describe("Writer collaboration comments", () => {
@@ -75,5 +93,48 @@ test.describe("Writer collaboration comments", () => {
 		await expect(
 			watching.getByRole("region", { name: "Comments on the document" }),
 		).toContainText("Seen from the other tab");
+	});
+
+	test("a comment on selected text shows on its words, and with deleted text once they go", async ({
+		owner,
+	}) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		const drafts = await startCommentOnLastWord(page, "the commented sentence");
+
+		await drafts.getByLabel("Comment on the text").fill("About this word");
+		await drafts.getByRole("button", { name: "Comment" }).click();
+
+		const panel = page.getByRole("complementary", { name: "Comments" });
+		const onText = panel.getByRole("region", { name: "On the text" });
+		await expect(onText).toContainText("About this word");
+		await expect(onText).toContainText("sentence");
+		await expect(drafts).toHaveCount(0);
+		await expect(writerEditor(page).locator("[data-thread]")).toHaveText("sentence");
+
+		await writerEditor(page).locator("[data-thread]").dblclick();
+		await page.keyboard.press("Backspace");
+		const deleted = panel.getByRole("region", { name: "Original text deleted" });
+		await expect(deleted).toContainText("About this word");
+		await expect(deleted).toContainText("sentence");
+	});
+
+	test("an unposted comment stays on the device through a reload until discarded", async ({
+		owner,
+	}) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		const drafts = await startCommentOnLastWord(page, "kept for later");
+		await drafts.getByLabel("Comment on the text").fill("Not sent yet");
+
+		await page.reload();
+		const reopened = (await openComments(page)).getByRole("region", { name: "Not posted yet" });
+		await expect(reopened.getByLabel("Comment on the text")).toHaveValue("Not sent yet");
+
+		await reopened.getByRole("button", { name: "Discard" }).click();
+		await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+		await expect(reopened).toHaveCount(0);
+		await page.reload();
+		await expect((await openComments(page)).getByText("No comments yet.")).toBeVisible();
 	});
 });

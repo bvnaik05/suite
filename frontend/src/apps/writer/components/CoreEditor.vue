@@ -135,6 +135,8 @@ const props = defineProps({
   newComment: Function,
   saveComments: Function,
   rawContent: String,
+  // Takes over the bubble menu's Comment, for editors that comment through Drive
+  commentOnSelection: { type: Function, default: null },
 })
 
 const emit = defineEmits(['save', 'editor-change', 'cleanup'])
@@ -329,6 +331,9 @@ const autorename = () => {
 }
 
 const addComment = () => {
+  if (props.commentOnSelection) {
+    return props.commentOnSelection()
+  }
   if (!props.yjsDoc) {
     return toast.warning("New comments aren't supported on this doc.", {
       duration: 1,

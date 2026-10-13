@@ -15,7 +15,9 @@ import {
 import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
 import { confirm } from '@/platform/feedback'
 
+import CommentDraftCard from './CommentDraftCard.vue'
 import { groupThreads, type ThreadGroup } from './threadGroups'
+import type { ShownDraft, useCommentDrafts } from './useCommentDrafts'
 import { useDocumentPanel, versionLabel } from './useDocumentPanel'
 
 type ThreadComment = DocumentThread['comments'][number]
@@ -28,6 +30,8 @@ const props = defineProps<{
   /** Where each thread shows in the editor; null when the editor can't tell. */
   places: ThreadPlaces | null
   refreshThreads: () => Promise<void>
+  /** Comments on text not posted yet; only the collaborative editor makes them. */
+  drafts?: ReturnType<typeof useCommentDrafts>
   /** Saves the document's pending edits, throwing why it couldn't. */
   saveFirst: () => Promise<void>
 }>()
@@ -58,8 +62,9 @@ const {
 const isCommentsPanel = computed(() => panel.value === 'comments')
 const title = computed(() => (isCommentsPanel.value ? 'Comments' : 'Versions'))
 const isCommentBlank = computed(() => !commentText.value.trim())
+const shownDrafts = computed(() => props.drafts?.drafts.value ?? [])
 const threadGroups = computed(() => groupThreads(props.threads, props.places))
-const hasNoThreads = computed(() => !props.threads.length)
+const hasNoThreads = computed(() => !props.threads.length && !shownDrafts.value.length)
 const isReplyBlank = computed(() => !replyText.value.trim())
 const hasNoVersions = computed(() => !lists.versions.length)
 const showsSaveVersion = computed(() => panel.value === 'versions' && props.canSaveVersion)
@@ -98,6 +103,28 @@ async function submitComment() {
 
   if (await addComment(text, takeGuestName())) {
     commentText.value = ''
+  }
+}
+
+function writeDraft(draft: ShownDraft, text: string) {
+  props.drafts?.write(draft, text)
+}
+
+function postDraft(draft: ShownDraft) {
+  void props.drafts?.post(draft, takeGuestName())
+}
+
+async function discardDraft(draft: ShownDraft) {
+  const isConfirmed =
+    !draft.text.trim() ||
+    (await confirm({
+      title: 'Discard comment?',
+      message: "It hasn't been posted, and can't be brought back.",
+      confirmLabel: 'Discard',
+      destructive: true,
+    }))
+  if (isConfirmed) {
+    props.drafts?.discard(draft)
   }
 }
 
@@ -255,6 +282,17 @@ function versionByline(version: DocumentVersion) {
                 <Button type="submit" label="Add" :disabled="isCommentBlank" />
               </div>
             </form>
+            <section v-if="shownDrafts.length" class="space-y-2" aria-label="Not posted yet">
+              <h3 class="text-sm-medium text-ink-gray-5">Not posted yet</h3>
+              <CommentDraftCard
+                v-for="draft in shownDrafts"
+                :key="draft.clientId"
+                :draft
+                @write="writeDraft(draft, $event)"
+                @post="postDraft(draft)"
+                @discard="discardDraft(draft)"
+              />
+            </section>
             <section
               v-for="group in threadGroups"
               :key="group.title"

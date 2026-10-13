@@ -43,6 +43,7 @@ import RecoveryBanner from '@/apps/writer/recovery/RecoveryBanner.vue'
 import RecoveryCopyActions from '@/apps/writer/recovery/RecoveryCopyActions.vue'
 import RecoveryPreview from '@/apps/writer/recovery/RecoveryPreview.vue'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
+import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
 
 import { refusedSaveBanner } from './collabMessages'
@@ -56,6 +57,7 @@ import {
 } from './navigation'
 import { restoreVersion, type RestoreNotice } from './restoreVersion'
 import { saveFirst } from './saveFirst'
+import { useCommentDrafts } from './useCommentDrafts'
 import { versionLabel } from './useDocumentPanel'
 import { useDocumentThreads } from './useDocumentThreads'
 import { useWriterCollab } from './useWriterCollab'
@@ -89,7 +91,12 @@ const props = defineProps<{ session: DocumentSession }>()
 type EditorView =
   | {
       is: typeof CollabTextEditor
-      props: { room: CollabRoom; file: EditorFile; threads: DocumentThread[] }
+      props: {
+        room: CollabRoom
+        file: EditorFile
+        threads: DocumentThread[]
+        onComment: (anchor: string) => void
+      }
     }
   | {
       is: typeof NonCollabEditor | typeof TextEditor
@@ -177,6 +184,24 @@ const automaticVersion: DocumentWrite = {
   run: () => version.run({ node: props.session.nodeId, kind: 'auto' }),
 }
 
+const commentDrafts = useCommentDrafts({
+  session: props.session,
+  user: useCurrentUser().user.value ?? 'Guest',
+  room: () => room.value,
+  refreshThreads,
+})
+
+// A comment on the selected text starts as a draft in the comments panel
+function commentOnText(anchor: string) {
+  if (!canComment.value) {
+    toast.warning("You can't comment on this document.")
+    return
+  }
+
+  commentDrafts.start(anchor)
+  panel.value = 'comments'
+}
+
 const documentResource = writes.guard(
   Object.assign(writerDocument, { newVersion: automaticVersion }),
   ['saveDoc', 'saveHtml', 'newVersion'],
@@ -251,7 +276,8 @@ function dirtyModel() {
 const editorView = computed<EditorView>(() => {
   const file = editorFile.value
   if (collabLive.value && room.value) {
-    return { is: CollabTextEditor, props: { room: room.value, file, threads: threads.value } }
+    const collabProps = { room: room.value, file, threads: threads.value, onComment: commentOnText }
+    return { is: CollabTextEditor, props: collabProps }
   }
 
   const editorProps = { file, ...dirtyModel() }
@@ -667,6 +693,7 @@ onBeforeUnmount(() => {
                 :threads="threads"
                 :places="threadPlaces"
                 :refresh-threads="refreshThreads"
+                :drafts="commentDrafts"
                 :save-first="saveBeforeVersion"
                 @update:previewed-version="showVersion"
                 @closed="header?.focusPanelToggle($event)"

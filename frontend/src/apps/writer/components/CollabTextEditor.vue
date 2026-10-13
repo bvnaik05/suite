@@ -9,6 +9,7 @@
     :editable
     :comments
     :extensions
+    :comment-on-selection
     collaborative
     @save="(_manual: boolean, _html: string | null, done?: () => void) => save(done)"
   >
@@ -28,6 +29,7 @@ import type { DocumentThread } from '@/apps/drive'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { redrawThreads, ThreadHighlights, type ThreadPlaces } from '@/apps/writer/collab/highlights'
 import { peopleOf } from '@/apps/writer/collab/peers'
+import { anchorSelection } from '@/apps/writer/collab/places'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
 import type {
@@ -48,6 +50,7 @@ const props = defineProps<{
 }>()
 
 const showSettings = defineModel('showSettings')
+const emit = defineEmits<{ comment: [anchor: string] }>()
 
 const edited = ref(false)
 const textEditor = ref<InstanceType<typeof CoreEditor> | null>(null)
@@ -91,6 +94,13 @@ watch(
     }
   },
 )
+
+function commentOnSelection() {
+  const anchor = editor.value && anchorSelection(editor.value.state)
+  if (anchor) {
+    emit('comment', anchor)
+  }
+}
 
 async function save(done?: () => void) {
   await withinTenSeconds(props.room.flush())
