@@ -12,6 +12,7 @@ import {
   shallowRef,
   watch,
 } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { api, useMutation } from '@/api'
 import {
@@ -262,6 +263,26 @@ function viewCopy(copy: RecoveryCopy) {
   previewedCopy.value = copy
 }
 
+const route = useRoute()
+const router = useRouter()
+
+// The recovery copies page opens a copy here by its key
+async function viewRequestedCopy() {
+  const key = route.query.recovery
+  if (typeof key !== 'string') {
+    return
+  }
+
+  const copies = await listCopies(props.session.nodeId)
+  const copy = copies.find((kept) => kept.key === key)
+  const query = { ...route.query }
+  delete query.recovery
+  await router.replace({ query })
+  if (copy) {
+    viewCopy(copy)
+  }
+}
+
 watch(previewedVersion, (shownVersion) => {
   if (shownVersion) {
     previewedCopy.value = null
@@ -352,6 +373,7 @@ onMounted(() => {
   window.addEventListener('offline', setOffline)
   window.addEventListener('beforeunload', warnBeforeUnload)
   void openCollab()
+  void viewRequestedCopy()
 })
 
 onBeforeUnmount(() => {

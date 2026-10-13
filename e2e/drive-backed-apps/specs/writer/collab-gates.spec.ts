@@ -238,14 +238,13 @@ test.describe("Writer collaboration", () => {
 		await viewing.getByRole("button", { name: "Back to current" }).click();
 		await expect(owner.page.getByLabel("Recovery copy")).toBeHidden();
 
-		await owner.page.goto("/drive");
-		await owner.page.getByRole("link", { name: "Recovery" }).click();
+		await owner.page.goto("/drive/recovery");
 		const row = owner.page.getByRole("listitem").filter({ hasText: title });
 		await row.getByRole("button", { name: title }).click();
-		await expect(
-			owner.page.frameLocator('iframe[title="Recovery copy"]').locator("body"),
-		).toContainText("Typed in the old editor");
-		await owner.page.keyboard.press("Escape");
+		await expect(viewing).toBeVisible();
+		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
+
+		await owner.page.goto("/drive/recovery");
 		await row.getByRole("button", { name: /^Actions for/ }).click();
 		await owner.page.getByRole("menuitem", { name: "Discard" }).click();
 		await owner.page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();

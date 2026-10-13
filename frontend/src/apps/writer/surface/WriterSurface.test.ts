@@ -22,6 +22,7 @@ vi.mock('frappe-ui', async () => {
   return {
     Avatar: emptyComponent,
     Badge: emptyComponent,
+    Dropdown: emptyComponent,
     Button: define({
       props: { label: String },
       emits: ['click'],
@@ -71,6 +72,7 @@ const rooms = vi.hoisted(() => ({ next: null as object | null }))
 vi.mock('@/apps/writer/collab', () => ({
   BODY_FIELD: 'default',
   openWriterRoom: async () => (rooms.next ? { state: 'live', room: rooms.next } : { state: 'off' }),
+  writerDeviceStore: async () => null,
 }))
 
 vi.mock('@/apps/writer/components/NonCollabEditor.vue', async () => {
@@ -167,6 +169,7 @@ vi.mock('./VersionPreview.vue', async () => {
 
 const { default: WriterSurface } = await import('./WriterSurface.vue')
 const { watchBuild } = await import('@/platform/build')
+const { discardCopy, keepPageCopy, listCopies } = await import('@/apps/writer/recovery/copies')
 
 async function serverMinBuilds(minBuilds: Record<string, string>) {
   const headers = { 'X-Suite-Min-Builds': JSON.stringify(minBuilds) }
@@ -176,7 +179,7 @@ async function serverMinBuilds(minBuilds: Record<string, string>) {
   await window.fetch('/api/method/ping')
 }
 
-async function openedSurface(versions?: Versions) {
+async function openedSurface(versions?: Versions, path = '/d/node-1') {
   const session = {
     nodeId: 'node-1',
     title: ref('Quarterly plan'),
@@ -196,7 +199,7 @@ async function openedSurface(versions?: Versions) {
   const routes = [{ path: '/d/:node', component: surface }]
   const history = createMemoryHistory()
   const router = createRouter({ history, routes })
-  await router.push('/d/node-1')
+  await router.push(path)
   await router.isReady()
 
   const root = document.createElement('div')
@@ -391,5 +394,18 @@ describe('Writer surface', () => {
     expect(otherTab.getXmlFragment('default').toString()).toContain('Typed here first')
     editor().commands.undo()
     expect(shownText(root)).not.toContain('Typed here first')
+  })
+
+  it('opens the recovery copy a link names, in place of the editor', async () => {
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const [copy] = await listCopies('node-1')
+    const key = encodeURIComponent(copy.key)
+    const root = await openedSurface(undefined, `/d/node-1?recovery=${key}`)
+
+    await vi.waitFor(() => expect(root.textContent).toContain('Viewing recovery copy from'))
+    expect(root.querySelector('[aria-label="Recovery copy"]')!.textContent).toBe(
+      'Typed while offline',
+    )
+    await discardCopy(copy)
   })
 })

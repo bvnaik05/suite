@@ -1,25 +1,41 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { Button } from 'frappe-ui'
+import { computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
-import { formatDriveBytes } from '@/apps/drive'
+import { driveNodeRoute, formatDriveBytes, loadDriveNodeSummary } from '@/apps/drive'
 
 import { savedAtLabel, type RecoveryCopy } from './copies'
 import RecoveryCopyActions from './RecoveryCopyActions.vue'
-import RecoveryCopyView from './RecoveryCopyView.vue'
+import RecoveryPreview from './RecoveryPreview.vue'
 import { useRecoveryCopies } from './useRecoveryCopies'
 
 /** Every Writer copy this device keeps, also of documents the person can no longer open. */
 const { copies, refresh } = useRecoveryCopies()
+const route = useRoute()
+const router = useRouter()
 
 const hasNoCopies = computed(() => !copies.value.length)
-const viewed = ref<RecoveryCopy | null>(null)
-const isViewing = ref(false)
+// A copy whose document can't be opened shows on this page instead
+const shownCopy = computed(() => copies.value.find((copy) => copy.key === route.query.copy))
 
 onMounted(refresh)
 
-function view(copy: RecoveryCopy) {
-  viewed.value = copy
-  isViewing.value = true
+async function view(copy: RecoveryCopy) {
+  const node = await loadDriveNodeSummary(copy.node).catch(() => null)
+  if (node && node.state !== 'Trashed') {
+    await router.push({ ...driveNodeRoute(node), query: { recovery: copy.key } })
+    return
+  }
+
+  await router.push({ query: { copy: copy.key } })
+}
+
+async function discarded() {
+  await refresh()
+  if (route.query.copy) {
+    await router.push({ query: {} })
+  }
 }
 
 function titleOf(copy: RecoveryCopy) {
@@ -34,7 +50,27 @@ function details(copy: RecoveryCopy) {
 </script>
 
 <template>
-  <section aria-labelledby="unsaved-writer" class="space-y-2">
+  <article v-if="shownCopy" aria-labelledby="shown-copy" class="space-y-2">
+    <header class="flex items-center gap-2">
+      <Button
+        icon="lucide-arrow-left"
+        variant="ghost"
+        aria-label="All copies"
+        @click="router.push({ query: {} })"
+      />
+      <div class="min-w-0 flex-1">
+        <h2 id="shown-copy" class="truncate text-base-medium text-ink-gray-8">
+          {{ titleOf(shownCopy) }}
+        </h2>
+        <p class="text-xs text-ink-gray-5">{{ details(shownCopy) }}</p>
+      </div>
+      <RecoveryCopyActions :copy="shownCopy" @discarded="discarded" />
+    </header>
+    <div class="flex rounded border border-outline-gray-2">
+      <RecoveryPreview :copy="shownCopy" :settings="null" />
+    </div>
+  </article>
+  <section v-else aria-labelledby="unsaved-writer" class="space-y-2">
     <h2 id="unsaved-writer" class="text-base-medium text-ink-gray-8">Documents</h2>
     <p v-if="hasNoCopies" class="text-sm text-ink-gray-5">No unsaved documents on this device.</p>
     <ul v-else class="divide-y divide-outline-gray-1">
@@ -51,9 +87,8 @@ function details(copy: RecoveryCopy) {
           <span class="block truncate text-sm-medium text-ink-gray-8">{{ titleOf(copy) }}</span>
           <span class="block text-xs text-ink-gray-5">{{ details(copy) }}</span>
         </button>
-        <RecoveryCopyActions :copy="copy" @discarded="refresh" />
+        <RecoveryCopyActions :copy="copy" can-view @view="view(copy)" @discarded="refresh" />
       </li>
     </ul>
-    <RecoveryCopyView v-if="viewed" v-model:open="isViewing" :copy="viewed" />
   </section>
 </template>
