@@ -1,7 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
-import { device, fakeServer, fakeTime, idle, join, text, type FakeServer } from './test-support'
+import {
+  device,
+  fakeServer,
+  fakeTime,
+  idle,
+  join,
+  reply,
+  text,
+  type FakeServer,
+} from './test-support'
 import type { CollabRoom } from './types'
 
 // The update another tab's restore sends: the document as the server holds it, made `version`
@@ -150,5 +159,173 @@ describe('work from before a restore', () => {
       0,
     ])
     expect(text(await join(server.endpoints()))).toBe('old new')
+  })
+})
+
+// The edit that makes the room's document `version`
+function becomes(room: CollabRoom, version: string) {
+  return () => {
+    const body = room.doc.getText('t')
+    body.delete(0, body.length)
+    body.insert(0, version)
+  }
+}
+
+describe("this tab's restore", () => {
+  it('lands as one push under the fence, even when the notice comes before the answer', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints(), { socket: server.socket() })
+    await vi.advanceTimersByTimeAsync(0)
+    const token = server.fence(120_000)
+    await vi.advanceTimersByTimeAsync(200)
+
+    const outcome = await room.restore(token, becomes(room, 'old'))
+
+    expect([outcome, room.restoreRev, room.stopped, room.canWrite]).toEqual([
+      'landed',
+      2,
+      null,
+      true,
+    ])
+    expect(text(await join(server.endpoints()))).toBe('old')
+  })
+
+  it('edits on once the restore lands, before its row and notice come back', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints(), { socket: server.socket() })
+    await vi.advanceTimersByTimeAsync(0)
+    const token = server.fence(120_000)
+    await vi.advanceTimersByTimeAsync(200)
+    server.realtime.publishing = false
+
+    await room.restore(token, becomes(room, 'old'))
+    const canWrite = room.canWrite
+    type(room, ' new')
+    await room.flush()
+
+    expect([canWrite, room.stopped]).toEqual([true, null])
+    expect(text(await join(server.endpoints()))).toBe('old new')
+  })
+
+  it('keeps editing locked until the server answers the restore', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+    const token = server.fence(120_000)
+    server.access.online = false
+
+    const restoring = room.restore(token, becomes(room, 'old'))
+    await vi.advanceTimersByTimeAsync(0)
+    const lockedWhileSending = [room.restoring, room.canWrite]
+    server.access.online = true
+    await vi.advanceTimersByTimeAsync(30_000)
+    await restoring
+
+    expect([...lockedWhileSending, room.restoring, room.canWrite]).toEqual([
+      true,
+      false,
+      false,
+      true,
+    ])
+  })
+
+  it('a change made while the restore is on its way never rides in it and is kept as a copy', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    const token = server.fence(120_000)
+    server.access.online = false
+
+    const restoring = room.restore(token, becomes(room, 'old'))
+    await vi.advanceTimersByTimeAsync(0)
+    type(room, ' stray')
+    server.access.online = true
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect([await restoring, room.stopped, await reasonsKept(kept)]).toEqual([
+      'landed',
+      'restored',
+      ['restored'],
+    ])
+    expect(text(await join(server.endpoints()))).toBe('old')
+  })
+
+  it('a restore the fence no longer holds changes nothing, keeps no copy and rebuilds the tab', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    const token = server.fence(120_000)
+    server.fence(null)
+
+    const outcome = await room.restore(token, becomes(room, 'old'))
+
+    expect([outcome, room.stopped, room.needsRebuild, room.unsent]).toEqual([
+      'refused',
+      'restore_lost',
+      true,
+      0,
+    ])
+    expect(await reasonsKept(kept)).toEqual([])
+    expect(text(await join(server.endpoints()))).toBe('draft')
+  })
+
+  it('a restore the server refuses for another reason is never kept as a recovery copy', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    const token = server.fence(120_000)
+    server.access.refuse = reply(409, { collab: 'poison' })
+
+    const outcome = await room.restore(token, becomes(room, 'old'))
+
+    expect([outcome, room.stopped, await reasonsKept(kept)]).toEqual(['refused', 'poison', []])
+  })
+
+  it('a tab closing before its restore is sent leaves nothing on the device to send later', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    const token = server.fence(120_000)
+    server.access.online = false
+
+    void room.restore(token, becomes(room, 'old'))
+    await vi.advanceTimersByTimeAsync(0)
+    await room.close()
+    server.access.online = true
+    server.fence(null)
+    const next = await join(server.endpoints(), { device: kept })
+    await next.flush()
+
+    expect([text(next), next.unsent, await reasonsKept(kept)]).toEqual(['draft', 0, []])
+    expect(text(await join(server.endpoints()))).toBe('draft')
+  })
+
+  it('work still unsent stops a restore before it changes anything', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+    const token = server.fence(120_000)
+    type(room, ' mine')
+
+    const outcome = await room.restore(token, becomes(room, 'old'))
+
+    expect([outcome, text(room)]).toEqual(['unsent', 'draft mine'])
+  })
+
+  it('a restore to what the document already holds sends nothing', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+    const token = server.fence(120_000)
+
+    const outcome = await room.restore(token, () => {})
+
+    expect([outcome, server.rows.length, room.restoring]).toEqual(['unchanged', 1, false])
   })
 })

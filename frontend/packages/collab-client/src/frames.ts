@@ -78,6 +78,8 @@ export interface PushHeader {
   final: boolean
   // Names the staged pieces that hold the change, which then travels empty
   stage_id?: string
+  // The restore fence's token, on the push that lands the restore
+  restore?: string
 }
 
 // What places a staged piece: a push's seq range, or the rev and quarantine epoch a render was made at

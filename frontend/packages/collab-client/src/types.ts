@@ -100,6 +100,10 @@ export type Blocked =
 // Why the document waits for an admin: one change, or its saved content
 export type Held = 'change' | 'bad_checkpoint'
 
+// How a restore went: `unsent` when work still waited to go first, `unchanged` when the document
+// already was the version, `refused` when the server didn't take it (`stopped` says why)
+export type RestoreOutcome = 'landed' | 'unsent' | 'unchanged' | 'refused'
+
 export const isRecoverable = (blocked: Blocked) =>
   blocked === 'signed_out' || blocked === 'locked' || blocked === 'offline'
 
@@ -119,6 +123,8 @@ export interface CollabRoom {
   readonly held: Held | null
   // A version is being restored, so nobody edits until it lands or is called off
   readonly restoring: boolean
+  // The rev of the last restore this tab applied or heard of
+  readonly restoreRev: number
   // A newer editor wrote to the document; this tab follows and sends nothing more until reloaded
   readonly newerSchema: boolean
   // This copy may hold a change the server has since quarantined; it follows nothing more and is to be opened again
@@ -140,6 +146,8 @@ export interface CollabRoom {
   onChange(listener: () => void): () => void
   pull(): Promise<void>
   flush(): Promise<void>
+  // Makes `edit` the restore under the fence `token`, as one push the server takes or refuses whole
+  restore(token: string, edit: () => void): Promise<RestoreOutcome>
   close(): Promise<void>
 }
 

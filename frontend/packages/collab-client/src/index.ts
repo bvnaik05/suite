@@ -26,6 +26,7 @@ export {
   type Opened,
   type OpenOptions,
   type Peer,
+  type RestoreOutcome,
   type RoomPresence,
   type SaveState,
 } from './types'

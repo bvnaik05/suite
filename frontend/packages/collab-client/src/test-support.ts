@@ -212,7 +212,6 @@ export function fakeServer(state = 'live', lineage = 'L') {
       recordCall('push')
       if (access.refuse) return access.refuse
       if (judge.held) return reply(423, { collab: 'paused', reason: 'suspect', retry_ms: 300_000 })
-      if (restoringMs()) return reply(423, RESTORING)
       const { length, header, bytes: inline } = splitPush(body)
       finals.push(header.final)
       schemas.push(header.schema)
@@ -233,6 +232,11 @@ export function fakeServer(state = 'live', lineage = 'L') {
             copy: copy.wanted,
           })
       }
+      const isRestore = header.restore !== undefined
+      const sameFence = header.restore === restore.token && !!restoringMs()
+      if (isRestore && (!sameFence || header.seen_rev !== rows.length))
+        return reply(409, { collab: 'restore_lost' })
+      if (!isRestore && restoringMs()) return reply(423, RESTORING)
       if (header.seen_rev < restore.rev)
         return reply(409, { collab: 'restored', restore_rev: restore.rev })
       if (header.from > session.acked + 1)
@@ -256,7 +260,23 @@ export function fakeServer(state = 'live', lineage = 'L') {
       rows.push({ rev: rows.length + 1, bytes })
       session.acked = header.to
       const encodedRow = bytes.byteLength <= 32 * 1024 ? base64(bytes) : null
-      publish('suite_collab_row', { rev: rows.length, schema: header.schema, u: encodedRow })
+      const row: Record<string, unknown> = {
+        rev: rows.length,
+        schema: header.schema,
+        u: encodedRow,
+      }
+      if (isRestore) {
+        restore.rev = rows.length
+        restore.until = 0
+        restore.token = ''
+        row.restore = true
+      }
+
+      publish('suite_collab_row', row)
+      if (isRestore) {
+        publish('suite_collab_ctl', { kind: 'restored', restore_rev: restore.rev })
+      }
+
       const answer = { rev: rows.length, head: rows.length, acked: header.to, pace_ms: pace.ms }
       return reply(200, { ...answer, copy: copy.wanted })
     },
@@ -305,16 +325,21 @@ export function fakeServer(state = 'live', lineage = 'L') {
     publish('suite_collab_ctl', { kind: 'quarantine', q_epoch: epoch.now })
   }
   // A restore under way holds the document until `until`; 0 when none is
-  const restore = { until: 0, rev: 0 }
+  const restore = { until: 0, rev: 0, token: '' }
   const restoringMs = () => Math.max(0, restore.until - Date.now()) || undefined
-  // A restore begins for `ms`, or ends as `kind`: `restored` when it lands, `restore_ended` when called off
+  // A restore begins for `ms` and answers its token, or ends as `kind`: `restored` when it lands,
+  // `restore_ended` when called off
   const fence = (ms: number | null, kind = 'restore_ended') => {
     restore.until = Date.now() + (ms ?? 0)
+    restore.token = ''
     if (ms) {
+      restore.token = 'f'.repeat(32)
       publish('suite_collab_ctl', { kind: 'restoring', fence_ms: ms })
     } else {
       publish('suite_collab_ctl', { kind })
     }
+
+    return restore.token
   }
   // Another tab's restore lands as the next row, `bytes` making the document the version;
   // `isNoticeLost` drops the notice that follows the row

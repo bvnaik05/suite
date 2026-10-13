@@ -37,6 +37,8 @@ export interface SenderRoom extends AccessRoom {
   setHeld(held: Held | null): void
   markNeedsRebuild(): void
   stopForGood(reason: string): Promise<void>
+  restoreLanded(rev: number, bytes: Uint8Array): void
+  restoreLost(): Promise<void>
   onServerHeard(): void
   onUnreachable(): void
 }
@@ -67,6 +69,16 @@ function paceWithinRange(paceMs: unknown) {
   }
 
   return Math.min(Math.max(paceMs, 0), MAX_PACE_MS)
+}
+
+// The restore a push carries, read before its ack takes the entries away
+function restoreIn(box: Outbox, header: PushHeader) {
+  const landed = box.pending.filter((entry) => entry.restore && entry.seq <= header.to)
+  if (!header.restore || !landed.length) {
+    return null
+  }
+
+  return Y.mergeUpdates(landed.map((entry) => entry.bytes))
 }
 
 // Pushes the room's unsent work one push at a time, at the server's pace, and settles each answer
@@ -151,7 +163,7 @@ export class Sender {
     this.inFlight = Promise.resolve()
       .then(() => this.push(prepared, request))
       .then(
-        (reply) => this.settlePush(reply, box, header.to),
+        (reply) => this.settlePush(reply, box, header),
         () => this.onPushFailed(),
       )
       .finally(() => this.endPush())
@@ -286,7 +298,7 @@ export class Sender {
 
   private pushHeader(box: Outbox, entries: Entry[], isFinal: boolean): PushHeader {
     const room = this.room
-    return {
+    const header: PushHeader = {
       proto: 1,
       lineage: room.lineage,
       principal: room.options.principal,
@@ -299,6 +311,11 @@ export class Sender {
       shas: entries.map((entry) => entry.sha),
       final: isFinal,
     }
+    if (entries[0].restore) {
+      header.restore = entries[0].restore
+    }
+
+    return header
   }
 
   // Staged pieces take several requests, which a departing page can't count on
@@ -309,7 +326,7 @@ export class Sender {
     return { box, header: staged, body: encodePush(staged, new Uint8Array()), pieces }
   }
 
-  private async settlePush(reply: Reply, box: Outbox, lastSeq: number) {
+  private async settlePush(reply: Reply, box: Outbox, header: PushHeader) {
     if (reply.pace_ms !== undefined) {
       this.setPace(reply.pace_ms)
     }
@@ -319,7 +336,7 @@ export class Sender {
     }
 
     if (reply.status === 200) {
-      return this.onCommitted(reply, box, lastSeq)
+      return this.onCommitted(reply, box, header)
     }
 
     if (reply.status === 409 && reply.collab === 'seq' && typeof reply.acked === 'number') {
@@ -396,6 +413,10 @@ export class Sender {
       return this.retryAfter(backoffMs())
     }
 
+    if (reply.collab === 'restore_lost') {
+      return room.restoreLost()
+    }
+
     await room.stopForGood(reply.collab)
     // The server quarantined a change of this session, or holds a restore this copy predates
     if (reply.collab === 'client_closed' || reply.collab === 'restored') {
@@ -403,11 +424,10 @@ export class Sender {
     }
   }
 
-  private onCommitted(reply: Reply, box: Outbox, lastSeq: number) {
+  private onCommitted(reply: Reply, box: Outbox, header: PushHeader) {
     const room = this.room
     room.onServerHeard()
-    const ackedThrough = reply.dup ? (reply.acked ?? lastSeq) : lastSeq
-    room.acknowledge(box, ackedThrough)
+    this.acknowledge(reply, box, header)
     if (!reply.dup && typeof reply.rev === 'number') {
       room.realtime?.pushed(reply.rev)
     }
@@ -429,6 +449,21 @@ export class Sender {
     }
     if (room.unsent) {
       this.scheduleSend()
+    }
+  }
+
+  // A restore's entries leave the outbox with the ack, so they are read first
+  private acknowledge(reply: Reply, box: Outbox, header: PushHeader) {
+    const restore = restoreIn(box, header)
+    let ackedThrough = header.to
+    if (reply.dup) {
+      ackedThrough = reply.acked ?? header.to
+    }
+
+    this.room.acknowledge(box, ackedThrough)
+    // The server answers a repeated restore with the rev it first landed at
+    if (restore && typeof reply.rev === 'number') {
+      this.room.restoreLanded(reply.rev, restore)
     }
   }
 

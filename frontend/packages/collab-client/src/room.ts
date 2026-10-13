@@ -9,7 +9,7 @@ import { adoptLeftovers, claimClientId, lostReason } from './leftovers'
 import { Live, type LiveHooks } from './live'
 import { hasLocks, holdLock } from './locks'
 import type { Opening, RoomInit } from './opening'
-import { ADOPT, REMOTE } from './origins'
+import { ADOPT, REMOTE, RESTORE } from './origins'
 import { Outbox } from './outbox'
 import { Puller } from './puller'
 import { Sender } from './sender'
@@ -21,6 +21,7 @@ import {
   type Held,
   type LiveState,
   type OpenOptions,
+  type RestoreOutcome,
   type SaveState,
 } from './types'
 import { SuspectReport } from './verdict'
@@ -40,6 +41,8 @@ export class Room implements CollabRoom {
   appliedThrough = 0
   // The rev of the last restore this tab heard of
   restoreRev = 0
+  // The fence's token while this tab's own restore is on its way
+  private restoreToken: string | null = null
   limits: Limits | null = null
   needsRebuild = false
   readonly lineage: string
@@ -140,7 +143,7 @@ export class Room implements CollabRoom {
   }
 
   get restoring() {
-    return this.fence.standing
+    return this.fence.standing || !!this.restoreToken
   }
 
   get live(): LiveState | null {
@@ -370,6 +373,50 @@ export class Room implements CollabRoom {
     this.markNeedsRebuild()
   }
 
+  // Makes `edit` this tab's restore under the fence `token` and sends it alone. Editing stays
+  // locked until the server answers, so nothing is typed against a document it may not take
+  async restore(token: string, edit: () => void): Promise<RestoreOutcome> {
+    if (this.unsent || this.sender.inFlight) {
+      return 'unsent'
+    }
+
+    if (!this.writable || !this.bound || this.closed) {
+      return 'refused'
+    }
+
+    const landedBefore = this.restoreRev
+    this.restoreToken = token
+    try {
+      this.doc.transact(edit, RESTORE)
+      if (!this.unsent) {
+        return 'unchanged'
+      }
+
+      await this.flush()
+    } finally {
+      this.restoreToken = null
+      this.notifyListeners()
+    }
+
+    return this.restoreRev > landedBefore ? 'landed' : 'refused'
+  }
+
+  // This tab held every row before its restore, so the restore's row is the next it applies;
+  // the fence went with it, whether or not the notice comes
+  restoreLanded(rev: number, bytes: Uint8Array) {
+    this.restoreRev = Math.max(this.restoreRev, rev)
+    this.puller.applyRows([{ rev, bytes }])
+    this.fence.lift()
+  }
+
+  // The fence lifted, lapsed or was taken over first: the restore changes nothing,
+  // and the tab is opened again from the server
+  async restoreLost() {
+    this.ownOutbox.dropRestore()
+    await this.stopForGood('restore_lost')
+    this.markNeedsRebuild()
+  }
+
   // A held document's pushes wait minutes between tries, so its release sends at once
   setHeld(held: Held | null) {
     if (this.held === held) return
@@ -501,6 +548,12 @@ export class Room implements CollabRoom {
     }
 
     if (!this.writable) return
+
+    if (origin === RESTORE && this.restoreToken) {
+      this.ownOutbox.add(update, this.appliedThrough, this.restoreToken)
+      this.onUnsentChanged()
+      return
+    }
 
     const entry = this.ownOutbox.add(update, this.appliedThrough)
     if (this.device) {
