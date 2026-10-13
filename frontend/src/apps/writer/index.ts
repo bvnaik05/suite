@@ -19,5 +19,5 @@ export const writerDocument: DocumentTypeDefinition = {
   icon: WriterIcon,
   loadSurface: async () => (await import('@/apps/writer/surface/WriterSurface.vue')).default,
   loadUnsavedWork: async () => (await import('@/apps/writer/recovery/UnsavedWork.vue')).default,
-  countUnsavedWork: async () => (await import('@/apps/writer/recovery/copies')).countCopies(),
+  listUnsavedCopies: async () => (await import('@/apps/writer/recovery/copies')).copyEntries(),
 }

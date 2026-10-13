@@ -44,11 +44,24 @@ export async function listCopies(node?: string): Promise<RecoveryCopy[]> {
   return copies.sort((first, second) => second.savedAt.getTime() - first.savedAt.getTime())
 }
 
-/** How many copies this device keeps, without reading them. */
-export async function countCopies() {
+/** Each copy's key and document, without reading the copies. */
+export async function copyEntries() {
   const store = await writerDeviceStore()
   const records = (await store?.allRecovery().catch(() => [])) ?? []
-  return records.length + pageKeys().length
+  const stored = records.map((record) => ({
+    key: `${STORE_PREFIX}${record.id}`,
+    document: record.doc,
+  }))
+  return [...stored, ...pageKeys().flatMap(pageEntry)]
+}
+
+function pageEntry(key: string) {
+  const stored = storedPageCopy(key)
+  if (!stored) {
+    return []
+  }
+
+  return [{ key, document: stored.node }]
 }
 
 export async function discardCopy(copy: RecoveryCopy) {
@@ -123,7 +136,7 @@ function isPageCopyOf(key: string, node?: string) {
   return key === nodeKey || key.startsWith(`${nodeKey}:`)
 }
 
-function readPageCopy(key: string): RecoveryCopy | null {
+function storedPageCopy(key: string): (PageCopy & { node: string }) | null {
   let stored: Partial<PageCopy> | null
   try {
     stored = JSON.parse(localStorage.getItem(key) ?? 'null')
@@ -137,9 +150,18 @@ function readPageCopy(key: string): RecoveryCopy | null {
 
   // A copy from before page loads were told apart is keyed by its document alone
   const node = stored.node ?? key.slice(PAGE_PREFIX.length)
+  return { ...stored, node, html: stored.html, savedAt: stored.savedAt }
+}
+
+function readPageCopy(key: string): RecoveryCopy | null {
+  const stored = storedPageCopy(key)
+  if (!stored) {
+    return null
+  }
+
   const html = stored.html
   const text = new DOMParser().parseFromString(html, 'text/html').body.textContent ?? ''
-  const fields = { key, node, title: stored.title ?? '', html, text }
+  const fields = { key, node: stored.node, title: stored.title ?? '', html, text }
   return { ...fields, savedAt: new Date(stored.savedAt), size: sizeOf(html) }
 }
 

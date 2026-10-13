@@ -5,7 +5,7 @@ import { writerDeviceStore } from '@/apps/writer/collab'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 
 import {
-  countCopies,
+  copyEntries,
   discardCopy,
   downloadCopy,
   keepPageCopy,
@@ -61,7 +61,11 @@ describe('Writer recovery copies', () => {
       'node-1',
       'node-2',
     ])
-    expect(await countCopies()).toBe(3)
+    expect((await copyEntries()).map((entry) => entry.document).sort()).toEqual([
+      'node-1',
+      'node-1',
+      'node-2',
+    ])
   })
 
   it('lists the other copies when one record on the device cannot be read', async () => {
@@ -86,9 +90,9 @@ describe('Writer recovery copies', () => {
     })
 
     const listed = await listCopies()
-    const counted = await countCopies()
+    const entries = await copyEntries()
     blocked.mockRestore()
-    expect([summary(listed), counted]).toEqual([[['node-1', 'Plan', 'typed while live']], 1])
+    expect([summary(listed), entries.length]).toEqual([[['node-1', 'Plan', 'typed while live']], 1])
   })
 
   it('keeps a copy from before page loads were told apart', async () => {
@@ -97,6 +101,9 @@ describe('Writer recovery copies', () => {
     localStorage.setItem('suite:writer-recovery:node-2', 'not json')
 
     expect(summary(await listCopies())).toEqual([['node-1', '', 'older copy']])
+    expect(await copyEntries()).toEqual([
+      { key: 'suite:writer-recovery:node-1', document: 'node-1' },
+    ])
   })
 
   it('lists only the copies of the document asked for, not of one whose id starts the same', async () => {

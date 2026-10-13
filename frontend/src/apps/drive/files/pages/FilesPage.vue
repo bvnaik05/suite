@@ -171,6 +171,7 @@
             @update:model-value="switchTrashRoot"
           />
 
+          <RecoveryNotice v-if="isMyFiles" class="mt-3" />
           <Alert
             v-if="trashedFolder && !isSearching"
             class="mt-3"
@@ -290,6 +291,7 @@ import {
 } from '../features/presentation'
 import { observePreviewRefresh } from '../features/previewRefresh'
 import { recentFiles } from '../features/recent'
+import RecoveryNotice from '../features/RecoveryNotice.vue'
 import RenameDialog from '../features/RenameDialog.vue'
 import { clearSelection, toggleSelection, type SelectionState } from '../features/selection'
 import { copyLink } from '../features/share/shareFormat'
@@ -383,6 +385,7 @@ const presentation = computed<PresentationState>(() => {
  * Owner column says nothing. A folder whose trail has not loaded counts as the
  * user's own; a folder shared from elsewhere has another root.
  */
+const isMyFiles = computed(() => props.destination === 'personal')
 const inOwnSpace = computed(() => {
   if (isSearching.value) return false
   if (props.destination === 'personal') return true

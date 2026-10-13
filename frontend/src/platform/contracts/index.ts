@@ -63,8 +63,14 @@ export interface DocumentTypeDefinition {
   loadSurface: () => Promise<Component>
   /** Lazy list of this type's work kept on this device that never reached the server. */
   loadUnsavedWork?: () => Promise<Component>
-  /** How many such copies this device keeps, without loading the list. */
-  countUnsavedWork?: () => Promise<number>
+  /** Each such copy this device keeps, without loading the list. */
+  listUnsavedCopies?: () => Promise<UnsavedCopy[]>
+}
+
+/** One copy of work kept on this device, by its key and the document it belongs to. */
+export interface UnsavedCopy {
+  key: string
+  document: string
 }
 
 /**

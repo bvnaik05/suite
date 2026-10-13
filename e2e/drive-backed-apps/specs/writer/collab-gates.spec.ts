@@ -238,7 +238,9 @@ test.describe("Writer collaboration", () => {
 		await viewing.getByRole("button", { name: "Back to current" }).click();
 		await expect(owner.page.getByLabel("Recovery copy")).toBeHidden();
 
-		await owner.page.goto("/drive/recovery");
+		await owner.page.goto("/drive");
+		const notice = owner.page.getByRole("status").filter({ hasText: "couldn't be saved" });
+		await notice.getByRole("button", { name: "Review" }).click();
 		const row = owner.page.getByRole("listitem").filter({ hasText: title });
 		await row.getByRole("button", { name: title }).click();
 		await expect(viewing).toBeVisible();
