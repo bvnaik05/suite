@@ -5,6 +5,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import { v4 } from 'uuid'
+import type { Doc } from 'yjs'
 
 import { TabNode } from '@/apps/writer/schema'
 
@@ -36,6 +37,10 @@ export const FIRST_TAB_ID = 'main'
 // HTML is read back as real tabs, so the copy must not claim the first tab's id
 const FIRST_TAB_HTML_ID = 'first-tab'
 const FIRST_TAB_LABEL = 'firstTabLabel'
+
+/** The first tab's label a document's Yjs state keeps, if it was renamed. */
+export const storedFirstTabLabel = (ydoc: Doc): string | null =>
+  (ydoc.getMap('meta').get(FIRST_TAB_LABEL) as string | undefined) ?? null
 
 const firstTabBlocks = (doc: PMNode): TabMatch[] => {
   const blocks: TabMatch[] = []
@@ -75,7 +80,7 @@ export const orderedTabs = (doc: PMNode): TabMatch[] =>
 // Document order is no longer tab order, so serialise the tab slots in display
 // order. The first tab is written as a tab of its own whenever its label or
 // other tabs would otherwise be lost from the HTML
-const orderedHTML = (doc: PMNode, firstTabLabel: string | null): string => {
+export const orderedHTML = (doc: PMNode, firstTabLabel: string | null): string => {
   const ordered = orderedTabs(doc)
   const blocks = firstTabBlocks(doc).map(({ node }) => node)
   let children: PMNode[] = ordered.map(({ node }) => node)

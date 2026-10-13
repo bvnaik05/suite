@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test } from "../../fixtures/test";
 import {
 	expectConverged,
@@ -12,9 +14,10 @@ import { createWriterDocument, openWriterDocument, uniqueWriterTitle } from "../
 
 test.describe("Writer collaboration", () => {
 	let node = "";
+	let title = "";
 
 	test.beforeEach(async ({ owner, collaborator, run, testApi }, testInfo) => {
-		const title = uniqueWriterTitle(run.run_id, `collab ${testInfo.title}`);
+		title = uniqueWriterTitle(run.run_id, `collab ${testInfo.title}`);
 		node = (await createWriterDocument(owner.page.request, title)).name;
 		await openForCollab(testApi, owner.page.request, node, collaborator.user.user);
 	});
@@ -86,6 +89,44 @@ test.describe("Writer collaboration", () => {
 		await expect(preview).not.toHaveText("");
 		const versionText = (await preview.innerText()).trim();
 		expect("First words".startsWith(versionText), versionText).toBe(true);
+	});
+
+	test("a previewed version downloads as the HTML it shows, named after the document and the version", async ({
+		owner,
+	}) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		await typeParagraph(page, "Kept in the version");
+		await expectSaved(page);
+		await saveNamedVersion(owner.context.request, node, "Draft one");
+		await typeParagraph(page, "Typed after the version");
+		await expectSaved(page);
+
+		await page
+			.getByRole("button", { name: /versions/i })
+			.first()
+			.click();
+		const panel = page.getByRole("complementary", { name: "Versions" });
+		async function download() {
+			const downloaded = page.waitForEvent("download");
+			await page.getByRole("button", { name: "Download", exact: true }).click();
+			const file = await downloaded;
+			return [file.suggestedFilename(), await readFile((await file.path())!, "utf8")];
+		}
+
+		await panel.getByRole("button", { name: /^Draft one/ }).click();
+		await expect(page.getByLabel("Version preview")).toContainText("Kept in the version");
+		const [namedFile, namedHTML] = await download();
+		expect(namedFile).toBe(`${title} (Draft one).html`);
+		expect(namedHTML).toContain("<p>Kept in the version</p>");
+		expect(namedHTML).not.toContain("Typed after the version");
+
+		const automatic = panel.getByRole("button", { name: /^Version \d+/ }).first();
+		const seq = (await automatic.innerText()).match(/^Version (\d+)/)![1];
+		await automatic.click();
+		await expect(page.getByText(`Viewing Version ${seq}`)).toBeVisible();
+		const [automaticFile] = await download();
+		expect(automaticFile).toBe(`${title} (v${seq}).html`);
 	});
 
 	test("the Versions panel takes the table of contents' place on the right and moves the text like it", async ({

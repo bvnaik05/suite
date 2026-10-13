@@ -45,6 +45,7 @@ import { belowMinBuild } from '@/platform/build'
 
 import { refusedSaveBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
+import { downloadHTML } from './exports'
 import {
   resolveDocumentUnload,
   useDocumentLeaveGuard,
@@ -263,6 +264,25 @@ function showVersion(shown: DocumentVersion | null) {
   preview.value = { version: shown, copy: null }
 }
 
+const versionPreview = shallowRef<InstanceType<typeof VersionPreview> | null>(null)
+
+const isVersionDownloadDisabled = computed(() => !versionPreview.value?.isShown)
+
+async function downloadVersion(shown: DocumentVersion) {
+  const html = versionPreview.value?.versionHTML()
+  if (html == null) {
+    return
+  }
+
+  const name = shown.label || `v${shown.seq}`
+  try {
+    await downloadHTML(html, `${props.session.title.value} (${name})`)
+  } catch (error) {
+    console.error(error)
+    toast.error('Could not download this version.')
+  }
+}
+
 function viewCopy(copy: RecoveryCopy) {
   preview.value = { version: null, copy }
 }
@@ -478,6 +498,13 @@ onBeforeUnmount(() => {
             <template v-if="preview.version" #toolbar>
               <DocumentStrip>
                 <p class="truncate">Viewing {{ versionLabel(preview.version) }}</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  label="Download"
+                  :disabled="isVersionDownloadDisabled"
+                  @click="downloadVersion(preview.version)"
+                />
                 <Button size="sm" variant="ghost" label="Back to current" @click="closePreview" />
               </DocumentStrip>
             </template>
@@ -493,7 +520,12 @@ onBeforeUnmount(() => {
               </DocumentStrip>
             </template>
             <template v-if="preview.version" #cover>
-              <VersionPreview :session="session" :seq="preview.version.seq" :settings="settings" />
+              <VersionPreview
+                ref="versionPreview"
+                :session="session"
+                :seq="preview.version.seq"
+                :settings="settings"
+              />
             </template>
             <template v-else-if="preview.copy" #cover>
               <RecoveryPreview :copy="preview.copy" :settings="settings" />

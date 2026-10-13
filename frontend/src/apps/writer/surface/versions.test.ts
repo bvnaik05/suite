@@ -36,8 +36,11 @@ async function gzipBase64(bytes: Uint8Array) {
   return btoa(String.fromCharCode(...zipped))
 }
 
-async function collabVersion() {
+async function collabVersion(firstTabLabel?: string) {
   const ydoc = prosemirrorJSONToYDoc(schema, document, 'default')
+  if (firstTabLabel) {
+    ydoc.getMap('meta').set('firstTabLabel', firstTabLabel)
+  }
   const update = Y.encodeStateAsUpdate(ydoc)
   const state = await gzipBase64(update)
   return {
@@ -54,9 +57,10 @@ async function collabVersion() {
 
 describe('readVersion', () => {
   it('shows migrated history as the HTML it stored', async () => {
-    expect(await readVersion(encode('<h2>Plan</h2><p>Ship it.</p>'))).toBe(
-      '<h2>Plan</h2><p>Ship it.</p>',
-    )
+    expect(await readVersion(encode('<h2>Plan</h2><p>Ship it.</p>'))).toEqual({
+      content: '<h2>Plan</h2><p>Ship it.</p>',
+      firstTabLabel: null,
+    })
   })
 
   it('shows a writer-document/1 version as its HTML', async () => {
@@ -67,15 +71,25 @@ describe('readVersion', () => {
       collab: 0,
     }
 
-    expect(await readVersion(encode(version))).toBe('<p>Saved</p>')
+    expect(await readVersion(encode(version))).toEqual({
+      content: '<p>Saved</p>',
+      firstTabLabel: null,
+    })
   })
 
   it('shows a writer-document/2 version as the document its state holds', async () => {
     const version = await collabVersion()
     const shown = await readVersion(encode(version))
 
-    expect(typeof shown).toBe('object')
-    expect(schema.nodeFromJSON(shown).eq(schema.nodeFromJSON(document))).toBe(true)
+    expect(typeof shown.content).toBe('object')
+    expect(schema.nodeFromJSON(shown.content).eq(schema.nodeFromJSON(document))).toBe(true)
+    expect(shown.firstTabLabel).toBeNull()
+  })
+
+  it("reads a writer-document/2 version's renamed first tab", async () => {
+    const version = await collabVersion('Intro')
+
+    expect((await readVersion(encode(version))).firstTabLabel).toBe('Intro')
   })
 
   it('refuses a writer-document/1 version that restoring it would refuse', async () => {
