@@ -10,7 +10,7 @@
     :comments
     :extensions
     collaborative
-    @save="save"
+    @save="(_manual: boolean, _html: string | null, done?: () => void) => save(done)"
   >
     <template v-for="(_, name) in $slots" #[name]>
       <slot :name="name" />
@@ -28,14 +28,19 @@ import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { peopleOf } from '@/apps/writer/collab/peers'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
+import type {
+  EditorFile,
+  WriterDocument,
+  WriterSettings,
+} from '@/apps/writer/surface/writerDocument'
 
 import CoreEditor from './CoreEditor.vue'
 
 const props = defineProps<{
   room: CollabRoom
-  file: object
-  document: object
-  settings: object
+  file: EditorFile
+  document: WriterDocument
+  settings: WriterSettings
   editable: boolean
 }>()
 
@@ -68,7 +73,7 @@ const extensions = [
   }),
 ]
 
-async function save(_manual: boolean, _html: string | null, done?: () => void) {
+async function save(done?: () => void) {
   await withinTenSeconds(props.room.flush())
   if (props.room.saveState === 'clean') {
     done?.()

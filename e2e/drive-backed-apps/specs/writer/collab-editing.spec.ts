@@ -104,6 +104,16 @@ test.describe("Writer collaboration", () => {
 		expect(blocks.join("\n")).not.toContain("Owner typed this");
 	});
 
+	test("saving with the shortcut sends the edit and says so", async ({ owner, testApi }) => {
+		await openWriterDocument(owner.page, node);
+		await typeParagraph(owner.page, "Saved by the shortcut");
+
+		await owner.page.keyboard.press("ControlOrMeta+s");
+
+		await expect(owner.page.getByText("Saved document")).toBeVisible();
+		expect((await serverBlocks(testApi, node)).join("\n")).toContain("Saved by the shortcut");
+	});
+
 	test("an edit reaches the other tab over the realtime socket, without a poll", async ({
 		owner,
 		collaborator,

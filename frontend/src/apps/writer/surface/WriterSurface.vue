@@ -54,7 +54,7 @@ import {
 import { versionLabel } from './useDocumentPanel'
 import { useWriterCollab } from './useWriterCollab'
 import VersionPreview from './VersionPreview.vue'
-import { createWriterDocument, isLocked } from './writerDocument'
+import { createWriterDocument, editorFileOf, isLocked, type EditorFile } from './writerDocument'
 import WriterDocumentMenu from './WriterDocumentMenu.vue'
 import { createWriteGate, type DocumentWrite } from './writes'
 
@@ -68,9 +68,6 @@ interface EditorSurface {
 }
 
 const props = defineProps<{ session: DocumentSession }>()
-
-/** The file as every editor reads it. */
-type EditorFile = (typeof editorFile)['value']
 
 /** The editor that shows this document, with the props only it takes. */
 type EditorView =
@@ -208,14 +205,7 @@ const showEditingPaused = computed(
   () => !editable.value && editingPaused.value && writes.writable.value,
 )
 
-const editorFile = computed(() => ({
-  doc: {
-    name: props.session.nodeId,
-    file_name: props.session.title.value,
-    write: editable.value,
-    modified: new Date().toISOString(),
-  },
-}))
+const editorFile = computed(() => editorFileOf(props.session, editable.value))
 
 const peers = computed(() => editorSurface.value?.peers ?? [])
 

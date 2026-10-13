@@ -8,6 +8,23 @@ export type WriterDocumentRow = Omit<OutputOf<typeof api.writer.documents.get>, 
   settings: WriterSettings
 }
 
+/** The open document as the editors read it. */
+export function editorFileOf(
+  session: Pick<DocumentSession, 'nodeId' | 'title'>,
+  isEditable: boolean,
+) {
+  return {
+    doc: {
+      name: session.nodeId,
+      file_name: session.title.value,
+      write: isEditable,
+      modified: new Date().toISOString(),
+    },
+  }
+}
+
+export type EditorFile = ReturnType<typeof editorFileOf>
+
 export function isLocked(settings: WriterSettings): boolean {
   return Boolean(settings.lock)
 }
