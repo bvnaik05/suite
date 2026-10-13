@@ -67,9 +67,8 @@ export interface DocumentTypeDefinition {
   listUnsavedCopies?: () => Promise<UnsavedCopy[]>
 }
 
-/** One copy of work kept on this device, by its key and the document it belongs to. */
+/** One copy of work kept on this device, by the document it belongs to. */
 export interface UnsavedCopy {
-  key: string
   document: string
 }
 

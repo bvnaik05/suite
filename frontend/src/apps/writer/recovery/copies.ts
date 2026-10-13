@@ -44,14 +44,11 @@ export async function listCopies(node?: string): Promise<RecoveryCopy[]> {
   return copies.sort((first, second) => second.savedAt.getTime() - first.savedAt.getTime())
 }
 
-/** Each copy's key and document, without reading the copies. */
+/** Each copy's document, without reading the copies. */
 export async function copyEntries() {
   const store = await writerDeviceStore()
   const records = (await store?.allRecovery().catch(() => [])) ?? []
-  const stored = records.map((record) => ({
-    key: `${STORE_PREFIX}${record.id}`,
-    document: record.doc,
-  }))
+  const stored = records.map((record) => ({ document: record.doc }))
   return [...stored, ...pageKeys().flatMap(pageEntry)]
 }
 
@@ -61,7 +58,7 @@ function pageEntry(key: string) {
     return []
   }
 
-  return [{ key, document: stored.node }]
+  return [{ document: stored.node }]
 }
 
 export async function discardCopy(copy: RecoveryCopy) {

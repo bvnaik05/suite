@@ -47,11 +47,7 @@ afterEach(() => {
 
 describe('Drive recovery notice', () => {
   it('counts documents, not copies, and Review opens the recovery copies page', async () => {
-    kept = [
-      { key: 'a', document: 'node-1' },
-      { key: 'b', document: 'node-1' },
-      { key: 'c', document: 'node-2' },
-    ]
+    kept = [{ document: 'node-1' }, { document: 'node-1' }, { document: 'node-2' }]
     const { root, router } = await openedNotice()
 
     expect(root.textContent).toContain("2 documents have changes that couldn't be saved.")
@@ -60,7 +56,7 @@ describe('Drive recovery notice', () => {
   })
 
   it('names a single document in the singular', async () => {
-    kept = [{ key: 'a', document: 'node-1' }]
+    kept = [{ document: 'node-1' }]
     const { root } = await openedNotice()
 
     expect(root.textContent).toContain("1 document has changes that couldn't be saved.")
@@ -75,7 +71,7 @@ describe('Drive recovery notice', () => {
   })
 
   it('has no dismiss button, so it shows while the device keeps copies', async () => {
-    kept = [{ key: 'a', document: 'node-1' }]
+    kept = [{ document: 'node-1' }]
     const { root } = await openedNotice()
 
     expect(root.textContent).toContain('1 document has')

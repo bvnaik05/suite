@@ -101,9 +101,7 @@ describe('Writer recovery copies', () => {
     localStorage.setItem('suite:writer-recovery:node-2', 'not json')
 
     expect(summary(await listCopies())).toEqual([['node-1', '', 'older copy']])
-    expect(await copyEntries()).toEqual([
-      { key: 'suite:writer-recovery:node-1', document: 'node-1' },
-    ])
+    expect(await copyEntries()).toEqual([{ document: 'node-1' }])
   })
 
   it('lists only the copies of the document asked for, not of one whose id starts the same', async () => {
