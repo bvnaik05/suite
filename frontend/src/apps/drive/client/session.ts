@@ -79,8 +79,9 @@ export interface DocumentSession {
   copy(parent: string, title?: string): Promise<DriveNode>
   comments: {
     list(resolved?: boolean): Promise<NodeThreadsOutput>
-    create(anchor: string, text: string, authorName?: string): Promise<unknown>
-    reply(thread: string, text: string, authorName?: string): Promise<unknown>
+    /** `clientId`, made by the caller, makes a resend return the first post instead of posting twice. */
+    create(anchor: string, text: string, authorName?: string, clientId?: string): Promise<unknown>
+    reply(thread: string, text: string, authorName?: string, clientId?: string): Promise<unknown>
     resolve(thread: string, resolved: boolean): Promise<unknown>
     edit(comment: string, text: string): Promise<unknown>
     remove(comment: string): Promise<unknown>
@@ -315,7 +316,7 @@ export async function openDriveDocumentSession(
             signal: controller.signal,
           },
         ),
-      create: (anchor, text, authorName) =>
+      create: (anchor, text, authorName, clientId) =>
         requester.mutation(
           api.drive.threads.create,
           {
@@ -323,13 +324,14 @@ export async function openDriveDocumentSession(
             anchor,
             text,
             author_name: authorName,
+            client_id: clientId,
           },
           {
             signal: controller.signal,
             silent: true,
           },
         ),
-      reply: (thread, text, authorName) =>
+      reply: (thread, text, authorName, clientId) =>
         requester.mutation(
           api.drive.comments.create,
           {
@@ -337,6 +339,7 @@ export async function openDriveDocumentSession(
             thread,
             text,
             author_name: authorName,
+            client_id: clientId,
           },
           {
             signal: controller.signal,

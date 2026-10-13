@@ -120,6 +120,33 @@ describe('document session credentials', () => {
   })
 })
 
+describe('document session comments', () => {
+  it('sends the id the caller made with a new thread and with a reply', async () => {
+    const posted: unknown[] = []
+    const requester = transport((id, input) => {
+      if (id === 'node_get') {
+        return documentNode(input.node)
+      }
+
+      if (id === 'node_thread_create' || id === 'thread_comment_create') {
+        posted.push([id, input.client_id])
+      }
+
+      return {}
+    })
+    const session = await openDriveDocumentSession('doc', { client: testClient(requester) })
+
+    await session.comments.create('document', 'Hi', undefined, 'thread-made-here')
+    await session.comments.reply('thread-1', 'Yes', undefined, 'reply-made-here')
+
+    expect(posted).toEqual([
+      ['node_thread_create', 'thread-made-here'],
+      ['thread_comment_create', 'reply-made-here'],
+    ])
+    session.dispose()
+  })
+})
+
 describe('document session visits', () => {
   it("records a visit for the caller's own access, and none when a share link decides it", async () => {
     const visits: string[] = []
