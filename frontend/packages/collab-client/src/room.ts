@@ -484,6 +484,16 @@ export class Room implements CollabRoom {
     }
   }
 
+  committedCovers(items: readonly Y.ID[]) {
+    return items.every((id) => this.isCommitted(id))
+  }
+
+  // In this copy, and not waiting to be sent by this tab or one it adopted
+  private isCommitted(id: Y.ID) {
+    const isHere = Y.getState(this.doc.store, id.client) > id.clock
+    return isHere && !this.outboxes.some((box) => box.holds(id))
+  }
+
   acknowledge(box: Outbox, through: number) {
     const committed = box.acknowledge(through)
     if (!committed) return

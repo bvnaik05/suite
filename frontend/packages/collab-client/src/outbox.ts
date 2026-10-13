@@ -70,6 +70,16 @@ export class Outbox {
     return Y.mergeUpdates(committed.map((entry) => entry.bytes))
   }
 
+  // Whether an unsent entry made the item `id`
+  holds(id: Y.ID) {
+    return this.pending.some((entry) => {
+      const { from, to } = Y.parseUpdateMeta(entry.bytes)
+      const first = from.get(id.client) ?? Infinity
+      const end = to.get(id.client) ?? 0
+      return first <= id.clock && id.clock < end
+    })
+  }
+
   // Holds work typed before the restore at `restoreRev`
   isStaleAfter(restoreRev: number) {
     return this.pending.some((entry) => !entry.restore && entry.seenRev < restoreRev)

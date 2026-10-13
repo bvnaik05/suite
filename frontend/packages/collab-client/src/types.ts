@@ -165,6 +165,8 @@ export interface CollabRoom {
   // Fences the document, makes `edit` the restore of `version` and sends it; calls the fence off unless it lands
   restoreVersion(version: number, edit: () => void): Promise<RestoreResult>
   close(): Promise<void>
+  // Whether the server holds each of these items, as committed text does, so a comment on them can post
+  committedCovers(items: readonly Y.ID[]): boolean
 }
 
 export type Opened = { state: 'live'; room: CollabRoom } | { state: Exclude<OpenState, 'live'> }

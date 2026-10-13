@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 
 import { openCollabRoom } from './open'
-import { adapterAt, fakeServer, join, text } from './test-support'
+import { adapterAt, fakeServer, heldPushes, idle, join, offlinePushes, text } from './test-support'
 
 describe('collab room', () => {
   it('a tab stops following a document a newer editor wrote to, and goes read-only', async () => {
@@ -101,5 +102,59 @@ describe('collab room', () => {
         state,
       })
     }
+  })
+})
+
+// The items a comment on `word` would hang from: its first and its last character
+function endsOf(doc: Y.Doc, word: string) {
+  const typed = doc.getText('t')
+  const at = typed.toString().indexOf(word)
+  const first = Y.createRelativePositionFromTypeIndex(typed, at, 0)
+  const last = Y.createRelativePositionFromTypeIndex(typed, at + word.length, -1)
+  return [first.item!, last.item!]
+}
+
+describe('committed text', () => {
+  it('counts only once the server holds it', async () => {
+    const server = fakeServer()
+    const slow = heldPushes(server)
+    const room = await join(slow.endpoints)
+    room.doc.getText('t').insert(0, 'hello')
+    const ends = endsOf(room.doc, 'hello')
+
+    const whileSending = ends.map((end) => room.committedCovers([end]))
+    slow.release()
+    await room.flush()
+
+    expect([whileSending, room.committedCovers(ends)]).toEqual([[false, false], true])
+  })
+
+  it('never counts text that cannot reach the server', async () => {
+    const room = await join(offlinePushes(fakeServer()))
+    room.doc.getText('t').insert(0, 'offline words')
+
+    await idle()
+
+    expect(room.committedCovers(endsOf(room.doc, 'words'))).toBe(false)
+  })
+
+  it("counts another tab's committed text once it arrives here, and its later typing only once that is committed", async () => {
+    const server = fakeServer()
+    const writer = await join(server.endpoints())
+    writer.doc.getText('t').insert(0, 'first')
+    await writer.flush()
+    const reader = await join(server.endpoints())
+    writer.doc.getText('t').insert(5, ' second')
+    const secondEnds = endsOf(writer.doc, 'second')
+
+    const beforeArriving = reader.committedCovers(secondEnds)
+    await writer.flush()
+    await reader.pull()
+
+    expect([
+      reader.committedCovers(endsOf(reader.doc, 'first')),
+      beforeArriving,
+      reader.committedCovers(secondEnds),
+    ]).toEqual([true, false, true])
   })
 })
