@@ -68,13 +68,13 @@ const overflowTools = [
 
 <style scoped>
 .drawing-toolbar {
-  position: fixed;
-  top: 56px;
+  position: absolute;
+  top: 0;
   right: 0;
+  bottom: 0;
   left: 0;
-  z-index: 1;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   pointer-events: none;
 }
@@ -85,11 +85,16 @@ const overflowTools = [
   gap: 5px;
   height: 36px;
   padding: 3px;
-  border: 1px solid var(--outline-gray-1);
-  border-radius: 10px;
-  background: var(--surface-base);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
   pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .drawing-toolbar__surface {
+    position: absolute;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 
 .drawing-toolbar__surface :deep(button) {
@@ -125,6 +130,12 @@ const overflowTools = [
     width: 44px;
     min-width: 44px;
     height: 44px;
+  }
+}
+
+@media (max-width: 760px) and (pointer: coarse) {
+  .drawing-toolbar__surface {
+    top: 42px;
   }
 }
 </style>

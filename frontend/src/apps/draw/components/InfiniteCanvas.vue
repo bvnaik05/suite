@@ -62,9 +62,9 @@ import type { DrawingTool } from '../canvas/tools'
 import { layoutText, TEXT_FONT_FAMILIES, TEXT_LINE_HEIGHT } from '../canvas/text-layout'
 import SnapGuides from './SnapGuides.vue'
 import LaserTrail from './LaserTrail.vue'
+import CanvasMinimap from './CanvasMinimap.vue'
 import rotateCursorSvg from '../assets/rotate-cursor-white.svg?raw'
 import ShapeColorPicker from './ShapeColorPicker.vue'
-import CanvasMinimap from './CanvasMinimap.vue'
 
 type PointerSample = Point & { pointerType: string }
 type TextStylePatch = Partial<Pick<TextShape, 'fill' | 'backgroundColor' | 'fontFamily' | 'fontWeight' | 'fontStyle' | 'textDecoration' | 'textAlign' | 'opacity' | 'fontSize'>>
@@ -186,7 +186,7 @@ const selectedLabel = computed(() => {
   return shape && !isText(shape) && !isImage(shape) && !isFreeDraw(shape) && shape.label ? shape : undefined
 })
 const textPropertyControlsEnabled = computed(() => props.activeTool !== 'draw' && (Boolean(textEditor.value) || selectedTextShapes.value.length > 0 || Boolean(selectedLabel.value) || (!selectedShapes.value.length && props.activeTool === 'text')))
-const usesSolidColorPalette = computed(() => props.activeTool !== 'draw' && (selectedShapes.value.some(shape => isLine(shape) || isText(shape)) || Boolean(selectedLabel.value) || (!selectedShapes.value.length && textPropertyControlsEnabled.value)))
+const usesSolidColorPalette = computed(() => props.activeTool === 'draw' || selectedShapes.value.some(shape => isLine(shape) || isFreeDraw(shape) || isText(shape)) || Boolean(selectedLabel.value) || (!selectedShapes.value.length && textPropertyControlsEnabled.value))
 const propertyColorKind = computed<'shape' | 'text' | 'draw' | 'arrow' | 'line'>(() => {
   if (props.activeTool === 'draw') return 'draw'
   const shape = selectedShapes.value.at(-1)
@@ -194,12 +194,12 @@ const propertyColorKind = computed<'shape' | 'text' | 'draw' | 'arrow' | 'line'>
   if (isLine(shape)) return shape.kind
   return 'shape'
 })
-const propertyColorTarget = computed<'border' | 'fill'>(() => props.activeTool === 'draw' ? 'fill' : selectedShapes.value.some(isLine) ? 'border' : 'fill')
+const propertyColorTarget = computed<'border' | 'fill'>(() => props.activeTool === 'draw' ? 'fill' : selectedShapes.value.some(shape => isLine(shape) || isFreeDraw(shape)) ? 'border' : 'fill')
 const activePropertyColor = computed(() => {
   if (props.activeTool === 'draw') return drawStyle.fill === 'none' ? '#171717' : drawStyle.fill
   const shape = selectedShapes.value.at(-1)
   return shape
-    ? (isLine(shape) ? (shape.kind === 'arrow' ? shape.arrowHeadFill ?? shape.stroke : shape.stroke) ?? '#171717' : shape === selectedLabel.value ? shape.labelFill ?? '#171717' : shape.fill ?? '#e6f4ff')
+    ? (isLine(shape) || isFreeDraw(shape) ? (isLine(shape) && shape.kind === 'arrow' ? shape.arrowHeadFill ?? shape.stroke : shape.stroke) ?? '#171717' : shape === selectedLabel.value ? shape.labelFill ?? '#171717' : shape.fill ?? '#e6f4ff')
     : textEditor.value?.fill ?? armedTextStyle.fill
 })
 const activePropertyBorderColor = computed(() => {
@@ -210,11 +210,11 @@ const activePropertyBorderColor = computed(() => {
   if (!selectedShapes.value.length && textPropertyControlsEnabled.value) return armedTextStyle.backgroundColor
   return selectedShapes.value.at(-1)?.stroke ?? '#171717'
 })
-const activePropertyStrokeWidth = computed(() => selectedShapes.value.at(-1)?.strokeWidth ?? 2)
-const activePropertyStrokeStyle = computed(() => selectedShapes.value.at(-1)?.strokeStyle ?? 'solid')
+const activePropertyStrokeWidth = computed(() => props.activeTool === 'draw' ? drawStyle.strokeWidth : selectedShapes.value.at(-1)?.strokeWidth ?? 2)
+const activePropertyStrokeStyle = computed(() => props.activeTool === 'draw' ? drawStyle.strokeStyle : selectedShapes.value.at(-1)?.strokeStyle ?? 'solid')
 const propertyToolbarVisible = computed(() => props.activeTool !== 'eraser' && Boolean(props.activeTool === 'draw' || selectedShapes.value.length || textPropertyControlsEnabled.value))
 watch(propertyToolbarVisible, visible => {
-  if (!visible || props.activeTool === 'draw') propertyPopupOpen.value = undefined
+  if (!visible) propertyPopupOpen.value = undefined
 })
 const propertyTextStyle = computed(() => {
   const editor = textEditor.value
@@ -386,7 +386,6 @@ const selectionItemFrames = computed(() =>
 )
 
 function selectionOutline(rectangle: RectangleShape): RectangleShape {
-  // Keep handles clear of the shape stroke at every zoom level.
   const inset = 3 / viewport.scale
   return {
     ...rectangle,
@@ -489,6 +488,15 @@ const textEditorStyle = computed(() => {
     transformOrigin: 'top left',
   }
 })
+function navigateFromMinimap(point: Point) {
+  const current = latestViewport()
+  queueViewport({
+    ...current,
+    translationX: size.x / 2 - point.x * current.scale,
+    translationY: size.y / 2 - point.y * current.scale,
+  })
+}
+
 function applyViewport(next: Viewport) {
   if (![next.translationX, next.translationY, next.scale].every(Number.isFinite)) return
   Object.assign(viewport, next)
@@ -546,15 +554,6 @@ function resetZoom() {
   setZoom(1)
 }
 
-function panToMinimapPoint(point: Point) {
-  const current = latestViewport()
-  queueViewport({
-    ...current,
-    translationX: size.x / 2 - point.x * current.scale,
-    translationY: size.y / 2 - point.y * current.scale,
-  })
-}
-
 function copyScene(scene: SceneSnapshot = { rectangles: rectangles.value, lines: lines.value }): SceneSnapshot {
   return {
     rectangles: scene.rectangles.map((rectangle) => isFreeDraw(rectangle) ? { ...rectangle, points: rectangle.points.map(point => ({ ...point })), pressures: [...rectangle.pressures] } : { ...rectangle }),
@@ -578,7 +577,6 @@ function commitScene(previousSelection = selectedShapeIds.value) {
   historySelections.push([...selectedShapeIds.value])
   history.splice(historyIndex + 1)
   history.push(next)
-  // ponytail: keep recent undo only; use compressed history if 100 entries is too short.
   if (history.length > MAX_HISTORY_ENTRIES) {
     history.shift()
     historySelections.shift()
@@ -1212,7 +1210,7 @@ function endPropertyToolbarInteraction(event: MouseEvent) {
   if (!activePopup || !(event.target instanceof Element)) return
   const activeControl = activePopup === 'color'
     ? '.property-color-control'
-    : '.property-text-control--' + activePopup
+    : `.property-text-control--${activePopup}`
   if (event.target.closest(activeControl)) return
   propertyPopupOpen.value = undefined
 }
@@ -1465,7 +1463,6 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
     selectionGesture.start = pointer
     return
   }
-  // ponytail: rotated/text groups keep proportions; affine geometry is needed for skew.
   constrainProportions ||= selectionGesture.kind === 'resize' && hasMultipleSelection.value && selectedShapes.value.some(s => !isLine(s) && (s.rotation % 90 !== 0 || isText(s)))
   const textCornerResize = Boolean(
     (isText(original) || selectionGesture.labelOriginal) && selectionGesture.kind === 'resize' && selectionGesture.handle && isCorner(selectionGesture.handle),
@@ -1694,6 +1691,10 @@ function applyObjectColor(color: ObjectColor) {
 }
 
 function applySolidColor(color: string) {
+  if (props.activeTool === 'draw') {
+    drawStyle.stroke = color
+    return
+  }
   if (textEditor.value) {
     textEditor.value.fill = color
     if (textEditor.value.kind === 'label' && textEditor.value.shapeId) {
@@ -1712,7 +1713,10 @@ function applySolidColor(color: string) {
     return
   }
   const selected = new Set(selectedShapeIds.value)
-  rectangles.value = rectangles.value.map(shape => selected.has(shape.id) ? { ...shape, fill: color } : shape)
+  rectangles.value = rectangles.value.map(shape => {
+    if (!selected.has(shape.id)) return shape
+    return isFreeDraw(shape) ? { ...shape, stroke: color } : { ...shape, fill: color }
+  })
   lines.value = lines.value.map(shape => selected.has(shape.id) ? { ...shape, stroke: color, ...(shape.kind === 'arrow' ? { arrowHeadFill: color } : {}) } : shape)
   commitScene()
 }
@@ -1727,7 +1731,7 @@ function applyCustomPropertyColor(color: string | undefined, target?: 'border' |
     return updatePropertyTextStyle(target === 'border' ? { backgroundColor: color } : { fill: color })
   }
   const line = selectedShapes.value.at(-1)
-  if (line && isLine(line) && target === 'fill') {
+  if (line && isLine(line) && selectedShapes.value.every(isLine) && target === 'fill') {
     const selected = new Set(selectedShapeIds.value)
     lines.value = lines.value.map(shape => {
       if (!selected.has(shape.id)) return shape
@@ -1747,11 +1751,16 @@ function applyCustomPropertyColor(color: string | undefined, target?: 'border' |
     armedTextStyle.fill = undefined
     return
   }
+  if (selectedShapes.value.some(isFreeDraw)) return updateSelectedStyle(target === 'border' ? { stroke: color } : { fill: color })
   if (usesSolidColorPalette.value) return applySolidColor(color)
   updateSelectedStyle(target === 'border' ? { stroke: color } : { fill: color })
 }
 
 function applyCustomPropertyStyle(patch: Pick<RectangleShape, 'strokeWidth' | 'strokeStyle'>) {
+  if (props.activeTool === 'draw') {
+    Object.assign(drawStyle, patch)
+    return
+  }
   updateSelectedStyle(patch)
 }
 
@@ -2005,7 +2014,6 @@ function resizeText(original: TextShape, next: RectangleShape, scaleFont: boolea
 }
 
 function fitTextBounds(shape: RectangleShape, width: number, height: number, anchor: Point = { x: 0, y: 0 }): RectangleShape {
-  // Keep the local anchor fixed in world space while the text box reflows.
   const anchorPoint = rotatePoint(
     { x: shape.x + shape.width * anchor.x, y: shape.y + shape.height * anchor.y },
     rectangleCenter(shape), shape.rotation,
@@ -2128,7 +2136,6 @@ function updateDraw(event: PointerEvent) {
   }
   const first = shape.points[0]!
   const last = shape.points.at(-1)!
-  // ponytail: fixed 12px closure snap; make tolerance configurable if user testing needs it.
   if (shape.points.length > 2 && distance(first, last) * viewport.scale <= 12) {
     shape.points[shape.points.length - 1] = { ...first }
   }
@@ -2397,8 +2404,9 @@ function onPointerMove(event: PointerEvent) {
     return
   }
   if (props.activeTool === 'select') {
-    updateSelectionHover(localPoint(event))
-    updateLinkHover(localPoint(event))
+    const point = localPoint(event)
+    updateSelectionHover(point)
+    updateLinkHover(point)
   } else {
     linkHover.value = undefined
   }
@@ -3221,10 +3229,10 @@ onBeforeUnmount(() => {
             :secondary-color="activePropertyBorderColor"
             :stroke-width="activePropertyStrokeWidth"
             :stroke-style="activePropertyStrokeStyle"
-            :show-border-options="props.activeTool !== 'draw' && !selectedLabel && Boolean(selectedShapes.length && !selectedTextShapes.length)"
+            :show-border-options="props.activeTool === 'draw' || (!selectedLabel && Boolean(selectedShapes.length && !selectedTextShapes.length))"
             :target="propertyColorTarget"
             :mode="selectedLabel ? 'property-solid' : 'property-object'"
-            :property-kind="propertyColorKind"
+            :property-kind="props.activeTool === 'draw' ? 'shape' : propertyColorKind"
             :open="propertyPopupOpen === 'color'"
             label="Custom color"
             @select="applyCustomPropertyColor"
@@ -3241,8 +3249,8 @@ onBeforeUnmount(() => {
             theme="gray"
             :label="`${color.label} color`"
             :title="`${color.label} color`"
-            :aria-pressed="activePropertyColor === color.color"
-            :class="{ selected: activePropertyColor === color.color }"
+            :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color"
+            :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color }"
             :style="{ '--property-color': color.color }"
             @click="applySolidColor(color.color)"
           />
@@ -3264,36 +3272,34 @@ onBeforeUnmount(() => {
           />
         </template>
       </div>
-      <template v-if="props.activeTool !== 'draw'">
-        <Select
-          :model-value="propertyTextStyle.fontFamily"
-          :options="fontOptions"
-          :open="propertyPopupOpen === 'font'"
-          variant="outline"
-          size="sm"
-          class="property-text-control property-text-control--font"
-          aria-label="Font family"
-          :disabled="!textPropertyControlsEnabled"
-          @update:open="updatePropertyPopupOpen('font', $event)"
-          @update:model-value="updatePropertyTextStyle({ fontFamily: $event as TextFontFamily })"
-        />
-        <Select
-          :model-value="propertyTextStyle.fontSize"
-          :options="fontSizeOptions"
-          :open="propertyPopupOpen === 'size'"
-          variant="outline"
-          size="sm"
-          class="property-text-control property-text-control--size"
-          aria-label="Font size"
-          :disabled="!textPropertyControlsEnabled"
-          @update:open="updatePropertyPopupOpen('size', $event)"
-          @update:model-value="updatePropertyTextStyle({ fontSize: $event as number })"
-        />
-        <Tooltip text="Bold" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontWeight >= 600 }" label="Bold" :aria-pressed="propertyTextStyle.fontWeight >= 600" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontWeight: propertyTextStyle.fontWeight >= 600 ? 400 : 600 })"><Icon :name="Bold" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-        <Tooltip text="Italic" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontStyle === 'italic' }" label="Italic" :aria-pressed="propertyTextStyle.fontStyle === 'italic'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontStyle: propertyTextStyle.fontStyle === 'italic' ? 'normal' : 'italic' })"><Icon :name="Italic" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-        <Tooltip text="Underline" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.textDecoration === 'underline' }" label="Underline" :aria-pressed="propertyTextStyle.textDecoration === 'underline'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ textDecoration: propertyTextStyle.textDecoration === 'underline' ? 'none' : 'underline' })"><Icon :name="Underline" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-        <Tooltip :text="propertyTextAlignOption.label" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Text alignment" :aria-label="propertyTextAlignOption.label" :disabled="!textPropertyControlsEnabled" @click="cyclePropertyTextAlign"><Icon :name="propertyTextAlignOption.icon" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-      </template>
+      <Select
+        :model-value="propertyTextStyle.fontFamily"
+        :options="fontOptions"
+        :open="propertyPopupOpen === 'font'"
+        variant="outline"
+        size="sm"
+        class="property-text-control property-text-control--font"
+        aria-label="Font family"
+        :disabled="!textPropertyControlsEnabled"
+        @update:open="updatePropertyPopupOpen('font', $event)"
+        @update:model-value="updatePropertyTextStyle({ fontFamily: $event as TextFontFamily })"
+      />
+      <Select
+        :model-value="propertyTextStyle.fontSize"
+        :options="fontSizeOptions"
+        :open="propertyPopupOpen === 'size'"
+        variant="outline"
+        size="sm"
+        class="property-text-control property-text-control--size"
+        aria-label="Font size"
+        :disabled="!textPropertyControlsEnabled"
+        @update:open="updatePropertyPopupOpen('size', $event)"
+        @update:model-value="updatePropertyTextStyle({ fontSize: $event as number })"
+      />
+      <Tooltip text="Bold" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontWeight >= 600 }" label="Bold" :aria-pressed="propertyTextStyle.fontWeight >= 600" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontWeight: propertyTextStyle.fontWeight >= 600 ? 400 : 600 })"><Icon :name="Bold" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
+      <Tooltip text="Italic" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontStyle === 'italic' }" label="Italic" :aria-pressed="propertyTextStyle.fontStyle === 'italic'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontStyle: propertyTextStyle.fontStyle === 'italic' ? 'normal' : 'italic' })"><Icon :name="Italic" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
+      <Tooltip text="Underline" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.textDecoration === 'underline' }" label="Underline" :aria-pressed="propertyTextStyle.textDecoration === 'underline'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ textDecoration: propertyTextStyle.textDecoration === 'underline' ? 'none' : 'underline' })"><Icon :name="Underline" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
+      <Tooltip :text="propertyTextAlignOption.label" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Text alignment" :aria-label="propertyTextAlignOption.label" :disabled="!textPropertyControlsEnabled" @click="cyclePropertyTextAlign"><Icon :name="propertyTextAlignOption.icon" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
       <Tooltip text="Bring forward" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Bring forward" :disabled="!selectedShapes.length || !layerActions.forward" @click="reorderSelectedShapes('forward')"><Icon :name="ChevronUp" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
       <Tooltip text="Send backward" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Send backward" :disabled="!selectedShapes.length || !layerActions.backward" @click="reorderSelectedShapes('backward')"><Icon :name="ChevronDown" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
     </div>
@@ -3306,7 +3312,7 @@ onBeforeUnmount(() => {
       </Button>
     </div>
     <div class="viewport-panel" @pointerdown.stop @pointermove.stop @pointerup.stop @pointercancel.stop @dblclick.stop>
-    <CanvasMinimap :shapes="allShapes" :viewport="viewport" :canvas-size="size" @pan-to="panToMinimapPoint" />
+    <CanvasMinimap :shapes="allShapes" :viewport="viewport" :canvas-size="size" @pan-to="navigateFromMinimap" />
     <div class="viewport-controls" role="group" aria-label="Canvas zoom controls">
             <TooltipProvider>
               <Tooltip text="Zoom out" placement="top">
@@ -3393,7 +3399,7 @@ onBeforeUnmount(() => {
 .property-toolbar :deep(.property-text-control--font) { width: 124px; }
 .property-toolbar :deep(.property-text-control--size) { width: 64px; }
 .property-text-control :deep(button) { height: 28px; min-height: 28px; padding: 0 8px; }
-/* Select and Tooltip both use data-slot="content"; these rules only target Select listboxes. */
+/* Select and Tooltip both use data-slot="content"; these rules are for Select's listbox only. */
 :global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))),
 :global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox'])) { width: 124px !important; min-width: 0 !important; }
 :global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']),
@@ -3403,7 +3409,7 @@ onBeforeUnmount(() => {
 :global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])),
 :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])) { bottom: 50px !important; height: auto !important; min-height: 0 !important; max-height: calc(100vh - 72px) !important; }
 :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox'] .lucide-check) { display: none; }
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .property-toolbar { right: 16px; bottom: 64px; left: 16px; width: auto; transform: none; }
   .property-toolbar :deep(.property-text-control--font) { width: 104px; }
   .property-toolbar :deep(.property-text-control--size) { width: 52px; }
@@ -3716,7 +3722,6 @@ onBeforeUnmount(() => {
   height: 36px;
   padding: 3px;
 }
-
 .viewport-controls :deep(button) {
   width: 28px;
   min-width: 28px;
@@ -3746,7 +3751,6 @@ onBeforeUnmount(() => {
 }
 
 @media (pointer: coarse) {
-  .viewport-panel.is-open { width: 224px; }
   .property-toolbar,
   .history-controls,
   .viewport-controls {

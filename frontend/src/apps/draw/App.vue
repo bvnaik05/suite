@@ -110,11 +110,9 @@ onBeforeUnmount(() => {
 <template>
   <main class="app-shell">
     <header class="drawing-header" aria-label="Drawing header">
-      <div class="header-side header-left">
-        <RouterLink to="/suite" aria-label="Back to Suite">
-          <img class="draw-logo" :src="drawLogo" alt="Draw" width="24" height="24" />
-        </RouterLink>
-      </div>
+      <RouterLink to="/suite" aria-label="Back to Suite">
+        <img class="draw-logo" :src="drawLogo" alt="Draw" width="24" height="24" />
+      </RouterLink>
       <h1 class="drawing-title">
         <TextInput
           v-if="editingTitle"
@@ -138,8 +136,11 @@ onBeforeUnmount(() => {
           {{ title }}
         </button>
       </h1>
+      <DrawingToolbar
+        :active-tool="activeTool"
+        @select="selectTool"
+      />
     </header>
-    <DrawingToolbar :active-tool="activeTool" @select="selectTool" />
     <InfiniteCanvas
       :active-tool="activeTool"
       @activate-rectangle="activeTool = 'rectangle'"
