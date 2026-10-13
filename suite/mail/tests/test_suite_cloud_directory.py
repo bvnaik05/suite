@@ -10,6 +10,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
+from suite.mail import directory
 from suite.mail.api import admin
 from suite.mail.suite_cloud import SuiteCloudClient, SuiteCloudUnavailableError, is_suite_cloud_configured
 from suite.mail.tests.fake_suite_cloud import FakeSuiteCloud, fake_suite_cloud
@@ -423,6 +424,63 @@ class TestGroupsAndLists(SuiteCloudTestCase):
 
         admin.delete_mailing_lists([mailing_list])
         self.assertEqual(admin.get_mailing_lists(), {"items": [], "total": 0})
+
+    def test_the_mailing_list_index_is_read_in_two_calls(self) -> None:
+        self.fake.mailing_lists__create_mailing_list(
+            f"news@{DOMAIN}", recipients=[f"bob@{DOMAIN}", f"alice@{DOMAIN}"]
+        )
+        self.fake.mailing_lists__create_mailing_list(f"empty@{DOMAIN}")
+        self.fake.lists[f"news@{DOMAIN}"]["recipients"]["gone@example.org"] = False
+        directory.clear_mailing_list_index()
+        self.fake.calls.clear()
+
+        index = directory.get_mailing_list_index()
+
+        self.assertEqual(
+            index, {f"news@{DOMAIN}": [f"alice@{DOMAIN}", f"bob@{DOMAIN}"], f"empty@{DOMAIN}": []}
+        )
+        self.assertEqual(
+            [c[0] for c in self.fake.calls],
+            ["mail.mailing_lists.list_mailing_lists", "mail.mailing_lists.list_all_recipients"],
+        )
+        self.assertEqual(directory.get_mailing_list_index(), index)
+        self.assertEqual(len(self.fake.calls), 2)  # served from the cache
+
+    def test_a_refused_refresh_serves_the_previous_index(self) -> None:
+        self.fake.mailing_lists__create_mailing_list(f"news@{DOMAIN}", recipients=[f"bob@{DOMAIN}"])
+        directory.clear_mailing_list_index()
+        index = directory.get_mailing_list_index()
+        frappe.cache.delete_value(directory.INDEX_FRESH_KEY)  # the minute has passed
+
+        def refuse(**_):
+            frappe.throw("Rate limit exceeded.", frappe.TooManyRequestsError)
+
+        self.fake.mailing_lists__list_all_recipients = refuse
+        self.assertEqual(directory.get_mailing_list_index(), index)
+        # The refusal is not retried on every lookup: the index is served for another minute.
+        calls = len(self.fake.calls)
+        self.assertEqual(directory.get_mailing_list_index(), index)
+        self.assertEqual(len(self.fake.calls), calls)
+
+        directory.clear_mailing_list_index()
+        self.assertRaises(frappe.TooManyRequestsError, directory.get_mailing_list_index)
+
+    def test_a_listing_that_never_ends_is_refused_and_keeps_the_previous_index(self) -> None:
+        self.fake.mailing_lists__create_mailing_list(f"news@{DOMAIN}", recipients=[f"bob@{DOMAIN}"])
+        directory.clear_mailing_list_index()
+        index = directory.get_mailing_list_index()
+        frappe.cache.delete_value(directory.INDEX_FRESH_KEY)
+        self.fake.mailing_lists__add_recipients(f"news@{DOMAIN}", [f"alice@{DOMAIN}"])
+
+        with patch.object(directory, "MAX_PAGES", 1):
+            self.assertRaises(
+                directory.ListingCutShortError,
+                directory.all_pages,
+                "mail.mailing_lists.list_all_recipients",
+                limit=1,
+            )
+            with patch.object(directory, "RECIPIENT_PAGE", 1):
+                self.assertEqual(directory.get_mailing_list_index(), index)  # not the cut one
 
 
 class TestMembers(SuiteCloudTestCase):
