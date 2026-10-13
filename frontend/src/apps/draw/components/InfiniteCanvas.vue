@@ -2162,6 +2162,7 @@ function beginErase(event: PointerEvent, point: Point) {
   eraserLastPoint = screenToWorld(point, latestViewport())
   eraserTrail.value?.add(eraserLastPoint, true, event.timeStamp)
   root.value?.setPointerCapture(event.pointerId)
+  updateErase(event)
   event.preventDefault()
 }
 
@@ -2180,22 +2181,44 @@ function updateErase(event: PointerEvent) {
 }
 
 function eraseHit(shape: Shape, start: Point, end: Point): boolean {
-  if (isLine(shape)) {
-    for (let index = 1, previous = linePointAt(shape, 0); index <= 20; index++) {
-      const current = linePointAt(shape, index / 20)
-      if (segmentDistance(start, end, previous, current) <= 8 / viewport.scale) return true
-      previous = current
-    }
-    return false
-  }
-  if (isFreeDraw(shape)) {
-    return shape.points.some((point, index) => index > 0 && segmentDistance(start, end, shape.points[index - 1]!, point) <= (shape.strokeWidth ?? 2) / 2 + 6 / viewport.scale)
+  const radius = (shape.strokeWidth ?? 2) / 2 + 6 / viewport.scale
+  if (isFreeDraw(shape) && shape.points.length === 1) {
+    return distanceToSegment(shape.points[0]!, start, end) <= radius
   }
   const frame = bounds([shape])!
-  return containsPoint(frame, end) || segmentDistance(start, end, { x: frame.x, y: frame.y }, { x: frame.x + frame.width, y: frame.y + frame.height }) <= 6 / viewport.scale
+  if (Math.max(start.x, end.x) < frame.x - radius || Math.min(start.x, end.x) > frame.x + frame.width + radius ||
+      Math.max(start.y, end.y) < frame.y - radius || Math.min(start.y, end.y) > frame.y + frame.height + radius) return false
+  if (!isLine(shape) && (isText(shape) || isImage(shape))) {
+    if (containsPoint(shape, start) || containsPoint(shape, end)) return true
+    const corners = Object.values(rectangleCorners(shape))
+    return corners.some((point, index) => segmentDistance(start, end, point, corners[(index + 1) % corners.length]!) <= radius)
+  }
+  const object = root.value?.querySelector(`[data-shape-id="${CSS.escape(shape.id)}"]`)
+  const geometry = object?.querySelectorAll<SVGGeometryElement>('path, rect, ellipse')
+  if (!geometry) return false
+  // Sample the rendered outline so rounded corners and smoothed pen strokes match what is visible.
+  for (const element of geometry) {
+    const length = element.getTotalLength()
+    const steps = Math.max(1, Math.ceil(length * viewport.scale / 2))
+    const worldPoint = (offset: number): Point => {
+      const point = element.getPointAtLength(offset)
+      return isLine(shape) || isFreeDraw(shape) ? point : rotatePoint(point, rectangleCenter(shape), shape.rotation)
+    }
+    let previous = worldPoint(0)
+    for (let index = 1; index <= steps; index++) {
+      const current = worldPoint(length * index / steps)
+      if (segmentDistance(start, end, previous, current) <= radius) return true
+      previous = current
+    }
+  }
+  return false
 }
 
 function segmentDistance(a: Point, b: Point, c: Point, d: Point): number {
+  const cross = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+  if (Math.max(a.x, b.x) >= Math.min(c.x, d.x) && Math.max(c.x, d.x) >= Math.min(a.x, b.x) &&
+      Math.max(a.y, b.y) >= Math.min(c.y, d.y) && Math.max(c.y, d.y) >= Math.min(a.y, b.y) &&
+      cross(a, b, c) * cross(a, b, d) <= 0 && cross(c, d, a) * cross(c, d, b) <= 0) return 0
   return Math.min(distanceToSegment(a, c, d), distanceToSegment(b, c, d), distanceToSegment(c, a, b), distanceToSegment(d, a, b))
 }
 
@@ -2869,6 +2892,7 @@ onBeforeUnmount(() => {
         <g
           v-for="(object, index) in allShapes"
           :key="object.id"
+          :data-shape-id="object.id"
           role="option"
           :aria-label="shapeLabel(object)"
           :aria-posinset="index + 1"
