@@ -69,6 +69,9 @@ def ensure_tables(adapter: str) -> None:
         # When a push last told the app the document changed, and the head it told; the sweep tells it the rest
         "`touched_at` datetime(6) NULL",
         "`touched_rev` bigint unsigned NOT NULL DEFAULT 0",
+        # When a push last took an automatic version, and the head it holds; the sweep takes the rest
+        "`versioned_at` datetime(6) NULL",
+        "`versioned_rev` bigint unsigned NOT NULL DEFAULT 0",
         # Edit rows through this rev may be gone; the body holds them
         "`trimmed_rev` bigint unsigned NOT NULL DEFAULT 0",
     ):

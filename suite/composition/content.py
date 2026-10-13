@@ -210,6 +210,7 @@ def push_rows(node: str) -> Response:
             documents.consider_compaction(adapter, doc.id, refused=True)
         raise
     touches.touch(adapter, doc.id)
+    touches.take_version(adapter, doc.id)
     final_from = header.sid if header.is_final else None
     documents.consider_compaction(adapter, doc.id, final_from=final_from)
     return json_response(200, answer)
@@ -363,7 +364,12 @@ def touch_body(spec: ContentAdapterSpec, node: str) -> None:
     drive.touch(spec.content_type, document_name)
 
 
-NODES = NodeHooks(owner=node_owner, touch=touch_body)
+def version_body(spec: ContentAdapterSpec, node: str) -> None:
+    """Store the document's body as an automatic Drive version."""
+    drive.take_version(node, kind="auto")
+
+
+NODES = NodeHooks(owner=node_owner, touch=touch_body, take_version=version_body)
 
 HTTP = HttpOwner(
     owner="content",

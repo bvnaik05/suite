@@ -1,4 +1,5 @@
-"""Telling the app a document changed: after a push, and from the sweep for the edits after."""
+"""Telling the app a document changed and taking its automatic versions: after a push, and from the sweep
+for the edits after."""
 
 from contextlib import suppress
 from dataclasses import dataclass
@@ -10,7 +11,7 @@ from frappe.utils import now_datetime
 from suite.suite_core.content.adapters import node_hooks, spec_of
 from suite.suite_core.content.tables import table
 
-# A push tells the app at most this often; the sweep tells it about the edits after
+# A push tells the app and takes a version at most this often; the sweep follows the edits after
 TOUCH_EVERY = timedelta(minutes=10)
 TOUCH_BATCH = 100
 
@@ -25,6 +26,7 @@ class Follower:
 
 
 TOUCH = Follower(column="touched", hook="touch", failure="Collab: Drive touch failed")
+VERSION = Follower(column="versioned", hook="take_version", failure="Collab: automatic version failed")
 
 
 def touch(adapter: str, doc_id: str) -> None:
@@ -33,6 +35,11 @@ def touch(adapter: str, doc_id: str) -> None:
     The sweep only follows a push's touch, so a document nobody has edited since keeps its date.
     """
     follow(adapter, doc_id, TOUCH)
+
+
+def take_version(adapter: str, doc_id: str) -> None:
+    """Take an automatic version of the document, once per TOUCH_EVERY at most, the same way as a touch."""
+    follow(adapter, doc_id, VERSION)
 
 
 def follow(adapter: str, doc_id: str, follower: Follower) -> None:
@@ -111,8 +118,9 @@ def give_back(adapter: str, doc_id: str, follower: Follower, claim: Claim) -> No
 
 
 def sweep(adapter: str) -> None:
-    """Touch the documents edited since their last touch, longest waiting first, TOUCH_BATCH at most."""
+    """Touch and version the documents edited since, longest waiting first, TOUCH_BATCH at most of each."""
     sweep_for(adapter, TOUCH)
+    sweep_for(adapter, VERSION)
 
 
 def sweep_for(adapter: str, follower: Follower) -> None:

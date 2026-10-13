@@ -18,7 +18,7 @@ from suite.composition import content as routes
 from suite.drive._core import content as drive_content
 from suite.drive._core.nodes import _trash, purge
 from suite.drive._core.principals import Principals
-from suite.drive._core.versions import restore_version
+from suite.drive._core.versions import read_version, restore_version
 from suite.suite_core import content
 from suite.suite_core.content import documents, log, scheduling, touches
 from suite.writer import content as writer_content
@@ -267,7 +267,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
         frappe.db.rollback()
         self.assertEqual((self.doc_row(node).head_rev, self.row_count(node)), (head_rev, head_rev))
-        self.assertEqual(frappe.db.count("Drive Node Version", {"node": node}), 1)
+        self.assertEqual(frappe.db.count("Drive Node Version", {"node": node, "kind": ("!=", "auto")}), 1)
 
     def test_with_collaboration_off_drive_still_refuses_to_restore_a_collab_document(self):
         node = self.new_document()
@@ -284,7 +284,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
         frappe.db.rollback()
         self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), fields), before)
-        self.assertEqual(frappe.db.count("Drive Node Version", {"node": node}), 1)
+        self.assertEqual(frappe.db.count("Drive Node Version", {"node": node, "kind": ("!=", "auto")}), 1)
 
     def copy_of(self, node: str) -> str:
         parent = frappe.db.get_value("Drive Node", node, "parent_node")
@@ -756,3 +756,72 @@ class TestWriterDriveCallbacks(CheckpointCase):
         changed = {node: self.content_modified(node) for node in nodes}
         expected = {node: start + timedelta(minutes=10) if node == waiting else start for node in nodes}
         self.assertEqual(changed, expected)
+
+    def automatic_versions(self, node: str) -> list[int]:
+        owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        seqs = frappe.get_all(
+            "Drive Node Version", filters={"node": node, "kind": "auto"}, pluck="seq", order_by="seq"
+        )
+        through_revs: list[int] = []
+        for seq in seqs:
+            with read_version(owner, node, seq) as stream:
+                through_revs.append(json.loads(stream.read())["through_rev"])
+
+        return through_revs
+
+    def test_pushes_take_an_automatic_version_at_most_every_ten_minutes(self):
+        node = self.new_document()
+        start = now_datetime().replace(microsecond=0) + timedelta(hours=1)
+        for minutes in (0, 9):
+            with self.frozen_clock(start + timedelta(minutes=minutes)):
+                self.type_into(node, ["one"])
+
+        first_head = self.doc_row(node).head_rev - 1
+        self.assertEqual(self.automatic_versions(node), [first_head])
+
+        with self.frozen_clock(start + timedelta(minutes=10)):
+            self.type_into(node, ["two"])
+
+        self.assertEqual(self.automatic_versions(node), [first_head, self.doc_row(node).head_rev])
+
+    def test_the_sweep_versions_the_edits_after_an_automatic_version_once_ten_minutes_pass(self):
+        node = self.new_document()
+        start = now_datetime().replace(microsecond=0) + timedelta(hours=1)
+        for minutes in (0, 5):
+            with self.frozen_clock(start + timedelta(minutes=minutes)):
+                self.type_into(node, ["one"])
+
+        first_head = self.doc_row(node).head_rev - 1
+        frappe.set_user("Administrator")
+        seen: list[list[int]] = []
+        for minutes in (9, 10, 30):
+            with self.frozen_clock(start + timedelta(minutes=minutes)), patch.object(scheduling, "enqueue"):
+                documents.sweep()
+
+            seen.append(self.automatic_versions(node))
+
+        head = self.doc_row(node).head_rev
+        self.assertEqual(seen, [[first_head], [first_head, head], [first_head, head]])
+
+    def test_the_sweep_retries_an_automatic_version_that_failed(self):
+        node = self.new_document()
+        start = now_datetime().replace(microsecond=0) + timedelta(hours=1)
+        with self.frozen_clock(start), patch.object(routes.drive, "take_version", side_effect=RuntimeError):
+            self.type_into(node, ["one"])
+
+        self.assertEqual(self.automatic_versions(node), [])
+
+        frappe.set_user("Administrator")
+        with self.frozen_clock(start + timedelta(minutes=10)), patch.object(scheduling, "enqueue"):
+            documents.sweep()
+
+        self.assertEqual(self.automatic_versions(node), [self.doc_row(node).head_rev])
+
+    def test_a_document_nobody_edits_gets_no_automatic_version(self):
+        node = self.new_document()
+
+        frappe.set_user("Administrator")
+        with self.frozen_clock(now_datetime() + timedelta(hours=1)), patch.object(scheduling, "enqueue"):
+            documents.sweep()
+
+        self.assertEqual(self.automatic_versions(node), [])

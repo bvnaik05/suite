@@ -42,11 +42,12 @@ class ContentAdapterSpec:
 @dataclass(frozen=True)
 class NodeHooks:
     """What the layer asks about a document's node, the same for every app, given through the
-    `suite_content_nodes` hook: `owner` names the node's owner, and `touch` records that the body
-    of an app's document changed."""
+    `suite_content_nodes` hook: `owner` names the node's owner, `touch` records that the body
+    of an app's document changed, and `take_version` stores the body as an automatic version."""
 
     owner: Callable[[str], str | None]
     touch: Callable[[ContentAdapterSpec, str], None]
+    take_version: Callable[[ContentAdapterSpec, str], None]
 
 
 CODECS = frozenset({"yjs1"})
