@@ -8,6 +8,7 @@ the same reason, but only to read: guest editing waits for stage G.
 """
 
 import json
+from http import HTTPStatus
 
 import frappe
 from frappe import _
@@ -85,6 +86,17 @@ ROUTES = (
         kind="mutation",
         public_name="content.reportSuspect",
     ),
+    Route(
+        "POST",
+        "{node}/projection",
+        "projection_post",
+        allow_guest=True,
+        errors=(drive.DriveNotFound, drive.DriveForbidden, drive.DriveLocked),
+        output=dict[str, int | str],
+        stream=True,
+        kind="mutation",
+        public_name="content.submitRender",
+    ),
 )
 
 PRINCIPAL_HEADER = "X-Collab-Principal"
@@ -125,6 +137,11 @@ def sessions_post(node: str):
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def suspect_post(node: str):
     return respond_or_refuse(lambda: report_suspect(node))
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def projection_post(node: str):
+    return respond_or_refuse(lambda: submit_render(node))
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -235,6 +252,16 @@ def report_suspect(node: str) -> Response:
         raise content.Refusal(400, "malformed")
 
     status, answer = documents.report_suspect(adapter, doc.id, rev)
+    return json_response(status, answer)
+
+
+def submit_render(node: str) -> Response:
+    """Take an editing tab's staged render of the document at a rev, to be checked as its readable copy."""
+    adapter, doc = resolved(node, drive.EDIT, frappe.get_request_header(PRINCIPAL_HEADER))
+    status, answer = content.submit_render(adapter, doc.id, json_body().get("stage_id"), frappe.session.user)
+    if status == HTTPStatus.ACCEPTED:
+        documents.request_render_check(adapter, doc.id)
+
     return json_response(status, answer)
 
 

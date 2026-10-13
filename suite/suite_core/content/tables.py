@@ -169,6 +169,14 @@ def ensure_tables(adapter: str) -> None:
             KEY `created` (`created`)
         ) {options}"""
     )
+    stage_table = table(adapter, "stage")
+    for column in (
+        "`rev` bigint unsigned NULL AFTER `seq_to`",
+        "`lineage` char(32) NULL AFTER `rev`",
+        "`q_epoch` int unsigned NULL AFTER `lineage`",
+    ):
+        frappe.db.sql_ddl(f"ALTER TABLE `{stage_table}` ADD COLUMN IF NOT EXISTS {column}")
+
     frappe.db.sql_ddl(
         f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "recovery")}` (
             `id` varchar(20) NOT NULL,

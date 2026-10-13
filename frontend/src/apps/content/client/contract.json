@@ -207,6 +207,44 @@
       ],
       "stream": true,
       "bytes": false
+    },
+    {
+      "id": "projection_post",
+      "kind": "mutation",
+      "publicName": "content.submitRender",
+      "page": null,
+      "envelope": "data",
+      "method": "POST",
+      "path": "{node}/projection",
+      "pathParams": [
+        "node"
+      ],
+      "query": null,
+      "body": null,
+      "output": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "errors": [
+        "DriveNotFound",
+        "DriveForbidden",
+        "DriveLocked"
+      ],
+      "entity": null,
+      "nodeParams": [
+        "node"
+      ],
+      "stream": true,
+      "bytes": false
     }
   ]
 }

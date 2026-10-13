@@ -9,6 +9,7 @@ because `suite_core` never imports Drive or a product.
 
 from suite.suite_core.content.backfill import backfill_clocks
 from suite.suite_core.content.checkpoints import replace_start
+from suite.suite_core.content.copies import submit as submit_render
 from suite.suite_core.content.ingest import EditorSchema
 from suite.suite_core.content.live import rooms
 from suite.suite_core.content.log import (
@@ -64,5 +65,6 @@ __all__ = [
     "rooms",
     "rows_after",
     "set_mode",
+    "submit_render",
     "with_tombstones",
 ]

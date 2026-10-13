@@ -393,7 +393,7 @@ def put_piece(
     if session.closed:
         raise Refusal(409, "client_closed")
 
-    if int(session.acked_seq) >= header["to"]:
+    if header["purpose"] == "save" and int(session.acked_seq) >= header["to"]:
         return {"dup": True}
 
     try:

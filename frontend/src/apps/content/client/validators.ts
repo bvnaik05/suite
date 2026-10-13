@@ -5,6 +5,8 @@ import { assertSchema } from '@/platform/transport/schema'
 import type {
   DocumentGetInput,
   DocumentGetOutput,
+  ProjectionPostInput,
+  ProjectionPostOutput,
   SessionsPostInput,
   SessionsPostOutput,
   StagePutInput,
@@ -160,6 +162,32 @@ export const operationSuspectPost: Validators<SuspectPostInput, SuspectPostOutpu
         type: 'object',
       },
       'suspect_post output',
+    )
+  },
+}
+
+export const operationProjectionPost: Validators<ProjectionPostInput, ProjectionPostOutput> = {
+  validateInput(value: unknown): asserts value is ProjectionPostInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { node: { type: 'string' }, chunk: {} },
+        required: ['node', 'chunk'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'projection_post input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is ProjectionPostOutput {
+    assertSchema(
+      value,
+      {
+        additionalProperties: { anyOf: [{ type: 'integer' }, { type: 'string' }] },
+        type: 'object',
+      },
+      'projection_post output',
     )
   },
 }

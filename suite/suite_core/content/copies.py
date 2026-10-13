@@ -5,6 +5,7 @@ the sha of what was written. Anything else found in the field is kept as evidenc
 """
 
 import hashlib
+from http import HTTPStatus
 
 import frappe
 import pycrdt
@@ -12,10 +13,76 @@ from bs4 import BeautifulSoup
 from frappe.utils import now_datetime
 from frappe.utils.html_utils import sanitize_html
 
-from suite.suite_core.content import compaction, db
+from suite.suite_core.content import compaction, db, stage
 from suite.suite_core.content.adapters import spec_of
+from suite.suite_core.content.log import Refusal
+from suite.suite_core.content.sessions import load_session
 from suite.suite_core.content.snapshot import Snapshot, read
 from suite.suite_core.content.tables import table
+
+
+def submit(adapter: str, doc_id: str, stage_id: str, principal: str) -> tuple[int, dict]:
+    """Take a staged render to be checked, replacing older ones; stale when it can't become the copy."""
+    if not stage.valid_id(stage_id):
+        raise Refusal(400, "malformed")
+
+    try:
+        render, _html = stage.assemble_render(adapter, doc_id, stage_id)
+    except stage.Conflict:
+        raise Refusal(409, "stage_conflict") from None
+    except stage.Incomplete:
+        raise Refusal(409, "stage_incomplete") from None
+
+    if load_session(adapter, doc_id, render.sid, principal) is None:
+        raise Refusal(409, "session_unknown")
+
+    if not is_current(adapter, doc_id, render):
+        stage.drop_stage(adapter, doc_id, stage_id)
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        return HTTPStatus.OK, {"render": "stale"}
+
+    stage.drop_renders_through(adapter, doc_id, int(render.rev), keep=stage_id)
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    return HTTPStatus.ACCEPTED, {"render": "queued"}
+
+
+def is_current(adapter: str, doc_id: str, render: frappe._dict) -> bool:
+    """Whether a render is of this log as it stands and newer than the copy."""
+    doc_table = table(adapter, "doc")
+    projection_table = table(adapter, "projection")
+    found = frappe.db.sql(
+        f"""SELECT `doc`.`lineage`, `doc`.`q_epoch`, `doc`.`head_rev`,
+        COALESCE(`projection`.`projected_rev`, 0) AS `projected_rev`
+        FROM `{doc_table}` `doc`
+        LEFT JOIN `{projection_table}` `projection` ON `projection`.`doc_id` = `doc`.`id`
+        WHERE `doc`.`id` = %s AND `doc`.`mode` != 'purged'""",
+        doc_id,
+        as_dict=True,
+    )
+    if not found:
+        return False
+
+    (doc,) = found
+    same_log = (render.lineage, int(render.q_epoch)) == (doc.lineage, int(doc.q_epoch))
+    return same_log and int(doc.projected_rev) < int(render.rev) <= int(doc.head_rev)
+
+
+def check_staged(adapter: str, doc_id: str) -> str | None:
+    """Install the newest whole staged render and drop it with every older one; None when none is whole."""
+    for staged in stage.renders(adapter, doc_id):
+        try:
+            render, payload = stage.assemble_render(adapter, doc_id, staged.stage_id)
+        except stage.Incomplete:
+            continue
+
+        rev = int(render.rev)
+        html = payload.decode(errors="replace")
+        outcome = install(adapter, doc_id, rev, render.lineage, int(render.q_epoch), html)
+        stage.drop_renders_through(adapter, doc_id, rev)
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        return outcome
+
+    return None
 
 
 def install(adapter: str, doc_id: str, rev: int, lineage: str, q_epoch: int, html: str) -> str:

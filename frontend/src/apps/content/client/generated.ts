@@ -136,6 +136,32 @@ const operationSuspectPost: MutationRef<SuspectPostInput, SuspectPostOutput, Sus
   loadValidators: async () => (await import('./validators')).operationSuspectPost,
 }
 
+export type ProjectionPostInput = { node: string; chunk: unknown } & { chunk: Blob }
+
+export type ProjectionPostOutput = { [key: string]: number | string }
+
+export type ProjectionPostError = 'DriveNotFound' | 'DriveForbidden' | 'DriveLocked'
+
+const operationProjectionPost: MutationRef<
+  ProjectionPostInput,
+  ProjectionPostOutput,
+  ProjectionPostError
+> = {
+  id: 'projection_post',
+  owner: 'content',
+  kind: 'mutation',
+  publicName: 'content.submitRender',
+  method: 'POST',
+  path: '{node}/projection',
+  prefix: '/api/suite/content/',
+  pathParams: ['node'],
+  nodeParams: ['node'],
+  entity: null,
+  errors: ['DriveNotFound', 'DriveForbidden', 'DriveLocked'],
+  body: 'chunk',
+  loadValidators: async () => (await import('./validators')).operationProjectionPost,
+}
+
 export const api = {
   content: {
     open: operationDocumentGet,
@@ -144,5 +170,6 @@ export const api = {
     stage: operationStagePut,
     startSession: operationSessionsPost,
     reportSuspect: operationSuspectPost,
+    submitRender: operationProjectionPost,
   },
 } as const

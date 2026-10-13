@@ -411,7 +411,7 @@ class CheckpointCase(IntegrationTestCase):
     def delete_log(self, node: str):
         doc = routes.content.find(writer_content.ADAPTER, node)
         if doc:
-            for kind in ("update", "session", "checkpoint", "recovery", "projection", "copy"):
+            for kind in ("update", "session", "stage", "checkpoint", "recovery", "projection", "copy"):
                 frappe.db.sql(f"DELETE FROM `__writer_content_{kind}` WHERE `doc_id` = %s", doc.id)
 
             frappe.db.sql("DELETE FROM `__writer_content_doc` WHERE `id` = %s", doc.id)

@@ -9,6 +9,7 @@ the bytes, so a piece never reaches the parser or pycrdt.
 import hashlib
 import json
 import struct
+from dataclasses import astuple, dataclass, fields
 from datetime import datetime, timedelta
 
 import frappe
@@ -20,6 +21,8 @@ HEADER_MAX = 4096
 DOC_MAX = 16 * 2**20
 EXPIRY = timedelta(minutes=15)
 FULL_RETRY_MS = 60_000
+# The header fields that place a piece, by purpose: a save's seq range, a render's rev and quarantine epoch
+PLACES = {"save": ("from", "to"), "render": ("rev", "q_epoch")}
 
 
 class Malformed(Exception):
@@ -40,6 +43,24 @@ class Full(Exception):
 
 class Incomplete(Exception):
     """The stage lacks a piece, or its bytes don't match its length and sha256."""
+
+
+@dataclass(frozen=True)
+class Shape:
+    """What every piece of one stage agrees on: a save's seq range or a render's rev and epoch."""
+
+    purpose: str
+    sid: str
+    seq_from: int | None
+    seq_to: int | None
+    rev: int | None
+    lineage: str
+    q_epoch: int | None
+    total_len: int
+    sha_total: bytes
+
+
+SHAPE_COLUMNS = ", ".join(f"`{field.name}`" for field in fields(Shape))
 
 
 def valid_id(value) -> bool:
@@ -68,8 +89,8 @@ def parse_piece(body: bytes, index_text: str, edit_max: int) -> tuple[dict, int,
     if not isinstance(header, dict):
         raise Malformed
 
-    seqs_are_ints = all(type(header.get(key)) is int for key in ("from", "to", "total_len"))
-    if not seqs_are_ints:
+    purpose = header.setdefault("purpose", "save")
+    if purpose not in PLACES or type(header.get("total_len")) is not int:
         raise Malformed
 
     lineage_valid = isinstance(header.get("lineage"), str)
@@ -78,7 +99,7 @@ def parse_piece(body: bytes, index_text: str, edit_max: int) -> tuple[dict, int,
     if not (lineage_valid and sid_valid and sha_valid):
         raise Malformed
 
-    if header["from"] < 1 or header["to"] < header["from"] or header["total_len"] < 1:
+    if not placed(header) or header["total_len"] < 1:
         raise Malformed
 
     if header["total_len"] > edit_max:
@@ -97,21 +118,32 @@ def parse_piece(body: bytes, index_text: str, edit_max: int) -> tuple[dict, int,
     return header, index, piece
 
 
+def placed(header: dict) -> bool:
+    """Whether a save names a seq range, or a render the rev and quarantine epoch it was made at."""
+    if not all(type(header.get(key)) is int for key in PLACES[header["purpose"]]):
+        return False
+
+    if header["purpose"] == "render":
+        return header["rev"] >= 1 and header["q_epoch"] >= 0
+
+    return header["from"] >= 1 and header["to"] >= header["from"]
+
+
 def store_piece(
     adapter: str, doc_id: str, stage_id: str, index: int, header: dict, piece: bytes, principal: str
 ) -> None:
     """Keep one piece. The same bytes again at an index change nothing but the stage's age. Each
     principal has its own `DOC_MAX`, so one editor's pieces never block another's."""
     stage_table = table(adapter, "stage")
-    stage_shape = (header["sid"], header["from"], header["to"], header["total_len"], header["sha_total"])
+    stage_shape = shape_of(header)
     staged_pieces = frappe.db.sql(
-        f"""SELECT `idx`, `sid`, `seq_from`, `seq_to`, `total_len`, `sha_total`, `bytes` = UNHEX(%s) AS `same`
+        f"""SELECT `idx`, {SHAPE_COLUMNS}, `bytes` = UNHEX(%s) AS `same`
         FROM `{stage_table}` WHERE `doc_id` = %s AND `stage_id` = %s""",
         (piece.hex(), doc_id, stage_id),
         as_dict=True,
     )
     for row in staged_pieces:
-        if (row.sid, row.seq_from, row.seq_to, row.total_len, bytes(row.sha_total)) != stage_shape:
+        if stored_shape(row) != stage_shape:
             raise Conflict
 
         if row.idx == index:
@@ -134,19 +166,41 @@ def store_piece(
 
     frappe.db.sql(
         f"""INSERT IGNORE INTO `{stage_table}`
-        (`doc_id`, `stage_id`, `idx`, `purpose`, `sid`, `seq_from`, `seq_to`, `total_len`, `sha_total`, `bytes`, `created`)
-        VALUES (%s, %s, %s, 'save', %s, %s, %s, %s, UNHEX(%s), UNHEX(%s), %s)""",
+        (`doc_id`, `stage_id`, `idx`, {SHAPE_COLUMNS}, `bytes`, `created`)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UNHEX(%s), UNHEX(%s), %s)""",
         (
             doc_id,
             stage_id,
             index,
-            *stage_shape[:4],
-            stage_shape[4].hex(),
+            *astuple(stage_shape)[:-1],
+            stage_shape.sha_total.hex(),
             piece.hex(),
             frappe.utils.now_datetime(),
         ),
     )
     refresh_expiry(adapter, doc_id, stage_id)
+
+
+def shape_of(header: dict) -> Shape:
+    """Return the shape a piece's header gives its stage."""
+    place = {key: header[key] for key in PLACES[header["purpose"]]}
+    return Shape(
+        header["purpose"],
+        header["sid"],
+        place.get("from"),
+        place.get("to"),
+        place.get("rev"),
+        header["lineage"],
+        place.get("q_epoch"),
+        header["total_len"],
+        header["sha_total"],
+    )
+
+
+def stored_shape(row: frappe._dict) -> Shape:
+    """Return the shape a staged piece was kept with."""
+    stored = {field.name: row[field.name] for field in fields(Shape)}
+    return Shape(**{**stored, "sha_total": bytes(row.sha_total)})
 
 
 def refresh_expiry(adapter: str, doc_id: str, stage_id: str) -> None:
@@ -159,21 +213,42 @@ def refresh_expiry(adapter: str, doc_id: str, stage_id: str) -> None:
 
 
 def assemble(adapter: str, doc_id: str, stage_id: str, sid: str, seq_from: int, seq_to: int) -> bytes:
-    """The staged change the push names, whole and checked. A stage whose bytes are wrong is dropped
-    so the tab can stage it again; one that only lacks pieces keeps them."""
+    """Return the staged change the push names, whole and checked."""
+    rows = staged_rows(adapter, doc_id, stage_id)
+    first_piece = rows[0]
+    if (first_piece.sid, first_piece.seq_from, first_piece.seq_to) != (sid, seq_from, seq_to):
+        raise Conflict
+
+    return joined(adapter, doc_id, stage_id, rows)
+
+
+def assemble_render(adapter: str, doc_id: str, stage_id: str) -> tuple[frappe._dict, bytes]:
+    """Return the staged render, whole and checked, with its first piece, which names its sid, rev, lineage and epoch."""
+    rows = staged_rows(adapter, doc_id, stage_id)
+    if rows[0].purpose != "render":
+        raise Conflict
+
+    return rows[0], joined(adapter, doc_id, stage_id, rows)
+
+
+def staged_rows(adapter: str, doc_id: str, stage_id: str) -> list[frappe._dict]:
+    """Return the stage's pieces in order, refused as incomplete when it has none."""
+    stage_table = table(adapter, "stage")
     rows = frappe.db.sql(
-        f"""SELECT `idx`, `sid`, `seq_from`, `seq_to`, `total_len`, `sha_total`, `bytes`
-        FROM `{table(adapter, "stage")}` WHERE `doc_id` = %s AND `stage_id` = %s ORDER BY `idx`""",
+        f"""SELECT `idx`, {SHAPE_COLUMNS}, `bytes`
+        FROM `{stage_table}` WHERE `doc_id` = %s AND `stage_id` = %s ORDER BY `idx`""",
         (doc_id, stage_id),
         as_dict=True,
     )
     if not rows:
         raise Incomplete
 
-    first_piece = rows[0]
-    if (first_piece.sid, first_piece.seq_from, first_piece.seq_to) != (sid, seq_from, seq_to):
-        raise Conflict
+    return rows
 
+
+def joined(adapter: str, doc_id: str, stage_id: str, rows: list[frappe._dict]) -> bytes:
+    """Join the pieces; a stage whose bytes are wrong is dropped, one that only lacks pieces keeps them."""
+    first_piece = rows[0]
     expected_indexes = list(range(piece_count(first_piece.total_len)))
     if [row.idx for row in rows] != expected_indexes:
         raise Incomplete
@@ -201,3 +276,24 @@ def expire_pieces(adapter: str, now: datetime) -> None:
         f"DELETE FROM `{table(adapter, 'stage')}` WHERE `purpose` = 'save' AND `created` < %s", now - EXPIRY
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+def renders(adapter: str, doc_id: str) -> list[frappe._dict]:
+    """Return the document's staged renders, newest rev first."""
+    stage_table = table(adapter, "stage")
+    return frappe.db.sql(
+        f"""SELECT DISTINCT `stage_id`, `rev` FROM `{stage_table}`
+        WHERE `doc_id` = %s AND `purpose` = 'render' ORDER BY `rev` DESC, `stage_id`""",
+        doc_id,
+        as_dict=True,
+    )
+
+
+def drop_renders_through(adapter: str, doc_id: str, rev: int, keep: str | None = None) -> None:
+    """Drop the staged renders at or before `rev`, other than the stage `keep`."""
+    stage_table = table(adapter, "stage")
+    frappe.db.sql(
+        f"""DELETE FROM `{stage_table}` WHERE `doc_id` = %s AND `purpose` = 'render'
+        AND `rev` <= %s AND `stage_id` != %s""",
+        (doc_id, rev, keep or ""),
+    )

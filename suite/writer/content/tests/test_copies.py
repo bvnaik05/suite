@@ -1,10 +1,23 @@
 import hashlib
+import json
+import uuid
+from datetime import timedelta
+from unittest.mock import patch
 
 import frappe
 
-from suite.suite_core.content import copies
+from suite.composition import content as routes
+from suite.suite_core.content import copies, documents, scheduling
+from suite.suite_core.content.stage import PIECE_MAX
 from suite.writer import content as writer_content
-from suite.writer.content.tests.support import CheckpointCase
+from suite.writer.content.tests.support import (
+    OUTSIDER,
+    CheckpointCase,
+    answer,
+    call_route,
+    piece_body,
+    pieces_of,
+)
 
 
 class TestReadableCopies(CheckpointCase):
@@ -125,3 +138,141 @@ class TestReadableCopies(CheckpointCase):
             "SELECT `projection_hash` FROM `__writer_content_projection` WHERE `doc_id` = %s", self.doc.id
         )
         self.assertEqual(bytes(stored_hash), hashlib.sha256(b"<p>one two</p>").digest())
+
+
+class TestStagedRenders(CheckpointCase):
+    """An editing tab stages its render at a rev and submits it; the document's copy check installs the newest."""
+
+    def setUp(self):
+        super().setUp()
+        self.node = self.new_document()
+        self.type_into(self.node, ["one", " two"])
+        self.doc = self.doc_row(self.node)
+        self.sid = uuid.uuid4().hex
+        session = call_route(routes.sessions_post, self.node, body=json.dumps({"sid": self.sid}).encode())
+        self.assertEqual(session.status_code, 200)
+
+    def stage_render(self, rev: int, html: bytes, *, indexes=None, **header) -> str:
+        stage_id = uuid.uuid4().hex
+        pieces = pieces_of(html)
+        if indexes is None:
+            indexes = range(len(pieces))
+
+        fields = {"purpose": "render", "rev": rev, "q_epoch": int(self.doc.q_epoch), **header}
+        for index in indexes:
+            body = piece_body(self.doc.lineage, self.sid, 1, html, pieces[index], **fields)
+            put = call_route(lambda node: routes.stage_put(node, stage_id, str(index)), self.node, body=body)
+            self.assertEqual((put.status_code, answer(put)), (200, {"staged": index}))
+
+        return stage_id
+
+    def submit(self, stage_id: str) -> tuple[int, dict]:
+        with patch.object(scheduling, "enqueue") as enqueue:
+            response = call_route(
+                routes.projection_post, self.node, body=json.dumps({"stage_id": stage_id}).encode()
+            )
+
+        self.queued = enqueue.call_count
+        return response.status_code, answer(response)
+
+    def staged_revs(self) -> list[int]:
+        rows = frappe.db.sql(
+            "SELECT DISTINCT `rev` FROM `__writer_content_stage` WHERE `doc_id` = %s ORDER BY `rev`",
+            self.doc.id,
+        )
+        return [int(rev) for (rev,) in rows]
+
+    def copy_field(self) -> str:
+        return frappe.db.get_value("Writer Document", {"node": self.node}, "html") or ""
+
+    def check(self):
+        documents.check_render(writer_content.ADAPTER, self.doc.id)
+
+    def test_a_submitted_render_is_queued_and_its_check_makes_it_the_copy(self):
+        self.assertEqual(self.submit(self.stage_render(2, b"<p>one two</p>")), (202, {"render": "queued"}))
+        self.assertEqual(self.queued, 1)
+
+        self.check()
+
+        self.assertEqual(self.copy_field(), "<p>one two</p>")
+        self.assertEqual(self.staged_revs(), [])
+
+    def test_a_newer_render_replaces_an_older_one_waiting(self):
+        self.submit(self.stage_render(1, b"<p>one</p>"))
+        self.submit(self.stage_render(2, b"<p>one two</p>"))
+
+        self.assertEqual(self.staged_revs(), [2])
+
+    def test_a_render_still_arriving_leaves_an_older_whole_one_to_be_checked(self):
+        self.submit(self.stage_render(1, b"<p>one</p>"))
+        self.stage_render(2, b"<p>" + b"x" * PIECE_MAX + b"</p>", indexes=[0])
+
+        self.check()
+
+        self.assertEqual(self.copy_field(), "<p>one</p>")
+        self.assertEqual(self.staged_revs(), [2])
+
+    def test_a_render_that_cant_become_the_copy_is_answered_stale_and_dropped(self):
+        copies.install(
+            writer_content.ADAPTER, self.doc.id, 1, self.doc.lineage, int(self.doc.q_epoch), "<p>one</p>"
+        )
+        stale_renders = [
+            {"rev": 1},
+            {"rev": 3},
+            {"rev": 2, "q_epoch": int(self.doc.q_epoch) + 1},
+        ]
+        for render in stale_renders:
+            with self.subTest(render=render):
+                stage_id = self.stage_render(html=b"<p>one two</p>", **render)
+
+                self.assertEqual(self.submit(stage_id), (200, {"render": "stale"}))
+                self.assertEqual(self.queued, 0)
+                self.assertEqual(self.staged_revs(), [])
+
+    def test_a_tab_that_has_saved_changes_still_stages_its_render(self):
+        frappe.db.sql("UPDATE `__writer_content_session` SET `acked_seq` = 5 WHERE `sid` = %s", self.sid)
+        frappe.db.commit()
+
+        self.assertEqual(self.submit(self.stage_render(2, b"<p>one two</p>")), (202, {"render": "queued"}))
+
+    def test_a_render_staged_in_someone_elses_session_cant_be_submitted(self):
+        stage_id = self.stage_render(2, b"<p>one two</p>")
+        frappe.db.sql(
+            "UPDATE `__writer_content_session` SET `principal` = %s WHERE `sid` = %s", (OUTSIDER, self.sid)
+        )
+        frappe.db.commit()
+
+        self.assertEqual(self.submit(stage_id), (409, {"collab": "session_owner"}))
+        self.assertEqual(self.queued, 0)
+
+    def test_only_a_whole_staged_render_can_be_submitted(self):
+        html = b"<p>" + b"x" * PIECE_MAX + b"</p>"
+
+        self.assertEqual(
+            self.submit(self.stage_render(2, html, indexes=[0])), (409, {"collab": "stage_incomplete"})
+        )
+        self.assertEqual(self.submit(uuid.uuid4().hex), (409, {"collab": "stage_incomplete"}))
+        self.assertEqual(self.submit("not a stage"), (400, {"collab": "malformed"}))
+
+    def test_a_render_and_a_change_never_take_each_others_stage(self):
+        render = self.stage_render(2, b"<p>one two</p>")
+        body = piece_body(self.doc.lineage, self.sid, 1, b"change", b"change")
+        put = call_route(lambda node: routes.stage_put(node, render, "0"), self.node, body=body)
+        self.assertEqual((put.status_code, answer(put)), (409, {"collab": "stage_conflict"}))
+
+        change = uuid.uuid4().hex
+        call_route(lambda node: routes.stage_put(node, change, "0"), self.node, body=body)
+        self.assertEqual(self.submit(change), (409, {"collab": "stage_conflict"}))
+
+    def test_a_staged_render_outlives_the_quarter_hour_that_expires_changes(self):
+        stage_id = self.stage_render(2, b"<p>one two</p>")
+        frappe.db.sql(
+            "UPDATE `__writer_content_stage` SET `created` = %s WHERE `stage_id` = %s",
+            (frappe.utils.now_datetime() - timedelta(minutes=16), stage_id),
+        )
+        frappe.db.commit()
+
+        with patch.object(scheduling, "enqueue"):
+            documents.sweep()
+
+        self.assertEqual(self.submit(stage_id), (202, {"render": "queued"}))

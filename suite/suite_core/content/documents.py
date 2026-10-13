@@ -4,7 +4,16 @@ import frappe
 import pycrdt
 
 from suite.suite_core import content
-from suite.suite_core.content import checkpoints, compaction, scheduling, suspect, touches, trimming, updates
+from suite.suite_core.content import (
+    checkpoints,
+    compaction,
+    copies,
+    scheduling,
+    suspect,
+    touches,
+    trimming,
+    updates,
+)
 from suite.suite_core.content.adapters import adapters, node_hooks, spec_of
 from suite.suite_core.content.snapshot import Snapshot
 from suite.suite_core.content.tables import table
@@ -13,6 +22,7 @@ COMPACT = "suite.suite_core.content.documents.compact"
 JUDGE = "suite.suite_core.content.documents.judge"
 DELETE_PURGED = "suite.suite_core.content.documents.delete_purged"
 TRIM = "suite.suite_core.content.documents.trim"
+CHECK_RENDER = "suite.suite_core.content.documents.check_render"
 
 
 def ensure_tables() -> None:
@@ -194,6 +204,18 @@ def clear_suspect(adapter: str, doc_id: str) -> bool:
 
 def report_suspect(adapter: str, doc_id: str, rev: int) -> tuple[int, dict]:
     return suspect.report_row(adapter, doc_id, rev, JUDGE)
+
+
+def check_render(adapter: str, doc_id: str) -> None:
+    """Check the document's newest whole staged render as its readable copy."""
+    copies.check_staged(adapter, doc_id)
+
+
+def request_render_check(adapter: str, doc_id: str) -> None:
+    """Enqueue the document's copy check once."""
+    scheduling.enqueue(
+        CHECK_RENDER, f"suite-collab-render-{adapter}-{doc_id}", adapter=adapter, doc_id=doc_id
+    )
 
 
 def consider_compaction(
