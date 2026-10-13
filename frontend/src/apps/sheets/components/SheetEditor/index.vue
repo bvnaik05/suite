@@ -270,371 +270,41 @@
         </div>
       </div>
 
-      <!-- Bar 2 · Formatting toolbar -->
-      <!-- Read-only viewers: dim the whole bar and swallow pointer events so no
-         formatting/insert/chart action is reachable. Undo/Redo and dropdowns
-         come along for free without touching each button. -->
-      <div
-        class="sn-toolbar"
-        :class="{ 'sn-toolbar--readonly': readOnly }"
-        :aria-disabled="readOnly || undefined"
-      >
-        <!-- Number format -->
-        <Dropdown :options="numberFormatDropdownOptions" class="sn-numfmt">
-          <template #default="{ open }">
-            <Button
-              :variant="open ? 'subtle' : 'ghost'"
-              size="sm"
-              icon-right="lucide-chevron-down"
-              :aria-label="`Number format: ${numberFormatLabel}`"
-              tooltip="Number format"
-              >{{ numberFormatLabel }}</Button
-            >
-          </template>
-        </Dropdown>
-        <Dropdown :options="currencyDropdownOptions" class="sn-currency">
-          <template #default="{ open }">
-            <Button
-              :variant="
-                activeNumberFormatType === 'currency' ? 'subtle' : open ? 'subtle' : 'ghost'
-              "
-              size="sm"
-              :aria-label="`Currency: ${activeCurrencySymbol}`"
-              tooltip="Currency"
-              >{{ activeCurrencySymbol }}</Button
-            >
-          </template>
-        </Dropdown>
-        <Button
-          :variant="activeNumberFormatType === 'percentage' ? 'subtle' : 'ghost'"
-          size="sm"
-          aria-label="Percentage"
-          :aria-pressed="activeNumberFormatType === 'percentage'"
-          tooltip="Percentage"
-          @click="toggleNumberFmt('percentage')"
-          >%</Button
-        >
-        <Button
-          :variant="activeNumberFormatType === 'number' ? 'subtle' : 'ghost'"
-          size="sm"
-          aria-label="Thousands separator"
-          :aria-pressed="activeNumberFormatType === 'number'"
-          tooltip="Thousands separator"
-          @click="toggleNumberFmt('number')"
-          >,</Button
-        >
-        <div class="sn-tool-extra">
-          <Button
-            aria-label="Decrease decimal places"
-            variant="ghost"
-            size="sm"
-            :icon="DecreaseDecimalIcon"
-            tooltip="Decrease decimal places"
-            @click="adjustDecimals(-1)"
-          />
-          <Button
-            aria-label="Increase decimal places"
-            variant="ghost"
-            size="sm"
-            :icon="IncreaseDecimalIcon"
-            tooltip="Increase decimal places"
-            @click="adjustDecimals(+1)"
-          />
-        </div>
-
-        <div class="sn-vr" />
-
-        <!-- Font -->
-        <Dropdown :options="fontFamilyDropdownOptions" class="sn-font-family">
-          <template #default="{ open }">
-            <Button
-              :variant="open ? 'subtle' : 'ghost'"
-              size="sm"
-              icon-right="lucide-chevron-down"
-              :aria-label="`Font: ${activeFontFamilyLabel}`"
-              tooltip="Font family"
-              >{{ activeFontFamilyLabel }}</Button
-            >
-          </template>
-        </Dropdown>
-        <!-- The wrapper carries the sizing: TextInput puts `class` on an inner
-           element that does not get this component's scoped attribute. -->
-        <div class="sn-font-size">
-          <Tooltip text="Font size">
-            <TextInput
-              type="number"
-              size="sm"
-              aria-label="Font size"
-              :model-value="activeFormat.fontSize || 13"
-              min="8"
-              max="72"
-              @change="onFontSizeInput"
-              @keydown.enter.prevent="onFontSizeInput"
-            />
-          </Tooltip>
-        </div>
-
-        <div class="sn-vr" />
-
-        <!-- Style -->
-        <Button
-          aria-label="Bold"
-          :variant="activeFormat.bold ? 'subtle' : 'ghost'"
-          :class="{ 'sn-fmt-active': activeFormat.bold }"
-          :aria-pressed="!!activeFormat.bold"
-          size="sm"
-          icon="lucide-bold"
-          tooltip="Bold (Ctrl+B)"
-          @click="toggleFmt('bold')"
-        />
-        <Button
-          aria-label="Italic"
-          :variant="activeFormat.italic ? 'subtle' : 'ghost'"
-          :class="{ 'sn-fmt-active': activeFormat.italic }"
-          :aria-pressed="!!activeFormat.italic"
-          size="sm"
-          icon="lucide-italic"
-          tooltip="Italic (Ctrl+I)"
-          @click="toggleFmt('italic')"
-        />
-        <Button
-          aria-label="Underline"
-          :variant="activeFormat.underline ? 'subtle' : 'ghost'"
-          :class="{ 'sn-fmt-active': activeFormat.underline }"
-          :aria-pressed="!!activeFormat.underline"
-          size="sm"
-          icon="lucide-underline"
-          tooltip="Underline (Ctrl+U)"
-          @click="toggleFmt('underline')"
-        />
-        <div class="sn-tool-extra">
-          <Button
-            aria-label="Strikethrough"
-            :variant="activeFormat.strikethrough ? 'subtle' : 'ghost'"
-            :class="{ 'sn-fmt-active': activeFormat.strikethrough }"
-            :aria-pressed="!!activeFormat.strikethrough"
-            size="sm"
-            icon="lucide-strikethrough"
-            tooltip="Strikethrough (Ctrl+Shift+X)"
-            @click="toggleFmt('strikethrough')"
-          />
-        </div>
-
-        <div class="sn-vr" />
-
-        <!-- Align + Color -->
-        <Dropdown :options="alignDropdownOptions">
-          <template #default="{ open }">
-            <Button
-              aria-label="Alignment"
-              :variant="open ? 'subtle' : 'ghost'"
-              size="sm"
-              :icon="hAlignIcon"
-              tooltip="Alignment"
-            />
-          </template>
-        </Dropdown>
-        <ColorPicker
-          :model-value="activeFormat.color || ''"
-          allow-default
-          default-label="Default text color"
-          title="Text colour"
-          fallback="#171717"
-          @update:model-value="setColor('color', $event)"
-        >
-          <template #trigger="{ toggle, open }">
-            <Tooltip text="Text colour">
-              <button
-                type="button"
-                class="sn-swatch-btn"
-                :class="{ 'is-open': open }"
-                aria-label="Text colour"
-                @click="toggle()"
-              >
-                <FeatherIcon name="type" class="sn-swatch-glyph" />
-                <span
-                  class="sn-swatch-underline"
-                  :style="{ background: activeFormat.color || '#171717' }"
-                ></span>
-              </button>
-            </Tooltip>
-          </template>
-        </ColorPicker>
-        <ColorPicker
-          :model-value="activeFormat.backgroundColor || ''"
-          allow-default
-          default-label="No fill"
-          title="Fill colour"
-          fallback="#ffffff"
-          @update:model-value="setColor('backgroundColor', $event)"
-        >
-          <template #trigger="{ toggle, open }">
-            <Tooltip text="Fill colour">
-              <button
-                type="button"
-                class="sn-swatch-btn"
-                :class="{ 'is-open': open }"
-                aria-label="Fill colour"
-                @click="toggle()"
-              >
-                <FeatherIcon name="droplet" class="sn-swatch-glyph" />
-                <span
-                  class="sn-swatch-underline sn-swatch-fill"
-                  :style="{ background: activeFormat.backgroundColor || '#ffffff' }"
-                ></span>
-              </button>
-            </Tooltip>
-          </template>
-        </ColorPicker>
-
-        <div class="sn-vr" />
-
-        <!-- Undo / Redo -->
-        <Button
-          aria-label="Undo"
-          variant="ghost"
-          size="sm"
-          icon="lucide-corner-up-left"
-          tooltip="Undo (Ctrl+Z)"
-          :disabled="!canUndo"
-          @click="undo"
-        />
-        <Button
-          aria-label="Redo"
-          variant="ghost"
-          size="sm"
-          icon="lucide-corner-up-right"
-          tooltip="Redo (Ctrl+Y)"
-          :disabled="!canRedo"
-          @click="redo"
-        />
-
-        <div class="sn-vr" />
-
-        <!-- Extra tools (visible at wide widths; hidden at narrow — overflow via ···) -->
-        <div class="sn-tool-extra">
-          <Button
-            aria-label="Format painter"
-            :aria-pressed="isPaintingFormat"
-            :variant="isPaintingFormat ? 'subtle' : 'ghost'"
-            size="sm"
-            icon="lucide-paint-roller"
-            tooltip="Format painter"
-            @click="toggleFormatPainter"
-          />
-          <Button
-            aria-label="Clear formatting"
-            variant="ghost"
-            size="sm"
-            icon="lucide-eraser"
-            tooltip="Clear formatting"
-            @click="clearFormatting"
-          />
-          <div class="sn-vr" />
-          <Button
-            aria-label="Filter"
-            :aria-pressed="showSortFilter"
-            :variant="showSortFilter ? 'subtle' : 'ghost'"
-            size="sm"
-            icon="lucide-filter"
-            tooltip="Toggle filter"
-            @click="showSortFilter = !showSortFilter"
-          />
-          <div class="sn-vr" />
-          <Dropdown :options="textWrapDropdownOptions">
-            <template #default="{ open }">
-              <Button
-                aria-label="Text wrapping"
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                :icon="textWrapIcon"
-                tooltip="Text wrapping"
-              />
-            </template>
-          </Dropdown>
-          <div class="sn-vr" />
-          <Button
-            aria-label="Conditional formatting"
-            variant="ghost"
-            size="sm"
-            icon="lucide-blend"
-            tooltip="Conditional formatting"
-            @click="openCfDialog(null)"
-          />
-          <Button
-            aria-label="Insert hyperlink"
-            variant="ghost"
-            size="sm"
-            icon="lucide-link"
-            tooltip="Insert hyperlink (Ctrl+L)"
-            @click="openHyperlinkDialog"
-          />
-          <div class="sn-vr" />
-          <Dropdown :options="borderDropdownOptions">
-            <template #default="{ open }">
-              <Button
-                aria-label="Borders"
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon="lucide-layout-grid"
-                tooltip="Borders"
-              />
-            </template>
-          </Dropdown>
-          <!-- Custom merge glyph (Lucide table-cells-merge) — reads as
-             "join two cells" better than the generic maximize-2 icon. -->
-          <Button
-            aria-label="Merge / unmerge cells"
-            variant="ghost"
-            size="sm"
-            tooltip="Merge / unmerge cells"
-            @click="toggleMerge"
-          >
-            <template #icon>
-              <svg
-                viewBox="0 0 24 24"
-                class="sn-merge-glyph"
-                aria-hidden="true"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M12 21v-6" />
-                <path d="M12 9V3" />
-                <path d="M3 15h18" />
-                <path d="M3 9h18" />
-                <rect width="18" height="18" x="3" y="3" rx="2" />
-              </svg>
-            </template>
-          </Button>
-          <div class="sn-vr" />
-          <Button
-            aria-label="Insert chart"
-            variant="ghost"
-            size="sm"
-            icon="lucide-chart-bar"
-            tooltip="Insert chart"
-            @click="openChartDialog()"
-          />
-        </div>
-
-        <!-- More -->
-        <div class="sn-tool-more">
-          <Dropdown :options="moreToolbarOptions">
-            <template #default="{ open }">
-              <Button
-                aria-label="More tools"
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon="lucide-more-horizontal"
-                tooltip="More tools"
-              />
-            </template>
-          </Dropdown>
-        </div>
-      </div>
+      <!-- Bar 2 · Formatting toolbar (SheetToolbar.vue) -->
+      <SheetToolbar
+        v-model:show-sort-filter="showSortFilter"
+        :read-only="readOnly"
+        :active-format="activeFormat"
+        :number-format-dropdown-options="numberFormatDropdownOptions"
+        :number-format-label="numberFormatLabel"
+        :currency-dropdown-options="currencyDropdownOptions"
+        :active-number-format-type="activeNumberFormatType"
+        :active-currency-symbol="activeCurrencySymbol"
+        :font-family-dropdown-options="fontFamilyDropdownOptions"
+        :active-font-family-label="activeFontFamilyLabel"
+        :align-dropdown-options="alignDropdownOptions"
+        :h-align-icon="hAlignIcon"
+        :can-undo="canUndo"
+        :can-redo="canRedo"
+        :is-painting-format="isPaintingFormat"
+        :text-wrap-dropdown-options="textWrapDropdownOptions"
+        :text-wrap-icon="textWrapIcon"
+        :border-dropdown-options="borderDropdownOptions"
+        :more-toolbar-options="moreToolbarOptions"
+        @number-format="toggleNumberFmt"
+        @adjust-decimals="adjustDecimals"
+        @font-size-input="onFontSizeInput"
+        @toggle-format="toggleFmt"
+        @set-color="setColor"
+        @undo="undo"
+        @redo="redo"
+        @toggle-format-painter="toggleFormatPainter"
+        @clear-formatting="clearFormatting"
+        @cond-format="openCfDialog(null)"
+        @hyperlink="openHyperlinkDialog"
+        @merge="toggleMerge"
+        @chart="openChartDialog()"
+      />
 
       <!-- Bar 3 · Formula bar -->
       <div class="sn-formula-bar">
@@ -1340,7 +1010,6 @@ import {
   FormControl,
   KeyboardShortcutsDialog,
   Spinner,
-  TextInput,
   Tooltip,
   usePageMeta,
 } from 'frappe-ui'
@@ -1348,7 +1017,6 @@ import { Icon as FeatherIcon } from 'frappe-ui/experimental'
 import {
   computed,
   customRef,
-  h,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -1401,7 +1069,6 @@ import AskBar from './AskBar.vue'
 import CellHistoryPopover from './CellHistoryPopover.vue'
 import ChartDialog from './ChartDialog.vue'
 import ChartOverlay from './ChartOverlay.vue'
-import ColorPicker from './ColorPicker.vue'
 import ConditionalFormatDialog from './ConditionalFormatDialog.vue'
 import FilterPanel from './FilterPanel.vue'
 import FindReplace from './FindReplace.vue'
@@ -1412,6 +1079,7 @@ import NamedRangesDialog from './NamedRangesDialog.vue'
 import NotesPanel from './NotesPanel.vue'
 import PivotDialog from './PivotDialog.vue'
 import SheetContextMenu from './SheetContextMenu.vue'
+import SheetToolbar from './SheetToolbar.vue'
 import SlicerPanel from './SlicerPanel.vue'
 import SplitTextPopover from './SplitTextPopover.vue'
 import { buildAlignOptions, buildBorderOptions, buildMoreToolbarOptions } from './toolbar.config.js'
@@ -1974,73 +1642,6 @@ const CURRENCY_QUICK_PICKS = [
     symbol: '¥',
   },
 ]
-// Custom decimals-with-arrow glyphs for the precision toolbar buttons. Not in
-// lucide, so passed as component props through Button's icon API instead of as
-// "lucide-…" strings. stroke-width 1.5 keeps the small inner shapes legible at
-// 16 px (Button sm icon size). currentColor + stroke → inherits text-ink-gray
-// in light + dark mode, same as the neighbouring lucide icons.
-function _decimalsIcon(children) {
-  return {
-    render: () =>
-      h(
-        'svg',
-        {
-          xmlns: 'http://www.w3.org/2000/svg',
-          viewBox: '0 0 24 24',
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': 1.5,
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-          'aria-hidden': 'true',
-        },
-        children,
-      ),
-  }
-}
-const DecreaseDecimalIcon = _decimalsIcon([
-  h('path', {
-    d: 'm13 21-3-3 3-3',
-  }),
-  h('path', {
-    d: 'M20 18H10',
-  }),
-  h('path', {
-    d: 'M3 11h.01',
-  }),
-  h('rect', {
-    x: 6,
-    y: 3,
-    width: 5,
-    height: 8,
-    rx: 2.5,
-  }),
-])
-const IncreaseDecimalIcon = _decimalsIcon([
-  h('path', {
-    d: 'M10 18h10',
-  }),
-  h('path', {
-    d: 'm17 21 3-3-3-3',
-  }),
-  h('path', {
-    d: 'M3 11h.01',
-  }),
-  h('rect', {
-    x: 15,
-    y: 3,
-    width: 5,
-    height: 8,
-    rx: 2.5,
-  }),
-  h('rect', {
-    x: 6,
-    y: 3,
-    width: 5,
-    height: 8,
-    rx: 2.5,
-  }),
-])
 const fileDropdownOptions = computed(() => [
   {
     group: 'Export',
@@ -2891,7 +2492,7 @@ const {
   getGrid: () => grid,
 })
 
-// Mirrors the `.sn-tool-extra` media query in this file's <style> block: below
+// Mirrors the `.sn-tool-extra` media query in SheetToolbar.vue's <style>: below
 // this width the inline tool groups are hidden and the "…" menu carries them.
 const toolbarCollapsed = useMediaQuery('(max-width: 1280px)')
 const moreToolbarOptions = computed(() =>
