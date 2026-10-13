@@ -228,6 +228,7 @@ def push_rows(node: str) -> Response:
         raise
     touches.touch(adapter, doc.id)
     touches.take_version(adapter, doc.id)
+    answer["copy"] = content.copy_wanted(adapter, doc.id)
     final_from = header.sid if header.is_final else None
     documents.consider_compaction(adapter, doc.id, final_from=final_from)
     return json_response(200, answer)

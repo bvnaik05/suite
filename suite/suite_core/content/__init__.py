@@ -12,6 +12,7 @@ from suite.suite_core.content.checkpoints import replace_start
 from suite.suite_core.content.copies import hold as hold_copy
 from suite.suite_core.content.copies import readable_copy
 from suite.suite_core.content.copies import submit as submit_render
+from suite.suite_core.content.copies import wanted as copy_wanted
 from suite.suite_core.content.ingest import EditorSchema
 from suite.suite_core.content.live import rooms
 from suite.suite_core.content.log import (
@@ -46,6 +47,7 @@ __all__ = [
     "Refusal",
     "backfill_clocks",
     "claim_session",
+    "copy_wanted",
     "create",
     "delete_purged",
     "enabled",

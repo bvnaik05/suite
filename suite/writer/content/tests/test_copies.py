@@ -139,6 +139,28 @@ class TestReadableCopies(CheckpointCase):
         )
         self.assertEqual(bytes(stored_hash), hashlib.sha256(b"<p>one two</p>").digest())
 
+    def age_copy(self, seconds: int):
+        frappe.db.sql(
+            "UPDATE `__writer_content_projection` SET `updated` = %s WHERE `doc_id` = %s",
+            (frappe.utils.now_datetime() - timedelta(seconds=seconds), self.doc.id),
+        )
+        frappe.db.commit()
+
+    def test_a_push_asks_for_a_render_when_the_copy_is_behind_and_a_minute_old(self):
+        self.assertIs(self.last_answer["copy"], True)
+
+        self.install(2, "<p>one two</p>")
+        self.type_into(self.node, [" three"])
+        self.assertIs(self.last_answer["copy"], False)
+
+        self.age_copy(60)
+        self.type_into(self.node, [" four"])
+        self.assertIs(self.last_answer["copy"], True)
+
+        self.install(4, "<p>one two three four</p>")
+        self.age_copy(3600)
+        self.assertFalse(copies.wanted(writer_content.ADAPTER, self.doc.id))
+
 
 class TestStagedRenders(CheckpointCase):
     """An editing tab stages its render at a rev and submits it; the document's copy check installs the newest."""

@@ -439,7 +439,9 @@ class CheckpointCase(IntegrationTestCase):
             update = doc.get_update(seen)
             seen = doc.get_state()
             body = body_for(node, header["lineage"], sid, client_id, seq, update)
-            self.assertEqual(call_route(routes.updates_post, node, body=body).status_code, 200)
+            pushed = call_route(routes.updates_post, node, body=body)
+            self.assertEqual(pushed.status_code, 200)
+            self.last_answer = answer(pushed)
 
         return str(text)
 

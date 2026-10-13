@@ -5,6 +5,7 @@ the sha of what was written. Anything else found in the field is kept as evidenc
 """
 
 import hashlib
+from datetime import timedelta
 from http import HTTPStatus
 
 import frappe
@@ -19,6 +20,8 @@ from suite.suite_core.content.log import Refusal
 from suite.suite_core.content.sessions import load_session
 from suite.suite_core.content.snapshot import Snapshot, read
 from suite.suite_core.content.tables import table
+
+COPY_AGE = timedelta(seconds=60)
 
 
 def submit(adapter: str, doc_id: str, stage_id: str, principal: str) -> tuple[int, dict]:
@@ -65,6 +68,21 @@ def is_current(adapter: str, doc_id: str, render: frappe._dict) -> bool:
     (doc,) = found
     same_log = (render.lineage, int(render.q_epoch)) == (doc.lineage, int(doc.q_epoch))
     return same_log and int(doc.projected_rev) < int(render.rev) <= int(doc.head_rev)
+
+
+def wanted(adapter: str, doc_id: str) -> bool:
+    """Whether a tab should render: the copy is behind the head and was last written a minute or more ago."""
+    doc_table = table(adapter, "doc")
+    projection_table = table(adapter, "projection")
+    found = frappe.db.sql(
+        f"""SELECT 1 FROM `{doc_table}` `doc`
+        LEFT JOIN `{projection_table}` `projection` ON `projection`.`doc_id` = `doc`.`id`
+        WHERE `doc`.`id` = %s AND `doc`.`mode` != 'purged'
+        AND COALESCE(`projection`.`projected_rev`, 0) < `doc`.`head_rev`
+        AND (`projection`.`updated` IS NULL OR `projection`.`updated` <= %s)""",
+        (doc_id, now_datetime() - COPY_AGE),
+    )
+    return bool(found)
 
 
 def check_staged(adapter: str, doc_id: str) -> str | None:
