@@ -430,11 +430,10 @@ describe('Writer surface', () => {
 
     buttonLabelled(recoveryBanner(root)!, 'View')!.click()
     await vi.waitFor(() => expect(root.textContent).toContain('Viewing recovery copy from'))
-    expect(recoveryBanner(root)!.style.display).toBe('none')
+    expect(recoveryBanner(root)).toBeUndefined()
 
     buttonLabelled(root, 'Back to current')!.click()
-    await nextTick()
-    expect(recoveryBanner(root)!.style.display).toBe('')
+    await vi.waitFor(() => expect(recoveryBanner(root)).toBeDefined())
     await discardCopy(copy)
   })
 

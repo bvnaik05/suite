@@ -85,9 +85,12 @@ const editorSurface = shallowRef<EditorSurface | null>(null)
 const dirty = ref(false)
 const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const panel = ref<DocumentPanel | null>(null)
-const previewedVersion = ref<DocumentVersion | null>(null)
-// A recovery copy shown read-only in the editor's place, like a version
-const previewedCopy = shallowRef<RecoveryCopy | null>(null)
+// A version or a recovery copy shown read-only in the editor's place, one at a time
+const preview = shallowRef<
+  { kind: 'version'; version: DocumentVersion } | { kind: 'copy'; copy: RecoveryCopy } | null
+>(null)
+const previewedVersion = computed({ get: shownVersion, set: showVersion })
+const previewedCopy = computed(shownCopy)
 // The banner points at a copy, so it steps aside while one is shown
 const showsRecoveryBanner = computed(() => !previewedCopy.value)
 
@@ -252,7 +255,7 @@ async function closePreview() {
   const pressedVersionButton = document.querySelector<HTMLElement>(
     'aside button[aria-pressed="true"]',
   )
-  previewedVersion.value = null
+  preview.value = null
   await nextTick()
   if (pressedVersionButton) {
     pressedVersionButton.focus()
@@ -261,9 +264,28 @@ async function closePreview() {
   }
 }
 
+function shownVersion() {
+  if (preview.value?.kind !== 'version') {
+    return null
+  }
+
+  return preview.value.version
+}
+
+function shownCopy() {
+  if (preview.value?.kind !== 'copy') {
+    return null
+  }
+
+  return preview.value.copy
+}
+
+function showVersion(shown: DocumentVersion | null) {
+  preview.value = shown && { kind: 'version', version: shown }
+}
+
 function viewCopy(copy: RecoveryCopy) {
-  previewedVersion.value = null
-  previewedCopy.value = copy
+  preview.value = { kind: 'copy', copy }
 }
 
 const route = useRoute()
@@ -286,21 +308,14 @@ async function viewRequestedCopy() {
   }
 }
 
-watch(previewedVersion, (shownVersion) => {
-  if (shownVersion) {
-    previewedCopy.value = null
-  }
-})
-
 async function closeCopy() {
-  previewedCopy.value = null
+  preview.value = null
   await nextTick()
   editorSurface.value?.editor?.commands.focus()
 }
 
 function discardedCopy() {
-  previewedCopy.value = null
-  void recoveryBanner.value?.refresh()
+  preview.value = null
 }
 
 function retainRecovery(): boolean {
@@ -426,7 +441,7 @@ onBeforeUnmount(() => {
     </DriveDocumentHeader>
 
     <RecoveryBanner
-      v-show="showsRecoveryBanner"
+      v-if="showsRecoveryBanner"
       ref="recoveryBanner"
       :node="session.nodeId"
       @view="viewCopy"
