@@ -54,8 +54,11 @@ export async function restoreVersion(
     restoreEdit(room.doc, room.lineage, body)
     anchors = restoredAnchors(room.doc, room.lineage, body, threads)
   })
-  const saved = result.outcome === 'landed' ? savedAnchors(room, anchors) : {}
-  return { ...noticeFor(result), anchors: saved }
+  if (result.outcome !== 'landed') {
+    return { ...noticeFor(result), anchors: {} }
+  }
+
+  return { ...noticeFor(result), anchors: savedAnchors(room, anchors) }
 }
 
 // Only anchors on text the server holds, so a thread never points at text it lacks
