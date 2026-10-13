@@ -1,20 +1,18 @@
 <script setup lang="ts">
-import type { EditorOptions } from '@tiptap/core'
-import { Editor, EditorContent } from '@tiptap/vue-3'
+import { EditorContent, type Editor } from '@tiptap/vue-3'
 import { Skeleton } from 'frappe-ui'
 import { inject, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
-import { DOCUMENT_MEDIA, DriveMedia } from '@/apps/writer/extensions/drive-media'
-import { writerSchema } from '@/apps/writer/schema'
+import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
 import {
-  EDITOR_TEXT_CLASS,
   editorColumns,
   editorTextStyle,
   type LayoutSettings,
 } from '@/apps/writer/utils/editor-layout'
 
-import { readVersion, type VersionContent } from './versions'
+import { previewEditor } from './previewEditor'
+import { readVersion } from './versions'
 
 const props = defineProps<{
   session: DocumentSession
@@ -40,7 +38,9 @@ async function showVersion(seq: number) {
 
     const previousEditor = editor.value
     failed.value = false
-    editor.value = previewEditor(content)
+    editor.value = previewEditor(content, media, () => {
+      failed.value = true
+    })
     await nextTick()
     previousEditor?.destroy()
   } catch {
@@ -61,21 +61,6 @@ async function fetchVersion(seq: number) {
 
   const buffer = await response.arrayBuffer()
   return readVersion(new Uint8Array(buffer))
-}
-
-function previewEditor(content: VersionContent) {
-  const options: Partial<EditorOptions> = {
-    extensions: [...writerSchema(), DriveMedia.configure({ media })],
-    content,
-    editable: false,
-    editorProps: { attributes: { class: `${EDITOR_TEXT_CLASS} max-w-none` } },
-    // HTML parses as loosely as the live editor; only Yjs state is checked.
-    enableContentCheck: typeof content !== 'string',
-    onContentError: () => {
-      failed.value = true
-    },
-  }
-  return new Editor(options)
 }
 
 watch(() => props.seq, showVersion, { immediate: true })
