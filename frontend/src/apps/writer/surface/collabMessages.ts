@@ -101,22 +101,19 @@ function newerSchemaBanner(state: BannerState): Banner {
 }
 
 function heldBanner(state: BannerState): Banner {
-  const isWholeDocument = state.held === 'bad_checkpoint'
-  const text = isWholeDocument
-    ? 'This document is in question and read-only while an admin reviews it.'
-    : 'This document is read-only while an admin reviews a change to it.'
+  const text = 'This document is read-only while an admin checks it.'
   if (!state.unsent) {
     return { text }
   }
 
   if (state.onDevice) {
     return {
-      text: `${text} Your unsent changes are kept on this device and save once it is released.`,
+      text: `${text} Your unsent changes are saved on this device and will be added once it's editable again.`,
     }
   }
 
   const keepOpen = keepOpenNote(state)
-  return { text: `${text} Your unsent changes save once it is released.${keepOpen}` }
+  return { text: `${text} Your unsent changes will be added once it's editable again.${keepOpen}` }
 }
 
 function pauseBanner(pauseMessage: string, state: BannerState): Banner {

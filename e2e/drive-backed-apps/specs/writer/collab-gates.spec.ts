@@ -125,7 +125,7 @@ test.describe("Writer collaboration", () => {
 		await holdDocument(testApi, node, "kernel_failed");
 		for (const page of [owner.page, collaborator.page]) {
 			await expect(
-				page.getByText("This document is read-only while an admin reviews a change to it."),
+				page.getByText("This document is read-only while an admin checks it."),
 			).toBeVisible();
 			await expect(writerEditor(page)).toHaveAttribute("contenteditable", "false");
 		}
@@ -133,12 +133,12 @@ test.describe("Writer collaboration", () => {
 		await releaseDocument(testApi, node);
 		await holdDocument(testApi, node, "bad_checkpoint");
 		await expect(
-			owner.page.getByText("This document is in question and read-only while an admin reviews it."),
+			owner.page.getByText("This document is read-only while an admin checks it."),
 		).toBeVisible();
 
 		await releaseDocument(testApi, node);
 		await expect(writerEditor(collaborator.page)).toHaveAttribute("contenteditable", "true");
-		await expect(owner.page.getByText("read-only while an admin reviews")).toBeHidden();
+		await expect(owner.page.getByText("read-only while an admin checks")).toBeHidden();
 		await typeParagraph(collaborator.page, "After the release");
 		await expectConverged(
 			testApi,

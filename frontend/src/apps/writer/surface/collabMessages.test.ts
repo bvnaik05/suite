@@ -183,21 +183,21 @@ describe('collab stop copy', () => {
     )
   })
 
-  it('says a held document is read-only while an admin reviews it, and where the typing is', () => {
+  it('says a held document is read-only while an admin checks it, and where the typing is', () => {
     expect(bannerText({ held: 'change' })).toBe(
-      'This document is read-only while an admin reviews a change to it. Your unsent changes are kept on this device and save once it is released.',
+      "This document is read-only while an admin checks it. Your unsent changes are saved on this device and will be added once it's editable again.",
     )
     expect(bannerText({ held: 'change', onDevice: false })).toBe(
-      'This document is read-only while an admin reviews a change to it. Your unsent changes save once it is released. Keep this tab open.',
+      "This document is read-only while an admin checks it. Your unsent changes will be added once it's editable again. Keep this tab open.",
     )
     expect(bannerText({ held: 'change', unsent: 0 })).toBe(
-      'This document is read-only while an admin reviews a change to it.',
+      'This document is read-only while an admin checks it.',
     )
   })
 
-  it('says the whole document is in question when its saved content is held', () => {
+  it('says the same when the whole document is held as when one change is', () => {
     expect(bannerText({ held: 'bad_checkpoint', unsent: 0 })).toBe(
-      'This document is in question and read-only while an admin reviews it.',
+      'This document is read-only while an admin checks it.',
     )
   })
 

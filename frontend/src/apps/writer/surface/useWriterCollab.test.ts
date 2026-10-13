@@ -137,14 +137,14 @@ describe('writer collab editing state', () => {
     ])
   })
 
-  it('holds editing with a banner while an admin reviews the document', async () => {
+  it('holds editing with a banner while an admin checks the document', async () => {
     fakeRooms.room = fakeRooms.makeRoom()
     const collab = await openCollab()
     becomes({ canWrite: false, held: 'change', unsent: 0 })
     expect([collab.allowsEditing.value, collab.editingPaused.value, collab.banner.value]).toEqual([
       false,
       true,
-      { text: 'This document is read-only while an admin reviews a change to it.' },
+      { text: 'This document is read-only while an admin checks it.' },
     ])
   })
 
