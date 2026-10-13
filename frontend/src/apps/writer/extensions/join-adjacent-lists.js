@@ -2,7 +2,7 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { canJoin } from '@tiptap/pm/transform'
 
-import { changedRanges, touches } from './received-content-guard'
+import { changedRanges, touches } from './ranges'
 
 // Deleting a block between two lists, or lifting an item out, leaves adjacent
 // same-type list nodes that ProseMirror never merges, so the second list

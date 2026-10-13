@@ -4,7 +4,7 @@ import { canJoin } from '@tiptap/pm/transform'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import { ListJoin as StockListJoin } from 'frappe-ui/editor'
 
-import { changedRanges, touches } from './received-content-guard'
+import { changedRanges, touches } from './ranges'
 
 const isList = (node: Node) =>
   String(node.type.spec.group ?? '')

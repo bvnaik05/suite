@@ -8,42 +8,13 @@ import {
   RemoveMarkStep,
   RemoveNodeMarkStep,
   ReplaceAroundStep,
-  type Mappable,
   type Step,
 } from '@tiptap/pm/transform'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 
-type Range = [number, number]
+import { changedRanges, mapRanges, rangesChangedBy, touches, type Range } from './ranges'
 
 const guardKey = new PluginKey<Range[] | null>('receivedContentGuard')
-
-function rangesChangedBy(tr: Transaction) {
-  const ranges: Range[] = []
-  const collectStepRanges = (step: Step, i: number) => {
-    const laterMapping = tr.mapping.slice(i + 1)
-    const addRange = (_from: number, _to: number, from: number, to: number) => {
-      ranges.push([laterMapping.map(from, -1), laterMapping.map(to, 1)])
-    }
-    step.getMap().forEach(addRange)
-  }
-  tr.steps.forEach(collectStepRanges)
-
-  return ranges
-}
-
-const mapRanges = (ranges: Range[], mapping: Mappable) =>
-  ranges.map(([from, to]): Range => [mapping.map(from, -1), mapping.map(to, 1)])
-
-// Where `transactions` changed the document, in the last one's positions.
-// Normalizers fix only there, or the guard refuses their whole transaction
-export const changedRanges = (transactions: readonly Transaction[], ranges: Range[] = []) =>
-  transactions.reduce(
-    (rangesSoFar, tr) => [...mapRanges(rangesSoFar, tr.mapping), ...rangesChangedBy(tr)],
-    ranges,
-  )
-
-export const touches = (ranges: Range[], from: number, to = from) =>
-  ranges.some(([start, end]) => from <= end && start <= to)
 
 // Attributes and marks settle to one value in Yjs, so these may follow up anywhere
 function settlesToOneValue(step: Step, doc: Node) {
