@@ -65,6 +65,29 @@ test.describe("Writer collaboration", () => {
 		await expect(owner.page.locator(".bg-surface-amber-2")).toHaveCount(0);
 	});
 
+	test("the first edit to a document takes an automatic version the server keeps", async ({
+		owner,
+	}) => {
+		await openWriterDocument(owner.page, node);
+		await typeParagraph(owner.page, "First words");
+		await expectSaved(owner.page);
+
+		await owner.page
+			.getByRole("button", { name: /versions/i })
+			.first()
+			.click();
+		const versions = owner.page
+			.getByRole("complementary", { name: "Versions" })
+			.getByRole("button", { name: /^Version \d+/ });
+		await expect(versions).toHaveCount(1);
+		await versions.click();
+
+		const preview = owner.page.getByLabel("Version preview");
+		await expect(preview).not.toHaveText("");
+		const versionText = (await preview.innerText()).trim();
+		expect("First words".startsWith(versionText), versionText).toBe(true);
+	});
+
 	test("the Versions panel takes the table of contents' place on the right and moves the text like it", async ({
 		owner,
 	}) => {
