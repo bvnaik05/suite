@@ -142,8 +142,13 @@ export class Room implements CollabRoom {
     return this.writable && !this.suspect.isJudging && !this.held && !this.restoring
   }
 
+  // Typing before the restore's row is applied would be made against what it replaced
+  private get holdsRestore() {
+    return this.appliedThrough >= this.restoreRev
+  }
+
   get restoring() {
-    return this.fence.standing || !!this.restoreToken
+    return this.fence.standing || !!this.restoreToken || !this.holdsRestore
   }
 
   get live(): LiveState | null {

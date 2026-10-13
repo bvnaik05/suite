@@ -92,7 +92,7 @@ describe('work from before a restore', () => {
     server.fence(120_000)
     await vi.advanceTimersByTimeAsync(200)
 
-    server.landRestore(restoreTo(server, 'old'), true)
+    server.landRestore(restoreTo(server, 'old'), 'notice')
     await vi.advanceTimersByTimeAsync(1_000)
     await vi.waitFor(() => expect(room.needsRebuild).toBe(true))
 
@@ -159,6 +159,24 @@ describe('work from before a restore', () => {
       0,
     ])
     expect(text(await join(server.endpoints()))).toBe('old new')
+  })
+
+  it('a tab that hears of a restore before it holds it waits to edit until it does', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints(), { socket: server.socket() })
+    await vi.advanceTimersByTimeAsync(0)
+    server.fence(120_000)
+    await vi.advanceTimersByTimeAsync(200)
+    vi.spyOn(Math, 'random').mockReturnValue(0.99)
+
+    server.landRestore(restoreTo(server, 'old'), 'row')
+    await vi.advanceTimersByTimeAsync(10)
+    const before = [room.restoring, room.canWrite, text(room)]
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(before).toEqual([true, false, 'draft'])
+    expect([room.restoring, room.canWrite, text(room)]).toEqual([false, true, 'old'])
   })
 })
 

@@ -342,13 +342,16 @@ export function fakeServer(state = 'live', lineage = 'L') {
     return restore.token
   }
   // Another tab's restore lands as the next row, `bytes` making the document the version;
-  // `isNoticeLost` drops the notice that follows the row
-  const landRestore = (bytes: Uint8Array, isNoticeLost = false) => {
+  // `lost` drops the row's broadcast or the notice that follows it
+  const landRestore = (bytes: Uint8Array, lost?: 'row' | 'notice') => {
     rows.push({ rev: rows.length + 1, bytes })
     restore.rev = rows.length
     restore.until = 0
-    publish('suite_collab_row', { rev: rows.length, schema: 0, u: base64(bytes), restore: true })
-    if (!isNoticeLost) {
+    if (lost !== 'row') {
+      publish('suite_collab_row', { rev: rows.length, schema: 0, u: base64(bytes), restore: true })
+    }
+
+    if (lost !== 'notice') {
       publish('suite_collab_ctl', { kind: 'restored', restore_rev: restore.rev })
     }
   }
