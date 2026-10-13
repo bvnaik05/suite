@@ -1,13 +1,14 @@
 """Authorized comment threads attached to Drive content-document nodes."""
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from uuid import uuid4
 
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from suite.drive._core import content
 from suite.drive._core.access import effective_role, require
 from suite.drive._core.activity import notify_users, record
 from suite.drive._core.errors import (
@@ -88,6 +89,8 @@ def create_thread(
         raise
     else:
         frappe.db.release_savepoint(savepoint)
+
+    announce_threads(node_row)
     return _thread_view(thread.name)
 
 
@@ -142,6 +145,8 @@ def reply(
         raise
     else:
         frappe.db.release_savepoint(savepoint)
+
+    announce_threads(node)
     return _comment_view(comment)
 
 
@@ -177,6 +182,8 @@ def resolve(principals: Principals, thread: str, resolved: bool = True) -> frapp
         raise
     else:
         frappe.db.release_savepoint(savepoint)
+
+    announce_threads(node)
     return _thread_view(thread_row.name)
 
 
@@ -215,6 +222,8 @@ def edit_comment(principals: Principals, comment: str, text: str) -> frappe._dic
         raise
     else:
         frappe.db.release_savepoint(savepoint)
+
+    announce_threads(node)
     return _comment_view(comment_row.name)
 
 
@@ -253,6 +262,8 @@ def delete_comment(principals: Principals, comment: str) -> None:
         raise
     else:
         frappe.db.release_savepoint(savepoint)
+
+    announce_threads(node)
 
 
 def record_comment(
@@ -383,7 +394,7 @@ def _comment_node(node: str, *, for_update: bool = False) -> frappe._dict:
     row = frappe.db.get_value(
         "Drive Node",
         node,
-        ["name", "parent_node", "root", "path", "kind", "state"],
+        ["name", "parent_node", "root", "path", "kind", "state", "content_doctype"],
         as_dict=True,
         for_update=for_update,
     )
@@ -473,6 +484,21 @@ def first_send(doctype: str, node: str, client_id: str | None) -> frappe._dict |
         return None
 
     return frappe.db.get_value(doctype, {"node": node, "client_id": client_id}, "*", as_dict=True)
+
+
+def announce_threads(node: frappe._dict) -> None:
+    """Call the node's `threads_changed` callback once this write commits."""
+    spec = content.registry().get(node.content_doctype)
+    if spec and spec.threads_changed:
+        frappe.db.after_commit.add(lambda: send_threads_changed(spec.threads_changed, node.name))
+
+
+def send_threads_changed(callback: Callable[[str], None], node: str) -> None:
+    try:
+        content.call_app(callback, node)
+    except Exception:
+        # A file log: an Error Log row written after the request's commit would never be committed
+        frappe.logger("suite.drive").exception("Drive: could not announce the threads of %s", node)
 
 
 def _require_editor_or_author(

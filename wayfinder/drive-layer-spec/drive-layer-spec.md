@@ -2555,6 +2555,11 @@ def threads(p: Principals, node: str, *, resolved: bool | None = None) -> list[d
   made: no second row, activity or notification. A reply id already used in
   another thread is refused with a conflict. A write without one is never
   matched.
+- Each create, reply, resolve, edit or delete that changes a row calls the
+  node's content type `threads_changed(node)` (§10.1) once the request
+  commits, so the app can tell the document's open tabs to read the threads
+  again. A resend or a resolve that changes nothing calls nothing. A failing
+  callback is logged and never undoes the write.
 
 ### 9.4 Activity
 
@@ -2701,6 +2706,11 @@ class ContentTypeSpec:
 	# media sweep. (docname) -> the node ids the body still names. Only the
 	# app can read its own body, so only the app can answer [012 §5].
 	used_nodes: Callable[[str], set[str]] | None = None
+
+	# comments. (node) -> None, after a comment write on the node commits
+	# (§9.3). The app tells the document's open tabs to read the threads
+	# again; a failure is logged and never undoes the write.
+	threads_changed: Callable[[str], None] | None = None
 ```
 
 Every callable takes and returns names, never documents. `create_empty`,

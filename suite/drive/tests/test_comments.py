@@ -1,6 +1,8 @@
 import inspect
 import json
 import pathlib
+from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -152,6 +154,48 @@ class TestCommentWorkflows(IntegrationTestCase):
                     "client_id": "t-1",
                 }
             ).insert(ignore_permissions=True)
+
+    def test_each_comment_write_tells_the_content_app_after_it_commits(self):
+        heard: list[str] = []
+        with self.content_app(heard.append):
+            thread = create_thread(self.commenter, self.document.name, "anchor", "First", client_id="t-1")
+            create_thread(self.commenter, self.document.name, "anchor", "First", client_id="t-1")
+            answer = reply(self.owner, thread.name, "Second")
+            resolve(self.owner, thread.name)
+            resolve(self.owner, thread.name)
+            edit_comment(self.owner, answer.name, "Edited")
+            delete_comment(self.owner, answer.name)
+            self.assertEqual(heard, [])
+            frappe.db.commit()
+
+        self.assertEqual(heard, [self.document.name] * 5)
+
+    def test_a_refused_comment_write_tells_nothing(self):
+        heard: list[str] = []
+        with self.content_app(heard.append):
+            with self.assertRaises(DriveNotFound):
+                create_thread(self.outsider, self.document.name, "anchor", "No")
+
+            frappe.db.commit()
+
+        self.assertEqual(heard, [])
+
+    def test_a_failing_content_app_leaves_the_comment_written(self):
+        def fail(node):
+            raise RuntimeError("down")
+
+        with self.content_app(fail):
+            thread = create_thread(self.commenter, self.document.name, "anchor", "Kept")
+            frappe.db.commit()
+
+        self.assertTrue(frappe.db.exists("Drive Comment Thread", thread.name))
+
+    @contextmanager
+    def content_app(self, threads_changed):
+        frappe.db.set_value("Drive Node", self.document.name, "content_doctype", "Comment Test Doc")
+        app = SimpleNamespace(threads_changed=threads_changed)
+        with patch.object(comments.content, "registry", return_value={"Comment Test Doc": app}):
+            yield
 
     def test_author_can_edit_at_read_but_non_author_cannot(self):
         thread = create_thread(self.commenter, self.document.name, "anchor", "Original").name
