@@ -107,9 +107,13 @@
 
           <!-- Mail list -->
           <div ref="mailList" class="h-full overflow-y-auto overscroll-contain max-sm:pb-20">
-            <!-- An empty tab keeps its tabs, and an empty filtered list its filter, to leave it by. -->
+            <!-- An empty tab keeps its tabs, and an empty filtered list its filter, to leave it by.
+                 While a new tab or filter loads, the list area spins in its place. -->
+            <div v-if="!threadRows.length && threads.isFetching" class="flex justify-center py-10">
+              <LoaderCircle class="text-ink-gray-5 h-5 w-5 animate-spin" />
+            </div>
             <p
-              v-if="!threadRows.length && !threads.isFetching"
+              v-else-if="!threadRows.length"
               class="text-ink-gray-5 px-3 py-10 text-center text-p-sm sm:px-5"
             >
               {{

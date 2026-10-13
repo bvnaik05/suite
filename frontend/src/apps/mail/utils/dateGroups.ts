@@ -8,36 +8,39 @@ import dayjs from '@/apps/mail/utils/dayjs'
  * rather than reading as the whole month. The groups follow one another in time, so a list sorted
  * newest first meets each once, in order.
  *
- * A group's key is 'today', 'yesterday', 'day:YYYY-MM-DD' for an earlier day this week, 'week:N' for
- * the week N weeks before this one, or 'YYYY-MM' for a month (or what is left of one).
+ * A group's key names its dates, not how recent they are: 'day:YYYY-MM-DD', 'week:YYYY-MM-DD' (the
+ * week's first day), or 'YYYY-MM'. So a group keeps its key, and a fold on it, across midnight; only
+ * what its header reads moves on ("Today" becoming "Yesterday").
  */
 const WEEKS = 3
 
+const thisWeekOf = (now: Date | string) => dayjs(now).startOf('day').startOf('week')
+
 /** Where the week groups end: everything before it is grouped by month. */
-const weeksEnd = (now: Date | string) =>
-  dayjs(now).startOf('day').startOf('week').subtract(WEEKS, 'week')
+const weeksEnd = (now: Date | string) => thisWeekOf(now).subtract(WEEKS, 'week')
 
 export const dateGroup = (date: Date | string, now: Date | string = new Date()): string => {
   const day = dayjs(date)
   const today = dayjs(now).startOf('day')
-  const thisWeek = today.startOf('week')
-  // Each check takes what the ones before it left, so a range that an earlier one already covers
-  // (this week starting yesterday, say) simply holds nothing.
-  if (!day.isBefore(today)) return 'today'
-  if (!day.isBefore(today.subtract(1, 'day'))) return 'yesterday'
-  if (!day.isBefore(thisWeek)) return `day:${day.format('YYYY-MM-DD')}`
-  for (let weeks = 1; weeks <= WEEKS; weeks++)
-    if (!day.isBefore(thisWeek.subtract(weeks, 'week'))) return `week:${weeks}`
+  const thisWeek = thisWeekOf(now)
+  // Today and yesterday are days of their own even where this week began today.
+  const days = thisWeek.isAfter(today.subtract(1, 'day')) ? today.subtract(1, 'day') : thisWeek
+  if (!day.isBefore(days)) return `day:${day.format('YYYY-MM-DD')}`
+  if (!day.isBefore(weeksEnd(now))) return `week:${day.startOf('week').format('YYYY-MM-DD')}`
   return day.format('YYYY-MM')
 }
 
 /** What a group's header reads. */
 export const dateGroupLabel = (key: string, now: Date | string = new Date()): string => {
-  if (key === 'today') return __('Today')
-  if (key === 'yesterday') return __('Yesterday')
-  if (key.startsWith('day:')) return dayjs(key.slice(4)).format('dddd')
+  const today = dayjs(now).startOf('day')
+  if (key.startsWith('day:')) {
+    const day = dayjs(key.slice(4))
+    if (day.isSame(today, 'day')) return __('Today')
+    if (day.isSame(today.subtract(1, 'day'), 'day')) return __('Yesterday')
+    return day.format('dddd')
+  }
   if (key.startsWith('week:')) {
-    const weeks = key.slice(5)
+    const weeks = String(thisWeekOf(now).diff(dayjs(key.slice(5)), 'week'))
     return weeks === '1' ? __('Last week') : __('{0} weeks ago', [weeks])
   }
   const month = dayjs(`${key}-01`)
