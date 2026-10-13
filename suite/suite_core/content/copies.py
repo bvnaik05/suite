@@ -227,7 +227,7 @@ def keep_unprojected(adapter: str, doc_id: str, written: str, projection_hash: b
 
 
 def keep_copy(adapter: str, doc_id: str, rev: int, html: str) -> None:
-    """Keep the copy at `rev` and drop older ones no version holds."""
+    """Keep the copy at `rev` and drop older ones."""
     copy_table = table(adapter, "copy")
     frappe.db.sql(
         f"""INSERT INTO `{copy_table}` (`doc_id`, `rev`, `html`, `created`) VALUES (%s, %s, %s, %s)
@@ -235,18 +235,8 @@ def keep_copy(adapter: str, doc_id: str, rev: int, html: str) -> None:
         (doc_id, rev, html, now_datetime()),
     )
     frappe.db.sql(
-        f"DELETE FROM `{copy_table}` WHERE `doc_id` = %s AND `rev` < %s AND (`held` = 0 OR `html` IS NULL)",
+        f"DELETE FROM `{copy_table}` WHERE `doc_id` = %s AND `rev` < %s",
         (doc_id, rev),
-    )
-
-
-def hold(adapter: str, doc_id: str, rev: int) -> None:
-    """Keep the copy at `rev` for a version through it, and one checked at `rev` later."""
-    copy_table = table(adapter, "copy")
-    frappe.db.sql(
-        f"""INSERT INTO `{copy_table}` (`doc_id`, `rev`, `held`, `created`) VALUES (%s, %s, 1, %s)
-        ON DUPLICATE KEY UPDATE `held` = 1""",
-        (doc_id, rev, now_datetime()),
     )
 
 

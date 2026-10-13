@@ -210,14 +210,13 @@ def ensure_tables(adapter: str) -> None:
             PRIMARY KEY (`doc_id`)
         ) {options}"""
     )
-    # Checked readable copies at the latest rev and at revs a version holds; a held rev may have none yet
+    # The checked readable copy at the latest rev
     frappe.db.sql_ddl(
         f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "copy")}` (
             `doc_id` varchar(20) NOT NULL,
             `rev` bigint unsigned NOT NULL,
             `html` longtext NULL,
             `text` longtext NULL,
-            `held` tinyint(1) NOT NULL DEFAULT 0,
             `created` datetime(6) NOT NULL,
             PRIMARY KEY (`doc_id`, `rev`)
         ) {options}"""

@@ -44,12 +44,12 @@ class TestReadableCopies(CheckpointCase):
         )
         return [(owner, reason, bytes(payload)) for owner, reason, payload in rows]
 
-    def kept_copies(self) -> list[tuple[int, str | None, int]]:
+    def kept_copies(self) -> list[tuple[int, str | None]]:
         rows = frappe.db.sql(
-            "SELECT `rev`, `html`, `held` FROM `__writer_content_copy` WHERE `doc_id` = %s ORDER BY `rev`",
+            "SELECT `rev`, `html` FROM `__writer_content_copy` WHERE `doc_id` = %s ORDER BY `rev`",
             self.doc.id,
         )
-        return [(int(rev), html, int(held)) for rev, html, held in rows]
+        return [(int(rev), html) for rev, html in rows]
 
     def alerts(self) -> int:
         return frappe.db.count("Error Log", {"method": ["like", "Collab readable copy%"]})
@@ -58,7 +58,7 @@ class TestReadableCopies(CheckpointCase):
         self.assertEqual(self.install(2, "<p>one two</p>"), "installed")
 
         self.assertEqual(self.copy_field(), "<p>one two</p>")
-        self.assertEqual(self.kept_copies(), [(2, "<p>one two</p>", 0)])
+        self.assertEqual(self.kept_copies(), [(2, "<p>one two</p>")])
 
     def test_a_render_is_checked_against_the_document_at_its_own_rev(self):
         self.assertEqual(self.install(1, "<p>one</p>"), "installed")
@@ -126,14 +126,12 @@ class TestReadableCopies(CheckpointCase):
         self.assertEqual(self.evidence(), [("system", "copy_foreign", b"<p>foreign</p>")])
         self.assertEqual(self.alerts(), alerts + 1)
 
-    def test_older_copies_are_dropped_unless_a_version_holds_them(self):
+    def test_a_newer_copy_drops_the_older_one(self):
         self.install(1, "<p>one</p>")
-        frappe.db.sql("UPDATE `__writer_content_copy` SET `held` = 1 WHERE `doc_id` = %s", self.doc.id)
-        frappe.db.commit()
 
         self.install(2, "<p>one two</p>")
 
-        self.assertEqual(self.kept_copies(), [(1, "<p>one</p>", 1), (2, "<p>one two</p>", 0)])
+        self.assertEqual(self.kept_copies(), [(2, "<p>one two</p>")])
         ((stored_hash,),) = frappe.db.sql(
             "SELECT `projection_hash` FROM `__writer_content_projection` WHERE `doc_id` = %s", self.doc.id
         )

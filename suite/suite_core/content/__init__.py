@@ -9,7 +9,6 @@ because `suite_core` never imports Drive or a product.
 
 from suite.suite_core.content.backfill import backfill_clocks
 from suite.suite_core.content.checkpoints import replace_start
-from suite.suite_core.content.copies import hold as hold_copy
 from suite.suite_core.content.copies import readable_copy
 from suite.suite_core.content.copies import submit as submit_render
 from suite.suite_core.content.copies import wanted as copy_wanted
@@ -54,7 +53,6 @@ __all__ = [
     "encode_frame",
     "ensure_tables",
     "find",
-    "hold_copy",
     "issue_session",
     "limits",
     "mark_purged",
