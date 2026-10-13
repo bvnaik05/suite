@@ -30,14 +30,14 @@
         route="/drive/trash"
         :active="current === 'trash' || undefined"
       />
+    </SidebarSection>
+    <AreaSidebarFooter>
       <SidebarItem
         v-if="unsavedCount"
         label="Recovery"
         icon="lucide-hard-drive"
         route="/drive/recovery"
       />
-    </SidebarSection>
-    <AreaSidebarFooter>
       <StorageMeter />
     </AreaSidebarFooter>
   </div>
