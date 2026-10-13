@@ -61,50 +61,19 @@
         />
       </DefineTopbarStatus>
       <DefineTopbarActions>
-        <!-- AI Assist entry point — shown only when an admin has configured a
-           key and enabled it (gated server-side via the boot flag). -->
-        <template v-if="aiEnabled && !readOnly">
-          <span class="sn-wide-only">
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="lucide-sparkles"
-              label="Ask AI"
-              tooltip="Ask AI to work on your selection"
-              @click="openAskBar"
-            />
-          </span>
-          <span class="sn-topbar-divider" aria-hidden="true" />
-        </template>
-        <span class="sn-wide-only">
-          <Dropdown :options="fileDropdownOptions" align="end">
-            <template #default="{ open }">
-              <Button
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon-left="lucide-file-text"
-                icon-right="lucide-chevron-down"
-                label="File"
-                tooltip="Import / export"
-              />
-            </template>
-          </Dropdown>
-        </span>
-        <!-- A narrow bar folds Ask AI, File and Keyboard shortcuts into one
-           menu. A container query swaps the two, so nothing moves on load. -->
-        <span class="sn-compact-only">
-          <Dropdown :options="compactMenuOptions" align="end">
-            <template #default="{ open }">
-              <Button
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon="lucide-ellipsis"
-                aria-label="More actions"
-                tooltip="More actions"
-              />
-            </template>
-          </Dropdown>
-        </span>
+        <SheetTopbarActions
+          :ai-enabled="aiEnabled"
+          :read-only="readOnly"
+          :file-dropdown-options="fileDropdownOptions"
+          :compact-menu-options="compactMenuOptions"
+          :notes-open="notesPanel.open"
+          :notes-count="allNotes.length"
+          :present-users="presentUsers"
+          :current-sheet="currentSheet"
+          @ask-ai="openAskBar"
+          @toggle-notes="toggleNotesPanel"
+          @shortcuts="showShortcutsHelp = true"
+        />
         <input
           ref="csvInputRef"
           name="csv-import"
@@ -121,59 +90,6 @@
           style="display: none"
           @change="importXLSX"
         />
-        <span class="sn-topbar-divider" aria-hidden="true" />
-        <!-- Notes: button toggles the side panel listing all notes across sheets.
-           Shift+F2 still opens the per-cell inline editor for quick capture. -->
-        <span class="sn-notes-btn-wrap">
-          <Button
-            :variant="notesPanel.open ? 'subtle' : 'ghost'"
-            size="sm"
-            icon="lucide-sticky-note"
-            :aria-label="allNotes.length ? `Notes (${allNotes.length})` : 'Notes'"
-            :aria-pressed="notesPanel.open"
-            :tooltip="`Notes${allNotes.length ? ` (${allNotes.length})` : ''} — Shift+F2 to add`"
-            @click="toggleNotesPanel"
-          />
-          <span v-if="allNotes.length" class="sn-notes-badge">{{
-            allNotes.length > 9 ? '9+' : allNotes.length
-          }}</span>
-        </span>
-        <span class="sn-wide-only">
-          <Button
-            aria-label="Keyboard shortcuts"
-            variant="ghost"
-            size="sm"
-            icon="lucide-help-circle"
-            tooltip="Keyboard shortcuts"
-            @click="showShortcutsHelp = true"
-          />
-        </span>
-        <span class="sn-topbar-divider" aria-hidden="true" />
-        <!-- Presence avatars — other users currently in the workbook.
-           Outline = their cursor color; tooltip says which sub-sheet
-           they're on so cross-sheet collaborators are discoverable. -->
-        <div v-if="presentUsers.length" class="sn-presence">
-          <Avatar
-            v-for="u in presentUsers.slice(0, 3)"
-            :key="u.user"
-            :label="u.initials"
-            :image="u.user_image || undefined"
-            size="sm"
-            :tooltip="
-              u.sub_sheet && u.sub_sheet !== currentSheet
-                ? `${u.full_name} — on ${u.sub_sheet}`
-                : u.full_name
-            "
-            class="sn-presence-avatar"
-            :style="{ '--rc': u.color }"
-          />
-          <span
-            v-if="presentUsers.length > 3"
-            class="sn-presence-more"
-            :title="`${presentUsers.length - 3} more people`"
-            >+{{ presentUsers.length - 3 }}</span
-          >
-        </div>
       </DefineTopbarActions>
 
       <!-- On /d/ the surface draws the Drive document header: title, Comments,
@@ -185,90 +101,26 @@
         :status="ReuseTopbarStatus"
         :actions="ReuseTopbarActions"
       />
-      <div v-else class="sn-topbar">
-        <div class="sn-topbar-left">
-          <div class="sn-identity">
-            <Dropdown :options="brandMenuOptions" :offset="16">
-              <template #default="{ open }">
-                <Tooltip text="Open Sheets menu">
-                  <div class="sn-app-menu-trigger" aria-label="Open Sheets menu">
-                    <svg
-                      class="sn-app-icon"
-                      width="28"
-                      height="28"
-                      viewBox="0 0 118 118"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M93.9278 0H23.1013C10.3428 0 0 10.3428 0 23.1013V93.9278C0 106.686 10.3428 117.029 23.1013 117.029H93.9278C106.686 117.029 117.029 106.686 117.029 93.9278V23.1013C117.029 10.3428 106.686 0 93.9278 0Z"
-                        fill="#278F5E"
-                      />
-                      <path
-                        d="M77.757 25.9364H23.5215V36.437H77.757C80.6447 36.437 83.0073 38.7996 83.0073 41.6873V75.3942C83.0073 78.2818 80.6447 80.6445 77.757 80.6445H39.2724C36.3847 80.6445 34.0221 78.2818 34.0221 75.3942V50.6653H23.5215V75.3942C23.5215 84.0572 30.6094 91.1451 39.2724 91.1451H77.757C86.42 91.1451 93.5079 84.0572 93.5079 75.3942V41.6873C93.5079 33.0243 86.42 25.9364 77.757 25.9364Z"
-                        fill="white"
-                      />
-                      <path d="M53.8678 59.6958H43.3672V70.0914H53.8678V59.6958Z" fill="white" />
-                      <path d="M73.6617 50.6653H63.1611V70.1439H73.6617V50.6653Z" fill="white" />
-                    </svg>
-                    <FeatherIcon
-                      :name="open ? 'chevron-up' : 'chevron-down'"
-                      class="size-4 text-ink-gray-7"
-                    />
-                  </div>
-                </Tooltip>
-              </template>
-            </Dropdown>
-            <Breadcrumbs v-if="!isTitleEditing" :items="sheetBreadcrumbs" />
-            <template v-else>
-              <div class="flex min-w-0 items-center">
-                <Breadcrumbs class="sn-parent-breadcrumb" :items="sheetHomeBreadcrumbs" />
-                <span class="mx-0.5 text-base text-ink-gray-4" aria-hidden="true">/</span>
-                <InlineTitleInput
-                  v-model="currentTitle"
-                  class="max-w-[520px]"
-                  @submit="finishTitleEditing"
-                  @cancel="cancelTitleEditing"
-                  @blur="finishTitleEditing"
-                />
-              </div>
-            </template>
-          </div>
-          <!-- Save status — muted inline text; never competes with the title -->
-          <span v-if="isSaving" class="sn-save-status" aria-label="Saving…">
-            <FeatherIcon name="loader" class="sn-save-icon sn-save-spin" />
-            <span class="sn-save-label">Saving…</span>
-          </span>
-          <span v-else-if="justSaved" class="sn-save-status" aria-label="Saved">
-            <FeatherIcon name="check" class="sn-save-icon" />
-            <span class="sn-save-label">Saved</span>
-          </span>
-          <ReuseTopbarStatus />
-          <!-- View-only indicator — shown up front so a viewer knows they can't
-             edit before they try. Neutral gray (not an error) because read
-             access is expected, not a failure. Uses the Frappe UI Badge so it
-             matches the save-error chip beside it and the Espresso tokens. -->
-          <Tooltip
-            v-if="readOnly"
-            text="You have view access. Ask the owner for edit access to make changes."
-          >
-            <Badge theme="gray" variant="subtle" size="lg" aria-label="View only">
-              <template #prefix><FeatherIcon name="eye" class="h-3.5 w-3.5" /></template>
-              <span class="sn-view-only-label">View only</span>
-            </Badge>
-          </Tooltip>
-        </div>
-        <div class="sn-topbar-right">
-          <ReuseTopbarActions />
-          <Avatar
-            :label="userInitial"
-            :image="userImage || undefined"
-            size="sm"
-            :tooltip="userFullName || userEmail"
-            class="sn-user-avatar"
-          />
-        </div>
-      </div>
+      <SheetTopbar
+        v-else
+        v-model:title="currentTitle"
+        :brand-menu-options="brandMenuOptions"
+        :is-title-editing="isTitleEditing"
+        :sheet-breadcrumbs="sheetBreadcrumbs"
+        :sheet-home-breadcrumbs="sheetHomeBreadcrumbs"
+        :is-saving="isSaving"
+        :just-saved="justSaved"
+        :read-only="readOnly"
+        :user-initial="userInitial"
+        :user-image="userImage"
+        :user-full-name="userFullName"
+        :user-email="userEmail"
+        @finish-title="finishTitleEditing"
+        @cancel-title="cancelTitleEditing"
+      >
+        <template #status><ReuseTopbarStatus /></template>
+        <template #actions><ReuseTopbarActions /></template>
+      </SheetTopbar>
 
       <!-- Bar 2 · Formatting toolbar (SheetToolbar.vue) -->
       <SheetToolbar
@@ -1001,9 +853,7 @@
 <script setup>
 import { createReusableTemplate, useMediaQuery } from '@vueuse/core'
 import {
-  Avatar,
   Badge,
-  Breadcrumbs,
   Button,
   Dialog,
   Dropdown,
@@ -1073,13 +923,14 @@ import ConditionalFormatDialog from './ConditionalFormatDialog.vue'
 import FilterPanel from './FilterPanel.vue'
 import FindReplace from './FindReplace.vue'
 import HyperlinkDialog from './HyperlinkDialog.vue'
-import InlineTitleInput from './InlineTitleInput.vue'
 import LinkPreviewCard from './LinkPreviewCard.vue'
 import NamedRangesDialog from './NamedRangesDialog.vue'
 import NotesPanel from './NotesPanel.vue'
 import PivotDialog from './PivotDialog.vue'
 import SheetContextMenu from './SheetContextMenu.vue'
 import SheetToolbar from './SheetToolbar.vue'
+import SheetTopbar from './SheetTopbar.vue'
+import SheetTopbarActions from './SheetTopbarActions.vue'
 import SlicerPanel from './SlicerPanel.vue'
 import SplitTextPopover from './SplitTextPopover.vue'
 import { buildAlignOptions, buildBorderOptions, buildMoreToolbarOptions } from './toolbar.config.js'
