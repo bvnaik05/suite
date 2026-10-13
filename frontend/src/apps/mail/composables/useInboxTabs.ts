@@ -3,8 +3,6 @@ import { useRoute, type RouteLocationNamedRaw } from 'vue-router'
 
 import { api, client, type InputOf } from '@/api'
 import { userStore } from '@/apps/mail/stores/user'
-import { raiseOptimisticToast, raiseToast } from '@/apps/mail/utils'
-import { useSettings, useUndo } from '@/apps/mail/utils/composables'
 
 export type InboxCategory = 'primary' | 'updates' | 'forums' | 'promotions' | 'social'
 
@@ -95,8 +93,6 @@ export const useTabChoice = () => {
   // the save is answered, and a component's mutation is cancelled when the component goes.
   const save = (input: InputOf<typeof api.mail.settings.updatePreferences>) =>
     client.mutation(api.mail.settings.updatePreferences, input)
-  const { openSettings } = useSettings()
-  const { setUndoAction, undo } = useUndo()
 
   const offered = computed(() => !!store.userResource.data?.email_classification)
   const split = computed(() => !!store.userResource.data?.split_inbox)
@@ -132,20 +128,8 @@ export const useTabChoice = () => {
         .map((choice) => choice.category),
     )
 
-  const setSplit = async (on: boolean) => {
-    await save({ split_inbox: on ? 1 : 0 })
-    if (on) return
-    // Off takes the tabs, and their menu with them: say how to get them back. Undo is Mail's one undo
-    // slot, so the toast's button and Cmd/Ctrl+Z do the same, even after the toast has gone.
-    setUndoAction(() => raiseOptimisticToast(save({ split_inbox: 1 }), __('Categories turned on.')))
-    raiseToast(
-      __('Categories turned off.'),
-      'success',
-      { label: __('Undo'), onClick: undo },
-      undefined,
-      { label: __('Settings'), onClick: () => openSettings('mail.layout') },
-    )
-  }
+  // A switch in the view menu, which stays where it is either way: no toast, nothing to undo.
+  const setSplit = (on: boolean) => save({ split_inbox: on ? 1 : 0 })
 
   return {
     offered,
@@ -155,6 +139,45 @@ export const useTabChoice = () => {
     setTab,
     setSplit,
   }
+}
+
+/**
+ * The menu rows that choose the tabs: a switch for the categories as a whole (a layout choice, so
+ * it sits with the others), and while they are on, a group with a switch per category (Primary has
+ * none, being the Inbox's own), the last one on held on. Nothing where the site doesn't sort mail
+ * into categories.
+ */
+export const useTabChoiceMenu = () => {
+  const { offered, split, choices, setTab, setSplit } = useTabChoice()
+  const categoriesSwitch = computed(() =>
+    offered.value
+      ? {
+          label: __('Categories'),
+          icon: 'lucide-blocks',
+          switch: true as const,
+          switchValue: split.value,
+          onClick: (on: boolean): void => void setSplit(on),
+        }
+      : undefined,
+  )
+  const tabGroups = computed(() => {
+    if (!offered.value || !split.value) return []
+    const onCount = choices.value.filter((choice) => choice.on).length
+    return [
+      {
+        group: __('Tabs'),
+        options: choices.value.map((choice) => ({
+          label: choice.label,
+          icon: choice.icon,
+          switch: true as const,
+          switchValue: choice.on,
+          disabled: choice.on && onCount === 1,
+          onClick: (on: boolean) => void setTab(choice.category, on),
+        })),
+      },
+    ]
+  })
+  return { categoriesSwitch, tabGroups }
 }
 
 /** The name a tab goes by in the list's menu and toasts. */

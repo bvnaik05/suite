@@ -7,6 +7,8 @@ import { computed, h, ref } from 'vue'
  * leaves the menu up, so several can be ticked in a row.
  */
 export interface FilterOption {
+  /** The filter's `filter_by` key. */
+  key: string
   label: string
   slots: { prefix: () => ReturnType<typeof h> }
   onClick: (event?: Event) => void
@@ -66,6 +68,14 @@ export const useListFilter = ({
     onChange()
   }
 
+  /** Take every filter off a list that is showing, which then reloads. */
+  const clear = () => {
+    if (!stored.value.length) return
+    stored.value = []
+    changed.value = true
+    onChange()
+  }
+
   /** Start clear: another list (a mailbox switch) opens unfiltered. */
   const reloadFilter = () => {
     stored.value = []
@@ -77,6 +87,7 @@ export const useListFilter = ({
     FILTERS.map((f) => {
       const ticked = stored.value.includes(f.key)
       return {
+        key: f.key,
         label: f.label(),
         slots: {
           prefix: () => h(Checkbox, { modelValue: ticked, class: 'pointer-events-none' }),
@@ -100,5 +111,5 @@ export const useListFilter = ({
     return active.value[0].label()
   })
 
-  return { filter, changed, reloadFilter, FILTER_OPTIONS, filterTitle }
+  return { filter, changed, reloadFilter, clear, FILTER_OPTIONS, filterTitle }
 }

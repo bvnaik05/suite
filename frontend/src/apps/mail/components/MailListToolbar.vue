@@ -26,19 +26,32 @@
     <!-- Select-all checkbox in the mailbox list; All Inboxes has no selection. -->
     <slot name="lead" />
 
-    <Dropdown v-if="showFilter" :options="filterOptions">
-      <button
-        class="text-ink-gray-8 hover:bg-surface-gray-2 -ml-2 flex min-w-0 items-center gap-1 rounded-4 px-2 py-1"
-      >
-        <span class="truncate">{{ title }}</span>
-        <ChevronDown class="text-ink-gray-5 icon shrink-0" />
-      </button>
-    </Dropdown>
-    <!-- Not every title is the filter's: a selection count and a search result count
+    <!-- The filter chips stand where the filter selector goes, scrolling sideways when the list
+         column is too narrow for them rather than running under the buttons at the row's end. Only
+         the slot's own content sits in the scroller; the selector and the plain titles don't. -->
+    <div
+      v-if="$slots.filter"
+      ref="scroller"
+      class="-my-1 flex min-w-0 flex-1 items-center overflow-x-auto py-1 [scrollbar-width:none]"
+      :class="fade"
+    >
+      <slot name="filter" />
+    </div>
+    <template v-else>
+      <Dropdown v-if="showFilter" :options="filterOptions">
+        <button
+          class="text-ink-gray-8 hover:bg-surface-gray-2 -ml-2 flex min-w-0 items-center gap-1 rounded-4 px-2 py-1"
+        >
+          <span class="truncate">{{ title }}</span>
+          <ChevronDown class="text-ink-gray-5 icon shrink-0" />
+        </button>
+      </Dropdown>
+      <!-- Not every title is the filter's: a selection count and a search result count
 		     both land here, and neither opens a menu. -->
-    <p v-else class="pb-0.5">{{ title }}</p>
+      <p v-else class="pb-0.5">{{ title }}</p>
+    </template>
 
-    <div class="-mr-1.5 ml-auto flex items-center space-x-2">
+    <div class="-mr-1.5 ml-auto flex shrink-0 items-center space-x-2 pl-2">
       <!-- The caller's actions come first, so Refresh keeps the far end whatever they are and
 			     nothing shifts as they come and go (an Inbox tab's own menu, say). -->
       <slot name="actions" />
@@ -68,6 +81,7 @@ import { Button, Dropdown } from 'frappe-ui'
 import { ChevronDown, RefreshCw } from 'lucide-vue-next'
 
 import LoadingBar from '@/apps/mail/components/LoadingBar.vue'
+import { useOverflowFade } from '@/apps/mail/composables/useOverflowFade'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import type { FilterOption } from '@/apps/mail/utils/listFilter'
 import AdaptiveDropdown from '@/components/AdaptiveDropdown.vue'
@@ -99,4 +113,6 @@ const {
 const emit = defineEmits<{ refresh: [] }>()
 
 const { isMobile } = useScreenSize()
+// Fades the filter area's cut-off end while it scrolls.
+const { scroller, fade } = useOverflowFade()
 </script>

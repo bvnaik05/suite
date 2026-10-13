@@ -7,15 +7,28 @@
   <!-- hidden on mobile: the title row carries the folder name, and the header's
 	     actions are the compose button and the sidebar sheet. Hidden (not v-if) so HeaderActions'
 	     modals stay mounted for the views' v-model bindings. -->
-  <header class="hidden items-center justify-between border-b px-3 py-2.5 sm:flex sm:px-5">
-    <div class="flex items-center space-x-2">
+  <!-- Stretched, the padding inside, so a split Inbox's tabs can run the header's full height and
+       underline on its border — as the mailbox list's header is. -->
+  <header class="hidden items-stretch border-b px-3 sm:flex sm:px-5">
+    <div class="flex min-w-0 flex-1 items-center space-x-2 py-2.5">
       <!-- -ml-0.5 cancels the crumb's own padding so the title sits on the px-5 axis -->
       <Breadcrumbs
+        v-if="!inboxTab"
         :items="[{ label: folderLabel, route: unifiedFolderRoute(folder) }]"
         class="-ml-0.5"
       />
+      <!-- A split Inbox's tabs stand in for its title. -->
+      <InboxHeaderTabs
+        v-else
+        class="-my-2.5 min-w-0 self-stretch"
+        :tabs="inboxTabs"
+        :active="inboxTab"
+        :route-for="routeForTab"
+      />
     </div>
-    <HeaderActions split-toggle />
+    <div class="flex shrink-0 items-center py-2.5">
+      <HeaderActions view-menu :inbox="folder === INBOX_FOLDER" />
+    </div>
   </header>
 
   <div class="relative flex h-[calc(100dvh-3.05rem)] max-sm:min-h-0 max-sm:flex-1 max-sm:!h-auto">
@@ -39,7 +52,7 @@
 					     list, the merged one has no header block above the row for it to sit
 					     under (its mobile title header is a sibling of ThreadPane). -->
           <InboxTabs
-            v-if="inboxTab"
+            v-if="isMobile && inboxTab"
             :tabs="inboxTabs"
             :active="inboxTab"
             :route-for="routeForTab"
@@ -67,6 +80,14 @@
               <div class="mr-5">
                 <SelectAllCheckbox :selected="isAllSelected" @toggle="toggleSelectAll" />
               </div>
+            </template>
+            <!-- The filters as chips, where the selector would go. -->
+            <template v-if="!isMobile && !selections.length" #filter>
+              <ListFilterChips
+                :filter-options="FILTER_OPTIONS"
+                :filter="filter"
+                :clear="clearFilter"
+              />
             </template>
             <template #actions>
               <ClearListMenu
@@ -113,13 +134,13 @@
                 <template #lead>
                   <div
                     v-if="!isMobile || mobileSelectionMode"
-                    class="pr-7.5 checkbox-hitbox -m-3 cursor-pointer py-3 pl-3"
+                    class="pr-7.5 checkbox-hitbox -m-3 flex cursor-pointer items-center py-3 pl-3"
                     @click.stop.prevent="toggleSelect(getGroupThreads(key), !isGroupSelected(key))"
                   >
                     <Checkbox
                       :model-value="isGroupSelected(key)"
                       size="md"
-                      class="pointer-events-none"
+                      class="pointer-events-none [&_input]:mt-0"
                     />
                   </div>
                 </template>
@@ -254,7 +275,9 @@ import { api, client, useInfiniteQuery } from '@/api'
 import ClearListMenu from '@/apps/mail/components/ClearListMenu.vue'
 import HeaderActions from '@/apps/mail/components/HeaderActions.vue'
 import NoMails from '@/apps/mail/components/Icons/NoMails.vue'
+import InboxHeaderTabs from '@/apps/mail/components/InboxHeaderTabs.vue'
 import InboxTabs from '@/apps/mail/components/InboxTabs.vue'
+import ListFilterChips from '@/apps/mail/components/ListFilterChips.vue'
 import MobileSelectionBar from '@/apps/mail/components/ListSelection/MobileSelectionBar.vue'
 import MobileSelectionHeader from '@/apps/mail/components/ListSelection/MobileSelectionHeader.vue'
 import SelectActionButtons from '@/apps/mail/components/ListSelection/SelectActionButtons.vue'
@@ -391,6 +414,7 @@ const {
   FILTER_OPTIONS,
   filterTitle: title,
   reloadFilter,
+  clear: clearFilter,
 } = useListFilter({
   onChange: () => resetThreads(),
   starrable: () => folder !== STARRED_FOLDER && !isTrashFolder.value,

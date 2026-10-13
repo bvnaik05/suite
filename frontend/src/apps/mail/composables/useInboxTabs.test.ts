@@ -166,17 +166,14 @@ describe('the Inbox tabs', () => {
     expect(toasts).toEqual([])
   })
 
-  it('turn off altogether, saying how to get them back, and Undo turns them on again', async () => {
+  it('turn off altogether, and on again, without a toast either way', async () => {
     const { setSplit } = useTabChoice()
 
     await setSplit(false)
     expect(saved).toEqual([{ split_inbox: 0 }])
-    expect(toasts).toEqual(['Categories turned off.'])
-
-    // What the toast's Undo and Cmd/Ctrl+Z both run.
-    await undoSlot.action?.()
+    await setSplit(true)
     expect(saved).toEqual([{ split_inbox: 0 }, { split_inbox: 1 }])
-    expect(toasts).toEqual(['Categories turned off.', 'Categories turned on.'])
+    expect(toasts).toEqual([])
   })
 
   it('build each switch on the last, while the earlier saves are still on their way', async () => {
