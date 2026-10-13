@@ -234,13 +234,20 @@ test.describe("Writer collaboration", () => {
 		await owner.page.keyboard.press("Escape");
 
 		const downloaded = owner.page.waitForEvent("download");
-		await kept.getByRole("button", { name: "Download" }).click();
+		await kept.getByRole("button", { name: /^Actions for/ }).click();
+		await owner.page.getByRole("menuitem", { name: "Download" }).click();
 		expect((await downloaded).suggestedFilename()).toBe(`${title} (recovered).html`);
 
-		await owner.page.goto("/drive/recovery");
+		await owner.page.goto("/drive");
+		await owner.page.getByRole("link", { name: "Recovery" }).click();
 		const row = owner.page.getByRole("listitem").filter({ hasText: title });
-		await expect(row).toBeVisible();
-		await row.getByRole("button", { name: "Discard" }).click();
+		await row.getByRole("button", { name: title }).click();
+		await expect(
+			owner.page.frameLocator('iframe[title="Recovery copy"]').locator("body"),
+		).toContainText("Typed in the old editor");
+		await owner.page.keyboard.press("Escape");
+		await row.getByRole("button", { name: /^Actions for/ }).click();
+		await owner.page.getByRole("menuitem", { name: "Discard" }).click();
 		await owner.page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
 		await expect(owner.page.getByText("No unsaved documents on this device.")).toBeVisible();
 	});

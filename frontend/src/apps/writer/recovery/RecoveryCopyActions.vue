@@ -1,26 +1,25 @@
 <script setup lang="ts">
-import { Button, Dialog } from 'frappe-ui'
-import { computed, ref } from 'vue'
+import { Button } from 'frappe-ui'
 
-import { confirm, toast } from '@/platform/feedback'
+import { confirm, Dropdown, toast } from '@/platform/feedback'
 
-import { copyToClipboard, discardCopy, downloadCopy, type RecoveryCopy } from './copies'
+import {
+  copyToClipboard,
+  discardCopy,
+  downloadCopy,
+  savedAtLabel,
+  type RecoveryCopy,
+} from './copies'
 
+/** A recovery copy's menu: copy it, download it or discard it. */
 const props = defineProps<{ copy: RecoveryCopy }>()
 const emit = defineEmits<{ discarded: [] }>()
 
-const viewing = ref(false)
-
-const viewTitle = computed(() => props.copy.title || 'Untitled document')
-// Follows the viewer's light or dark scheme, since the copy carries no styles of its own
-const viewedPage = computed(() => {
-  const style = '<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif}</style>'
-  return `${style}${props.copy.html}`
-})
-
-function view() {
-  viewing.value = true
-}
+const options = [
+  { label: 'Copy', icon: 'lucide-copy', onClick: copyText },
+  { label: 'Download', icon: 'lucide-download', onClick: download },
+  { label: 'Discard', icon: 'lucide-trash-2', theme: 'red' as const, onClick: discard },
+]
 
 async function copyText() {
   try {
@@ -54,18 +53,12 @@ async function discard() {
 </script>
 
 <template>
-  <div class="flex shrink-0 items-center gap-1">
-    <Button size="sm" variant="ghost" label="View" @click="view" />
-    <Button size="sm" variant="ghost" label="Copy" @click="copyText" />
-    <Button size="sm" variant="ghost" label="Download" @click="download" />
-    <Button size="sm" variant="ghost" theme="red" label="Discard" @click="discard" />
-  </div>
-  <Dialog v-model:open="viewing" :title="viewTitle" size="3xl">
-    <iframe
-      sandbox=""
-      title="Recovery copy"
-      class="h-[60vh] w-full rounded-4 border border-outline-gray-2"
-      :srcdoc="viewedPage"
+  <Dropdown :options="options" align="end">
+    <Button
+      icon="lucide-ellipsis"
+      variant="ghost"
+      :aria-label="`Actions for the copy from ${savedAtLabel(copy)}`"
+      @click.stop
     />
-  </Dialog>
+  </Dropdown>
 </template>
