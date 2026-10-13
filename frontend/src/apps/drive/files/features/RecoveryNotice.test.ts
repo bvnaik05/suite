@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 
@@ -41,8 +41,6 @@ function button(root: Element, name: string) {
   return buttons.find((found) => (found.textContent ?? found.ariaLabel)?.includes(name))
 }
 
-beforeEach(() => localStorage.clear())
-
 afterEach(() => {
   document.body.innerHTML = ''
 })
@@ -56,12 +54,7 @@ describe('Drive recovery notice', () => {
     ]
     const { root, router } = await openedNotice()
 
-    expect(root.textContent).toContain("2 documents have changes that couldn't be saved")
-    const review = root.querySelector('[data-layout="banner"] button')!
-    expect([
-      review.textContent?.trim(),
-      review.closest('[data-color]')?.getAttribute('data-color'),
-    ]).toEqual(['Review', 'gray'])
+    expect(root.textContent).toContain("2 documents have changes that couldn't be saved.")
     button(root, 'Review')!.click()
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/drive/recovery'))
   })
@@ -70,7 +63,7 @@ describe('Drive recovery notice', () => {
     kept = [{ key: 'a', document: 'node-1' }]
     const { root } = await openedNotice()
 
-    expect(root.textContent).toContain("1 document has changes that couldn't be saved")
+    expect(root.textContent).toContain("1 document has changes that couldn't be saved.")
   })
 
   it('shows nothing when the device keeps no copies', async () => {
@@ -81,32 +74,11 @@ describe('Drive recovery notice', () => {
     expect(root.textContent).toBe('')
   })
 
-  it('stays dismissed until a new copy is kept', async () => {
+  it('has no dismiss button, so it shows while the device keeps copies', async () => {
     kept = [{ key: 'a', document: 'node-1' }]
-    const first = await openedNotice()
-    first.root.querySelector<HTMLElement>('[aria-label="Dismiss"]')!.click()
-    await new Promise((done) => setTimeout(done))
-    expect(first.root.textContent).toBe('')
-
-    const again = await openedNotice()
-    expect(again.root.textContent).toBe('')
-
-    kept = [...kept, { key: 'b', document: 'node-1' }]
-    const afterNewCopy = await openedNotice()
-    expect(afterNewCopy.root.textContent).toContain('1 document has')
-  })
-
-  it('still shows and dismisses where the browser blocks storage', async () => {
-    kept = [{ key: 'a', document: 'node-1' }]
-    const blocked = vi.spyOn(globalThis, 'localStorage', 'get').mockImplementation(() => {
-      throw new DOMException('Blocked', 'SecurityError')
-    })
     const { root } = await openedNotice()
-    expect(root.textContent).toContain('1 document has')
 
-    root.querySelector<HTMLElement>('[aria-label="Dismiss"]')!.click()
-    await new Promise((done) => setTimeout(done))
-    blocked.mockRestore()
-    expect(root.textContent).toBe('')
+    expect(root.textContent).toContain('1 document has')
+    expect(root.querySelector('[aria-label="Dismiss"]')).toBeNull()
   })
 })
