@@ -131,7 +131,7 @@ test.describe("Writer collaboration", () => {
 
 		await restoreFromPreview(page, panel, "Two");
 
-		await expect(page.getByText(/^A version was just restored\. Try again in \d+ seconds\.$/)).toBeVisible();
+		await expect(page.getByText(/^A restore just ran\. Try again in \d+ seconds\.$/)).toBeVisible();
 		await page.getByRole("button", { name: "Back to current" }).click();
 		const blocks = await expectConverged(testApi, node, [page], ["First words"]);
 		expect(blocks.filter(Boolean)).toEqual(["First words"]);

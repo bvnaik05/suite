@@ -65,7 +65,7 @@ describe('restoreVersion', () => {
     [
       { outcome: 'refused', refusal: 'restore_recent', retryS: 42 },
       false,
-      'A version was just restored. Try again in 42 seconds.',
+      'A restore just ran. Try again in 42 seconds.',
     ],
     [
       { outcome: 'refused', refusal: 'restoring' },

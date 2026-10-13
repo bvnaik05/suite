@@ -59,7 +59,7 @@ function noticeFor(result: RestoreResult): RestoreNotice {
     const wait = result.retryS ?? RESTORE_EVERY_SECONDS
     return {
       isRestored: false,
-      message: `A version was just restored. Try again in ${wait} seconds.`,
+      message: `A restore just ran. Try again in ${wait} seconds.`,
     }
   }
 
