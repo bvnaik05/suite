@@ -11,15 +11,18 @@ import {
   type RecoveryCopy,
 } from './copies'
 
-/** A recovery copy's menu: copy it, download it or discard it. */
-const props = defineProps<{ copy: RecoveryCopy }>()
-const emit = defineEmits<{ discarded: [] }>()
+/** A recovery copy's menu: view it where `canView`, copy it, download it or discard it. */
+const props = defineProps<{ copy: RecoveryCopy; canView?: boolean }>()
+const emit = defineEmits<{ view: []; discarded: [] }>()
 
-const options = [
+const viewOption = { label: 'View', icon: 'lucide-eye', onClick: () => emit('view') }
+const copyOptions = [
   { label: 'Copy', icon: 'lucide-copy', onClick: copyText },
   { label: 'Download', icon: 'lucide-download', onClick: download },
   { label: 'Discard', icon: 'lucide-trash-2', theme: 'red' as const, onClick: discard },
 ]
+const allOptions = [viewOption, ...copyOptions]
+const options = props.canView ? allOptions : copyOptions
 
 async function copyText() {
   try {

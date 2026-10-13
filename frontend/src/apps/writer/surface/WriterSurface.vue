@@ -28,8 +28,16 @@ import UsersBar from '@/apps/writer/components/UsersBar.vue'
 import type { CollaborationUser } from '@/apps/writer/composables/useCollaborationUsers'
 import emitter from '@/apps/writer/emitter'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
-import { downloadCopy, keepPageCopy, listCopies } from '@/apps/writer/recovery/copies'
+import {
+  downloadCopy,
+  keepPageCopy,
+  listCopies,
+  savedAtLabel,
+  type RecoveryCopy,
+} from '@/apps/writer/recovery/copies'
 import RecoveryBanner from '@/apps/writer/recovery/RecoveryBanner.vue'
+import RecoveryCopyActions from '@/apps/writer/recovery/RecoveryCopyActions.vue'
+import RecoveryPreview from '@/apps/writer/recovery/RecoveryPreview.vue'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { belowMinBuild } from '@/platform/build'
 
@@ -76,6 +84,8 @@ const dirty = ref(false)
 const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const panel = ref<DocumentPanel | null>(null)
 const previewedVersion = ref<DocumentVersion | null>(null)
+// A recovery copy shown read-only in the editor's place, like a version
+const previewedCopy = shallowRef<RecoveryCopy | null>(null)
 
 const recoveryBanner = ref<InstanceType<typeof RecoveryBanner> | null>(null)
 
@@ -247,6 +257,28 @@ async function closePreview() {
   }
 }
 
+function viewCopy(copy: RecoveryCopy) {
+  previewedVersion.value = null
+  previewedCopy.value = copy
+}
+
+watch(previewedVersion, (shownVersion) => {
+  if (shownVersion) {
+    previewedCopy.value = null
+  }
+})
+
+async function closeCopy() {
+  previewedCopy.value = null
+  await nextTick()
+  editorSurface.value?.editor?.commands.focus()
+}
+
+function discardedCopy() {
+  previewedCopy.value = null
+  void recoveryBanner.value?.refresh()
+}
+
 function retainRecovery(): boolean {
   // The device store keeps a live tab's work, so a page copy would only repeat it
   if (room.value?.onDevice && !room.value.copyFailed) {
@@ -368,7 +400,7 @@ onBeforeUnmount(() => {
       </template>
     </DriveDocumentHeader>
 
-    <RecoveryBanner ref="recoveryBanner" :node="session.nodeId" />
+    <RecoveryBanner ref="recoveryBanner" :node="session.nodeId" @view="viewCopy" />
 
     <div
       v-if="shownBanner"
@@ -428,8 +460,25 @@ onBeforeUnmount(() => {
                 <Button size="sm" variant="ghost" label="Back to current" @click="closePreview" />
               </div>
             </template>
+            <template v-else-if="previewedCopy" #toolbar>
+              <div
+                class="flex shrink-0 items-center justify-between gap-3 border-b border-outline-elevation-2 px-5 py-1.5"
+                role="status"
+              >
+                <p class="truncate text-sm text-ink-gray-7">
+                  Viewing recovery copy from {{ savedAtLabel(previewedCopy) }}
+                </p>
+                <div class="flex shrink-0 items-center gap-1">
+                  <RecoveryCopyActions :copy="previewedCopy" @discarded="discardedCopy" />
+                  <Button size="sm" variant="ghost" label="Back to current" @click="closeCopy" />
+                </div>
+              </div>
+            </template>
             <template v-if="previewedVersion" #cover>
               <VersionPreview :session="session" :seq="previewedVersion.seq" :settings="settings" />
+            </template>
+            <template v-else-if="previewedCopy" #cover>
+              <RecoveryPreview :copy="previewedCopy" :settings="settings" />
             </template>
             <template #aside>
               <DocumentSidePanel
