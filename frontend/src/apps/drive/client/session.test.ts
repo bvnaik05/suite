@@ -145,6 +145,27 @@ describe('document session comments', () => {
     ])
     session.dispose()
   })
+
+  it('moves threads of its own document to new anchors', async () => {
+    const moved: unknown[] = []
+    const requester = transport((id, input) => {
+      if (id === 'node_get') {
+        return documentNode(input.node)
+      }
+
+      if (id === 'node_threads_reanchor') {
+        moved.push(input)
+      }
+
+      return { threads: [] }
+    })
+    const session = await openDriveDocumentSession('doc', { client: testClient(requester) })
+
+    await session.comments.reanchor({ 'thread-1': 'anchor-1' })
+
+    expect(moved).toEqual([{ node: 'doc', anchors: { 'thread-1': 'anchor-1' } }])
+    session.dispose()
+  })
 })
 
 describe('document session visits', () => {

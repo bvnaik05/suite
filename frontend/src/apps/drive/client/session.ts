@@ -85,6 +85,8 @@ export interface DocumentSession {
     resolve(thread: string, resolved: boolean): Promise<unknown>
     edit(comment: string, text: string): Promise<unknown>
     remove(comment: string): Promise<unknown>
+    /** Moves threads, by name, to new anchors; only their anchors change. */
+    reanchor(anchors: Record<string, string>): Promise<unknown>
   }
   versions: {
     list(cursor?: string): Promise<NodeVersionsOutput>
@@ -378,6 +380,18 @@ export async function openDriveDocumentSession(
           {
             node: nodeId,
             comment,
+          },
+          {
+            signal: controller.signal,
+            silent: true,
+          },
+        ),
+      reanchor: (anchors) =>
+        requester.mutation(
+          api.drive.threads.reanchor,
+          {
+            node: nodeId,
+            anchors,
           },
           {
             signal: controller.signal,
