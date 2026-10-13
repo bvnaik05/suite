@@ -2,7 +2,7 @@
 import { Button } from 'frappe-ui'
 import { computed, onMounted } from 'vue'
 
-import DocumentStrip from '@/apps/writer/surface/DocumentStrip.vue'
+import DocumentStrip from '@/apps/writer/components/DocumentStrip.vue'
 
 import { savedAtLabel, type RecoveryCopy } from './copies'
 import { useRecoveryCopies } from './useRecoveryCopies'

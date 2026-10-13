@@ -3,12 +3,12 @@ import { EditorContent, type Editor } from '@tiptap/vue-3'
 import { computed, inject, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
-import { previewEditor } from '@/apps/writer/surface/previewEditor'
 import {
   editorColumns,
   editorTextStyle,
   type LayoutSettings,
 } from '@/apps/writer/utils/editor-layout'
+import { previewEditor } from '@/apps/writer/utils/preview-editor'
 
 import type { RecoveryCopy } from './copies'
 

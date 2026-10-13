@@ -10,8 +10,8 @@ import {
   editorTextStyle,
   type LayoutSettings,
 } from '@/apps/writer/utils/editor-layout'
+import { previewEditor } from '@/apps/writer/utils/preview-editor'
 
-import { previewEditor } from './previewEditor'
 import { readVersion } from './versions'
 
 const props = defineProps<{

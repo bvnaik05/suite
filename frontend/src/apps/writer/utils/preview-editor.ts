@@ -1,15 +1,13 @@
-import type { EditorOptions } from '@tiptap/core'
+import type { EditorOptions, JSONContent } from '@tiptap/core'
 import { Editor } from '@tiptap/vue-3'
 
 import { DriveMedia, type DocumentMedia } from '@/apps/writer/extensions/drive-media'
 import { writerSchema } from '@/apps/writer/schema'
 import { EDITOR_TEXT_CLASS } from '@/apps/writer/utils/editor-layout'
 
-import type { VersionContent } from './versions'
-
 /** A read-only editor that shows content through Writer's schema. */
 export function previewEditor(
-  content: VersionContent,
+  content: string | JSONContent,
   media: DocumentMedia | null,
   onContentError: () => void,
 ) {

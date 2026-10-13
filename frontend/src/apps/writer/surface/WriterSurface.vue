@@ -23,6 +23,7 @@ import {
 } from '@/apps/drive'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import CollabTextEditor from '@/apps/writer/components/CollabTextEditor.vue'
+import DocumentStrip from '@/apps/writer/components/DocumentStrip.vue'
 import NonCollabEditor from '@/apps/writer/components/NonCollabEditor.vue'
 import TextEditor from '@/apps/writer/components/TextEditor.vue'
 import UsersBar from '@/apps/writer/components/UsersBar.vue'
@@ -44,7 +45,6 @@ import { belowMinBuild } from '@/platform/build'
 
 import { refusedSaveBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
-import DocumentStrip from './DocumentStrip.vue'
 import {
   resolveDocumentUnload,
   useDocumentLeaveGuard,
