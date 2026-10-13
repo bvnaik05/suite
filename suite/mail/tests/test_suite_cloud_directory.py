@@ -449,8 +449,8 @@ class TestGroupsAndLists(SuiteCloudTestCase):
     def test_a_refused_refresh_serves_the_previous_index(self) -> None:
         self.fake.mailing_lists__create_mailing_list(f"news@{DOMAIN}", recipients=[f"bob@{DOMAIN}"])
         directory.clear_mailing_list_index()
-        with patch.object(directory, "INDEX_TTL", 0):  # stale as soon as it is built
-            index = directory.get_mailing_list_index()
+        index = directory.get_mailing_list_index()
+        frappe.cache.delete_value(directory.INDEX_FRESH_KEY)  # the minute has passed
 
         def refuse(**_):
             frappe.throw("Rate limit exceeded.", frappe.TooManyRequestsError)

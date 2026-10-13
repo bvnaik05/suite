@@ -4,8 +4,6 @@ Accounts, groups, mailing lists and domains are identified by their addresses. E
 goes through the Suite Cloud client; nothing touches the cluster directly.
 """
 
-import time
-
 import frappe
 from frappe import _
 
@@ -19,6 +17,7 @@ RECIPIENT_PAGE = 1000
 LIST_PAGE = 500  # groups and lists per call, the cap Suite Cloud allows
 MAX_PAGES = 200  # more than any site holds; a peer that never ends must not hold a worker
 INDEX_KEY = "mail:mailing_list_index"
+INDEX_FRESH_KEY = "mail:mailing_list_index:fresh"
 INDEX_TTL = 60  # seconds an index is served before Suite Cloud is asked again
 INDEX_KEEP = 24 * 3600  # the last good index stays this long to cover a refresh Suite Cloud refuses
 
@@ -45,32 +44,22 @@ def get_mailing_list_index() -> dict[str, list[str]]:
     sent to nobody, and retrying on every lookup would only keep the site over the limit.
     """
 
-    cached = frappe.cache.get_value(INDEX_KEY)
-    if cached and cached["fresh_until"] > time.time():
-        return cached["index"]
+    index = frappe.cache.get_value(INDEX_KEY)
+    if index is not None and frappe.cache.get_value(INDEX_FRESH_KEY, expires=True):
+        return index
 
     try:
         index = build_mailing_list_index()
     except frappe.TooManyRequestsError, SuiteCloudUnavailableError:
-        if not cached:
+        if index is None:
             raise
         log_mail_error("Mailing list index could not be refreshed; the previous one is in use")
-        store_mailing_list_index(cached["index"], cached["built_at"])
-        return cached["index"]
+    else:
+        # Only a successful build writes the index, so a failed one cannot undo a parallel success.
+        frappe.cache.set_value(INDEX_KEY, index, expires_in_sec=INDEX_KEEP)
 
-    store_mailing_list_index(index, time.time())
+    frappe.cache.set_value(INDEX_FRESH_KEY, 1, expires_in_sec=INDEX_TTL)
     return index
-
-
-def store_mailing_list_index(index: dict[str, list[str]], built_at: float) -> None:
-    """Serves ``index`` for the next ``INDEX_TTL`` seconds; the entry dies ``INDEX_KEEP`` after it was built."""
-
-    now = time.time()
-    frappe.cache.set_value(
-        INDEX_KEY,
-        {"index": index, "built_at": built_at, "fresh_until": now + INDEX_TTL},
-        expires_in_sec=max(1, int(built_at + INDEX_KEEP - now)),
-    )
 
 
 def build_mailing_list_index() -> dict[str, list[str]]:
@@ -84,7 +73,7 @@ def build_mailing_list_index() -> dict[str, list[str]]:
 
 
 def clear_mailing_list_index() -> None:
-    frappe.cache.delete_value(INDEX_KEY)
+    frappe.cache.delete_value([INDEX_KEY, INDEX_FRESH_KEY])
 
 
 def all_pages(method: str, limit: int = LIST_PAGE, **params) -> list[dict]:
