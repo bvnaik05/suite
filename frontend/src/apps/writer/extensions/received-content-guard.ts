@@ -16,6 +16,11 @@ import { changedRanges, mapRanges, rangesChangedBy, touches, type Range } from '
 
 const guardKey = new PluginKey<Range[] | null>('receivedContentGuard')
 
+// A change Yjs wrote into the editor: a collaborator's, or this person's undo or redo
+export function isReceived(tr: Transaction) {
+  return !!tr.getMeta(ySyncPluginKey)?.isChangeOrigin
+}
+
 // Attributes and marks settle to one value in Yjs, so these may follow up anywhere
 function settlesToOneValue(step: Step, doc: Node) {
   const setsAttrOrMark =
@@ -68,8 +73,7 @@ export const ReceivedContentGuard = Extension.create<
         apply: (tr, ranges) => {
           const { rootTransaction } = storage
           if (tr === rootTransaction) {
-            const isOwnEdit =
-              rootTransaction.docChanged && !rootTransaction.getMeta(ySyncPluginKey)?.isChangeOrigin
+            const isOwnEdit = rootTransaction.docChanged && !isReceived(rootTransaction)
             if (!isOwnEdit) return null
 
             return rangesChangedBy(tr)

@@ -1,7 +1,8 @@
 import type { Node } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type PluginSpec, type Transaction } from '@tiptap/pm/state'
-import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import { Image as StockImage, Video as StockVideo } from 'frappe-ui/editor'
+
+import { isReceived } from './received-content-guard'
 
 type Size = { width: number; height: number }
 
@@ -65,8 +66,7 @@ function isOwnEdit(tr: Transaction) {
   const loaded = rootTransaction.getMeta('preventUpdate')
   const undoneOrRedone = rootTransaction.getMeta('history$')
   const healed = rootTransaction.getMeta(HEAL_META)
-  const received = rootTransaction.getMeta(ySyncPluginKey)?.isChangeOrigin
-  return !loaded && !undoneOrRedone && !healed && !received
+  return !loaded && !undoneOrRedone && !healed && !isReceived(rootTransaction)
 }
 
 // Sizes unsized media right after the person's own edit, in a transaction of
