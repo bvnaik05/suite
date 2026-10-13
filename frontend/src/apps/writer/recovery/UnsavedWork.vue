@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { Button } from 'frappe-ui'
-import { computed, onMounted } from 'vue'
+import { List, ListCell, ListHeader, ListHeaderCell, ListRow } from 'frappe-ui/list'
+import { computed, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { driveNodeRoute, formatDriveBytes, loadDriveNodeSummary } from '@/apps/drive'
+import {
+  driveNodeIcon,
+  driveNodeIconTint,
+  driveNodeRoute,
+  formatDriveBytes,
+  formatDriveListingDate,
+  loadDriveNodeSummary,
+} from '@/apps/drive'
 
 import { savedAtLabel, type RecoveryCopy } from './copies'
 import RecoveryCopyActions from './RecoveryCopyActions.vue'
@@ -15,11 +23,22 @@ const { copies, refresh } = useRecoveryCopies()
 const route = useRoute()
 const router = useRouter()
 
+const isLoading = shallowRef(true)
 const hasNoCopies = computed(() => !copies.value.length)
+// Drive's listing tracks; a phone drops the saved time, as Drive drops Modified
+const COLUMNS = {
+  base: ['minmax(0,1fr)', '6rem', '2.5rem'],
+  md: ['minmax(0,1fr)', '6rem', '8rem', '2.5rem'],
+}
+const DOCUMENT = { kind: 'document', title: '', mime: null, content_doctype: 'Writer Document' }
+const icon = [driveNodeIcon(DOCUMENT), driveNodeIconTint(DOCUMENT)]
 // A copy whose document can't be opened shows on this page instead
 const shownCopy = computed(() => copies.value.find((copy) => copy.key === route.query.copy))
 
-onMounted(refresh)
+onMounted(async () => {
+  await refresh()
+  isLoading.value = false
+})
 
 async function view(copy: RecoveryCopy) {
   const node = await loadDriveNodeSummary(copy.node).catch(() => null)
@@ -40,6 +59,10 @@ async function discarded() {
 
 function titleOf(copy: RecoveryCopy) {
   return copy.title || 'Untitled document'
+}
+
+function savedAt(copy: RecoveryCopy) {
+  return formatDriveListingDate(copy.savedAt.toISOString())
 }
 
 function details(copy: RecoveryCopy) {
@@ -70,25 +93,50 @@ function details(copy: RecoveryCopy) {
       <RecoveryPreview :copy="shownCopy" :settings="null" />
     </div>
   </article>
-  <section v-else aria-labelledby="unsaved-writer" class="space-y-2">
-    <h2 id="unsaved-writer" class="text-base-medium text-ink-gray-8">Documents</h2>
-    <p v-if="hasNoCopies" class="text-sm text-ink-gray-5">No unsaved documents on this device.</p>
-    <ul v-else class="divide-y divide-outline-gray-1">
-      <li
-        v-for="copy in copies"
-        :key="copy.key"
-        class="flex items-center gap-2 rounded px-2 py-1 hover:bg-surface-gray-2"
-      >
-        <button
-          type="button"
-          class="min-w-0 flex-1 py-1 text-start focus-visible:focus-ring"
-          @click="view(copy)"
-        >
-          <span class="block truncate text-sm-medium text-ink-gray-8">{{ titleOf(copy) }}</span>
-          <span class="block text-xs text-ink-gray-5">{{ details(copy) }}</span>
-        </button>
+  <!-- Nothing until the first read, so the empty state never flashes -->
+  <div v-else-if="isLoading" aria-busy="true" />
+  <div
+    v-else-if="hasNoCopies"
+    class="flex flex-col items-center justify-center gap-2 py-16 text-center"
+  >
+    <span class="lucide-folder-open size-6 text-ink-gray-4" aria-hidden="true" />
+    <p class="text-base text-ink-gray-5">No recovery copies</p>
+    <p class="text-p-sm text-ink-gray-5">
+      Changes that couldn't be saved stay here, on this device, until you discard them.
+    </p>
+  </div>
+  <List v-else :columns="COLUMNS" :row-height="40" class="-mx-3 mt-3 list-row-px-3">
+    <ListHeader>
+      <ListHeaderCell class="text-sm-medium text-ink-gray-5">Name</ListHeaderCell>
+      <ListHeaderCell class="justify-end text-sm-medium text-ink-gray-5">Size</ListHeaderCell>
+      <ListHeaderCell class="hidden justify-end text-sm-medium text-ink-gray-5 md:flex">
+        Saved
+      </ListHeaderCell>
+      <ListHeaderCell><span class="sr-only">Actions</span></ListHeaderCell>
+    </ListHeader>
+    <ListRow
+      v-for="copy in copies"
+      :key="copy.key"
+      :value="copy.key"
+      tabindex="0"
+      class="select-none"
+      @click="view(copy)"
+    >
+      <ListCell>
+        <span class="mr-2 size-4 shrink-0" :class="icon" aria-hidden="true" />
+        <span class="min-w-0 truncate text-base text-ink-gray-8" :title="titleOf(copy)">{{
+          titleOf(copy)
+        }}</span>
+      </ListCell>
+      <ListCell class="justify-end">
+        <span class="truncate text-base text-ink-gray-5">{{ formatDriveBytes(copy.size) }}</span>
+      </ListCell>
+      <ListCell class="hidden justify-end md:flex">
+        <span class="truncate text-base text-ink-gray-5">{{ savedAt(copy) }}</span>
+      </ListCell>
+      <ListCell class="justify-end">
         <RecoveryCopyActions :copy="copy" can-view @view="view(copy)" @discarded="refresh" />
-      </li>
-    </ul>
-  </section>
+      </ListCell>
+    </ListRow>
+  </List>
 </template>

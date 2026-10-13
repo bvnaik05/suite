@@ -3,7 +3,10 @@ import { createApp, h } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 
 vi.mock('@/apps/drive', () => ({
+  driveNodeIcon: () => 'file-icon-doc',
+  driveNodeIconTint: () => 'text-ink-blue-6',
   formatDriveBytes: (bytes: number) => `${bytes} B`,
+  formatDriveListingDate: () => 'Just now',
   loadDriveNodeSummary: async (node: string) => {
     if (node === 'gone') {
       throw new Error('Not found')
@@ -17,7 +20,7 @@ vi.mock('@/apps/drive', () => ({
 const { discardCopy, keepPageCopy, listCopies } = await import('./copies')
 const { default: UnsavedWork } = await import('./UnsavedWork.vue')
 
-async function openedPage() {
+async function openedPage(ready = (root: Element) => rowButton(root)) {
   const document = { render: () => null }
   const routes = [
     { path: '/drive/recovery', component: UnsavedWork },
@@ -32,12 +35,20 @@ async function openedPage() {
   createApp({ render: () => h(RouterView) })
     .use(router)
     .mount(root)
-  await vi.waitFor(() => expect(root.querySelector('li')).not.toBeNull())
+  await vi.waitFor(() => expect(ready(root)).not.toBeNull())
   return { root, router }
 }
 
+function emptyState(root: Element) {
+  if (!root.textContent?.includes('No recovery copies')) {
+    return null
+  }
+
+  return root
+}
+
 function rowButton(root: Element) {
-  return root.querySelector<HTMLElement>('li button')!
+  return root.querySelector<HTMLElement>('button[data-slot="list-row"]')!
 }
 
 afterEach(async () => {
@@ -47,6 +58,21 @@ afterEach(async () => {
 })
 
 describe('Writer recovery copies page', () => {
+  it('lists each copy with its title, size and saved time', async () => {
+    keepPageCopy('node-1', 'Plan', '<p>abc</p>')
+    const { root } = await openedPage()
+
+    const cells = [...rowButton(root).querySelectorAll('[data-slot="list-cell"]')]
+    const texts = cells.map((cell) => cell.textContent!.trim())
+    expect(texts.slice(0, 3)).toEqual(['Plan', '10 B', 'Just now'])
+  })
+
+  it('says so when the device keeps no copies', async () => {
+    const { root } = await openedPage(emptyState)
+
+    expect(rowButton(root)).toBeNull()
+  })
+
   it('opens a copy in its document when the document can be opened', async () => {
     keepPageCopy('node-1', 'Plan', '<p>Typed while offline</p>')
     const [copy] = await listCopies()

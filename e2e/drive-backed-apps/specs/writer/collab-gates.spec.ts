@@ -241,8 +241,8 @@ test.describe("Writer collaboration", () => {
 		await owner.page.goto("/drive");
 		const notice = owner.page.getByRole("status").filter({ hasText: "couldn't be saved" });
 		await notice.getByRole("button", { name: "Review" }).click();
-		const row = owner.page.getByRole("listitem").filter({ hasText: title });
-		await row.getByRole("button", { name: title }).click();
+		const row = owner.page.getByRole("row").filter({ hasText: title });
+		await row.getByText(title).click();
 		await expect(viewing).toBeVisible();
 		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
 
@@ -250,7 +250,7 @@ test.describe("Writer collaboration", () => {
 		await row.getByRole("button", { name: /^Actions for/ }).click();
 		await owner.page.getByRole("menuitem", { name: "Discard" }).click();
 		await owner.page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
-		await expect(owner.page.getByText("No unsaved documents on this device.")).toBeVisible();
+		await expect(owner.page.getByText("No recovery copies")).toBeVisible();
 	});
 
 	test("a document from before collaboration takes its title from its first line in the old editor", async ({
