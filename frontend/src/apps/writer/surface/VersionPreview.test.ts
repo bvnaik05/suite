@@ -69,9 +69,7 @@ function mountPreview(session: DocumentSession, seq = 1) {
     const props = {
       session,
       seq: shownSeq.value,
-      label: 'Version',
       settings: {},
-      rail: 0,
     }
     return h(VersionPreview, props)
   }
@@ -116,6 +114,17 @@ describe('VersionPreview', () => {
     await vi.waitFor(() => expect(preview.root.querySelectorAll('td')).toHaveLength(2))
     expect(preview.root.textContent).toContain('Friday')
     expect(preview.root.textContent).not.toContain("can't be shown")
+    preview.unmount()
+  })
+
+  it("says a version that can't be read can't be shown", async () => {
+    const session = fakeSession(async () => new Response(null, { status: 500 }))
+    const preview = mountPreview(session)
+
+    await vi.waitFor(() =>
+      expect(preview.root.textContent).toContain("This version can't be shown."),
+    )
+    expect(preview.root.querySelector('[aria-label="Version preview"]')).toBeNull()
     preview.unmount()
   })
 

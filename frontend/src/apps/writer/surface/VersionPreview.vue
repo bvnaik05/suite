@@ -1,15 +1,12 @@
 <script setup lang="ts">
-import { EditorContent, type Editor } from '@tiptap/vue-3'
+import type { Editor } from '@tiptap/vue-3'
 import { Skeleton } from 'frappe-ui'
 import { inject, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
+import PreviewPane from '@/apps/writer/components/PreviewPane.vue'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
-import {
-  editorColumns,
-  editorTextStyle,
-  type LayoutSettings,
-} from '@/apps/writer/utils/editor-layout'
+import type { LayoutSettings } from '@/apps/writer/utils/editor-layout'
 import { previewEditor } from '@/apps/writer/utils/preview-editor'
 
 import { readVersion } from './versions'
@@ -72,13 +69,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-w-0 flex-1 overflow-y-auto overflow-x-hidden md:border-l border-outline-gray-2">
-    <div
-      class="min-h-full flex flex-col md:grid md:grid-rows-[1fr]"
-      :style="editorColumns(settings)"
-    >
-      <div class="hidden md:block" />
-      <div v-if="loading" class="space-y-3 px-5 pt-10">
+  <PreviewPane
+    :editor="editor"
+    :settings="settings"
+    label="Version preview"
+    :is-loading="loading"
+    :is-failed="failed"
+  >
+    <template #loading>
+      <div class="space-y-3 px-5 pt-10">
         <Skeleton
           v-for="width in ['70%', '92%', '84%', '60%']"
           :key="width"
@@ -86,16 +85,7 @@ onBeforeUnmount(() => {
           :style="{ width }"
         />
       </div>
-      <p v-else-if="failed" class="px-5 pt-10 text-center text-p-sm text-ink-gray-6">
-        This version can't be shown.
-      </p>
-      <EditorContent
-        v-else
-        :editor="editor ?? undefined"
-        aria-label="Version preview"
-        class="flex grow flex-col"
-        :style="editorTextStyle(settings)"
-      />
-    </div>
-  </div>
+    </template>
+    <template #failed>This version can't be shown.</template>
+  </PreviewPane>
 </template>
