@@ -52,6 +52,7 @@ import {
   type DocumentSaveState,
   type LeaveGuardOptions,
 } from './navigation'
+import { saveFirst } from './saveFirst'
 import { versionLabel } from './useDocumentPanel'
 import { useWriterCollab } from './useWriterCollab'
 import VersionPreview from './VersionPreview.vue'
@@ -201,6 +202,9 @@ const editable = computed(
     allowsEditing.value &&
     !belowMinBuild('writer'),
 )
+
+// Saving pauses don't hide it, so the person is told why no version was taken
+const canSaveVersion = computed(() => readable.value && writes.writable.value)
 
 const showEditingPaused = computed(
   () => !editable.value && editingPaused.value && writes.writable.value,
@@ -367,6 +371,13 @@ function flush(): Promise<void> {
     emitter.emit('manual-save', () => resolve())
   })
   return withinTenSeconds(saved)
+}
+
+// A collab document's version covers what this tab typed; other documents take it as stored
+async function saveBeforeVersion() {
+  if (room.value) {
+    await saveFirst(room.value)
+  }
 }
 
 useDocumentLeaveGuard({ state: () => saveState.value, flush, retainRecovery })
@@ -536,6 +547,8 @@ onBeforeUnmount(() => {
                 :previewed-version="preview.version"
                 :session="session"
                 :can-comment="canComment"
+                :can-save-version="canSaveVersion"
+                :save-first="saveBeforeVersion"
                 @update:previewed-version="showVersion"
               />
             </template>

@@ -79,6 +79,26 @@ async function addComment(
   return true
 }
 
+// Whether the version was taken; `saveFirst` saves the tab's edits and throws why it couldn't
+async function saveVersion(
+  session: PanelSession,
+  lists: PanelLists,
+  label: string,
+  saveFirst: () => Promise<void>,
+) {
+  try {
+    await saveFirst()
+    await session.versions.create('named', label)
+  } catch (error) {
+    showError(error, 'Could not save a version.')
+    return false
+  }
+
+  toast.success('Version saved')
+  await loadPanel(session, lists, 'versions')
+  return true
+}
+
 // The side panel's comments and versions, loaded when the panel opens
 export function useDocumentPanel(session: PanelSession) {
   const lists = reactive<PanelLists>({
@@ -93,5 +113,7 @@ export function useDocumentPanel(session: PanelSession) {
     load: (kind: DocumentPanel) => loadPanel(session, lists, kind),
     loadMoreVersions: () => loadMoreVersions(session, lists),
     addComment: (text: string, authorName?: string) => addComment(session, lists, text, authorName),
+    saveVersion: (label: string, saveFirst: () => Promise<void>) =>
+      saveVersion(session, lists, label, saveFirst),
   }
 }

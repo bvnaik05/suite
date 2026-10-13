@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Avatar, Button, TextInput } from 'frappe-ui'
+import { Avatar, Button, dialog, TextInput } from 'frappe-ui'
 import { computed, ref, watch } from 'vue'
 
 import {
@@ -17,16 +17,23 @@ import { useDocumentPanel, versionLabel } from './useDocumentPanel'
 
 type ThreadComment = DocumentThread['comments'][number]
 
-const props = defineProps<{ session: DocumentSession; canComment: boolean }>()
+const props = defineProps<{
+  session: DocumentSession
+  canComment: boolean
+  canSaveVersion: boolean
+  /** Saves the document's pending edits, throwing why it couldn't. */
+  saveFirst: () => Promise<void>
+}>()
 
 const panel = defineModel<DocumentPanel | null>('panel', { required: true })
 const previewedVersion = defineModel<DocumentVersion | null>('previewedVersion', {
   required: true,
 })
 
-const { lists, load, loadMoreVersions, addComment } = useDocumentPanel(props.session)
+const { lists, load, loadMoreVersions, addComment, saveVersion } = useDocumentPanel(props.session)
 
 const commentText = ref('')
+const isSavingVersion = ref(false)
 
 // Guests may sign their comments. Signed-in users never see the field (spec §10.5)
 const {
@@ -42,6 +49,8 @@ const title = computed(() => (isCommentsPanel.value ? 'Comments' : 'Versions'))
 const isCommentBlank = computed(() => !commentText.value.trim())
 const hasNoThreads = computed(() => !lists.threads.length)
 const hasNoVersions = computed(() => !lists.versions.length)
+const showsSaveVersion = computed(() => panel.value === 'versions' && props.canSaveVersion)
+const saveVersionLabel = computed(() => (isSavingVersion.value ? 'Saving first…' : 'Save version'))
 const guestNameHint = computed(() => {
   if (guestNameAtLimit.value) {
     return `Names can have up to ${GUEST_NAME_LIMIT} characters.`
@@ -87,6 +96,24 @@ function authorLabel(comment: ThreadComment) {
   return comment.person?.full_name || comment.author || 'Someone'
 }
 
+async function takeNamedVersion(label: string) {
+  isSavingVersion.value = true
+  try {
+    await saveVersion(label, props.saveFirst)
+  } finally {
+    isSavingVersion.value = false
+  }
+}
+
+function promptVersionName() {
+  dialog.prompt({
+    title: 'Save a version',
+    fields: [{ name: 'label', label: 'Name', required: true, placeholder: 'Before the review' }],
+    confirmLabel: 'Save',
+    onConfirm: ({ values }) => void takeNamedVersion(String(values.label ?? '').trim()),
+  })
+}
+
 function isPreviewed(version: DocumentVersion) {
   return previewedVersion.value?.seq === version.seq
 }
@@ -124,7 +151,17 @@ function versionByline(version: DocumentVersion) {
           <h2 class="text-lg-semibold md:text-base-medium md:text-ink-gray-8">
             {{ title }}
           </h2>
-          <Button icon="lucide-x" aria-label="Close panel" variant="ghost" @click="closePanel" />
+          <div class="flex items-center gap-1">
+            <Button
+              v-if="showsSaveVersion"
+              size="sm"
+              :label="saveVersionLabel"
+              icon-left="lucide-bookmark-plus"
+              :loading="isSavingVersion"
+              @click="promptVersionName"
+            />
+            <Button icon="lucide-x" aria-label="Close panel" variant="ghost" @click="closePanel" />
+          </div>
         </div>
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:px-2 md:pb-2 md:pt-0.5">
           <p v-if="lists.isLoading" class="text-sm text-ink-gray-5">Loading…</p>

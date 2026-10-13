@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 
+import type { Page, Route } from "@playwright/test";
+
 import { expect, test } from "../../fixtures/test";
 import {
 	expectConverged,
@@ -127,6 +129,39 @@ test.describe("Writer collaboration", () => {
 		await expect(page.getByText(`Viewing Version ${seq}`)).toBeVisible();
 		const [automaticFile] = await download();
 		expect(automaticFile).toBe(`${title} (v${seq}).html`);
+	});
+
+	test("Save version saves the typing first and keeps it in the named version", async ({
+		owner,
+	}) => {
+		const { page } = owner;
+		await page.route(PUSHES, slowPushes);
+		await openWriterDocument(page, node);
+		const panel = await openVersions(page);
+		await typeParagraph(page, "Typed just before saving");
+
+		await nameVersion(page, "Right after typing");
+
+		await expect(panel.getByRole("button", { name: "Saving first…" })).toBeVisible();
+		await panel.getByRole("button", { name: /^Right after typing/ }).click();
+		await expect(page.getByLabel("Version preview")).toContainText("Typed just before saving");
+		await page.unroute(PUSHES, slowPushes);
+	});
+
+	test("Save version while offline takes no version and says why", async ({ owner }) => {
+		const { page, context } = owner;
+		await openWriterDocument(page, node);
+		const panel = await openVersions(page);
+		await context.setOffline(true);
+		await typeParagraph(page, "Typed offline");
+
+		await nameVersion(page, "Offline try");
+
+		await expect(
+			page.getByText("No version was taken: you're offline, so your changes aren't saved yet."),
+		).toBeVisible({ timeout: 15_000 });
+		await context.setOffline(false);
+		await expect(panel.getByRole("button", { name: /^Offline try/ })).toHaveCount(0);
 	});
 
 	test("the Versions panel takes the table of contents' place on the right and moves the text like it", async ({
@@ -313,3 +348,25 @@ test.describe("Writer collaboration", () => {
 		expect(await linePlacement(editorText)).toEqual(editorPlacement);
 	});
 });
+
+const PUSHES = "**/api/suite/content/*/updates";
+
+// Pushes reach the server two seconds late, so the typing is still unsaved when the version is asked for
+async function slowPushes(route: Route) {
+	await new Promise((resolve) => setTimeout(resolve, 2_000));
+	await route.continue();
+}
+
+async function openVersions(page: Page) {
+	await page
+		.getByRole("button", { name: /versions/i })
+		.first()
+		.click();
+	return page.getByRole("complementary", { name: "Versions" });
+}
+
+async function nameVersion(page: Page, label: string) {
+	await page.getByRole("button", { name: "Save version" }).click();
+	await page.getByLabel("Name").fill(label);
+	await page.getByRole("button", { name: "Save", exact: true }).click();
+}
