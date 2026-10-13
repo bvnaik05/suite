@@ -57,7 +57,7 @@ SPEC = ContentAdapterSpec(
 
 
 def version_payload(snapshot: content.Snapshot, state: bytes) -> dict:
-    """`state` as a `writer-document/2` version. The readable copy is not built yet, so `html` is null."""
+    """`state` as a `writer-document/2` version; `html` stays null, its copy is held by rev in the copy table."""
     compressed = gzip.compress(state)
     encoded_state = base64.b64encode(compressed).decode("ascii")
     return {

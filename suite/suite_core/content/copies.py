@@ -222,6 +222,16 @@ def keep_copy(adapter: str, doc_id: str, rev: int, html: str) -> None:
     )
 
 
+def hold(adapter: str, doc_id: str, rev: int) -> None:
+    """Keep the copy at `rev` for a version through it, and one checked at `rev` later."""
+    copy_table = table(adapter, "copy")
+    frappe.db.sql(
+        f"""INSERT INTO `{copy_table}` (`doc_id`, `rev`, `held`, `created`) VALUES (%s, %s, 1, %s)
+        ON DUPLICATE KEY UPDATE `held` = 1""",
+        (doc_id, rev, now_datetime()),
+    )
+
+
 def keep_evidence(adapter: str, doc_id: str, reason: str, html: str, rev: int | None) -> bool:
     """Keep `html` in the recovery table for no writer; the same bytes are kept once, and answer whether they are new."""
     doc_table = table(adapter, "doc")

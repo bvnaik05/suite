@@ -188,6 +188,7 @@ def version_bytes(docname: str) -> tuple[io.BytesIO, str]:
     if live_checkpoint is not None:
         snapshot, state = live_checkpoint
         payload = version_payload(snapshot, state)
+        content.hold_copy(ADAPTER, content.find(ADAPTER, row.node).id, snapshot.head_rev)
         with _readable_body():
             payload["media"] = sorted(writer_content.SPEC.file_values(state))
         payload_bytes = json.dumps(payload).encode("utf-8")

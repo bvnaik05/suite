@@ -637,6 +637,47 @@ class TestWriterDriveCallbacks(CheckpointCase):
         with self.assertRaisesRegex(drive.DriveConflict, refresh):
             writer_drive.export(self.docname_of(node), "html")
 
+    def kept_copies(self, doc_id: str) -> list[tuple[int, str | None, int]]:
+        rows = frappe.db.sql(
+            "SELECT `rev`, `html`, `held` FROM `__writer_content_copy` WHERE `doc_id` = %s ORDER BY `rev`",
+            doc_id,
+        )
+        return [(int(rev), html, int(held)) for rev, html, held in rows]
+
+    def test_a_version_keeps_the_copy_checked_at_its_rev_past_newer_copies(self):
+        node = self.new_document()
+        self.type_into(node, ["one", " two"])
+        doc = self.doc_row(node)
+        copies.install(writer_content.ADAPTER, doc.id, 2, doc.lineage, doc.q_epoch, "<p>one two</p>")
+
+        version = version_of(self.docname_of(node))
+        self.type_into(node, [" three"])
+        copies.install(writer_content.ADAPTER, doc.id, 3, doc.lineage, doc.q_epoch, "<p>one two three</p>")
+
+        self.assertEqual((version["through_rev"], version["html"]), (2, None))
+        self.assertEqual(
+            [(rev, html) for rev, html, held in self.kept_copies(doc.id) if html],
+            [(2, "<p>one two</p>"), (3, "<p>one two three</p>")],
+        )
+
+    def test_a_version_gets_a_copy_only_when_a_render_is_checked_at_exactly_its_rev(self):
+        node = self.new_document()
+        self.type_into(node, ["one"])
+        doc = self.doc_row(node)
+        version_of(self.docname_of(node))
+        copies.install(writer_content.ADAPTER, doc.id, 1, doc.lineage, doc.q_epoch, "<p>one</p>")
+        self.type_into(node, [" two", " three"])
+        version_of(self.docname_of(node))
+        self.type_into(node, [" four"])
+
+        copies.install(
+            writer_content.ADAPTER, doc.id, 4, doc.lineage, doc.q_epoch, "<p>one two three four</p>"
+        )
+
+        self.assertEqual(
+            self.kept_copies(doc.id), [(1, "<p>one</p>", 1), (4, "<p>one two three four</p>", 0)]
+        )
+
     def test_drive_never_exports_a_copy_something_else_wrote_and_keeps_it_once(self):
         node = self.new_document()
         self.type_into(node, ["one"])
