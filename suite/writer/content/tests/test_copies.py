@@ -276,3 +276,18 @@ class TestStagedRenders(CheckpointCase):
             documents.sweep()
 
         self.assertEqual(self.submit(stage_id), (202, {"render": "queued"}))
+
+    def test_the_sweeper_checks_a_render_whose_job_never_ran(self):
+        self.submit(self.stage_render(2, b"<p>one two</p>"))
+
+        with patch.object(scheduling, "enqueue") as enqueue:
+            documents.sweep()
+
+        render_checks = [call for call in enqueue.call_args_list if call.args[0] == documents.CHECK_RENDER]
+        self.assertIn(
+            (
+                (documents.CHECK_RENDER, f"suite-collab-render-writer-{self.doc.id}"),
+                {"adapter": "writer", "doc_id": self.doc.id},
+            ),
+            [(call.args, call.kwargs) for call in render_checks],
+        )

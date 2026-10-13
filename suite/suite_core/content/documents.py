@@ -9,6 +9,7 @@ from suite.suite_core.content import (
     compaction,
     copies,
     scheduling,
+    stage,
     suspect,
     touches,
     trimming,
@@ -228,3 +229,5 @@ def sweep() -> None:
     for adapter in adapters():
         scheduling.sweep(adapter, COMPACT, purge_method=DELETE_PURGED, judge_method=JUDGE)
         touches.sweep(adapter)
+        for doc_id in stage.rendered_docs(adapter):
+            request_render_check(adapter, doc_id)

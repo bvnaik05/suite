@@ -289,6 +289,15 @@ def renders(adapter: str, doc_id: str) -> list[frappe._dict]:
     )
 
 
+def rendered_docs(adapter: str, limit: int = 100) -> list[str]:
+    """Return the documents with a staged render, which is due its copy check."""
+    stage_table = table(adapter, "stage")
+    found = frappe.db.sql(
+        f"SELECT DISTINCT `doc_id` FROM `{stage_table}` WHERE `purpose` = 'render' LIMIT %s", limit
+    )
+    return [doc_id for (doc_id,) in found]
+
+
 def drop_renders_through(adapter: str, doc_id: str, rev: int, keep: str | None = None) -> None:
     """Drop the staged renders at or before `rev`, other than the stage `keep`."""
     stage_table = table(adapter, "stage")
