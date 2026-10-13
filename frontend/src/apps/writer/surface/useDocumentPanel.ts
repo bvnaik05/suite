@@ -16,7 +16,7 @@ export function versionLabel(version: DocumentVersion) {
   return version.label || `Version ${version.seq}`
 }
 
-function showError(error: unknown, fallback: string) {
+export function showError(error: unknown, fallback: string) {
   if (error instanceof Error) {
     toast.error(error.message)
     return
