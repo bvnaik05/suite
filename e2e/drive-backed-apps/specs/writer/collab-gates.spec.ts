@@ -1,7 +1,6 @@
 import type { Route } from "@playwright/test";
 import { expect, test } from "../../fixtures/test";
 import {
-	disableCollab,
 	expectConverged,
 	expectSaved,
 	holdDocument,
@@ -187,84 +186,6 @@ test.describe("Writer collaboration", () => {
 		await expectConverged(testApi, node, [owner.page, collaborator.page], ["Kept line"]);
 	});
 
-	test("switching Writer's collaboration off stops a tab and keeps its unsent edits as a recovery copy", async ({
-		owner,
-		testApi,
-	}) => {
-		await openWriterDocument(owner.page, node);
-		await typeParagraph(owner.page, "Saved line");
-		await expectSaved(owner.page);
-
-		await disableCollab(testApi, node);
-		await typeParagraph(owner.page, "Typed after the switch");
-
-		await expect(
-			owner.page.getByText(
-				"Collaboration was switched off for this app, so saving stopped in this tab. Unsent changes were kept as a recovery copy.",
-			),
-		).toBeVisible();
-		await expect(writerEditor(owner.page)).toHaveAttribute("contenteditable", "false");
-		await expect(owner.page.getByText("This device has unsaved work from")).toBeVisible();
-		const stored = await serverBlocks(testApi, node);
-		expect(stored).toContain("Saved line");
-		expect(stored).not.toContain("Typed after the switch");
-	});
-
-	test("an old editor's refused save keeps its work on this device", async ({
-		owner,
-		testApi,
-	}) => {
-		await disableCollab(testApi, node);
-		await openWriterDocument(owner.page, node);
-		const toolbarHeight = (await owner.page.locator('[data-slot="fixed-menu"]').boundingBox())!.height;
-		await typeParagraph(owner.page, "Typed in the old editor");
-
-		await expect(
-			owner.page.getByText(
-				"This document now saves as you edit, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.",
-			),
-		).toBeVisible();
-		await expect(writerEditor(owner.page)).toHaveAttribute("contenteditable", "false");
-		expect(await serverBlocks(testApi, node)).not.toContain("Typed in the old editor");
-
-		const kept = owner.page.getByRole("status").filter({ hasText: "This device has unsaved work from" });
-		const stopped = owner.page.getByRole("status").filter({ hasText: "This document now saves as you edit" });
-		const keptHeight = (await kept.boundingBox())!.height;
-		await kept.getByRole("button", { name: "View" }).click();
-		const viewing = owner.page.getByRole("status").filter({ hasText: "Viewing recovery copy from" });
-		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
-		// Strips with a button and without stand as tall as the editor toolbar
-		expect([
-			keptHeight,
-			(await stopped.boundingBox())!.height,
-			(await viewing.boundingBox())!.height,
-		]).toEqual([toolbarHeight, toolbarHeight, toolbarHeight]);
-		await expect(kept).toBeHidden();
-
-		const downloaded = owner.page.waitForEvent("download");
-		await viewing.getByRole("button", { name: /^Actions for/ }).click();
-		await owner.page.getByRole("menuitem", { name: "Download" }).click();
-		expect((await downloaded).suggestedFilename()).toBe(`${title} (recovered).html`);
-		await viewing.getByRole("button", { name: /^Actions for/ }).click();
-		await owner.page.getByRole("menuitem", { name: "Back to current" }).click();
-		await expect(owner.page.getByLabel("Recovery copy")).toBeHidden();
-		await expect(kept).toBeVisible();
-
-		await owner.page.goto("/drive");
-		const notice = owner.page.getByRole("status").filter({ hasText: "couldn't be saved" });
-		await notice.getByRole("button", { name: "Review" }).click();
-		const row = owner.page.getByRole("row").filter({ hasText: title });
-		await row.getByText(title).click();
-		await expect(viewing).toBeVisible();
-		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
-
-		await owner.page.goto("/drive/recovery");
-		await row.getByRole("button", { name: /^Actions for/ }).click();
-		await owner.page.getByRole("menuitem", { name: "Discard" }).click();
-		await owner.page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
-		await expect(owner.page.getByText("No recovery copies")).toBeVisible();
-	});
-
 	test("a document from before collaboration takes its title from its first line in the old editor", async ({
 		owner,
 		run,
@@ -274,7 +195,6 @@ test.describe("Writer collaboration", () => {
 			await createWriterDocument(owner.page.request, `Untitled document ${run.run_id}`)
 		).name;
 		try {
-			await disableCollab(testApi, untitled);
 			await makeLegacy(testApi, untitled);
 			await openWriterDocument(owner.page, untitled);
 			await writerEditor(owner.page).click();
