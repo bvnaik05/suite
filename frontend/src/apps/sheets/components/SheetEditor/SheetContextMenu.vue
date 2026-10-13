@@ -409,7 +409,7 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
-/* Same rules as SheetEditor.css, which keeps them for the sheet-tab menu. */
+/* Same rules as SheetTabMenu.vue: the two menus look alike. */
 .sn-ctx-menu {
   position: fixed;
   z-index: 9000;

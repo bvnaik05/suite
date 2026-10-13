@@ -383,131 +383,38 @@
         />
       </div>
 
-      <!-- Bottom · sheet tabs + selection stats -->
-      <div class="sn-bottom">
-        <!-- Pinned outside the scroll track so it stays reachable no matter
-           how many tabs there are. The wrapper owns the divider + margins so
-           the Button itself stays a clean square pill (frappe-ui puts our
-           `class` on the <button> root, so any spacing/border set on it would
-           become part of the button's own hover box). -->
-        <!-- Add-sheet is a mutation, so viewers don't get it — hide the whole
-           wrapper (button + its divider) rather than leave a dead, greyed pill. -->
-        <div v-if="!readOnly" class="sn-tab-add-wrap">
-          <Button
-            aria-label="Add sheet"
-            variant="ghost"
-            size="sm"
-            icon="lucide-plus"
-            class="sn-tab-add"
-            tooltip="Add sheet"
-            @click="addSheet"
-          />
-        </div>
-        <div class="sn-tabs-track">
-          <div
-            v-for="name in sheetNames"
-            :key="name"
-            class="sn-tab"
-            :class="{
-              'sn-tab--active': name === currentSheet,
-              'sn-tab--pivot': isPivotSheet(name),
-              'sn-tab-drag-over': tabDragOver === name && tabDragName !== name,
-              'sn-tab--static': readOnly,
-            }"
-            :draggable="!readOnly"
-            @dragstart="onTabDragStart($event, name)"
-            @dragend="onTabDragEnd"
-            @dragover.prevent="onTabDragOver($event, name)"
-            @drop.prevent="onTabDrop($event, name)"
-          >
-            <!-- One visual unit: label + chevron share a single pill background
-               so they read as one button. The chevron — the tab-menu affordance
-               — renders only when editable; a viewer has no tab actions, so it
-               would be a dead button. Clicking the label switches sheets. -->
-            <Button
-              variant="ghost"
-              size="sm"
-              :icon-left="isPivotSheet(name) ? 'lucide-layout' : undefined"
-              :label="name"
-              class="sn-tab-btn"
-              @mousedown="onTabMousedown($event, name)"
-              @click="onTabClick(name)"
-              @dblclick="openRenameDialog(name)"
-              @contextmenu.prevent="_onTabMenu($event, name)"
-            />
-            <Button
-              v-if="!readOnly"
-              variant="ghost"
-              size="sm"
-              icon="lucide-chevron-down"
-              class="sn-tab-chevron"
-              :aria-label="`${name} options`"
-              @click.stop="_onTabMenu($event, name)"
-            />
-            <!-- Peer dots — one colored circle per peer currently on this
-               tab. Capped at 3 + a "+N" overflow so a busy tab doesn't
-               blow out the tab's width. -->
-            <span v-if="peersBySubSheet.get(name)?.length" class="sn-tab-peers">
-              <span
-                v-for="p in peersBySubSheet.get(name).slice(0, 3)"
-                :key="p.user"
-                class="sn-tab-peer-dot"
-                :style="{ '--rc': p.color }"
-                :title="p.full_name"
-              />
-              <span
-                v-if="peersBySubSheet.get(name).length > 3"
-                class="sn-tab-peer-more"
-                :title="`${peersBySubSheet.get(name).length - 3} more`"
-                >+{{ peersBySubSheet.get(name).length - 3 }}</span
-              >
-            </span>
-          </div>
-        </div>
+      <!-- Bottom · sheet tabs + selection stats (SheetTabsBar.vue) -->
+      <SheetTabsBar
+        :read-only="readOnly"
+        :sheet-names="sheetNames"
+        :current-sheet="currentSheet"
+        :is-pivot-sheet="isPivotSheet"
+        :tab-drag-over="tabDragOver"
+        :tab-drag-name="tabDragName"
+        :peers-by-sub-sheet="peersBySubSheet"
+        :selection-stats="selectionStats"
+        @add-sheet="addSheet"
+        @drag-start="onTabDragStart"
+        @drag-end="onTabDragEnd"
+        @drag-over="onTabDragOver"
+        @tab-drop="onTabDrop"
+        @tab-mousedown="onTabMousedown"
+        @tab-click="onTabClick"
+        @rename="openRenameDialog"
+        @tab-menu="_onTabMenu"
+      />
 
-        <div v-if="selectionStats" class="sn-stats">
-          <span v-if="selectionStats.count > 0">Count: {{ selectionStats.count }}</span>
-          <span v-if="selectionStats.sum !== null">Sum: {{ formatStat(selectionStats.sum) }}</span>
-          <span v-if="selectionStats.avg !== null">Avg: {{ formatStat(selectionStats.avg) }}</span>
-        </div>
-      </div>
-
-      <!-- Sheet-tab context menu (rename / duplicate / delete) -->
-      <div
+      <!-- Sheet-tab context menu (SheetTabMenu.vue) -->
+      <SheetTabMenu
         v-if="tabMenu.open"
-        class="sn-ctx-menu"
-        :style="{ left: tabMenu.x + 'px', bottom: tabMenu.bottom + 'px' }"
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          icon-left="lucide-edit-2"
-          label="Rename"
-          @click="openRenameDialog(tabMenu.name)"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          icon-left="lucide-copy"
-          label="Duplicate"
-          @click="doDuplicateSheet(tabMenu.name)"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          :icon-left="tabMenuSheetLocked() ? 'lucide-unlock' : 'lucide-lock'"
-          :label="tabMenuSheetLocked() ? 'Unprotect sheet' : 'Protect sheet'"
-          @click="toggleSheetProtection(tabMenu.name)"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          icon-left="lucide-trash-2"
-          label="Delete"
-          :disabled="sheetNames.length <= 1"
-          @click="doDeleteSheet(tabMenu.name)"
-        />
-      </div>
+        :menu="tabMenu"
+        :locked="tabMenuSheetLocked()"
+        :can-delete="sheetNames.length > 1"
+        @rename="openRenameDialog(tabMenu.name)"
+        @duplicate="doDuplicateSheet(tabMenu.name)"
+        @toggle-protect="toggleSheetProtection(tabMenu.name)"
+        @delete="doDeleteSheet(tabMenu.name)"
+      />
 
       <!-- Rename sheet dialog -->
       <Dialog v-model:open="showRenameDialog" title="Rename sheet" size="sm">
@@ -928,6 +835,8 @@ import NamedRangesDialog from './NamedRangesDialog.vue'
 import NotesPanel from './NotesPanel.vue'
 import PivotDialog from './PivotDialog.vue'
 import SheetContextMenu from './SheetContextMenu.vue'
+import SheetTabMenu from './SheetTabMenu.vue'
+import SheetTabsBar from './SheetTabsBar.vue'
 import SheetToolbar from './SheetToolbar.vue'
 import SheetTopbar from './SheetTopbar.vue'
 import SheetTopbarActions from './SheetTopbarActions.vue'
@@ -1849,9 +1758,6 @@ async function _computeSelectionStatsAsync(token) {
           sum: numCount > 0 ? sum : null,
           avg: numCount > 0 ? sum / numCount : null,
         }
-}
-function formatStat(n) {
-  return Number.isInteger(n) ? n.toLocaleString() : parseFloat(n.toFixed(4)).toLocaleString()
 }
 
 // ── Number format helpers ─────────────────────────────────────────────────────
