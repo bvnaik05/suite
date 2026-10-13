@@ -102,7 +102,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { computed, inject, onBeforeUnmount, provide, ref, watch } from 'vue'
 
 import { hasDefaultDocumentTitle } from '@/apps/drive'
-import { reportSaveError } from '@/apps/writer/composables/saveError'
 import { searchMentions, useUsers } from '@/apps/writer/composables/useUsers'
 import { writerEditorExtensions } from '@/apps/writer/editor-extensions'
 import emitter from '@/apps/writer/emitter'
@@ -123,8 +122,6 @@ import { buildMenuButtons } from './core-editor/menu-buttons'
 import FloatingComments from './FloatingComments.vue'
 import ToC from './ToC.vue'
 import ToCMobile from './ToCMobile.vue'
-
-const AUTOVERSION_INTERVAL_MS = 10 * 60 * 1000
 
 const props = defineProps({
   file: Object,
@@ -306,17 +303,6 @@ const handleEditorChange = (value) => {
   emit('editor-change', value)
 }
 
-const autoversion = async () => {
-  if (!edited.value) return
-  const html = editor.value.getHTML()?.trim()
-  if (!html || html === '<p></p>') return
-  await props.document.newVersion.run({ data: html })
-}
-
-const autoversionInterval = setInterval(() => {
-  void autoversion().catch(reportSaveError)
-}, AUTOVERSION_INTERVAL_MS)
-
 const autorename = () => {
   const { $anchor } = editor.value.view.state.selection
   const inFirstBlock = $anchor.index(0) === 1 && $anchor.depth === 1
@@ -402,7 +388,6 @@ onBeforeUnmount(() => {
   if (edited.value) {
     emit('save', false, editor.value.getHTML())
   }
-  clearInterval(autoversionInterval)
   emitter.off('print-file')
   emitter.off('manual-save')
   emit('cleanup')

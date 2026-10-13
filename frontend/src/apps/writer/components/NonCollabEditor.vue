@@ -32,6 +32,7 @@
 import { debounce } from 'frappe-ui'
 import { computed, provide, ref } from 'vue'
 
+import { useAutoversion } from '@/apps/writer/composables/autoversion'
 import { reportSaveError } from '@/apps/writer/composables/saveError'
 import { useComments } from '@/apps/writer/composables/useYjs'
 
@@ -67,6 +68,7 @@ defineExpose({
 })
 
 const commentsDetail = useComments(props.document, editor)
+useAutoversion(editor, edited, props.document)
 
 const save = async (manual, html, onSuccess) => {
   const content = rawContent.value

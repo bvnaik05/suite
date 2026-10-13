@@ -25,6 +25,7 @@ import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { computed, onMounted, provide, ref, watch } from 'vue'
 
+import { useAutoversion } from '@/apps/writer/composables/autoversion'
 import { reportSaveError } from '@/apps/writer/composables/saveError'
 import { useYjs } from '@/apps/writer/composables/useYjs'
 import { rebuild } from '@/apps/writer/extensions/comments'
@@ -69,6 +70,7 @@ const { doc, save, cleanup, provider, loaded, peers, ...commentsDetail } = useYj
 )
 
 defineExpose({ editor, peers })
+useAutoversion(editor, edited, props.document)
 watch(loaded, () => rebuild(editor.value))
 
 const extensions = [
