@@ -118,7 +118,11 @@ export function writerDeviceStore() {
   return deviceStore(signedIn())
 }
 
-export async function openWriterRoom(session: DocumentSession): Promise<Opened> {
+// `threadsChanged` is told when the document's comment threads may have changed
+export async function openWriterRoom(
+  session: DocumentSession,
+  threadsChanged: () => void,
+): Promise<Opened> {
   const principal = signedIn()
   const store = await deviceStore(principal)
   const device = store && {
@@ -133,6 +137,7 @@ export async function openWriterRoom(session: DocumentSession): Promise<Opened> 
     signedIn,
     device,
     socket: getRealtimeSocket(),
+    threadsChanged,
   }
   return openCollabRoom(options)
 }

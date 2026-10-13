@@ -46,7 +46,7 @@ vi.mock('@/apps/writer/collab', () => ({
 
 async function openCollab(retainRecovery = () => false, mayEdit = () => true) {
   const session = { nodeId: 'node-1' } as DocumentSession
-  const collab = useWriterCollab(session, retainRecovery, mayEdit)
+  const collab = useWriterCollab(session, retainRecovery, mayEdit, () => {})
   await collab.open()
   return collab
 }
@@ -58,6 +58,7 @@ async function newerSchemaBanner(load: typeof useWriterCollab, session: Document
     session,
     () => false,
     () => true,
+    () => {},
   )
   await collab.open()
   becomes({ canWrite: false, newerSchema: true })

@@ -19,6 +19,7 @@ import {
   DriveDocumentHeader,
   type DocumentPanel,
   type DocumentSession,
+  type DocumentThread,
   type DocumentVersion,
 } from '@/apps/drive'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
@@ -55,6 +56,7 @@ import {
 import { restoreVersion, type RestoreNotice } from './restoreVersion'
 import { saveFirst } from './saveFirst'
 import { versionLabel } from './useDocumentPanel'
+import { useDocumentThreads } from './useDocumentThreads'
 import { useWriterCollab } from './useWriterCollab'
 import {
   imagesNotice,
@@ -82,7 +84,10 @@ const props = defineProps<{ session: DocumentSession }>()
 
 /** The editor that shows this document, with the props only it takes. */
 type EditorView =
-  | { is: typeof CollabTextEditor; props: { room: CollabRoom; file: EditorFile } }
+  | {
+      is: typeof CollabTextEditor
+      props: { room: CollabRoom; file: EditorFile; threads: DocumentThread[] }
+    }
   | {
       is: typeof NonCollabEditor | typeof TextEditor
       props: ReturnType<typeof dirtyModel> & { file: EditorFile }
@@ -103,6 +108,7 @@ const preview = shallowRef<
 const showsRecoveryBanner = computed(() => !preview.value.copy)
 
 const recoveryBanner = ref<InstanceType<typeof RecoveryBanner> | null>(null)
+const { threads, refresh: refreshThreads } = useDocumentThreads(props.session)
 
 const {
   mode: collabMode,
@@ -118,7 +124,7 @@ const {
   openFailure,
   open: openCollab,
   close: closeCollab,
-} = useWriterCollab(props.session, retainRecovery, () => writes.writable.value)
+} = useWriterCollab(props.session, retainRecovery, () => writes.writable.value, refreshThreads)
 
 const writes = createWriteGate(props.session, () => {
   const roomUnsaved = collabLive.value && saveState.value !== 'clean'
@@ -241,7 +247,7 @@ function dirtyModel() {
 const editorView = computed<EditorView>(() => {
   const file = editorFile.value
   if (collabLive.value && room.value) {
-    return { is: CollabTextEditor, props: { room: room.value, file } }
+    return { is: CollabTextEditor, props: { room: room.value, file, threads: threads.value } }
   }
 
   const editorProps = { file, ...dirtyModel() }

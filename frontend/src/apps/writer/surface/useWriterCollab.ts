@@ -38,11 +38,12 @@ function readStatus(room: CollabRoom) {
 
 // A Writer document's live room: opening it, mirroring its state for the page, and closing it.
 // `retainRecovery` keeps the editor's HTML in this browser when the room stops holding unsent work.
-// `mayEdit` is whether the person may edit the document
+// `mayEdit` is whether the person may edit the document. `threadsChanged` is told when its comment threads may have changed
 export function useWriterCollab(
   session: DocumentSession,
   retainRecovery: () => boolean,
   mayEdit: () => boolean,
+  threadsChanged: () => void,
 ) {
   const mode = shallowRef<CollabMode>('opening')
   const room = shallowRef<CollabRoom | null>(null)
@@ -62,7 +63,7 @@ export function useWriterCollab(
     openStatus.value = null
 
     try {
-      const opened = await openWriterRoom(session)
+      const opened = await openWriterRoom(session, threadsChanged)
       if (closed) {
         if (opened.state === 'live') {
           void opened.room.close()

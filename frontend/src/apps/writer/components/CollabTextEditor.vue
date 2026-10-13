@@ -21,10 +21,12 @@
 <script setup lang="ts">
 import type { CollabRoom } from '@suite/collab-client'
 import { toast } from 'frappe-ui'
-import { computed, onBeforeUnmount, provide, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue'
 import * as Y from 'yjs'
 
+import type { DocumentThread } from '@/apps/drive'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
+import { redrawThreads, ThreadHighlights } from '@/apps/writer/collab/highlights'
 import { peopleOf } from '@/apps/writer/collab/peers'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
@@ -42,6 +44,7 @@ const props = defineProps<{
   document: WriterDocument
   settings: WriterSettings
   editable: boolean
+  threads: DocumentThread[]
 }>()
 
 const showSettings = defineModel('showSettings')
@@ -71,7 +74,17 @@ const extensions = [
     onTooLarge: () => toast.error('This is too large to add in one go. Add it in smaller parts.'),
     onNearFull: () => toast.warning('This document is nearly full. Some changes may not save.'),
   }),
+  ThreadHighlights.configure({ threads: () => props.threads }),
 ]
+
+watch(
+  () => props.threads,
+  () => {
+    if (editor.value) {
+      redrawThreads(editor.value.view)
+    }
+  },
+)
 
 async function save(done?: () => void) {
   await withinTenSeconds(props.room.flush())
