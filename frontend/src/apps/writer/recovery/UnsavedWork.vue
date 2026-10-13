@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button } from 'frappe-ui'
+import { Button, Skeleton } from 'frappe-ui'
 import { List, ListCell, ListHeader, ListHeaderCell, ListRow } from 'frappe-ui/list'
 import { computed, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -24,7 +24,15 @@ const route = useRoute()
 const router = useRouter()
 
 const isLoading = shallowRef(true)
-const hasNoCopies = computed(() => !copies.value.length)
+const showsSkeleton = shallowRef(false)
+// Drive's placeholder look and delay, so a fast read shows nothing
+const SKELETON_BAR = '!bg-surface-gray-2 motion-reduce:animate-none'
+const SKELETON_NAMES = ['w-40', 'w-28', 'w-52']
+const SKELETON_DELAY = 180
+// Drive's order: nothing for a fast read, placeholder rows for a slow one, then the list
+const isBlank = computed(() => isLoading.value && !showsSkeleton.value)
+const isPlaceholder = computed(() => isLoading.value && showsSkeleton.value)
+const hasNoCopies = computed(() => !isLoading.value && !copies.value.length)
 // Drive's listing tracks; a phone drops the saved time, as Drive drops Modified
 const COLUMNS = {
   base: ['minmax(0,1fr)', '6rem', '2.5rem'],
@@ -35,9 +43,15 @@ const icon = driveDocumentIcon(writerDocument.contentDoctype)
 const shownCopy = computed(() => copies.value.find((copy) => copy.key === route.query.copy))
 
 onMounted(async () => {
+  const skeletonTimer = setTimeout(showSkeleton, SKELETON_DELAY)
   await refresh()
+  clearTimeout(skeletonTimer)
   isLoading.value = false
 })
+
+function showSkeleton() {
+  showsSkeleton.value = true
+}
 
 async function view(copy: RecoveryCopy) {
   const node = await loadDriveNodeSummary(copy.node).catch(() => null)
@@ -92,8 +106,7 @@ function details(copy: RecoveryCopy) {
       <RecoveryPreview :copy="shownCopy" :settings="null" />
     </div>
   </article>
-  <!-- Nothing until the first read, so the empty state never flashes -->
-  <div v-else-if="isLoading" aria-busy="true" />
+  <div v-else-if="isBlank" aria-busy="true" />
   <div
     v-else-if="hasNoCopies"
     class="flex flex-col items-center justify-center gap-2 py-16 text-center"
@@ -104,7 +117,13 @@ function details(copy: RecoveryCopy) {
       Changes that couldn't be saved stay here, on this device, until you discard them.
     </p>
   </div>
-  <List v-else :columns="COLUMNS" :row-height="40" class="-mx-3 list-row-px-3">
+  <List
+    v-else
+    :columns="COLUMNS"
+    :row-height="40"
+    class="-mx-3 list-row-px-3"
+    :aria-busy="isPlaceholder"
+  >
     <ListHeader>
       <ListHeaderCell class="text-sm-medium text-ink-gray-5">Name</ListHeaderCell>
       <ListHeaderCell class="justify-end text-sm-medium text-ink-gray-5">Size</ListHeaderCell>
@@ -113,29 +132,44 @@ function details(copy: RecoveryCopy) {
       </ListHeaderCell>
       <ListHeaderCell><span class="sr-only">Actions</span></ListHeaderCell>
     </ListHeader>
-    <ListRow
-      v-for="copy in copies"
-      :key="copy.key"
-      :value="copy.key"
-      tabindex="0"
-      class="select-none"
-      @click="view(copy)"
-    >
-      <ListCell>
-        <span class="mr-2 size-4 shrink-0" :class="icon" aria-hidden="true" />
-        <span class="min-w-0 truncate text-base text-ink-gray-8" :title="titleOf(copy)">{{
-          titleOf(copy)
-        }}</span>
-      </ListCell>
-      <ListCell class="justify-end">
-        <span class="truncate text-base text-ink-gray-5">{{ formatDriveBytes(copy.size) }}</span>
-      </ListCell>
-      <ListCell class="hidden justify-end md:flex">
-        <span class="truncate text-base text-ink-gray-5">{{ savedAt(copy) }}</span>
-      </ListCell>
-      <ListCell class="justify-end">
-        <RecoveryCopyActions :copy="copy" can-view @view="view(copy)" @discarded="refresh" />
-      </ListCell>
-    </ListRow>
+    <template v-if="isPlaceholder">
+      <ListRow v-for="(width, index) in SKELETON_NAMES" :key="index" aria-hidden="true">
+        <ListCell>
+          <Skeleton class="mr-2 size-4 shrink-0 rounded-1" :class="SKELETON_BAR" />
+          <Skeleton class="h-2 max-w-full rounded-full" :class="[SKELETON_BAR, width]" />
+        </ListCell>
+        <ListCell />
+        <ListCell class="hidden justify-end md:flex">
+          <Skeleton class="h-2 w-14 rounded-full" :class="SKELETON_BAR" />
+        </ListCell>
+        <ListCell />
+      </ListRow>
+    </template>
+    <template v-else>
+      <ListRow
+        v-for="copy in copies"
+        :key="copy.key"
+        :value="copy.key"
+        tabindex="0"
+        class="select-none"
+        @click="view(copy)"
+      >
+        <ListCell>
+          <span class="mr-2 size-4 shrink-0" :class="icon" aria-hidden="true" />
+          <span class="min-w-0 truncate text-base text-ink-gray-8" :title="titleOf(copy)">{{
+            titleOf(copy)
+          }}</span>
+        </ListCell>
+        <ListCell class="justify-end">
+          <span class="truncate text-base text-ink-gray-5">{{ formatDriveBytes(copy.size) }}</span>
+        </ListCell>
+        <ListCell class="hidden justify-end md:flex">
+          <span class="truncate text-base text-ink-gray-5">{{ savedAt(copy) }}</span>
+        </ListCell>
+        <ListCell class="justify-end">
+          <RecoveryCopyActions :copy="copy" can-view @view="view(copy)" @discarded="refresh" />
+        </ListCell>
+      </ListRow>
+    </template>
   </List>
 </template>

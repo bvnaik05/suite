@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createApp, h } from 'vue'
+import { createApp, h, nextTick } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 
 vi.mock('@/apps/drive', () => ({
@@ -46,6 +46,10 @@ function emptyState(root: Element) {
   return root
 }
 
+function placeholderRow(root: Element) {
+  return root.querySelector('[data-slot="list-row"][aria-hidden="true"]')
+}
+
 function rowButton(root: Element) {
   return root.querySelector<HTMLElement>('button[data-slot="list-row"]')!
 }
@@ -64,6 +68,20 @@ describe('Writer recovery copies page', () => {
     const cells = [...rowButton(root).querySelectorAll('[data-slot="list-cell"]')]
     const texts = cells.map((cell) => cell.textContent!.trim())
     expect(texts.slice(0, 3)).toEqual(['Plan', '10 B', 'Just now'])
+  })
+
+  it('shows placeholder rows while a slow read runs, then the copies', async () => {
+    keepPageCopy('node-1', 'Plan', '<p>abc</p>')
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    const { root } = await openedPage((page) => page)
+    vi.advanceTimersByTime(180)
+    vi.useRealTimers()
+    await nextTick()
+
+    expect(placeholderRow(root)).not.toBeNull()
+    expect(root.querySelector('[aria-busy="true"]')!.textContent).toContain('Name')
+    await vi.waitFor(() => expect(rowButton(root)).not.toBeNull())
+    expect([placeholderRow(root), root.querySelector('[aria-busy="true"]')]).toEqual([null, null])
   })
 
   it('says so when the device keeps no copies', async () => {
