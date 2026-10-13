@@ -97,6 +97,28 @@ ROUTES = (
         kind="mutation",
         public_name="content.submitRender",
     ),
+    Route(
+        "POST",
+        "{node}/restore",
+        "restore_post",
+        allow_guest=True,
+        errors=(drive.DriveNotFound, drive.DriveForbidden, drive.DriveLocked),
+        output=dict[str, int | str],
+        stream=True,
+        kind="mutation",
+        public_name="content.beginRestore",
+    ),
+    Route(
+        "POST",
+        "{node}/restore/cancel",
+        "restore_cancel_post",
+        allow_guest=True,
+        errors=(drive.DriveNotFound, drive.DriveForbidden, drive.DriveLocked),
+        output=dict[str, int | str],
+        stream=True,
+        kind="mutation",
+        public_name="content.cancelRestore",
+    ),
 )
 
 PRINCIPAL_HEADER = "X-Collab-Principal"
@@ -142,6 +164,16 @@ def suspect_post(node: str):
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def projection_post(node: str):
     return respond_or_refuse(lambda: submit_render(node))
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def restore_post(node: str):
+    return respond_or_refuse(lambda: begin_restore(node))
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def restore_cancel_post(node: str):
+    return respond_or_refuse(lambda: cancel_restore(node))
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -264,6 +296,51 @@ def submit_render(node: str) -> Response:
         documents.request_render_check(adapter, doc.id)
 
     return json_response(status, answer)
+
+
+def begin_restore(node: str) -> Response:
+    """Fence the document for a restore of version `version`, after a version of what it holds now."""
+    adapter, doc = resolved(node, drive.EDIT, frappe.get_request_header(PRINCIPAL_HEADER))
+    body = json_body()
+    seen_rev = body.get("seen_rev")
+    version = body.get("version")
+    if type(seen_rev) is not int or type(version) is not int:
+        raise content.Refusal(400, "malformed")
+
+    fence = content.begin_restore(adapter, doc.id, seen_rev)
+    if not fence["has_milestone"]:
+        take_milestone(adapter, doc.id, node, version, fence)
+
+    return json_response(
+        200, {"token": fence["token"], "base_rev": fence["base_rev"], "fence_ms": fence["fence_ms"]}
+    )
+
+
+def take_milestone(adapter: str, doc_id: str, node: str, version: int, fence: dict) -> None:
+    """Nothing is restored without a version of the head first; a refused one lifts the fence."""
+    label = _("Before restoring version {0}").format(version)
+    try:
+        drive.take_version(node, kind="milestone", label=label)
+        content.milestone_taken(adapter, doc_id, fence["head_chain"])
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    except Exception as error:
+        frappe.db.rollback()
+        content.cancel_restore(adapter, doc_id, fence["token"])
+        if isinstance(error, drive.DriveError):
+            raise content.Refusal(409, "milestone_failed", message=str(error)) from None
+
+        raise
+
+
+def cancel_restore(node: str) -> Response:
+    """Lift the fence the restoring tab set, when it gives up before sending the restore."""
+    adapter, doc = resolved(node, drive.EDIT, frappe.get_request_header(PRINCIPAL_HEADER))
+    token = json_body().get("token")
+    if not isinstance(token, str):
+        raise content.Refusal(400, "malformed")
+
+    content.cancel_restore(adapter, doc.id, token)
+    return json_response(200, {"cancelled": 1})
 
 
 def start_session(node: str) -> Response:

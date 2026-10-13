@@ -245,6 +245,82 @@
       ],
       "stream": true,
       "bytes": false
+    },
+    {
+      "id": "restore_post",
+      "kind": "mutation",
+      "publicName": "content.beginRestore",
+      "page": null,
+      "envelope": "data",
+      "method": "POST",
+      "path": "{node}/restore",
+      "pathParams": [
+        "node"
+      ],
+      "query": null,
+      "body": null,
+      "output": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "errors": [
+        "DriveNotFound",
+        "DriveForbidden",
+        "DriveLocked"
+      ],
+      "entity": null,
+      "nodeParams": [
+        "node"
+      ],
+      "stream": true,
+      "bytes": false
+    },
+    {
+      "id": "restore_cancel_post",
+      "kind": "mutation",
+      "publicName": "content.cancelRestore",
+      "page": null,
+      "envelope": "data",
+      "method": "POST",
+      "path": "{node}/restore/cancel",
+      "pathParams": [
+        "node"
+      ],
+      "query": null,
+      "body": null,
+      "output": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "errors": [
+        "DriveNotFound",
+        "DriveForbidden",
+        "DriveLocked"
+      ],
+      "entity": null,
+      "nodeParams": [
+        "node"
+      ],
+      "stream": true,
+      "bytes": false
     }
   ]
 }

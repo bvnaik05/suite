@@ -162,6 +162,54 @@ const operationProjectionPost: MutationRef<
   loadValidators: async () => (await import('./validators')).operationProjectionPost,
 }
 
+export type RestorePostInput = { node: string; chunk: unknown } & { chunk: Blob }
+
+export type RestorePostOutput = { [key: string]: number | string }
+
+export type RestorePostError = 'DriveNotFound' | 'DriveForbidden' | 'DriveLocked'
+
+const operationRestorePost: MutationRef<RestorePostInput, RestorePostOutput, RestorePostError> = {
+  id: 'restore_post',
+  owner: 'content',
+  kind: 'mutation',
+  publicName: 'content.beginRestore',
+  method: 'POST',
+  path: '{node}/restore',
+  prefix: '/api/suite/content/',
+  pathParams: ['node'],
+  nodeParams: ['node'],
+  entity: null,
+  errors: ['DriveNotFound', 'DriveForbidden', 'DriveLocked'],
+  body: 'chunk',
+  loadValidators: async () => (await import('./validators')).operationRestorePost,
+}
+
+export type RestoreCancelPostInput = { node: string; chunk: unknown } & { chunk: Blob }
+
+export type RestoreCancelPostOutput = { [key: string]: number | string }
+
+export type RestoreCancelPostError = 'DriveNotFound' | 'DriveForbidden' | 'DriveLocked'
+
+const operationRestoreCancelPost: MutationRef<
+  RestoreCancelPostInput,
+  RestoreCancelPostOutput,
+  RestoreCancelPostError
+> = {
+  id: 'restore_cancel_post',
+  owner: 'content',
+  kind: 'mutation',
+  publicName: 'content.cancelRestore',
+  method: 'POST',
+  path: '{node}/restore/cancel',
+  prefix: '/api/suite/content/',
+  pathParams: ['node'],
+  nodeParams: ['node'],
+  entity: null,
+  errors: ['DriveNotFound', 'DriveForbidden', 'DriveLocked'],
+  body: 'chunk',
+  loadValidators: async () => (await import('./validators')).operationRestoreCancelPost,
+}
+
 export const api = {
   content: {
     open: operationDocumentGet,
@@ -171,5 +219,7 @@ export const api = {
     startSession: operationSessionsPost,
     reportSuspect: operationSuspectPost,
     submitRender: operationProjectionPost,
+    beginRestore: operationRestorePost,
+    cancelRestore: operationRestoreCancelPost,
   },
 } as const

@@ -24,7 +24,7 @@ from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_redis_conn
 from redis.exceptions import RedisError
 
-from suite.suite_core.content import admission, capacity, ingest, live, stage, updates
+from suite.suite_core.content import admission, capacity, ingest, live, restores, stage, updates
 from suite.suite_core.content.adapters import ContentAdapterSpec, spec_of
 from suite.suite_core.content.log import Refusal, chain_next
 from suite.suite_core.content.sessions import load_session, session_for
@@ -160,7 +160,8 @@ def locked_doc(adapter: str, doc_id: str, is_final: bool) -> frappe._dict:
         try:
             locked_rows = frappe.db.sql(
                 f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
-                `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`
+                `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`,
+                `restore_deadline`
                 FROM `{table(adapter, "doc")}` WHERE `id` = %s FOR UPDATE {lock}""",
                 doc_id,
                 as_dict=True,
@@ -194,6 +195,10 @@ def check_doc_open(doc: frappe._dict, header: PushHeader) -> None:
     # The rows stay on the device until an admin reviews the document
     if doc.suspect_held:
         raise Refusal(423, "paused", reason="suspect", retry_ms=SUSPECT_RETRY_MS)
+
+    # The rows wait on the device until the restore lands, then go to recovery
+    if restores.fenced(doc, now_datetime()):
+        raise Refusal(423, "paused", reason="restoring", retry_ms=restores.RESTORING_RETRY_MS)
 
 
 def check_seqs(header: PushHeader, acked: int, head: int) -> None:

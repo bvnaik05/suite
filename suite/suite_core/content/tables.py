@@ -74,6 +74,14 @@ def ensure_tables(adapter: str) -> None:
         "`versioned_rev` bigint unsigned NOT NULL DEFAULT 0",
         # Edit rows through this rev may be gone; the body holds them
         "`trimmed_rev` bigint unsigned NOT NULL DEFAULT 0",
+        # A restore's fence while `mode` is 'restoring'; it lapses at its deadline
+        "`restore_token` char(32) NULL",
+        "`restore_deadline` datetime(6) NULL",
+        # The last restore's rev and time; work made before that rev is refused
+        "`restore_rev` bigint unsigned NOT NULL DEFAULT 0",
+        "`restored_at` datetime(6) NULL",
+        # The head chain the last pre-restore version holds
+        "`milestone_chain` binary(32) NULL",
     ):
         frappe.db.sql_ddl(f"ALTER TABLE `{table(adapter, 'doc')}` ADD COLUMN IF NOT EXISTS {column}")
     frappe.db.sql_ddl(

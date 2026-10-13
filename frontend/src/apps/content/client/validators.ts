@@ -7,6 +7,10 @@ import type {
   DocumentGetOutput,
   ProjectionPostInput,
   ProjectionPostOutput,
+  RestoreCancelPostInput,
+  RestoreCancelPostOutput,
+  RestorePostInput,
+  RestorePostOutput,
   SessionsPostInput,
   SessionsPostOutput,
   StagePutInput,
@@ -188,6 +192,61 @@ export const operationProjectionPost: Validators<ProjectionPostInput, Projection
         type: 'object',
       },
       'projection_post output',
+    )
+  },
+}
+
+export const operationRestorePost: Validators<RestorePostInput, RestorePostOutput> = {
+  validateInput(value: unknown): asserts value is RestorePostInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { node: { type: 'string' }, chunk: {} },
+        required: ['node', 'chunk'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'restore_post input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is RestorePostOutput {
+    assertSchema(
+      value,
+      {
+        additionalProperties: { anyOf: [{ type: 'integer' }, { type: 'string' }] },
+        type: 'object',
+      },
+      'restore_post output',
+    )
+  },
+}
+
+export const operationRestoreCancelPost: Validators<
+  RestoreCancelPostInput,
+  RestoreCancelPostOutput
+> = {
+  validateInput(value: unknown): asserts value is RestoreCancelPostInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { node: { type: 'string' }, chunk: {} },
+        required: ['node', 'chunk'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'restore_cancel_post input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is RestoreCancelPostOutput {
+    assertSchema(
+      value,
+      {
+        additionalProperties: { anyOf: [{ type: 'integer' }, { type: 'string' }] },
+        type: 'object',
+      },
+      'restore_cancel_post output',
     )
   },
 }

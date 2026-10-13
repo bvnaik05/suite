@@ -27,6 +27,9 @@ from suite.suite_core.content.log import (
     set_mode,
 )
 from suite.suite_core.content.pushes import push, put_piece
+from suite.suite_core.content.restores import begin as begin_restore
+from suite.suite_core.content.restores import cancel as cancel_restore
+from suite.suite_core.content.restores import milestone_taken
 from suite.suite_core.content.sessions import claim_session, issue_session
 from suite.suite_core.content.snapshot import Snapshot, read, rows_after, with_tombstones
 from suite.suite_core.content.tables import ensure_tables
@@ -45,6 +48,8 @@ __all__ = [
     "EditorSchema",
     "Refusal",
     "backfill_clocks",
+    "begin_restore",
+    "cancel_restore",
     "claim_session",
     "copy_wanted",
     "create",
@@ -56,6 +61,7 @@ __all__ = [
     "issue_session",
     "limits",
     "mark_purged",
+    "milestone_taken",
     "mode",
     "open_header",
     "parse_piece",
