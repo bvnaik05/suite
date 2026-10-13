@@ -44,7 +44,7 @@ export async function listCopies(node?: string): Promise<RecoveryCopy[]> {
   return copies.sort((first, second) => second.savedAt.getTime() - first.savedAt.getTime())
 }
 
-/** Each copy's document, without reading the copies. */
+/** Each copy's document, without rendering the copies; a page copy that can't be read counts as none. */
 export async function copyEntries() {
   const store = await writerDeviceStore()
   const records = (await store?.allRecovery().catch(() => [])) ?? []
@@ -147,7 +147,7 @@ function storedPageCopy(key: string): (PageCopy & { node: string }) | null {
 
   // A copy from before page loads were told apart is keyed by its document alone
   const node = stored.node ?? key.slice(PAGE_PREFIX.length)
-  return { ...stored, node, html: stored.html, savedAt: stored.savedAt }
+  return { node, title: stored.title, html: stored.html, savedAt: stored.savedAt }
 }
 
 function readPageCopy(key: string): RecoveryCopy | null {
