@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CollabRoom } from '@suite/collab-client'
 import type { Editor } from '@tiptap/core'
-import { Badge, Button, Skeleton, toast } from 'frappe-ui'
+import { Badge, Button, dialog, Skeleton, toast } from 'frappe-ui'
 import {
   computed,
   nextTick,
@@ -52,10 +52,12 @@ import {
   type DocumentSaveState,
   type LeaveGuardOptions,
 } from './navigation'
+import { restoreVersion } from './restoreVersion'
 import { saveFirst } from './saveFirst'
 import { versionLabel } from './useDocumentPanel'
 import { useWriterCollab } from './useWriterCollab'
 import VersionPreview from './VersionPreview.vue'
+import { fetchVersion } from './versions'
 import { createWriterDocument, editorFileOf, isLocked, type EditorFile } from './writerDocument'
 import WriterDocumentMenu from './WriterDocumentMenu.vue'
 import { createWriteGate, type DocumentWrite } from './writes'
@@ -287,6 +289,50 @@ async function downloadVersion(shown: DocumentVersion) {
   }
 }
 
+const sidePanel = shallowRef<InstanceType<typeof DocumentSidePanel> | null>(null)
+const isRestoringVersion = ref(false)
+// Only a document saved as it is edited restores in place
+const canRestoreVersion = computed(() => collabLive.value && !!room.value && editable.value)
+const isVersionRestoreDisabled = computed(
+  () => isVersionDownloadDisabled.value || isRestoringVersion.value,
+)
+
+function confirmRestore(shown: DocumentVersion) {
+  dialog.confirm({
+    title: 'Restore this version?',
+    message:
+      'The document goes back to this version for everyone. Its current state is kept as a version first.',
+    confirmLabel: 'Restore',
+    onConfirm: () => restoreShownVersion(shown),
+  })
+}
+
+async function restoreShownVersion(shown: DocumentVersion) {
+  const liveRoom = room.value
+  if (!liveRoom) {
+    return
+  }
+
+  isRestoringVersion.value = true
+  try {
+    const bytes = await fetchVersion(props.session, shown.seq)
+    const notice = await restoreVersion(liveRoom, shown.seq, bytes)
+    if (!notice.isRestored) {
+      toast.error(notice.message)
+      return
+    }
+
+    toast.success(notice.message)
+    closeAnyPreview()
+    void sidePanel.value?.reloadVersions()
+  } catch (error) {
+    console.error(error)
+    toast.error('The version was not restored.')
+  } finally {
+    isRestoringVersion.value = false
+  }
+}
+
 function viewCopy(copy: RecoveryCopy) {
   preview.value = { version: null, copy }
 }
@@ -509,14 +555,24 @@ onBeforeUnmount(() => {
             <template v-if="preview.version" #toolbar>
               <DocumentStrip>
                 <p class="truncate">Viewing {{ versionLabel(preview.version) }}</p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  label="Download"
-                  :disabled="isVersionDownloadDisabled"
-                  @click="downloadVersion(preview.version)"
-                />
-                <Button size="sm" variant="ghost" label="Back to current" @click="closePreview" />
+                <div class="flex shrink-0 items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    label="Download"
+                    :disabled="isVersionDownloadDisabled"
+                    @click="downloadVersion(preview.version)"
+                  />
+                  <Button
+                    v-if="canRestoreVersion"
+                    size="sm"
+                    variant="ghost"
+                    label="Restore"
+                    :disabled="isVersionRestoreDisabled"
+                    @click="confirmRestore(preview.version)"
+                  />
+                  <Button size="sm" variant="ghost" label="Back to current" @click="closePreview" />
+                </div>
               </DocumentStrip>
             </template>
             <template v-else-if="preview.copy" #toolbar>
@@ -543,6 +599,7 @@ onBeforeUnmount(() => {
             </template>
             <template #aside>
               <DocumentSidePanel
+                ref="sidePanel"
                 v-model:panel="panel"
                 :previewed-version="preview.version"
                 :session="session"

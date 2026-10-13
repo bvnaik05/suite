@@ -37,7 +37,7 @@ function openEditor() {
       Document,
       Paragraph,
       Text,
-      ...writerAdapter.bind({ doc, presence } as unknown as CollabRoom),
+      ...writerAdapter.bind({ doc, presence, onChange: () => () => true } as unknown as CollabRoom),
     ],
   }
   const editor = new Editor(editorOptions)

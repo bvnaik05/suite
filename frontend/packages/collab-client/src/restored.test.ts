@@ -347,3 +347,95 @@ describe("this tab's restore", () => {
     expect([outcome, server.rows.length, room.restoring]).toEqual(['unchanged', 1, false])
   })
 })
+
+describe('restoring a version', () => {
+  function restoreCalls(server: FakeServer) {
+    return server.calls.filter((call) => call.includes('Restore'))
+  }
+
+  it('fences at the head, sends the restore and leaves no fence behind', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+
+    const result = await room.restoreVersion(3, becomes(room, 'old'))
+
+    expect([result, restoreCalls(server)]).toEqual([{ outcome: 'landed' }, ['beginRestore 1 3']])
+    expect([room.canWrite, text(await join(server.endpoints()))]).toEqual([true, 'old'])
+  })
+
+  it('a tab missing rows pulls them and begins again', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+    const other = await join(server.endpoints())
+    type(other, ' more')
+    await other.flush()
+
+    const result = await room.restoreVersion(3, becomes(room, 'old'))
+
+    expect([result.outcome, restoreCalls(server)]).toEqual([
+      'landed',
+      ['beginRestore 1 3', 'beginRestore 2 3'],
+    ])
+    expect(text(await join(server.endpoints()))).toBe('old')
+  })
+
+  it('a refused begin changes nothing and says why', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+    server.fence(120_000)
+
+    const result = await room.restoreVersion(3, becomes(room, 'old'))
+
+    expect([result, text(room), room.unsent]).toEqual([
+      { outcome: 'refused', refusal: 'restoring', retryS: undefined },
+      'draft',
+      0,
+    ])
+  })
+
+  it('a restore that changes nothing calls its fence off', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+
+    const result = await room.restoreVersion(3, () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    type(room, ' after')
+    await room.flush()
+
+    expect([result.outcome, restoreCalls(server).at(-1)]).toEqual(['unchanged', 'cancelRestore'])
+    expect(text(await join(server.endpoints()))).toBe('draft after')
+  })
+
+  it('an edit that throws calls the fence off and changes nothing', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+
+    const restoring = room.restoreVersion(3, () => {
+      throw new Error('unreadable')
+    })
+
+    await expect(restoring).rejects.toThrow('unreadable')
+    expect([restoreCalls(server).at(-1), text(room), room.unsent]).toEqual([
+      'cancelRestore',
+      'draft',
+      0,
+    ])
+  })
+
+  it('work waiting to go stops it before any fence', async () => {
+    fakeTime()
+    const server = await serverWith('draft')
+    const room = await join(server.endpoints())
+    server.access.online = false
+    type(room, ' mine')
+
+    const result = await room.restoreVersion(3, becomes(room, 'old'))
+
+    expect([result.outcome, restoreCalls(server)]).toEqual(['unsent', []])
+  })
+})

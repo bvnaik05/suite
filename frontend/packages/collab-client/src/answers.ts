@@ -18,6 +18,9 @@ export interface ReplyBody {
   copy?: boolean
   judged?: number
   verdict?: string
+  // The fence a restore begins under, and how long to wait when one just ran
+  token?: string
+  retry_s?: number
 }
 
 export type Reply = ReplyBody & { status: number }

@@ -295,6 +295,26 @@ export function fakeServer(state = 'live', lineage = 'L') {
       copy.renders.push({ ...placed, html: new TextDecoder().decode(bytes) })
       return reply(202, { render: 'queued' })
     },
+    async beginRestore(seenRev, version) {
+      recordCall(`beginRestore ${seenRev} ${version}`)
+      if (restoringMs()) {
+        return reply(409, { collab: 'restoring' })
+      }
+
+      if (seenRev !== rows.length) {
+        return reply(409, { collab: 'behind', head: rows.length })
+      }
+
+      return reply(200, { token: fence(FENCE_MS), base_rev: rows.length, fence_ms: FENCE_MS })
+    },
+    async cancelRestore(token) {
+      recordCall('cancelRestore')
+      if (token === restore.token && restoringMs()) {
+        fence(null)
+      }
+
+      return reply(200, { cancelled: 1 })
+    },
   })
   // The whole of a stage's pieces, or null when one is missing or the bytes don't match its sha
   function assemble(stage: string) {
@@ -389,6 +409,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
 }
 
 const RESTORING = { collab: 'paused', reason: 'restoring', retry_ms: 1000 }
+const FENCE_MS = 120_000
 
 export const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
 

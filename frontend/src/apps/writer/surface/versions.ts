@@ -2,6 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 import { yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
 import * as Y from 'yjs'
 
+import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
 import { storedFirstTabLabel } from '@/apps/writer/extensions/tabs'
 
@@ -13,6 +14,17 @@ export interface StoredVersion {
 
 /** A stored version's body: a Yjs state and the lineage it belongs to, or HTML. */
 export type VersionBody = { lineage: string; state: Uint8Array } | { html: string }
+
+/** The stored bytes of version `seq`. */
+export async function fetchVersion(session: DocumentSession, seq: number): Promise<Uint8Array> {
+  const url = session.versions.contentUrl(String(seq))
+  const response = await session.credentials.fetch(url)
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  return new Uint8Array(await response.arrayBuffer())
+}
 
 /** Reads a stored Writer version by its schema. Throws on bytes it cannot show. */
 export async function readVersion(bytes: Uint8Array): Promise<StoredVersion> {

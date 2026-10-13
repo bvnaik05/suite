@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { Page, Route } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
 import {
@@ -68,6 +68,73 @@ test.describe("Writer collaboration", () => {
 		);
 		await expectSaved(owner.page);
 		await expect(owner.page.locator(".bg-surface-amber-2")).toHaveCount(0);
+	});
+
+	test("a restored version shows in every tab, the state before it is kept, and Ctrl+Z leaves it", async ({
+		owner,
+		collaborator,
+		testApi,
+	}) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		await typeParagraph(page, "Kept in the version");
+		await expectSaved(page);
+		await saveNamedVersion(owner.context.request, node, "Draft one");
+		// Undoing this cut after the restore would type " version" in a second time
+		for (let i = 0; i < " version".length; i++) {
+			await page.keyboard.press("Backspace");
+		}
+
+		await typeParagraph(page, "Typed after the version");
+		await expectSaved(page);
+		await openWriterDocument(collaborator.page, node);
+		const panel = await openVersions(page);
+
+		await restoreFromPreview(page, panel, "Draft one");
+
+		await expect(page.getByText("Version restored")).toBeVisible();
+		const restored = await expectConverged(testApi, node, [page, collaborator.page], ["Kept in the version"]);
+		expect(restored.filter(Boolean)).toEqual(["Kept in the version"]);
+		await expect(panel.getByRole("button", { name: /^Before restoring version \d+/ })).toHaveCount(1);
+		await panel.getByRole("button", { name: /^Before restoring version \d+/ }).click();
+		await expect(page.getByLabel("Version preview")).toContainText("Typed after the version");
+		await page.getByRole("button", { name: "Back to current" }).click();
+
+		await page.getByLabel("Document editor").click();
+		await page.keyboard.press("ControlOrMeta+z");
+		await typeParagraph(collaborator.page, "Typed after the restore");
+		await expectSaved(collaborator.page);
+		const afterUndo = await expectConverged(
+			testApi,
+			node,
+			[page, collaborator.page],
+			["Kept in the version", "Typed after the restore"],
+		);
+		expect(afterUndo.filter(Boolean).sort()).toEqual(["Kept in the version", "Typed after the restore"]);
+	});
+
+	test("a second restore within a minute restores nothing and says how long to wait", async ({
+		owner,
+		testApi,
+	}) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		await typeParagraph(page, "First words");
+		await expectSaved(page);
+		await saveNamedVersion(owner.context.request, node, "One");
+		await typeParagraph(page, "Second words");
+		await expectSaved(page);
+		await saveNamedVersion(owner.context.request, node, "Two");
+		const panel = await openVersions(page);
+		await restoreFromPreview(page, panel, "One");
+		await expect(page.getByText("Version restored")).toBeVisible();
+
+		await restoreFromPreview(page, panel, "Two");
+
+		await expect(page.getByText(/^A version was just restored\. Try again in \d+ seconds\.$/)).toBeVisible();
+		await page.getByRole("button", { name: "Back to current" }).click();
+		const blocks = await expectConverged(testApi, node, [page], ["First words"]);
+		expect(blocks.filter(Boolean)).toEqual(["First words"]);
 	});
 
 	test("the first edit to a document takes an automatic version the server keeps", async ({
@@ -369,4 +436,11 @@ async function nameVersion(page: Page, label: string) {
 	await page.getByRole("button", { name: "Save version" }).click();
 	await page.getByLabel("Name").fill(label);
 	await page.getByRole("button", { name: "Save", exact: true }).click();
+}
+
+async function restoreFromPreview(page: Page, panel: Locator, label: string) {
+	await panel.getByRole("button", { name: new RegExp(`^${label}`) }).click();
+	await expect(page.getByText(`Viewing ${label}`)).toBeVisible();
+	await page.getByRole("button", { name: "Restore", exact: true }).click();
+	await page.getByRole("dialog").getByRole("button", { name: "Restore", exact: true }).click();
 }

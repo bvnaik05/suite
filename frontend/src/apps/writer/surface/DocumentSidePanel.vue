@@ -126,6 +126,8 @@ function preview(version: DocumentVersion) {
   previewedVersion.value = version
 }
 
+defineExpose({ reloadVersions: () => load('versions') })
+
 function versionByline(version: DocumentVersion) {
   const created = version.creation && formatDriveDateTime(version.creation)
   return [version.actor, created].filter(Boolean).join(' · ')

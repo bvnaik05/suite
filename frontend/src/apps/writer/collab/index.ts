@@ -31,6 +31,8 @@ const PUSH = contentOperation('updates_post', 'POST', '{node}/updates')
 const SESSION = contentOperation('sessions_post', 'POST', '{node}/sessions')
 const SUSPECT = contentOperation('suspect_post', 'POST', '{node}/suspect')
 const RENDER = contentOperation('projection_post', 'POST', '{node}/projection')
+const RESTORE = contentOperation('restore_post', 'POST', '{node}/restore')
+const CANCEL_RESTORE = contentOperation('restore_cancel_post', 'POST', '{node}/restore/cancel')
 const STAGE: Operation = {
   ...contentOperation('stage_put', 'PUT', '{node}/stage/{stage_id}/{idx}'),
   pathParams: ['node', 'stage_id', 'idx'],
@@ -83,6 +85,14 @@ export function writerEndpoints(session: DocumentSession, principal: string): Co
     render: (stageId) => {
       const body = jsonBody({ stage_id: stageId })
       return transport.requestBytes(RENDER, { node }, { body, headers })
+    },
+    beginRestore: (seenRev, version) => {
+      const body = jsonBody({ seen_rev: seenRev, version })
+      return transport.requestBytes(RESTORE, { node }, { body, headers })
+    },
+    cancelRestore: (token) => {
+      const body = jsonBody({ token })
+      return transport.requestBytes(CANCEL_RESTORE, { node }, { body, headers })
     },
   }
 }

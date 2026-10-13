@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 
 import { block } from './access'
+import { readReply } from './answers'
 import { Copier } from './copier'
 import { Device } from './device'
 import { RestoreFence } from './fence'
@@ -22,6 +23,7 @@ import {
   type LiveState,
   type OpenOptions,
   type RestoreOutcome,
+  type RestoreResult,
   type SaveState,
 } from './types'
 import { SuspectReport } from './verdict'
@@ -404,6 +406,35 @@ export class Room implements CollabRoom {
     }
 
     return this.restoreRev > landedBefore ? 'landed' : 'refused'
+  }
+
+  async restoreVersion(version: number, edit: () => void): Promise<RestoreResult> {
+    if (this.unsent || this.sender.inFlight) {
+      return { outcome: 'unsent' }
+    }
+
+    const { endpoints } = this.options
+    let reply = readReply(await endpoints.beginRestore(this.appliedThrough, version))
+    if (reply.collab === 'behind') {
+      await this.pull()
+      reply = readReply(await endpoints.beginRestore(this.appliedThrough, version))
+    }
+
+    if (reply.status !== 200 || typeof reply.token !== 'string') {
+      return { outcome: 'refused', refusal: reply.collab ?? 'failed', retryS: reply.retry_s }
+    }
+
+    let outcome: RestoreOutcome = 'refused'
+    try {
+      outcome = await this.restore(reply.token, edit)
+    } finally {
+      if (outcome !== 'landed') {
+        // A fence nobody calls off lapses at its deadline
+        endpoints.cancelRestore(reply.token).catch(() => null)
+      }
+    }
+
+    return { outcome }
   }
 
   // This tab held every row before its restore, so the restore's row is the next it applies;

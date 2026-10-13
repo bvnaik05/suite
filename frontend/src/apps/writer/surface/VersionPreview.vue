@@ -10,7 +10,7 @@ import { orderedHTML } from '@/apps/writer/extensions/tabs'
 import type { LayoutSettings } from '@/apps/writer/utils/editor-layout'
 import { previewEditor } from '@/apps/writer/utils/preview-editor'
 
-import { readVersion } from './versions'
+import { fetchVersion, readVersion } from './versions'
 
 const props = defineProps<{
   session: DocumentSession
@@ -34,7 +34,7 @@ async function showVersion(seq: number) {
   loading.value = !editor.value
 
   try {
-    const version = await fetchVersion(seq)
+    const version = await readVersion(await fetchVersion(props.session, seq))
     if (thisRequest !== latestRequest) return
 
     const previousEditor = editor.value
@@ -54,15 +54,6 @@ async function showVersion(seq: number) {
       loading.value = false
     }
   }
-}
-
-async function fetchVersion(seq: number) {
-  const url = props.session.versions.contentUrl(String(seq))
-  const response = await props.session.credentials.fetch(url)
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-  const buffer = await response.arrayBuffer()
-  return readVersion(new Uint8Array(buffer))
 }
 
 watch(() => props.seq, showVersion, { immediate: true })

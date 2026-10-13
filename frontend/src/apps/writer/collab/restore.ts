@@ -72,7 +72,7 @@ function alignMeta(current: Y.Map<unknown>, version: Y.Map<unknown>) {
 type Parent = Y.XmlFragment | Y.XmlElement
 
 // The id of the item at `index`, which Yjs keeps for as long as the item exists
-function idAt(type: Y.AbstractType<unknown>, index: number): string {
+function idAt(type: Parent | Y.XmlText, index: number): string {
   const item = Y.createRelativePositionFromTypeIndex(type, index).item!
 
   return `${item.client}:${item.clock}`
@@ -91,7 +91,7 @@ function alignChildren(current: Parent, version: Parent) {
   const held = new Set(currentIds)
   for (const [index, child] of version.toArray().entries()) {
     if (!held.has(versionIds[index])) {
-      current.insert(index, [child.clone()])
+      current.insert(index, [child.clone() as Y.XmlElement | Y.XmlText])
     } else if (child instanceof Y.XmlText) {
       alignText(current.get(index) as Y.XmlText, child)
     } else {

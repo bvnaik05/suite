@@ -29,6 +29,10 @@ export interface CollabEndpoints {
   suspect(rev: number): Promise<Answer>
   // A render staged under `stageId`, to be checked as the readable copy
   render(stageId: string): Promise<Answer>
+  // Fences the document for a restore of `version` made from a copy holding every row through `seenRev`
+  beginRestore(seenRev: number, version: number): Promise<Answer>
+  // Lifts the fence `token` set, when the restore won't be sent
+  cancelRestore(token: string): Promise<Answer>
 }
 
 // What an app declares in the browser. The layer gives the rest: room opening, sync, the device store,
@@ -104,11 +108,19 @@ export type Held = 'change' | 'bad_checkpoint'
 // already was the version, `refused` when the server didn't take it (`stopped` says why)
 export type RestoreOutcome = 'landed' | 'unsent' | 'unchanged' | 'refused'
 
+// `refusal` names why the server wouldn't begin it, and `retryS` how long to wait when it says
+export interface RestoreResult {
+  outcome: RestoreOutcome
+  refusal?: string
+  retryS?: number
+}
+
 export const isRecoverable = (blocked: Blocked) =>
   blocked === 'signed_out' || blocked === 'locked' || blocked === 'offline'
 
 export interface CollabRoom {
   readonly doc: Y.Doc
+  readonly lineage: string
   readonly canWrite: boolean
   readonly blocked: Blocked | null
   // Why the server asked this tab to wait before saving again, until a push is committed
@@ -148,6 +160,8 @@ export interface CollabRoom {
   flush(): Promise<void>
   // Makes `edit` the restore under the fence `token`, as one push the server takes or refuses whole
   restore(token: string, edit: () => void): Promise<RestoreOutcome>
+  // Fences the document, makes `edit` the restore of `version` and sends it; calls the fence off unless it lands
+  restoreVersion(version: number, edit: () => void): Promise<RestoreResult>
   close(): Promise<void>
 }
 
