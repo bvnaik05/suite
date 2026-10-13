@@ -18,12 +18,6 @@
 
         <nav class="space-y-0.5" :aria-label="__('Account')">
           <SidebarItem :label="__('Settings')" icon="lucide-settings" @click="showSettings" />
-          <SidebarItem
-            :label="__('Unsaved work on this device')"
-            icon="lucide-hard-drive"
-            route="/drive/recovery"
-            @click="close"
-          />
           <div class="flex h-7 items-center justify-between gap-3 pl-2">
             <span class="flex items-center gap-2 text-sm text-ink-gray-8">
               <span class="lucide-sun-moon size-4 text-ink-gray-6" aria-hidden="true" />

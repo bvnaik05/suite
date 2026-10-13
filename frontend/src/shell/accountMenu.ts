@@ -65,11 +65,6 @@ export function useAccountMenu(): ComputedRef<DropdownOptions> {
                 ),
             },
           },
-          {
-            label: __('Unsaved work on this device'),
-            icon: 'lucide-hard-drive',
-            route: '/drive/recovery',
-          },
           // Upgrade plan joins here once the site resource carries
           // `upgrade_url` (ask S5).
         ],
