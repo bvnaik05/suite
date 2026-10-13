@@ -717,54 +717,17 @@
         <!-- The surface's Drive panels (comments, versions) dock the same edge. -->
         <slot name="side-panel" />
 
-        <!-- Notes side panel — Google-Sheets-style global list. Lives inside
-           sn-grid-wrap so it docks the same right edge as Version History. -->
-        <aside v-if="notesPanel.open" class="sn-notes-panel" @click.stop>
-          <header class="sn-notes-header">
-            <div class="sn-notes-title">
-              Notes
-              <span v-if="allNotes.length" class="sn-notes-count">· {{ allNotes.length }}</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="lucide-x"
-              aria-label="Close notes"
-              @click="notesPanel.open = false"
-            />
-          </header>
-          <div class="sn-notes-toolbar">
-            <Button
-              size="sm"
-              variant="subtle"
-              icon-left="lucide-plus"
-              :label="`Add note to ${activeCell}`"
-              @click="addNoteFromPanel"
-            />
-          </div>
-          <div v-if="!allNotes.length" class="sn-notes-empty">
-            <div class="sn-notes-empty-title">No notes yet.</div>
-            <div class="sn-notes-empty-hint">
-              Select a cell and press <KeyboardShortcut combo="Shift+F2" />, or use the button
-              above. Notes appear here once added.
-            </div>
-          </div>
-          <div v-else class="sn-notes-list">
-            <div v-for="g in notesGrouped" :key="g.sheet" class="sn-notes-group">
-              <div class="sn-notes-group-h">{{ g.sheet }}</div>
-              <div
-                v-for="n in g.items"
-                :key="g.sheet + ':' + n.id"
-                class="sn-notes-row"
-                :class="{ 'sn-notes-row-active': n.sheet === currentSheet && n.id === activeCell }"
-                @click="jumpToNote(n)"
-              >
-                <div class="sn-notes-row-ref">{{ n.id }}</div>
-                <div class="sn-notes-row-text">{{ n.text }}</div>
-              </div>
-            </div>
-          </div>
-        </aside>
+        <!-- Notes side panel (NotesPanel.vue) -->
+        <NotesPanel
+          v-if="notesPanel.open"
+          :groups="notesGrouped"
+          :count="allNotes.length"
+          :active-cell="activeCell"
+          :current-sheet="currentSheet"
+          @close="notesPanel.open = false"
+          @add="addNoteFromPanel"
+          @jump="jumpToNote"
+        />
 
         <CellHistoryPopover
           v-model="cellHistory.open"
@@ -1698,7 +1661,6 @@ import {
   Dialog,
   Dropdown,
   FormControl,
-  KeyboardShortcut,
   KeyboardShortcutsDialog,
   Spinner,
   TextInput,
@@ -1770,6 +1732,7 @@ import FindReplace from './FindReplace.vue'
 import InlineTitleInput from './InlineTitleInput.vue'
 import LinkPreviewCard from './LinkPreviewCard.vue'
 import NamedRangesDialog from './NamedRangesDialog.vue'
+import NotesPanel from './NotesPanel.vue'
 import PivotDialog from './PivotDialog.vue'
 import SlicerPanel from './SlicerPanel.vue'
 import SplitTextPopover from './SplitTextPopover.vue'
@@ -1781,6 +1744,7 @@ import { useEditOps } from './useEditOps.js'
 import { useExportImport } from './useExportImport.js'
 import { AC_FUNS, useFormulaAutocomplete } from './useFormulaAutocomplete.js'
 import { useHistory } from './useHistory.js'
+import { useNotesPanel } from './useNotesPanel.js'
 import { usePersistence } from './usePersistence.js'
 import { usePivotIntegration } from './usePivotIntegration.js'
 import { useProtection } from './useProtection.js'
@@ -2123,14 +2087,6 @@ const commentPanel = reactive({
   thread: [],
   resolved: false,
   draft: '',
-})
-
-// Notes side panel — global list of notes across all sheets, click-to-jump.
-// `rev` is bumped whenever a note is saved/deleted so the computed list
-// re-runs (the comments engine is plain state, not reactive).
-const notesPanel = reactive({
-  open: false,
-  rev: 0,
 })
 
 // ── Dropdown (validation) UI state ────────────────────────────────────────────
@@ -5287,73 +5243,17 @@ function commentTime(ts) {
 }
 
 // ── Notes side panel ──────────────────────────────────────────────────────────
-
-// All notes across all sheets, ordered: current sheet first, then by row/col.
-// Re-runs when notesPanel.rev bumps (after save/delete) — the comments engine
-// itself isn't reactive.
-const allNotes = computed(() => {
-  notesPanel.rev // dep for re-run
-  const cur = currentSheet.value
-  const list = []
-  for (const name of sheetNames.value) {
-    const map = comments.getAll(name) || {}
-    const entries = Object.keys(map)
-      .map((id) => ({
-        id,
-        p: parseCellId(id),
-      }))
-      .filter((e) => e.p)
-      .sort((a, b) => a.p.row - b.p.row || a.p.col - b.p.col)
-      .map((e) => ({
-        sheet: name,
-        id: e.id,
-        text: comments.preview(e.id, name),
-        resolved: !!comments.getThread(e.id, name)?.resolved,
-      }))
-    list.push(...entries)
-  }
-  list.sort((a, b) => {
-    if (a.sheet === cur && b.sheet !== cur) return -1
-    if (b.sheet === cur && a.sheet !== cur) return 1
-    return a.sheet.localeCompare(b.sheet)
-  })
-  return list
+// The cross-sheet note list and its panel (see useNotesPanel.js).
+const { notesPanel, allNotes, notesGrouped, toggleNotesPanel, jumpToNote } = useNotesPanel({
+  comments,
+  sheetNames,
+  currentSheet,
+  activeCell,
+  getGrid: () => grid,
+  switchSheet: (n) => switchSheet(n),
+  openCommentPanel: () => openCommentPanel(),
+  onOpened: () => emit('notes-opened'),
 })
-const notesGrouped = computed(() => {
-  const out = []
-  let cur = null
-  for (const n of allNotes.value) {
-    if (!cur || cur.sheet !== n.sheet) {
-      cur = {
-        sheet: n.sheet,
-        items: [],
-      }
-      out.push(cur)
-    }
-    cur.items.push(n)
-  }
-  return out
-})
-function toggleNotesPanel() {
-  if (notesPanel.open) {
-    notesPanel.open = false
-    return
-  }
-  notesPanel.rev++ // force-refresh on open
-  notesPanel.open = true
-  emit('notes-opened')
-}
-function jumpToNote(n) {
-  if (!grid) return
-  const p = parseCellId(n.id)
-  if (!p) return
-  if (n.sheet !== currentSheet.value) switchSheet(n.sheet)
-  nextTick(() => {
-    grid.moveTo(p.row, p.col)
-    activeCell.value = n.id
-    openCommentPanel()
-  })
-}
 
 // The /d/ surface's handle on the editor: where the cursor is, how to reach
 // a commented cell, and the save state its leave guard and restore act on.
