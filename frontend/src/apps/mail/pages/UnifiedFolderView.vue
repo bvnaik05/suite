@@ -134,7 +134,7 @@
                 <template #lead>
                   <div
                     v-if="!isMobile || mobileSelectionMode"
-                    class="checkbox-hitbox -m-3 flex cursor-pointer items-center py-3 pl-3 pr-8"
+                    class="checkbox-hitbox -mx-3 -my-2 flex cursor-pointer items-center py-2 pl-3 pr-8"
                     @click.stop.prevent="toggleSelect(getGroupThreads(key), !isGroupSelected(key))"
                   >
                     <Checkbox
