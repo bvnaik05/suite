@@ -3,7 +3,7 @@
     :is="to ? RouterLink : 'div'"
     :to="to"
     class="sm:hover:bg-surface-gray-1 group flex cursor-default select-none space-x-2.5 border-b px-3.5 py-2.5 [-webkit-touch-callout:none] sm:space-x-5 sm:px-5"
-    :class="{ '!bg-surface-blue-1': isSelected || isTouching, '!py-2': isFullWidth }"
+    :class="{ '!bg-surface-blue-1': isSelected || isTouching, '!py-1': isFullWidth }"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
     @touchstart="onTouchStart"

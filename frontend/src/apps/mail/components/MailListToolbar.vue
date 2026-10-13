@@ -5,10 +5,11 @@
 	     block. So the row owns neither — pass `loading` only where the caller isn't
 	     already rendering a bar of its own. -->
   <div v-if="isMobile" class="relative flex h-12 items-center px-4">
-    <!-- The selector label carries the active filters ("Unread", "Filtered · 2");
+    <!-- The selector label carries the active filters ("Unread", "Unread +1");
 		     unticking them in the sheet clears them, so no dismissal chip needed. -->
     <AdaptiveDropdown :options="filterOptions" :title="__('Filter')">
       <button class="flex min-w-0 items-center gap-1.5 text-base !font-medium">
+        <ListFilter class="text-ink-gray-6 h-4 w-4 shrink-0" />
         <span class="truncate">{{ title }}</span>
         <ChevronDown class="text-ink-gray-5 h-4 w-4 shrink-0" />
       </button>
@@ -26,22 +27,30 @@
     <!-- Select-all checkbox in the mailbox list; All Inboxes has no selection. -->
     <slot name="lead" />
 
-    <!-- The filter chips stand where the filter selector goes, scrolling sideways when the list
-         column is too narrow for them rather than running under the buttons at the row's end. Only
-         the slot's own content sits in the scroller; the selector and the plain titles don't. -->
-    <div
-      v-if="$slots.filter"
-      ref="scroller"
-      class="-my-1 flex min-w-0 flex-1 items-center overflow-x-auto py-1 [scrollbar-width:none]"
-      :class="fade"
-    >
-      <slot name="filter" />
+    <!-- The filter chips stand where the filter selector goes, as long as every chip fits beside
+         the buttons at the row's end. A list column too narrow for them (a split view on a
+         laptop, say) gets the selector instead: the same filters, as checkboxes in its menu, and
+         its title says which are on. Which one shows follows the room, not the layout. -->
+    <div v-if="$slots.filter" ref="area" class="flex min-w-0 flex-1 items-center">
+      <div v-if="chipsFit" ref="chips" class="-my-1 flex w-max shrink-0 items-center py-1">
+        <slot name="filter" />
+      </div>
+      <Dropdown v-else :options="filterOptions">
+        <button
+          class="text-ink-gray-8 hover:bg-surface-gray-2 -ml-2 flex min-w-0 items-center gap-1 rounded-4 px-2 py-1"
+        >
+          <ListFilter class="text-ink-gray-6 icon shrink-0" />
+          <span class="truncate">{{ title }}</span>
+          <ChevronDown class="text-ink-gray-5 icon shrink-0" />
+        </button>
+      </Dropdown>
     </div>
     <template v-else>
       <Dropdown v-if="showFilter" :options="filterOptions">
         <button
           class="text-ink-gray-8 hover:bg-surface-gray-2 -ml-2 flex min-w-0 items-center gap-1 rounded-4 px-2 py-1"
         >
+          <ListFilter class="text-ink-gray-6 icon shrink-0" />
           <span class="truncate">{{ title }}</span>
           <ChevronDown class="text-ink-gray-5 icon shrink-0" />
         </button>
@@ -77,11 +86,12 @@
 </template>
 
 <script setup lang="ts">
+import { useResizeObserver } from '@vueuse/core'
 import { Button, Dropdown } from 'frappe-ui'
-import { ChevronDown, RefreshCw } from 'lucide-vue-next'
+import { ChevronDown, ListFilter, RefreshCw } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
 
 import LoadingBar from '@/apps/mail/components/LoadingBar.vue'
-import { useOverflowFade } from '@/apps/mail/composables/useOverflowFade'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import type { FilterOption } from '@/apps/mail/utils/listFilter'
 import AdaptiveDropdown from '@/components/AdaptiveDropdown.vue'
@@ -113,6 +123,13 @@ const {
 const emit = defineEmits<{ refresh: [] }>()
 
 const { isMobile } = useScreenSize()
-// Fades the filter area's cut-off end while it scrolls.
-const { scroller, fade } = useOverflowFade()
+// Chips while they fit, else the selector. Their natural width is measured while they show and
+// kept once they give way, so they come back as soon as the row has room for them again.
+const area = ref<HTMLElement>()
+const chips = ref<HTMLElement>()
+const areaWidth = ref(0)
+const chipsWidth = ref(0)
+useResizeObserver(area, ([entry]) => (areaWidth.value = entry.contentRect.width))
+useResizeObserver(chips, () => (chipsWidth.value = chips.value?.scrollWidth ?? 0))
+const chipsFit = computed(() => !chipsWidth.value || chipsWidth.value <= areaWidth.value)
 </script>

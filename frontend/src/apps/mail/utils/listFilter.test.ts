@@ -28,7 +28,7 @@ describe('useListFilter', () => {
   it('shows everything with nothing ticked', () => {
     const { filter, filterTitle } = filterFor()
     expect(filter.value).toBeNull()
-    expect(filterTitle.value).toBe('All Mails')
+    expect(filterTitle.value).toBe('All mail')
   })
 
   it('combines ticked filters, in menu order, as a filtered list', () => {
@@ -36,7 +36,7 @@ describe('useListFilter', () => {
     tick('Starred')
     tick('Unread')
     expect(filter.value).toBe('unread,starred')
-    expect(filterTitle.value).toBe('Filtered · 2')
+    expect(filterTitle.value).toBe('Unread +1')
   })
 
   it('unticks a filter on a second tick, and refetches each time', () => {
@@ -44,7 +44,7 @@ describe('useListFilter', () => {
     tick('Unread')
     tick('Unread')
     expect(filter.value).toBeNull()
-    expect(filterTitle.value).toBe('All Mails')
+    expect(filterTitle.value).toBe('All mail')
     expect(onChange).toHaveBeenCalledTimes(2)
   })
 

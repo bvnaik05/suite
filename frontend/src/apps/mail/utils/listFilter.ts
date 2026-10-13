@@ -24,14 +24,14 @@ interface ListFilterOptions {
    */
   starrable?: () => boolean
   /**
-   * Whether "Unknown senders" is offered: in an Inbox that screens new senders, where their mail
+   * Whether "Unknown sender" is offered: in an Inbox that screens new senders, where their mail
    * waits marked until someone decides on them.
    */
   screenable?: () => boolean
 }
 
 /**
- * The list filter — Unread, Starred, Has attachments, Unknown senders — its menu, and the title the
+ * The list filter — Unread, Starred, Has attachments, Unknown sender — its menu, and the title the
  * toolbar shows for it. Filters combine: each one ticked narrows the list further, and none ticked is
  * all of it. Sent to the server as one `filter_by` of comma-joined keys. Not remembered: a list opens
  * unfiltered, and another list starts clear, so mail is never hidden by a filter set long ago.
@@ -51,7 +51,7 @@ export const useListFilter = ({
     { key: 'unread', label: () => __('Unread'), offered: () => true },
     { key: 'starred', label: () => __('Starred'), offered: starrable },
     { key: 'has_attachments', label: () => __('Has attachments'), offered: () => true },
-    { key: 'unscreened', label: () => __('Unknown senders'), offered: screenable },
+    { key: 'unscreened', label: () => __('Unknown sender'), offered: screenable },
   ]
 
   /** The filters in effect: those ticked that this list offers, in menu order. */
@@ -105,9 +105,11 @@ export const useListFilter = ({
   /** What the toolbar's filter selector reads: the ticked filter's own label, as the menu shows
    *  it. Callers may show something else instead — a selection count, a result count. */
   const filterTitle = computed(() => {
-    if (!active.value.length) return __('All Mails')
-    // Several at once are counted; the menu's ticks say which.
-    if (active.value.length > 1) return __('Filtered · {0}', [String(active.value.length)])
+    if (!active.value.length) return __('All mail')
+    // Several at once: the first by name and a count of the rest ("Unread +1"); the menu's ticks
+    // say which the rest are.
+    if (active.value.length > 1)
+      return __('{0} +{1}', [active.value[0].label(), String(active.value.length - 1)])
     return active.value[0].label()
   })
 

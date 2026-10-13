@@ -214,7 +214,7 @@
                 <template #lead>
                   <div
                     v-if="!isAllAccountsSearch && (!isMobile || mobileSelectionMode)"
-                    class="pr-7.5 checkbox-hitbox -m-3 flex cursor-pointer items-center py-3 pl-3"
+                    class="checkbox-hitbox -m-3 flex cursor-pointer items-center py-3 pl-3 pr-8"
                     @click.stop.prevent="toggleSelect(getGroupThreads(key), !isGroupSelected(key))"
                   >
                     <Checkbox

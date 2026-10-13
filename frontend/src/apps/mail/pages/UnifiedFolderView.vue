@@ -134,7 +134,7 @@
                 <template #lead>
                   <div
                     v-if="!isMobile || mobileSelectionMode"
-                    class="pr-7.5 checkbox-hitbox -m-3 flex cursor-pointer items-center py-3 pl-3"
+                    class="checkbox-hitbox -m-3 flex cursor-pointer items-center py-3 pl-3 pr-8"
                     @click.stop.prevent="toggleSelect(getGroupThreads(key), !isGroupSelected(key))"
                   >
                     <Checkbox
@@ -487,7 +487,7 @@ const refreshThreads = (reloadCounts = true) => {
 }
 
 // A verdict on a sender, from the pane or anywhere else, changes which rows are waiting: the
-// "Unknown senders" filter drops the ones decided.
+// "Unknown sender" filter drops the ones decided.
 watch(useScreener().version, () => refreshThreads(false))
 
 // The layout's composer, announcing that it sent something (see useListReload). A refresh rather
