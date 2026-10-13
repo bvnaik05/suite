@@ -43,8 +43,10 @@ vi.mock('frappe-ui', async () => {
     }),
     Skeleton: emptyComponent,
     TextInput: emptyComponent,
+    dialog: { confirm: (options: { onConfirm: () => void }) => options.onConfirm() },
     toast: {
       info: () => {},
+      success: () => {},
       warning: () => {},
       error: () => {},
     },
@@ -78,6 +80,8 @@ vi.mock('@/apps/drive', async () => {
 })
 
 const rooms = vi.hoisted(() => ({ next: null as object | null }))
+// The body the server holds for a document edited without collaboration
+const stored = vi.hoisted(() => ({ html: '' }))
 
 vi.mock('@/apps/writer/collab', () => ({
   BODY_FIELD: 'default',
@@ -89,18 +93,20 @@ vi.mock('@/apps/writer/components/NonCollabEditor.vue', async () => {
   const { defineComponent: define, h: render } = await import('vue')
   return {
     default: define({
-      props: { editable: Boolean },
-      setup:
-        (props, { slots }) =>
-        () => {
+      props: { editable: Boolean, document: Object },
+      setup: (props, { slots }) => {
+        // Like the editor, the body is read once when it mounts
+        const body = (props.document as { doc: { html: string } }).doc.html
+        return () => {
           const toolbar = slots.toolbar?.()
           const editorBox = {
             'data-editor': '',
             'data-editable': props.editable,
             style: slots.cover && { display: 'none' },
           }
-          return [toolbar, render('div', editorBox), slots.cover?.(), slots.aside?.()]
-        },
+          return [toolbar, render('div', editorBox, body), slots.cover?.(), slots.aside?.()]
+        }
+      },
     }),
   }
 })
@@ -113,18 +119,20 @@ vi.mock('./writerDocument', async (importOriginal) => {
     submit: async () => null,
   })
   const writerDocument = () => {
-    const doc = {
-      name: 'content-1',
-      collab: 0,
-      settings: {},
+    function read() {
+      return { name: 'content-1', collab: 0, settings: {}, html: stored.html }
     }
-    const resources = {
-      doc,
+
+    const resources = reactive({
+      doc: read(),
       saveDoc: idleWrite(),
       saveHtml: idleWrite(),
       saveComments: idleWrite(),
-    }
-    return reactive(resources)
+      reload: async () => {
+        resources.doc = read()
+      },
+    })
+    return resources
   }
 
   return {
@@ -172,7 +180,10 @@ vi.mock('./VersionPreview.vue', async () => {
   return {
     default: define({
       props: { seq: Number },
-      setup: (props) => () => render('div', { 'data-preview': props.seq }),
+      setup: (props, { expose }) => {
+        expose({ isShown: true, versionHTML: () => '' })
+        return () => render('div', { 'data-preview': props.seq })
+      },
     }),
   }
 })
@@ -239,6 +250,7 @@ function versionRow(root: Element, label: string) {
 afterEach(() => {
   document.body.innerHTML = ''
   rooms.next = null
+  stored.html = ''
 })
 
 function liveRoom() {
@@ -384,6 +396,30 @@ describe('Writer surface', () => {
     expect(root.querySelector('[data-preview]')).toBeNull()
     expect(editorShown()).toBe(true)
     expect(document.activeElement?.textContent).toMatch(/^Before review/)
+  })
+
+  it('restores a version of a document edited without collaboration and shows its text', async () => {
+    // An earlier test unstubs every env, and the build floor is read only outside DEV
+    vi.stubEnv('DEV', false)
+    await serverMinBuilds({ writer: '100' })
+    stored.html = '<p>Today</p>'
+    const restore = vi.fn(async () => {
+      stored.html = '<p>Back then</p>'
+    })
+    const root = await openedSurface({ ...oneVersion, restore } as unknown as Versions)
+    function editor() {
+      return root.querySelector('[data-editor]')!
+    }
+
+    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+    versionRow(root, 'Before review').click()
+    await nextTick()
+    buttonLabelled(root, 'Restore')!.click()
+
+    await vi.waitFor(() => expect(editor().textContent).toBe('<p>Back then</p>'))
+    expect(restore).toHaveBeenCalledWith('3')
+    expect(root.querySelector('[data-preview]')).toBeNull()
   })
 
   it('shows edits made in another tab while a version was previewed', async () => {

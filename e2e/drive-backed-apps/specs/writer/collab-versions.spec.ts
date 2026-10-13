@@ -4,15 +4,22 @@ import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
 import {
+	disableCollab,
 	expectConverged,
 	expectSaved,
+	makeLegacy,
 	openForCollab,
 	serverBlocks,
 	saveNamedVersion,
 	typeParagraph,
 } from "../../helpers/collab";
 import { discardNode } from "../../helpers/drive";
-import { createWriterDocument, openWriterDocument, uniqueWriterTitle } from "../../helpers/writer";
+import {
+	createWriterDocument,
+	openWriterDocument,
+	uniqueWriterTitle,
+	writerEditor,
+} from "../../helpers/writer";
 
 test.describe("Writer collaboration", () => {
 	let node = "";
@@ -135,6 +142,45 @@ test.describe("Writer collaboration", () => {
 		await page.getByRole("button", { name: "Back to current" }).click();
 		const blocks = await expectConverged(testApi, node, [page], ["First words"]);
 		expect(blocks.filter(Boolean)).toEqual(["First words"]);
+	});
+
+	test("a document edited without collaboration restores a version, and the next autosave keeps it", async ({
+		owner,
+		run,
+		testApi,
+	}) => {
+		const { page } = owner;
+		// Off before it is made, so the document gets no log
+		await disableCollab(testApi, node);
+		const plain = (await createWriterDocument(page.request, uniqueWriterTitle(run.run_id, "plain"))).name;
+		try {
+			await makeLegacy(testApi, plain);
+			await openWriterDocument(page, plain);
+			await writerEditor(page).click();
+			await page.keyboard.type("Kept in the version");
+			await saveByShortcut(page);
+			const panel = await openVersions(page);
+			await nameVersion(page, "Draft one");
+			await expect(panel.getByRole("button", { name: /^Draft one/ })).toBeVisible();
+			// Unsaved when the restore starts, so an autosave is still waiting in the editor
+			await writerEditor(page).click();
+			await page.keyboard.press("End");
+			await page.keyboard.type(" and typed after");
+
+			await restoreFromPreview(page, panel, "Draft one");
+
+			await expect(page.getByText("Version restored")).toBeVisible();
+			await expect(writerEditor(page)).toHaveText("Kept in the version");
+			await panel.getByRole("button", { name: /^Version \d+/ }).first().click();
+			await expect(page.getByLabel("Version preview")).toContainText("Kept in the version and typed after");
+			await page.getByRole("button", { name: "Back to current" }).click();
+			// Past the editor's five-second autosave
+			await page.waitForTimeout(6_000);
+			await page.reload();
+			await expect(writerEditor(page)).toHaveText("Kept in the version");
+		} finally {
+			await discardNode(owner.context.request, plain);
+		}
 	});
 
 	test("the first edit to a document takes an automatic version the server keeps", async ({
@@ -422,6 +468,12 @@ const PUSHES = "**/api/suite/content/*/updates";
 async function slowPushes(route: Route) {
 	await new Promise((resolve) => setTimeout(resolve, 2_000));
 	await route.continue();
+}
+
+async function saveByShortcut(page: Page) {
+	const saved = page.waitForResponse((response) => response.url().endsWith("/save_html") && response.ok());
+	await page.keyboard.press("ControlOrMeta+s");
+	await saved;
 }
 
 async function openVersions(page: Page) {

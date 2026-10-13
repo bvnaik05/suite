@@ -30,7 +30,7 @@
 
 <script setup>
 import { debounce } from 'frappe-ui'
-import { computed, provide, ref } from 'vue'
+import { computed, onBeforeUnmount, provide, ref } from 'vue'
 
 import { useAutoversion } from '@/apps/writer/composables/autoversion'
 import { reportSaveError } from '@/apps/writer/composables/saveError'
@@ -82,6 +82,9 @@ const save = async (manual, html, onSuccess) => {
 const autosave = debounce(() => {
   void save().catch(reportSaveError)
 }, 5000)
+
+// A late save from an editor a restore replaced would write the old text back
+onBeforeUnmount(() => autosave.cancel())
 
 // Local saving with IndexedDB
 const db = ref(null)

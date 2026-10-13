@@ -55,7 +55,7 @@ export const disableCollab = (testApi: APIRequestContext, node: string) =>
 
 /** Open `node` in the old, non-collaborative editor from now on. */
 export function makeLegacy(testApi: APIRequestContext, node: string) {
-	return callTestHook<CollabState>(testApi, "make_legacy", node);
+	return callTestHook<number>(testApi, "make_legacy", node);
 }
 
 export const compactNow = (testApi: APIRequestContext, node: string) =>

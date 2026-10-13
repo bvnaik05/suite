@@ -59,23 +59,24 @@ export function createWriterDocument(
       run: (input: { html: string }) => saveHTML.run({ name, ...input }),
     },
     saveComments: comments,
+    reload: () => load(),
   })
-  void client.query(api.writer.documents.get, { name }, { context }).then(
-    (row) => {
-      const settings: unknown =
-        typeof row.settings === 'string' ? JSON.parse(row.settings || '{}') : row.settings
-      document.doc = {
-        ...row,
-        settings:
-          settings && typeof settings === 'object' && !Array.isArray(settings)
-            ? (settings as WriterSettings)
-            : {},
-      }
-    },
-    () => {
-      /* The Drive session displays access refusals. */
-    },
-  )
+  async function load() {
+    const row = await client.query(api.writer.documents.get, { name }, { context })
+    const settings: unknown =
+      typeof row.settings === 'string' ? JSON.parse(row.settings || '{}') : row.settings
+    document.doc = {
+      ...row,
+      settings:
+        settings && typeof settings === 'object' && !Array.isArray(settings)
+          ? (settings as WriterSettings)
+          : {},
+    }
+  }
+
+  void load().catch(() => {
+    /* The Drive session displays access refusals. */
+  })
   return document
 }
 

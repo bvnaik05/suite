@@ -52,7 +52,7 @@ import {
   type DocumentSaveState,
   type LeaveGuardOptions,
 } from './navigation'
-import { restoreVersion } from './restoreVersion'
+import { restoreVersion, type RestoreNotice } from './restoreVersion'
 import { saveFirst } from './saveFirst'
 import { versionLabel } from './useDocumentPanel'
 import { useWriterCollab } from './useWriterCollab'
@@ -212,7 +212,14 @@ const showEditingPaused = computed(
   () => !editable.value && editingPaused.value && writes.writable.value,
 )
 
-const editorFile = computed(() => editorFileOf(props.session, editable.value))
+// Bumped by a restore so the editor mounts again on the restored body
+const bodyRevision = ref(0)
+
+const editorFile = computed(() => {
+  // A remount must not take a draft typed before it from the device
+  void bodyRevision.value
+  return editorFileOf(props.session, editable.value)
+})
 
 const peers = computed(() => editorSurface.value?.peers ?? [])
 
@@ -291,8 +298,10 @@ async function downloadVersion(shown: DocumentVersion) {
 
 const sidePanel = shallowRef<InstanceType<typeof DocumentSidePanel> | null>(null)
 const isRestoringVersion = ref(false)
-// Only a document saved as it is edited restores in place
-const canRestoreVersion = computed(() => collabLive.value && !!room.value && editable.value)
+const canRestoreVersion = computed(() => {
+  const isCollabOff = collabMode.value === 'legacy' && documentResource.doc?.collab === 0
+  return editable.value && ((collabLive.value && !!room.value) || isCollabOff)
+})
 const isVersionRestoreDisabled = computed(
   () => isVersionDownloadDisabled.value || isRestoringVersion.value,
 )
@@ -308,15 +317,17 @@ function confirmRestore(shown: DocumentVersion) {
 }
 
 async function restoreShownVersion(shown: DocumentVersion) {
-  const liveRoom = room.value
-  if (!liveRoom) {
-    return
-  }
-
   isRestoringVersion.value = true
   try {
-    const bytes = await fetchVersion(props.session, shown.seq)
-    const notice = await restoreVersion(liveRoom, shown.seq, bytes)
+    const liveRoom = room.value
+    let notice: RestoreNotice
+    if (liveRoom) {
+      const bytes = await fetchVersion(props.session, shown.seq)
+      notice = await restoreVersion(liveRoom, shown.seq, bytes)
+    } else {
+      notice = await restoreStoredVersion(shown)
+    }
+
     if (!notice.isRestored) {
       toast.error(notice.message)
       return
@@ -331,6 +342,15 @@ async function restoreShownVersion(shown: DocumentVersion) {
   } finally {
     isRestoringVersion.value = false
   }
+}
+
+// A document edited without collaboration is restored on the server, then read again
+async function restoreStoredVersion(shown: DocumentVersion): Promise<RestoreNotice> {
+  await flush()
+  await props.session.versions.restore(String(shown.seq))
+  await documentResource.reload()
+  bodyRevision.value += 1
+  return { isRestored: true, message: 'Version restored' }
 }
 
 function viewCopy(copy: RecoveryCopy) {
@@ -546,6 +566,7 @@ onBeforeUnmount(() => {
         <div class="flex min-h-0 flex-1 overflow-hidden">
           <component
             :is="editorView.is"
+            :key="bodyRevision"
             ref="editorSurface"
             v-bind="editorView.props"
             :document="documentResource"
