@@ -143,6 +143,7 @@ const croppingImageId = ref<string>()
 const cropFrame = ref<RectangleShape>()
 const textEditor = ref<TextEditor>()
 const propertyToolbarInteracting = ref(false)
+const propertyPopupOpen = ref<'color' | 'font' | 'size'>()
 const textArea = ref<HTMLTextAreaElement>()
 const selectedRectangleId = ref<string>()
 const selectedLineId = ref<string>()
@@ -213,6 +214,9 @@ const activePropertyBorderColor = computed(() => {
 const activePropertyStrokeWidth = computed(() => selectedShapes.value.at(-1)?.strokeWidth ?? 2)
 const activePropertyStrokeStyle = computed(() => selectedShapes.value.at(-1)?.strokeStyle ?? 'solid')
 const propertyToolbarVisible = computed(() => props.activeTool !== 'eraser' && Boolean(props.activeTool === 'draw' || selectedShapes.value.length || textPropertyControlsEnabled.value))
+watch(propertyToolbarVisible, visible => {
+  if (!visible || props.activeTool === 'draw') propertyPopupOpen.value = undefined
+})
 const propertyTextStyle = computed(() => {
   const editor = textEditor.value
   const text = selectedTextShapes.value.at(-1)
@@ -1203,8 +1207,20 @@ function beginPropertyToolbarInteraction() {
   propertyToolbarInteracting.value = true
 }
 
-function endPropertyToolbarInteraction() {
+function endPropertyToolbarInteraction(event: MouseEvent) {
   propertyToolbarInteracting.value = false
+  const activePopup = propertyPopupOpen.value
+  if (!activePopup || !(event.target instanceof Element)) return
+  const activeControl = activePopup === 'color'
+    ? '.property-color-control'
+    : '.property-text-control--' + activePopup
+  if (event.target.closest(activeControl)) return
+  propertyPopupOpen.value = undefined
+}
+
+function updatePropertyPopupOpen(popup: 'color' | 'font' | 'size', open: boolean) {
+  if (open) propertyPopupOpen.value = popup
+  else if (propertyPopupOpen.value === popup) propertyPopupOpen.value = undefined
 }
 
 function updateLabel(id: string, label: string | undefined) {
@@ -3210,9 +3226,11 @@ onBeforeUnmount(() => {
             :target="propertyColorTarget"
             :mode="selectedLabel ? 'property-solid' : 'property-object'"
             :property-kind="propertyColorKind"
+            :open="propertyPopupOpen === 'color'"
             label="Custom color"
             @select="applyCustomPropertyColor"
             @style="applyCustomPropertyStyle"
+            @update:open="updatePropertyPopupOpen('color', $event)"
         />
         <template v-if="usesSolidColorPalette">
           <Button
@@ -3251,21 +3269,25 @@ onBeforeUnmount(() => {
         <Select
           :model-value="propertyTextStyle.fontFamily"
           :options="fontOptions"
+          :open="propertyPopupOpen === 'font'"
           variant="outline"
           size="sm"
           class="property-text-control property-text-control--font"
           aria-label="Font family"
           :disabled="!textPropertyControlsEnabled"
+          @update:open="updatePropertyPopupOpen('font', $event)"
           @update:model-value="updatePropertyTextStyle({ fontFamily: $event as TextFontFamily })"
         />
         <Select
           :model-value="propertyTextStyle.fontSize"
           :options="fontSizeOptions"
+          :open="propertyPopupOpen === 'size'"
           variant="outline"
           size="sm"
           class="property-text-control property-text-control--size"
           aria-label="Font size"
           :disabled="!textPropertyControlsEnabled"
+          @update:open="updatePropertyPopupOpen('size', $event)"
           @update:model-value="updatePropertyTextStyle({ fontSize: $event as number })"
         />
         <Tooltip text="Bold" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontWeight >= 600 }" label="Bold" :aria-pressed="propertyTextStyle.fontWeight >= 600" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontWeight: propertyTextStyle.fontWeight >= 600 ? 400 : 600 })"><Icon :name="Bold" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
@@ -3389,23 +3411,24 @@ onBeforeUnmount(() => {
 .property-toolbar :deep(.property-text-control--font) { width: 124px; }
 .property-toolbar :deep(.property-text-control--size) { width: 64px; }
 .property-text-control :deep(button) { height: 28px; min-height: 28px; padding: 0 8px; }
-:global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content']):not(:has(~ div [data-slot='content']))),
-:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content']):has(~ div [data-slot='content'])) { width: 124px !important; min-width: 0 !important; }
-:global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content']):not(:has(~ div [data-slot='content'])) [data-slot='content']),
-:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content']):has(~ div [data-slot='content']) [data-slot='content']) { width: 124px !important; min-width: 124px; max-width: 124px; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content']):not(:has(~ div [data-slot='content']))) { width: 64px !important; min-width: 0 !important; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content']):not(:has(~ div [data-slot='content'])) [data-slot='content']) { width: 64px !important; min-width: 64px; max-width: 64px; }
-:global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'])),
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'])) { bottom: 50px !important; height: auto !important; min-height: 0 !important; max-height: calc(100vh - 72px) !important; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content']):not(:has(~ div [data-slot='content'])) [data-slot='content'] .lucide-check) { display: none; }
+/* Select and Tooltip both use data-slot="content"; these rules only target Select listboxes. */
+:global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))),
+:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox'])) { width: 124px !important; min-width: 0 !important; }
+:global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']),
+:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox']) [data-slot='content'][role='listbox']) { width: 124px !important; min-width: 124px; max-width: 124px; }
+:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))) { width: 64px !important; min-width: 0 !important; }
+:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']) { width: 64px !important; min-width: 64px; max-width: 64px; }
+:global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])),
+:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])) { bottom: 50px !important; height: auto !important; min-height: 0 !important; max-height: calc(100vh - 72px) !important; }
+:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox'] .lucide-check) { display: none; }
 @media (max-width: 600px) {
   .property-toolbar { right: 16px; bottom: 64px; left: 16px; width: auto; transform: none; }
   .property-toolbar :deep(.property-text-control--font) { width: 104px; }
   .property-toolbar :deep(.property-text-control--size) { width: 52px; }
 }
 @media (max-width: 600px) {
-  :global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'])),
-  :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'])) { bottom: 98px !important; }
+  :global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])),
+  :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])) { bottom: 98px !important; }
 }
 .history-controls {
   position: fixed;

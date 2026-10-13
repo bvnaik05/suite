@@ -17,12 +17,13 @@ const props = defineProps<{
   strokeWidth?: number
   strokeStyle?: StrokeStyle
   showBorderOptions?: boolean
+  open?: boolean
   label: string
   target: ColorTarget
   mode?: PickerMode
   propertyKind?: PropertyKind
 }>()
-const emit = defineEmits<{ select: [color: string | undefined, target?: ColorTarget]; style: [patch: StylePatch] }>()
+const emit = defineEmits<{ select: [color: string | undefined, target?: ColorTarget]; style: [patch: StylePatch]; 'update:open': [open: boolean] }>()
 
 const families: Family[] = [
   { name: 'Gray', base: '#383838', shades: ['#f3f3f3', '#e2e2e2', '#999999', '#525252', '#171717'] },
@@ -112,8 +113,8 @@ async function pickScreenColor() {
 </script>
 
 <template>
-  <span class="color-trigger-anchor">
-    <Popover :side="isProperty ? 'top' : 'left'" align="start" :offset="isProperty ? 11 : 20" :collision-padding="16" arrow>
+  <span :class="['color-trigger-anchor', { 'property-color-control': isProperty }]">
+    <Popover :open="isProperty ? open : undefined" :side="isProperty ? 'top' : 'left'" :align="isProperty ? 'center' : 'start'" :offset="isProperty ? 11 : 20" :collision-padding="16" arrow @update:open="emit('update:open', $event)">
       <template #trigger>
         <Button :class="['color-trigger', { 'color-trigger--property': isProperty }]" size="xs" variant="ghost" theme="gray" :style="{ '--color': color }" :label="label" :tooltip="label" />
       </template>
@@ -187,7 +188,7 @@ async function pickScreenColor() {
 .color-trigger-anchor :deep(.color-trigger .truncate) { display: none; }
 .color-picker { width: 264px; padding: 18px; color: var(--ink-gray-7); }
 .color-picker--property { width: 198px; padding: 14px; }
-.color-picker--property-object { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 386px; }
+.color-picker--property-object { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 386px; max-width: var(--reka-popover-content-available-width, calc(100vw - 32px)); }
 .color-picker section + section { margin-top: 16px; }
 .color-picker--property section + section { margin-top: 12px; }
 .color-picker--property-object section + section { margin-top: 0; }
@@ -216,4 +217,7 @@ h3 { margin: 0 0 8px; color: var(--ink-gray-7); font-size: 13px; font-weight: 40
 .stroke-option path.dotted { stroke-dasharray: 1 3; stroke-linecap: round; stroke-width: 2; }
 .color-picker :deep(.hex-field input) { font-weight: 400; line-height: 20px; }
 .color-picker :deep(.hex-prefix) { display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; }
+@media (max-width: 417px) {
+  .color-picker--property-object { grid-template-columns: 1fr; }
+}
 </style>
