@@ -11,20 +11,33 @@ export interface StoredVersion {
   firstTabLabel: string | null
 }
 
+/** A stored version's body: a Yjs state and the lineage it belongs to, or HTML. */
+export type VersionBody = { lineage: string; state: Uint8Array } | { html: string }
+
 /** Reads a stored Writer version by its schema. Throws on bytes it cannot show. */
 export async function readVersion(bytes: Uint8Array): Promise<StoredVersion> {
-  const decoder = new TextDecoder('utf-8', { fatal: true })
-  const text = decoder.decode(bytes)
-  let payload: unknown = null
-  try {
-    payload = JSON.parse(text)
-  } catch {
-    // Migrated history is raw HTML.
+  const body = await readVersionBody(bytes)
+  if ('html' in body) {
+    return { content: body.html, firstTabLabel: null }
   }
 
+  const ydoc = new Y.Doc()
+  try {
+    Y.applyUpdate(ydoc, body.state)
+    const content = yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment(BODY_FIELD))
+    return { content, firstTabLabel: storedFirstTabLabel(ydoc) }
+  } finally {
+    ydoc.destroy()
+  }
+}
+
+/** Reads a stored Writer version's body by its schema. Throws on bytes it cannot read. */
+export async function readVersionBody(bytes: Uint8Array): Promise<VersionBody> {
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  const payload = parsedOrNull(text)
   const isRecord = typeof payload === 'object' && payload !== null && !Array.isArray(payload)
   if (!isRecord) {
-    return { content: text, firstTabLabel: null }
+    return { html: text }
   }
 
   const version = payload as Record<string, unknown>
@@ -34,26 +47,23 @@ export async function readVersion(bytes: Uint8Array): Promise<StoredVersion> {
     version.collab as number | boolean | undefined,
   )
   if (isHtmlVersion && hasContent && typeof version.html === 'string' && isKnownCollab) {
-    return { content: version.html, firstTabLabel: null }
+    return { html: version.html }
   }
 
   const isYjsVersion = version.schema === 'writer-document/2' && version.codec === 'yjs1'
-  if (isYjsVersion && typeof version.state === 'string') {
-    return readState(version.state)
+  if (isYjsVersion && typeof version.state === 'string' && typeof version.lineage === 'string') {
+    return { lineage: version.lineage, state: await gunzip(fromBase64(version.state)) }
   }
 
   throw new Error('This version cannot be read.')
 }
 
-async function readState(state: string): Promise<StoredVersion> {
-  const ydoc = new Y.Doc()
+function parsedOrNull(text: string): unknown {
   try {
-    const update = await gunzip(fromBase64(state))
-    Y.applyUpdate(ydoc, update)
-    const content = yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment(BODY_FIELD))
-    return { content, firstTabLabel: storedFirstTabLabel(ydoc) }
-  } finally {
-    ydoc.destroy()
+    return JSON.parse(text)
+  } catch {
+    // Migrated history is raw HTML
+    return null
   }
 }
 

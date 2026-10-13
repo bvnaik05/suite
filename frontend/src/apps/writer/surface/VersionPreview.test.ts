@@ -56,6 +56,7 @@ async function tabbedVersion() {
   const stored = {
     schema: 'writer-document/2',
     codec: 'yjs1',
+    lineage: 'lineage-1',
     state: btoa(String.fromCharCode(...new Uint8Array(zipped))),
     html: null,
   }
