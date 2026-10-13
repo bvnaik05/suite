@@ -1177,6 +1177,22 @@ def node_thread_create(
     )
 
 
+@frappe.whitelist(allow_guest=True, xss_safe=True, methods=["PATCH"])
+@_route
+def node_threads_reanchor(node: Given = None, anchors: Given = None) -> dict:
+    """Move threads of one document to new anchors. EDIT, all or none (§9.3).
+
+    The content app sends it when its text came back under new ids, as after a
+    restore; only the anchors change. The answer lists the moved threads.
+    """
+    moved = comments.reanchor_threads(
+        _principals(),
+        shapes.required_text(node, "node"),
+        shapes.text_map(anchors, "anchors"),
+    )
+    return {"threads": shapes.thread_shapes(moved)}
+
+
 @frappe.whitelist(allow_guest=True, methods=["PATCH"])
 @_route
 def thread_patch(thread: Given = None, resolved: Given = None) -> shapes.ThreadShape:

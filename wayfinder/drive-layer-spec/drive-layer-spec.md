@@ -2536,6 +2536,7 @@ def resolve(p: Principals, thread: str, resolved: bool = True) -> None: ...
 def edit_comment(p: Principals, comment: str, text: str) -> None: ...
 def delete_comment(p: Principals, comment: str) -> None: ...
 def threads(p: Principals, node: str, *, resolved: bool | None = None) -> list[dict]: ...
+def reanchor_threads(p: Principals, node: str, anchors: dict[str, str]) -> list[dict]: ...
 ```
 
 - The anchor is opaque. Drive stores it and lists it; the app resolves it on
@@ -2560,6 +2561,13 @@ def threads(p: Principals, node: str, *, resolved: bool | None = None) -> list[d
   commits, so the app can tell the document's open tabs to read the threads
   again. A resend or a resolve that changes nothing calls nothing. A failing
   callback is logged and never undoes the write.
+- `reanchor_threads` gives threads of one document new anchors, as when the
+  app's text came back under new ids after a restore. It needs EDIT and
+  takes the node's lock. It moves at most 200 threads, all or none: a thread
+  of another node refuses the whole call. Only `anchor` changes; resolved
+  state, authors, timestamps and modified-by stay. An empty map writes
+  nothing and calls nothing; otherwise `threads_changed(node)` follows the
+  commit.
 
 ### 9.4 Activity
 
@@ -3336,6 +3344,7 @@ one union for the page. There is no per-row access or breadcrumb query.
 | POST | `/nodes/<id>/versions/<seq>/restore` | EDIT | none | the version taken of the head first, so the client can offer the way back; `null` when a zero-byte head left nothing to capture |
 | GET | `/nodes/<id>/threads` | READ | `?resolved=` | `{threads: [...]}` |
 | POST | `/nodes/<id>/threads` | COMMENT | `{anchor, text, author_name?, client_id?}` | thread row, its first comment inside |
+| PATCH | `/nodes/<id>/threads` | EDIT | `{anchors: {<thread>: <anchor>}}` | `{threads: [...]}`, the moved threads |
 | PATCH | `/threads/<id>` | COMMENT | `{resolved}` | thread row |
 | POST | `/threads/<id>/comments` | COMMENT | `{text, author_name?, client_id?}` | comment row |
 | PATCH | `/comments/<id>` | EDIT or author | `{text}` | comment row |

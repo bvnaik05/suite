@@ -17,6 +17,7 @@ from suite.drive._core.errors import (
     DriveNotFound,
     rollback_savepoint,
 )
+from suite.drive._core.nodes import MAX_PAGE_SIZE
 from suite.drive._core.principals import Principals
 from suite.drive._core.roles import COMMENT, EDIT, READ
 
@@ -185,6 +186,40 @@ def resolve(principals: Principals, thread: str, resolved: bool = True) -> frapp
 
     announce_threads(node)
     return _thread_view(thread_row.name)
+
+
+def reanchor_threads(principals: Principals, node: str, anchors: dict[str, str]) -> list[frappe._dict]:
+    """Move threads of one document to new anchors with Edit access; answer them as listed."""
+    _validate_anchor_map(anchors)
+    if not anchors:
+        return []
+
+    savepoint = f"drive_comment_reanchor_{uuid4().hex[:12]}"
+    frappe.db.savepoint(savepoint)
+    try:
+        node_row = _comment_node(node, for_update=True)
+        require(node_row, EDIT, principals)
+        _require_document(node_row)
+        _require_active(node_row)
+        _write_anchors(node_row.name, anchors)
+    except Exception as exc:
+        rollback_savepoint(savepoint, exc)
+        raise
+    else:
+        frappe.db.release_savepoint(savepoint)
+
+    announce_threads(node_row)
+    return _thread_views({"name": ["in", list(anchors)]})
+
+
+def _write_anchors(node: str, anchors: dict[str, str]) -> None:
+    filters = {"name": ["in", list(anchors)], "node": node}
+    held = frappe.get_all("Drive Comment Thread", filters=filters, pluck="name")
+    if len(held) != len(anchors):
+        raise DriveNotFound(_("A Drive comment thread to move is not on node {0}").format(node))
+
+    for thread, anchor in anchors.items():
+        frappe.db.set_value("Drive Comment Thread", thread, "anchor", anchor, update_modified=False)
 
 
 def edit_comment(principals: Principals, comment: str, text: str) -> frappe._dict:
@@ -537,6 +572,20 @@ def _mentions(text: str) -> list[str]:
 def _validate_anchor(anchor: str) -> None:
     if not isinstance(anchor, str) or not anchor or len(anchor) > 255:
         frappe.throw(_("Drive comment anchor must contain 1 to 255 characters"), frappe.ValidationError)
+
+
+def _validate_anchor_map(anchors: dict[str, str]) -> None:
+    if not isinstance(anchors, dict) or len(anchors) > MAX_PAGE_SIZE:
+        frappe.throw(
+            _("Drive may move at most {0} comment threads at once").format(MAX_PAGE_SIZE),
+            frappe.ValidationError,
+        )
+
+    for thread, anchor in anchors.items():
+        if not isinstance(thread, str) or not thread.strip():
+            frappe.throw(_("Drive comment thread ids must be text"), frappe.ValidationError)
+
+        _validate_anchor(anchor)
 
 
 def validate_client_id(client_id: str | None) -> None:
