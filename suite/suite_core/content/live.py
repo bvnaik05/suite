@@ -44,7 +44,10 @@ def room_key(adapter: str, doc_id: str, lineage: str, epoch: int) -> str:
     return "sc:" + digest_text[:32]
 
 
-def publish_row(adapter: str, doc_id: str, lineage: str, rev: int, schema: int, payload: bytes) -> None:
+def publish_row(
+    adapter: str, doc_id: str, lineage: str, rev: int, schema: int, payload: bytes, *, restore: bool = False
+) -> None:
+    """Send a committed row to the live tabs, marked when it is a restore."""
     inline_payload = base64.b64encode(payload).decode() if len(payload) <= INLINE_MAX else None
     message = {
         "lineage": lineage,
@@ -52,6 +55,9 @@ def publish_row(adapter: str, doc_id: str, lineage: str, rev: int, schema: int, 
         "schema": schema,
         "u": inline_payload,
     }
+    if restore:
+        message["restore"] = True
+
     publish(adapter, doc_id, lineage, "suite_collab_row", message)
 
 

@@ -10,7 +10,14 @@ from frappe.utils import now_datetime
 
 from suite import drive
 from suite.composition import content as routes
-from suite.writer.content.tests.support import CheckpointCase, answer, call_route, push_body, read_open
+from suite.writer.content.tests.support import (
+    CheckpointCase,
+    answer,
+    call_route,
+    push_body,
+    read_frame,
+    read_open,
+)
 
 
 class TestRestoreFence(CheckpointCase):
@@ -102,8 +109,116 @@ class TestRestoreFence(CheckpointCase):
         self.assertEqual((self.doc_row(self.node).mode, self.milestones()), ("active", []))
         self.assertEqual(self.refused_push(), None)
 
-    # How the server answers another tab's push of one word; None when it goes in
-    def refused_push(self) -> tuple[int, dict] | None:
+    def test_the_restore_lands_as_the_next_rev_and_lifts_the_fence(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+
+        status, landed = self.push_word(restoring, "old ", restore=fence["token"])
+        row = self.doc_row(self.node)
+
+        self.assertEqual((status, landed["rev"]), (200, 3))
+        self.assertEqual((row.mode, row.restore_rev, row.restore_token), ("active", 3, None))
+        self.assertEqual(self.refused_push(), None)
+        self.assertEqual(str(self.open_tab().doc.get("default", type=pycrdt.XmlFragment)), "lateold one two")
+
+    def test_work_made_before_the_restore_is_refused_for_good(self):
+        earlier = self.open_tab()
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+        self.push_word(restoring, "old ", restore=fence["token"])
+
+        self.assertEqual(self.push_word(earlier, "stale "), (409, {"collab": "restored", "restore_rev": 3}))
+
+    def test_a_restore_without_its_fence_is_lost(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+        self.cancel(fence["token"])
+
+        self.assertEqual(
+            self.push_word(restoring, "old ", restore=fence["token"]), (409, {"collab": "restore_lost"})
+        )
+        self.assertEqual(self.doc_row(self.node).restore_rev, 0)
+
+    def test_a_restore_after_its_fence_lapsed_is_lost(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+        self.set_doc(self.node, restore_deadline=now_datetime() - timedelta(seconds=1))
+
+        self.assertEqual(
+            self.push_word(restoring, "old ", restore=fence["token"]), (409, {"collab": "restore_lost"})
+        )
+
+    def test_a_restore_with_another_fences_token_is_lost_and_the_fence_stands(self):
+        restoring = self.open_tab()
+        self.begin()
+
+        self.assertEqual(
+            self.push_word(restoring, "old ", restore="0" * 32), (409, {"collab": "restore_lost"})
+        )
+        self.assertEqual(self.refused_push(), (423, {"collab": "paused", "reason": "restoring"}))
+
+    def test_a_restore_made_from_an_older_copy_is_lost(self):
+        restoring = self.open_tab()
+        restoring.seen_rev = 1
+        _status, fence = self.begin()
+
+        self.assertEqual(
+            self.push_word(restoring, "old ", restore=fence["token"]), (409, {"collab": "restore_lost"})
+        )
+
+    def test_a_restore_sent_again_after_a_lost_answer_gets_its_first_answer(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+        _status, first = self.push_word(restoring, "old ", restore=fence["token"])
+
+        again = call_route(routes.updates_post, self.node, body=restoring.last_body)
+
+        self.assertEqual(
+            (again.status_code, answer(again)["rev"], answer(again)["dup"]), (200, first["rev"], True)
+        )
+
+    def test_a_restore_token_of_the_wrong_shape_is_malformed(self):
+        status, refusal = self.push_word(self.open_tab(), "old ", restore="short")
+
+        self.assertEqual((status, refusal), (400, {"collab": "malformed"}))
+
+    def test_live_tabs_hear_the_restore_row_and_that_it_landed(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+        with patch("frappe.publish_realtime") as publish:
+            self.push_word(restoring, "old ", restore=fence["token"])
+
+        (row_event, row), (control_event, control) = (call.args for call in publish.call_args_list)
+
+        self.assertEqual((row_event, row["rev"], row["restore"]), ("suite_collab_row", 3, True))
+        self.assertEqual(
+            (control_event, control["kind"], control["restore_rev"]), ("suite_collab_ctl", "restored", 3)
+        )
+
+    def test_opening_and_pulling_tell_the_last_restore_and_a_standing_fence(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+        fenced_open = self.open_tab().header
+        self.push_word(restoring, "old ", restore=fence["token"])
+        pulled, _rows = read_frame(call_route(routes.updates_get, self.node).get_data())
+
+        nearly_two_minutes = 110_000
+        self.assertEqual(
+            (fenced_open["restore_rev"], fenced_open["restoring_ms"] > nearly_two_minutes), (0, True)
+        )
+        self.assertEqual((pulled["restore_rev"], "restoring_ms" in pulled), (3, False))
+        self.assertEqual(self.open_tab().header["restore_rev"], 3)
+
+    def test_the_next_restore_waits_a_minute_after_one_lands(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin()
+        self.push_word(restoring, "old ", restore=fence["token"])
+
+        _status, refusal = self.begin()
+        self.assertEqual(refusal["collab"], "restore_recent")
+
+    # A tab opened on the document now, holding every row through the head
+    def open_tab(self) -> frappe._dict:
         sid = uuid.uuid4().hex
         session = call_route(routes.sessions_post, self.node, body=json.dumps({"sid": sid}).encode())
         header, checkpoint, rows = read_open(call_route(routes.document_get, self.node).get_data())
@@ -112,17 +227,29 @@ class TestRestoreFence(CheckpointCase):
             if payload:
                 doc.apply_update(payload)
 
-        seen = doc.get_state()
-        doc.get("default", type=pycrdt.XmlFragment).children[0].insert(0, "late")
         seen_rev = 0
         if rows:
             seen_rev = rows[-1][0]
 
-        body = push_body(header["lineage"], sid, doc.client_id, 1, seen_rev, doc.get_update(seen))
+        return frappe._dict(sid=sid, doc=doc, header=header, seen_rev=seen_rev, seq=0)
+
+    # The tab types `word` at the start and sends it
+    def push_word(self, tab: frappe._dict, word: str, *, restore: str | None = None) -> tuple[int, dict]:
+        seen = tab.doc.get_state()
+        tab.doc.get("default", type=pycrdt.XmlFragment).children[0].insert(0, word)
+        tab.seq += 1
+        lineage = tab.header["lineage"]
+        update = tab.doc.get_update(seen)
+        body = push_body(lineage, tab.sid, tab.doc.client_id, tab.seq, tab.seen_rev, update, restore=restore)
+        tab.last_body = body
         response = call_route(routes.updates_post, self.node, body=body)
-        if response.status_code == HTTPStatus.OK:
+        return response.status_code, answer(response)
+
+    # How the server answers another tab's push of one word; None when it goes in
+    def refused_push(self) -> tuple[int, dict] | None:
+        status, refusal = self.push_word(self.open_tab(), "late")
+        if status == HTTPStatus.OK:
             return None
 
-        refusal = answer(response)
         refusal.pop("retry_ms", None)
-        return response.status_code, refusal
+        return status, refusal

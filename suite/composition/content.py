@@ -205,6 +205,7 @@ def open_document(node: str) -> Response:
         **content.open_header(snapshot, can_write=can_write),
         "limits": content.limits(adapter, doc),
         "rooms": content.rooms(adapter, doc.id, doc.lineage),
+        **content.restore_fields(adapter, doc.id),
     }
     rows = content.with_tombstones(snapshot)
     return frame_response(header, rows, snapshot.checkpoint)
@@ -239,6 +240,7 @@ def pull_rows(node: str, since: str | None, q_epoch: str | None) -> Response:
         "schema": schema,
         "limits": content.limits(adapter, doc),
         "rooms": content.rooms(adapter, doc.id, doc.lineage),
+        **content.restore_fields(adapter, doc.id),
     }
     if doc.verdict:
         header["verdict"] = doc.verdict

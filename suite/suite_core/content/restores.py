@@ -96,6 +96,39 @@ def check_can_begin(doc: frappe._dict, seen_rev: int, now: datetime) -> None:
         raise Refusal(409, "behind", head=int(doc.head_rev))
 
 
+def check_landing(doc: frappe._dict, token: str, seen_rev: int, now: datetime) -> None:
+    """Refuse a restore whose fence was lifted, lapsed or taken over, or whose head moved under it."""
+    same_fence = doc.restore_token is not None and secrets.compare_digest(doc.restore_token, token)
+    if not (same_fence and fenced(doc, now)) or seen_rev != int(doc.head_rev):
+        raise Refusal(409, "restore_lost")
+
+
+def landed(adapter: str, doc_id: str, rev: int, now: datetime) -> None:
+    """Record `rev` as the restore and lift its fence, in the push's transaction."""
+    frappe.db.sql(
+        f"""UPDATE `{table(adapter, "doc")}` SET `mode` = 'active', `restore_token` = NULL,
+        `restore_deadline` = NULL, `restore_rev` = %s, `restored_at` = %s WHERE `id` = %s""",
+        (rev, now, doc_id),
+    )
+
+
+def header_fields(adapter: str, doc_id: str) -> dict:
+    """Answer the last restore's rev and how long a standing fence lasts."""
+    # Read after the rows a tab gets, so the rev covers every restore among them
+    (doc,) = frappe.db.sql(
+        f"""SELECT `mode`, `restore_deadline`, `restore_rev` FROM `{table(adapter, "doc")}`
+        WHERE `id` = %s""",
+        doc_id,
+        as_dict=True,
+    )
+    now = now_datetime()
+    fields = {"restore_rev": int(doc.restore_rev)}
+    if fenced(doc, now):
+        fields["restoring_ms"] = int((doc.restore_deadline - now).total_seconds() * 1000)
+
+    return fields
+
+
 def milestone_taken(adapter: str, doc_id: str, head_chain: bytes) -> None:
     """Record that a version holds this head, so a restore begun again with no edits takes none."""
     frappe.db.sql(

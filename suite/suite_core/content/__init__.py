@@ -29,6 +29,7 @@ from suite.suite_core.content.log import (
 from suite.suite_core.content.pushes import push, put_piece
 from suite.suite_core.content.restores import begin as begin_restore
 from suite.suite_core.content.restores import cancel as cancel_restore
+from suite.suite_core.content.restores import header_fields as restore_fields
 from suite.suite_core.content.restores import milestone_taken
 from suite.suite_core.content.sessions import claim_session, issue_session
 from suite.suite_core.content.snapshot import Snapshot, read, rows_after, with_tombstones
@@ -72,6 +73,7 @@ __all__ = [
     "readable_copy",
     "replace_start",
     "require_enabled",
+    "restore_fields",
     "rooms",
     "rows_after",
     "set_mode",

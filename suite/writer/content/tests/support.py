@@ -145,11 +145,13 @@ def push_body(
     entries: list[bytes] | None = None,
     schema: int = 1,
     stage_id: str | None = None,
+    restore: str | None = None,
 ) -> bytes:
     """One push of `entries` (or `payload` alone) as seqs from `seq`; the body sent is `payload`."""
     entries = entries or [payload]
     fields = {
         **({"stage_id": stage_id} if stage_id else {}),
+        **({"restore": restore} if restore else {}),
         "lineage": lineage,
         "principal": principal or frappe.session.user,
         "sid": sid,

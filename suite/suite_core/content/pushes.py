@@ -161,7 +161,7 @@ def locked_doc(adapter: str, doc_id: str, is_final: bool) -> frappe._dict:
             locked_rows = frappe.db.sql(
                 f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
                 `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`,
-                `restore_deadline`
+                `restore_token`, `restore_deadline`, `restore_rev`
                 FROM `{table(adapter, "doc")}` WHERE `id` = %s FOR UPDATE {lock}""",
                 doc_id,
                 as_dict=True,
@@ -196,9 +196,15 @@ def check_doc_open(doc: frappe._dict, header: PushHeader) -> None:
     if doc.suspect_held:
         raise Refusal(423, "paused", reason="suspect", retry_ms=SUSPECT_RETRY_MS)
 
+    if header.restore is not None:
+        restores.check_landing(doc, header.restore, header.seen_rev, now_datetime())
     # The rows wait on the device until the restore lands, then go to recovery
-    if restores.fenced(doc, now_datetime()):
+    elif restores.fenced(doc, now_datetime()):
         raise Refusal(423, "paused", reason="restoring", retry_ms=restores.RESTORING_RETRY_MS)
+
+    # Work made before a restore would write the text it replaced back
+    if header.seen_rev < int(doc.restore_rev):
+        raise Refusal(409, "restored", restore_rev=int(doc.restore_rev))
 
 
 def check_seqs(header: PushHeader, acked: int, head: int) -> None:
@@ -341,7 +347,13 @@ def push_locked(
         frappe.db.rollback()
         raise
 
-    live.publish_row(adapter, doc_id, doc.lineage, rev, unsent.header.schema, unsent.payload)
+    is_restore = unsent.header.restore is not None
+    live.publish_row(
+        adapter, doc_id, doc.lineage, rev, unsent.header.schema, unsent.payload, restore=is_restore
+    )
+    if is_restore:
+        live.publish_control(adapter, doc_id, doc.lineage, kind="restored", restore_rev=rev)
+
     return {"rev": rev, "head": rev, "chain": chain.hex(), "acked": unsent.header.seq_to, "pace_ms": PACE_MS}
 
 
@@ -373,6 +385,9 @@ def commit_row(
         stage.drop_stage(adapter, doc_id, header.stage_id)
 
     advance_session(adapter, doc_id, header, unsent.row, session, now)
+    if header.restore is not None:
+        restores.landed(adapter, doc_id, rev, now)
+
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     return rev, chain
 

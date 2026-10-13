@@ -15,6 +15,7 @@ from suite.suite_core.content.snapshot import Snapshot
 
 PROTOCOL_VERSION = 1
 PACE_MS = 500
+RESTORE_TOKEN_LENGTH = 32
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,8 @@ class PushHeader:
     # Set when the change was staged in pieces, which the push itself carries none of
     stage_id: str | None
     is_final: bool
+    # The fence's token on the push that lands a restore
+    restore: str | None
     # Who the tab says it is, checked against the signed-in user; unchecked JSON
     principal: object
 
@@ -147,6 +150,10 @@ def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
     if any(len(sha) != 32 for sha in shas):
         raise Refusal(400, "malformed")
 
+    restore = header.get("restore")
+    if restore is not None and not (isinstance(restore, str) and len(restore) == RESTORE_TOKEN_LENGTH):
+        raise Refusal(400, "malformed")
+
     push_header = PushHeader(
         lineage=header["lineage"],
         sid=header["sid"],
@@ -158,6 +165,7 @@ def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
         shas=shas,
         stage_id=header.get("stage_id"),
         is_final=header.get("final") is True,
+        restore=restore,
         principal=header.get("principal"),
     )
     return push_header, payload
