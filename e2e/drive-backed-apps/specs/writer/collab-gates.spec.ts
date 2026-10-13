@@ -230,13 +230,16 @@ test.describe("Writer collaboration", () => {
 		await kept.getByRole("button", { name: "View" }).click();
 		const viewing = owner.page.getByRole("status").filter({ hasText: "Viewing recovery copy from" });
 		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
+		await expect(kept).toBeHidden();
 
 		const downloaded = owner.page.waitForEvent("download");
 		await viewing.getByRole("button", { name: /^Actions for/ }).click();
 		await owner.page.getByRole("menuitem", { name: "Download" }).click();
 		expect((await downloaded).suggestedFilename()).toBe(`${title} (recovered).html`);
-		await viewing.getByRole("button", { name: "Back to current" }).click();
+		await viewing.getByRole("button", { name: /^Actions for/ }).click();
+		await owner.page.getByRole("menuitem", { name: "Back to current" }).click();
 		await expect(owner.page.getByLabel("Recovery copy")).toBeHidden();
+		await expect(kept).toBeVisible();
 
 		await owner.page.goto("/drive");
 		const notice = owner.page.getByRole("status").filter({ hasText: "couldn't be saved" });
