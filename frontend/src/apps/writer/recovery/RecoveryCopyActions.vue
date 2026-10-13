@@ -39,7 +39,7 @@ function download() {
 
 async function discard() {
   const isConfirmed = await confirm({
-    title: 'Discard unsaved work?',
+    title: 'Discard recovery copy?',
     message: "This deletes the copy from this device. It can't be brought back.",
     confirmLabel: 'Discard',
     destructive: true,
@@ -63,7 +63,7 @@ async function discard() {
   <Dialog v-model:open="viewing" :title="viewTitle" size="3xl">
     <iframe
       sandbox=""
-      title="Unsaved work"
+      title="Recovery copy"
       class="h-[60vh] w-full rounded-4 border border-outline-gray-2"
       :srcdoc="viewedPage"
     />

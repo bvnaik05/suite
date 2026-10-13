@@ -4,14 +4,14 @@
       <FilesPanel />
     </AreaSidebar>
     <PageHeader class="hidden md:flex">
-      <h1 class="text-lg-semibold text-ink-gray-9">Unsaved work on this device</h1>
+      <h1 class="text-lg-semibold text-ink-gray-9">Recovery</h1>
     </PageHeader>
     <PageHeaderMobile class="md:hidden">
-      <span class="block truncate text-lg font-medium text-ink-gray-9">Unsaved work</span>
+      <span class="block truncate text-lg font-medium text-ink-gray-9">Recovery</span>
     </PageHeaderMobile>
     <div class="mx-auto w-full max-w-3xl space-y-6 px-5 py-6">
       <p class="text-p-sm text-ink-gray-6">
-        Changes that couldn't be saved stay on this device until you discard them. They are never
+        Changes that couldn't be saved, kept on this device until you discard them. They are never
         uploaded on their own.
       </p>
       <component :is="section" v-for="(section, index) in sections" :key="index" />

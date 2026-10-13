@@ -229,7 +229,7 @@ test.describe("Writer collaboration", () => {
 		const kept = owner.page.getByRole("status").filter({ hasText: "This device has unsaved work from" });
 		await kept.getByRole("button", { name: "View" }).click();
 		await expect(
-			owner.page.frameLocator('iframe[title="Unsaved work"]').locator("body"),
+			owner.page.frameLocator('iframe[title="Recovery copy"]').locator("body"),
 		).toContainText("Typed in the old editor");
 		await owner.page.keyboard.press("Escape");
 
@@ -237,7 +237,7 @@ test.describe("Writer collaboration", () => {
 		await kept.getByRole("button", { name: "Download" }).click();
 		expect((await downloaded).suggestedFilename()).toBe(`${title} (recovered).html`);
 
-		await owner.page.goto("/drive/unsaved-work");
+		await owner.page.goto("/drive/recovery");
 		const row = owner.page.getByRole("listitem").filter({ hasText: title });
 		await expect(row).toBeVisible();
 		await row.getByRole("button", { name: "Discard" }).click();

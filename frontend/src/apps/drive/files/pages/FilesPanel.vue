@@ -32,9 +32,9 @@
       />
       <SidebarItem
         v-if="unsavedCount"
-        label="Unsaved work"
+        label="Recovery"
         icon="lucide-hard-drive"
-        route="/drive/unsaved-work"
+        route="/drive/recovery"
       />
     </SidebarSection>
     <AreaSidebarFooter>

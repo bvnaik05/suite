@@ -21,7 +21,7 @@
           <SidebarItem
             :label="__('Unsaved work on this device')"
             icon="lucide-hard-drive"
-            route="/drive/unsaved-work"
+            route="/drive/recovery"
             @click="close"
           />
           <div class="flex h-7 items-center justify-between gap-3 pl-2">

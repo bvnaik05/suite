@@ -55,9 +55,9 @@ export const routes: RouteRecordRaw[] = [
     meta: meta('Trash'),
   },
   {
-    path: 'unsaved-work',
-    name: 'files-unsaved-work',
-    component: () => import('./UnsavedWorkPage.vue'),
-    meta: meta('Unsaved work'),
+    path: 'recovery',
+    name: 'files-recovery',
+    component: () => import('./RecoveryPage.vue'),
+    meta: meta('Recovery'),
   },
 ]
