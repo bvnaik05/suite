@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 
 import { block } from './access'
+import { Copier } from './copier'
 import { Device } from './device'
 import type { Limits } from './frames'
 import { adoptLeftovers, claimClientId, lostReason } from './leftovers'
@@ -59,6 +60,7 @@ export class Room implements CollabRoom {
   readonly sender: Sender = new Sender(this)
   readonly puller = new Puller(this)
   readonly suspect: SuspectReport = new SuspectReport(this)
+  readonly copier = new Copier(this)
   private connecting: Promise<void> | null = null
   private unsentSince = 0
   private pollTimer: ReturnType<typeof setInterval> | null = null
@@ -381,6 +383,7 @@ export class Room implements CollabRoom {
   }
 
   notifyListeners() {
+    this.copier.sendWhenClean()
     for (const listener of this.listeners) {
       listener()
     }

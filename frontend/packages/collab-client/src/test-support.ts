@@ -76,6 +76,15 @@ export function fakeServer(state = 'live', lineage = 'L') {
   const stages = new Map<string, Map<number, Uint8Array>>()
   const pieces: { stage: string; idx: number }[] = []
   const shas = new Map<string, string>()
+  // Whether push answers ask for a render, and the renders submitted, as the server would check them
+  const copy = {
+    wanted: false,
+    renders: [] as { rev: number; q_epoch: number; sid: string; lineage: string; html: string }[],
+  }
+  const renderHeaders = new Map<
+    string,
+    { rev: number; q_epoch: number; sid: string; lineage: string }
+  >()
   let nextClient = 1
   // A compacted state counted this big instead of the checkpoint's own size
   const counted = { state: null as number | null }
@@ -184,6 +193,12 @@ export function fakeServer(state = 'live', lineage = 'L') {
       const { header, bytes } = splitPush(body)
       pieces.push({ stage, idx })
       if ((sessions.get(header.sid)?.acked ?? 0) >= header.to) return reply(200, { dup: true })
+
+      if (header.purpose === 'render') {
+        const { rev, q_epoch, sid } = header
+        renderHeaders.set(stage, { rev, q_epoch, sid, lineage: header.lineage })
+      }
+
       if (!stages.has(stage)) stages.set(stage, new Map())
       shas.set(stage, header.sha_total)
       stages.get(stage)!.set(idx, bytes)
@@ -206,25 +221,23 @@ export function fakeServer(state = 'live', lineage = 'L') {
             return reply(409, { collab: 'seq_conflict' })
         }
         if (header.to <= session.acked)
-          return reply(200, { dup: true, acked: session.acked, head: rows.length })
+          return reply(200, {
+            dup: true,
+            acked: session.acked,
+            head: rows.length,
+            copy: copy.wanted,
+          })
       }
       if (header.from > session.acked + 1)
         return reply(409, { collab: 'seq', acked: session.acked })
       let bytes = inline
       if (header.stage_id) {
-        const staged = stages.get(header.stage_id) ?? new Map<number, Uint8Array>()
-        const ordered = [...staged.keys()].sort((a, b) => a - b)
-        if (!ordered.length || ordered.some((idx, at) => idx !== at))
+        const staged = assemble(header.stage_id)
+        if (!staged) {
           return reply(409, { collab: 'stage_incomplete' })
-        bytes = new Uint8Array(ordered.reduce((sum, idx) => sum + staged.get(idx)!.length, 0))
-        let at = 0
-        for (const idx of ordered) {
-          bytes.set(staged.get(idx)!, at)
-          at += staged.get(idx)!.length
         }
-        const whole = hex(digest(bytes)) === shas.get(header.stage_id)
-        stages.delete(header.stage_id)
-        if (!whole) return reply(409, { collab: 'stage_incomplete' })
+
+        bytes = staged
       }
       // Only what follows the committed seqs is stored
       if (header.from <= session.acked)
@@ -237,9 +250,44 @@ export function fakeServer(state = 'live', lineage = 'L') {
       session.acked = header.to
       const encodedRow = bytes.byteLength <= 32 * 1024 ? base64(bytes) : null
       publish('suite_collab_row', { rev: rows.length, schema: header.schema, u: encodedRow })
-      return reply(200, { rev: rows.length, head: rows.length, acked: header.to, pace_ms: pace.ms })
+      const answer = { rev: rows.length, head: rows.length, acked: header.to, pace_ms: pace.ms }
+      return reply(200, { ...answer, copy: copy.wanted })
+    },
+    async render(stage) {
+      recordCall('render')
+      if (access.refuse) {
+        return access.refuse
+      }
+
+      const placed = renderHeaders.get(stage)
+      const bytes = assemble(stage)
+      if (!placed || !bytes) {
+        return reply(409, { collab: 'stage_incomplete' })
+      }
+
+      copy.renders.push({ ...placed, html: new TextDecoder().decode(bytes) })
+      return reply(202, { render: 'queued' })
     },
   })
+  // The whole of a stage's pieces, or null when one is missing or the bytes don't match its sha
+  function assemble(stage: string) {
+    const staged = stages.get(stage) ?? new Map<number, Uint8Array>()
+    const ordered = [...staged.keys()].sort((left, right) => left - right)
+    if (!ordered.length || ordered.some((idx, at) => idx !== at)) {
+      return null
+    }
+
+    const bytes = new Uint8Array(ordered.reduce((sum, idx) => sum + staged.get(idx)!.length, 0))
+    let at = 0
+    for (const idx of ordered) {
+      bytes.set(staged.get(idx)!, at)
+      at += staged.get(idx)!.length
+    }
+    stages.delete(stage)
+
+    const isWhole = hex(digest(bytes)) === shas.get(stage)
+    return isWhole ? bytes : null
+  }
   const compact = () => {
     checkpoint.bytes = Y.mergeUpdates(rows.map((row) => row.bytes))
     checkpoint.base = rows.length
@@ -259,6 +307,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
     sessions,
     stages,
     pieces,
+    copy,
     endpoints,
     access,
     pace,

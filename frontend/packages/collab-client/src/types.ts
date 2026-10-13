@@ -27,6 +27,8 @@ export interface CollabEndpoints {
   session(sid: string, claim?: Claim): Promise<Answer>
   // Rev `rev` failed to apply in this tab
   suspect(rev: number): Promise<Answer>
+  // A render staged under `stageId`, to be checked as the readable copy
+  render(stageId: string): Promise<Answer>
 }
 
 // What an app declares in the browser. The layer gives the rest: room opening, sync, the device store,

@@ -30,6 +30,7 @@ const PULL = contentOperation('updates_get', 'GET', '{node}/updates')
 const PUSH = contentOperation('updates_post', 'POST', '{node}/updates')
 const SESSION = contentOperation('sessions_post', 'POST', '{node}/sessions')
 const SUSPECT = contentOperation('suspect_post', 'POST', '{node}/suspect')
+const RENDER = contentOperation('projection_post', 'POST', '{node}/projection')
 const STAGE: Operation = {
   ...contentOperation('stage_put', 'PUT', '{node}/stage/{stage_id}/{idx}'),
   pathParams: ['node', 'stage_id', 'idx'],
@@ -78,6 +79,10 @@ export function writerEndpoints(session: DocumentSession, principal: string): Co
     suspect: (rev) => {
       const body = jsonBody({ rev })
       return transport.requestBytes(SUSPECT, { node }, { body, headers })
+    },
+    render: (stageId) => {
+      const body = jsonBody({ stage_id: stageId })
+      return transport.requestBytes(RENDER, { node }, { body, headers })
     },
   }
 }

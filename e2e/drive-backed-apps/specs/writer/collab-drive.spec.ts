@@ -1,6 +1,7 @@
 import type { Response } from "@playwright/test";
 import { expect, test } from "../../fixtures/test";
 import {
+	ageCopy,
 	expectSaved,
 	logId,
 	logRowCounts,
@@ -142,16 +143,29 @@ test.describe("Writer collaboration", () => {
 		expect(await serverBlocks(testApi, node)).toEqual(unchangedBlocks);
 	});
 
-	test("Drive refuses to export a collab document with no checked copy and points to the editor", async ({ owner }) => {
+	test("Drive exports the copy a tab rendered and refuses once it is behind", async ({ owner, testApi }) => {
+		const exportDocument = () =>
+			owner.context.request.get(`${DRIVE}/nodes/${node}/content?download=1`);
+		await owner.page.clock.install();
 		await openWriterDocument(owner.page, node);
 		await typeParagraph(owner.page, "Export me");
 		await expectSaved(owner.page);
+		await expect.poll(() => ageCopy(testApi, node)).toBeGreaterThan(0);
+		await owner.page.clock.fastForward(60_000);
 
-		const exportResponse = await owner.context.request.get(
-			`${DRIVE}/nodes/${node}/content?download=1`,
-		);
+		await typeParagraph(owner.page, "From the head");
+		await expectSaved(owner.page);
+		await expect
+			.poll(async () => {
+				const exported = await exportDocument();
+				return [exported.status(), await exported.text()];
+			})
+			.toEqual([200, expect.stringContaining("From the head")]);
 
-		expect(exportResponse.status()).toBe(409);
-		expect(await exportResponse.text()).toContain("Open the document to refresh its export");
+		await typeParagraph(owner.page, "Not rendered yet");
+		await expectSaved(owner.page);
+		const behind = await exportDocument();
+		expect(behind.status()).toBe(409);
+		expect(await behind.text()).toContain("Open the document to refresh its export");
 	});
 });

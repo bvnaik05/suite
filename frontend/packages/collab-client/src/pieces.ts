@@ -2,7 +2,7 @@ import { digest } from 'lib0/hash/sha256'
 
 import { readReply, type Reply } from './answers'
 import { hex, randomHex } from './bytes'
-import { encodePush, type PieceHeader, type PushHeader } from './frames'
+import { encodePush, type PieceHeader, type PiecePlace, type PushHeader } from './frames'
 import type { CollabEndpoints } from './types'
 
 // The most update bytes one request carries; a larger change is staged in pieces of exactly this size, the last one shorter
@@ -23,20 +23,15 @@ export function stageFor(previous: Staging | null, { sid, from, to }: PushHeader
   return { key, id: randomHex(16) }
 }
 
-// Stages every piece of `update`; the answer that stopped it, or null once the push may name the stage
+// Stages every piece of `update`; the answer that stopped it, or null once the stage may be named
 export async function putPieces(
   endpoints: CollabEndpoints,
   stageId: string,
-  header: PushHeader,
+  place: PiecePlace,
   update: Uint8Array,
 ): Promise<Reply | null> {
-  const { lineage, principal, sid, from, to } = header
   const pieceHeader: PieceHeader = {
-    lineage,
-    principal,
-    sid,
-    from,
-    to,
+    ...place,
     total_len: update.byteLength,
     sha_total: hex(digest(update)),
   }

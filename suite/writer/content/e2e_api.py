@@ -78,6 +78,23 @@ def trim_now(node: str) -> dict:
     return state(node)
 
 
+@whitelist_for_tests(methods=["POST"])
+def age_copy(node: str) -> int:
+    """Make `node`'s readable copy a minute old, so the next push asks for a render; answer its rev."""
+    doc_id = find_log(node)["id"]
+    projection_table = table(writer_content.ADAPTER, "projection")
+    frappe.db.sql(
+        f"""UPDATE `{projection_table}`
+        SET `updated` = `updated` - INTERVAL 1 MINUTE WHERE `doc_id` = %s""",
+        doc_id,
+    )
+    frappe.db.commit()
+    ((projected_rev,),) = frappe.db.sql(
+        f"SELECT COALESCE(MAX(`projected_rev`), 0) FROM `{projection_table}` WHERE `doc_id` = %s", doc_id
+    )
+    return projected_rev
+
+
 @whitelist_for_tests(methods=["GET", "POST"])
 def trimmed_rev(node: str) -> int:
     """Answer the rev through which `node`'s edit rows may be gone."""

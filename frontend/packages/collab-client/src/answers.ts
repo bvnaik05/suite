@@ -14,6 +14,8 @@ export interface ReplyBody {
   reason?: string
   retry_ms?: number
   pace_ms?: number
+  // The readable copy lags, so a push asks this tab for a render
+  copy?: boolean
   judged?: number
   verdict?: string
 }

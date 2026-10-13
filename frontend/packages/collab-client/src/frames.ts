@@ -76,11 +76,12 @@ export interface PushHeader {
   stage_id?: string
 }
 
-// One staged piece of a push's change, with the length and sha the whole is checked against
-export interface PieceHeader extends Pick<
-  PushHeader,
-  'lineage' | 'principal' | 'sid' | 'from' | 'to'
-> {
+// What places a staged piece: a push's seq range, or the rev and quarantine epoch a render was made at
+export type PiecePlace = Pick<PushHeader, 'lineage' | 'principal' | 'sid'> &
+  (Pick<PushHeader, 'from' | 'to'> | { purpose: 'render'; rev: number; q_epoch: number })
+
+// One staged piece, with the length and sha the whole is checked against
+export type PieceHeader = PiecePlace & {
   total_len: number
   sha_total: string
 }

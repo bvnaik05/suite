@@ -75,6 +75,10 @@ export const logId = (testApi: APIRequestContext, node: string) =>
 export const trimNow = (testApi: APIRequestContext, node: string) =>
 	callTestHook<CollabState>(testApi, "trim_now", node);
 
+/** Make a document's readable copy a minute old, so the next push asks for a render; its rev, 0 for none. */
+export const ageCopy = (testApi: APIRequestContext, node: string) =>
+	callTestHook<number>(testApi, "age_copy", node);
+
 /** The rev through which a document's edit rows may be gone. */
 export const trimmedRev = (testApi: APIRequestContext, node: string) =>
 	callTestHook<number>(testApi, "trimmed_rev", node);

@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { classifyRefusal, type AccessRoom } from './access'
 import { readReply, type Reply } from './answers'
 import { backoffMs } from './backoff'
+import type { Copier } from './copier'
 import { encodePush, type PushHeader } from './frames'
 import type { Live } from './live'
 import {
@@ -29,6 +30,7 @@ export interface SenderRoom extends AccessRoom {
   readonly outboxes: readonly Outbox[]
   readonly realtime: Pick<Live, 'live' | 'pushed' | 'pullHoleLater'> | null
   readonly suspect: Pick<SuspectReport, 'isJudging'>
+  readonly copier: Pick<Copier, 'committed'>
   pull(): Promise<void>
   acknowledge(box: Outbox, through: number): void
   setPaused(reason: string | null): void
@@ -163,7 +165,9 @@ export class Sender {
       return readReply(await endpoints.push(body, request))
     }
 
-    const refused = await putPieces(endpoints, pieces.stage, header, pieces.update)
+    const { lineage, principal, sid, from, to } = header
+    const place = { lineage, principal, sid, from, to }
+    const refused = await putPieces(endpoints, pieces.stage, place, pieces.update)
     if (refused) {
       return refused
     }
@@ -409,6 +413,13 @@ export class Sender {
     }
 
     const head = reply.head ?? 0
+    // A repeat answer doesn't name the rev the work went in at, which the head covers
+    let committedRev = head
+    if (!reply.dup && typeof reply.rev === 'number') {
+      committedRev = reply.rev
+    }
+
+    room.copier.committed(committedRev, reply.copy)
     const rowsAhead = head > room.appliedThrough
     // Live, the rows come over the socket; one still missing in a second is pulled
     if (rowsAhead && room.realtime?.live) {
