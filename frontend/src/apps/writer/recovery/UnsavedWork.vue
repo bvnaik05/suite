@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { Button, Skeleton } from 'frappe-ui'
+import { Button } from 'frappe-ui'
 import { List, ListCell, ListHeader, ListHeaderCell, ListRow } from 'frappe-ui/list'
 import { computed, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
   driveDocumentIcon,
+  DriveListSkeletonRows,
   driveNodeRoute,
   formatDriveBytes,
   formatDriveListingDate,
   loadDriveNodeSummary,
+  useDriveSkeletonDelay,
+  type DriveSkeletonCell,
 } from '@/apps/drive'
 import { writerDocument } from '@/apps/writer'
 
@@ -24,34 +27,27 @@ const route = useRoute()
 const router = useRouter()
 
 const isLoading = shallowRef(true)
-const showsSkeleton = shallowRef(false)
-// Drive's placeholder look and delay, so a fast read shows nothing
-const SKELETON_BAR = '!bg-surface-gray-2 motion-reduce:animate-none'
-const SKELETON_NAMES = ['w-40', 'w-28', 'w-52']
-const SKELETON_DELAY = 180
 // Drive's order: nothing for a fast read, placeholder rows for a slow one, then the list
-const isBlank = computed(() => isLoading.value && !showsSkeleton.value)
-const isPlaceholder = computed(() => isLoading.value && showsSkeleton.value)
+const isBlank = useDriveSkeletonDelay(isLoading)
 const hasNoCopies = computed(() => !isLoading.value && !copies.value.length)
 // Drive's listing tracks; a phone drops the saved time, as Drive drops Modified
 const COLUMNS = {
   base: ['minmax(0,1fr)', '6rem', '2.5rem'],
   md: ['minmax(0,1fr)', '6rem', '8rem', '2.5rem'],
 }
+// Size, then the saved time, which a phone drops
+const SKELETON_CELLS: DriveSkeletonCell[] = [
+  {},
+  { class: 'hidden justify-end md:flex', hasDate: true },
+]
 const icon = driveDocumentIcon(writerDocument.contentDoctype)
 // A copy whose document can't be opened shows on this page instead
 const shownCopy = computed(() => copies.value.find((copy) => copy.key === route.query.copy))
 
 onMounted(async () => {
-  const skeletonTimer = setTimeout(showSkeleton, SKELETON_DELAY)
   await refresh()
-  clearTimeout(skeletonTimer)
   isLoading.value = false
 })
-
-function showSkeleton() {
-  showsSkeleton.value = true
-}
 
 async function view(copy: RecoveryCopy) {
   const node = await loadDriveNodeSummary(copy.node).catch(() => null)
@@ -122,7 +118,7 @@ function details(copy: RecoveryCopy) {
     :columns="COLUMNS"
     :row-height="40"
     class="-mx-3 list-row-px-3"
-    :aria-busy="isPlaceholder"
+    :aria-busy="isLoading"
   >
     <ListHeader>
       <ListHeaderCell class="text-sm-medium text-ink-gray-5">Name</ListHeaderCell>
@@ -132,19 +128,7 @@ function details(copy: RecoveryCopy) {
       </ListHeaderCell>
       <ListHeaderCell><span class="sr-only">Actions</span></ListHeaderCell>
     </ListHeader>
-    <template v-if="isPlaceholder">
-      <ListRow v-for="(width, index) in SKELETON_NAMES" :key="index" aria-hidden="true">
-        <ListCell>
-          <Skeleton class="mr-2 size-4 shrink-0 rounded-1" :class="SKELETON_BAR" />
-          <Skeleton class="h-2 max-w-full rounded-full" :class="[SKELETON_BAR, width]" />
-        </ListCell>
-        <ListCell />
-        <ListCell class="hidden justify-end md:flex">
-          <Skeleton class="h-2 w-14 rounded-full" :class="SKELETON_BAR" />
-        </ListCell>
-        <ListCell />
-      </ListRow>
-    </template>
+    <DriveListSkeletonRows v-if="isLoading" :cells="SKELETON_CELLS" />
     <template v-else>
       <ListRow
         v-for="copy in copies"

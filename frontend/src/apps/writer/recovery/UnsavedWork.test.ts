@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createApp, h, nextTick } from 'vue'
+import { createApp, h } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 
-vi.mock('@/apps/drive', () => ({
+vi.mock('@/apps/drive', async (original) => ({
+  ...(await original<typeof import('@/apps/drive')>()),
   driveDocumentIcon: () => ['file-icon-doc', 'text-ink-blue-6'],
   formatDriveBytes: (bytes: number) => `${bytes} B`,
   formatDriveListingDate: () => 'Just now',
@@ -15,6 +16,19 @@ vi.mock('@/apps/drive', () => ({
   },
   driveNodeRoute: (node: { name: string }) => ({ path: `/d/${node.name}/plan` }),
 }))
+
+// Holds this device's store until a test lets the read finish
+const deviceStore = vi.hoisted(() => ({ read: Promise.resolve() }))
+vi.mock('@/apps/writer/collab', async (original) => {
+  const collab = await original<typeof import('@/apps/writer/collab')>()
+  return {
+    ...collab,
+    writerDeviceStore: async () => {
+      await deviceStore.read
+      return collab.writerDeviceStore()
+    },
+  }
+})
 
 const { discardCopy, keepPageCopy, listCopies } = await import('./copies')
 const { default: UnsavedWork } = await import('./UnsavedWork.vue')
@@ -55,6 +69,7 @@ function rowButton(root: Element) {
 }
 
 afterEach(async () => {
+  deviceStore.read = Promise.resolve()
   const copies = await listCopies()
   await Promise.all(copies.map(discardCopy))
   window.document.body.innerHTML = ''
@@ -72,14 +87,14 @@ describe('Writer recovery copies page', () => {
 
   it('shows placeholder rows while a slow read runs, then the copies', async () => {
     keepPageCopy('node-1', 'Plan', '<p>abc</p>')
-    vi.useFakeTimers({ toFake: ['setTimeout'] })
-    const { root } = await openedPage((page) => page)
-    vi.advanceTimersByTime(180)
-    vi.useRealTimers()
-    await nextTick()
+    let finishRead!: () => void
+    deviceStore.read = new Promise((resolve) => {
+      finishRead = resolve
+    })
+    const { root } = await openedPage(placeholderRow)
 
-    expect(placeholderRow(root)).not.toBeNull()
     expect(root.querySelector('[aria-busy="true"]')!.textContent).toContain('Name')
+    finishRead()
     await vi.waitFor(() => expect(rowButton(root)).not.toBeNull())
     expect([placeholderRow(root), root.querySelector('[aria-busy="true"]')]).toEqual([null, null])
   })

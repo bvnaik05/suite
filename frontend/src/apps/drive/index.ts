@@ -220,6 +220,15 @@ const loadDocumentHeader = () => import('@/apps/drive/files/features/document/Do
  */
 export const DriveDocumentHeader = defineAsyncComponent(loadDocumentHeader)
 
+/** True while a listing's load is too new for placeholder rows, as Drive waits before drawing them. */
+export { useSkeletonDelay as useDriveSkeletonDelay } from '@/apps/drive/files/features/listSkeleton'
+export type { SkeletonCell as DriveSkeletonCell } from '@/apps/drive/files/features/listSkeleton'
+
+/** Placeholder rows inside a List, as Drive's listing draws them; `cells` sit between the name and the actions. */
+export const DriveListSkeletonRows = defineAsyncComponent(
+  () => import('@/apps/drive/files/features/ListSkeletonRows.vue'),
+)
+
 /** The document header's shape while a document opens. Shows `title` when one is known. */
 export { default as DriveDocumentHeaderSkeleton } from '@/apps/drive/files/features/document/DocumentHeaderSkeleton.vue'
 
