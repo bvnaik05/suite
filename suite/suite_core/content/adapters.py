@@ -13,9 +13,10 @@ from suite.suite_core.content.ingest import EditorSchema
 @dataclass(frozen=True)
 class ContentAdapterSpec:
     """One app's plug-in. `name` is also its table prefix; `content_type` is its Drive content type and
-    the doctype whose row holds each document's latest checked body, base64, in `body_field`, found by
-    its node in `node_field`; `roots` names every root type it writes; `kernel` is the Node bundle that
-    judges suspect documents and checks what trimming deletes. `codec` names the update format of its
+    the doctype whose row holds each document's latest checked body, base64, in `body_field`, and its
+    checked readable copy in `copy_field`, found by its node in `node_field`; `roots` names every root
+    type it writes; `kernel` is the Node bundle that judges suspect documents and checks what trimming
+    deletes. `codec` names the update format of its
     state, `max_state` the most a compacted document may hold and `max_change` the most one change may,
     in bytes. `check_copy(state, html, text)` says whether a readable copy a browser rendered holds what
     the state does. `file_values(state)` names the Drive nodes a state uses, and `rewrite_files(mapping)`
@@ -25,6 +26,7 @@ class ContentAdapterSpec:
     content_type: str
     body_field: str
     node_field: str
+    copy_field: str
     roots: Mapping[str, type]
     schema: EditorSchema
     kernel: Path
@@ -101,6 +103,7 @@ def wrong_declarations(spec: ContentAdapterSpec) -> list[str]:
         "content_type": text(spec.content_type),
         "body_field": text(spec.body_field),
         "node_field": text(spec.node_field),
+        "copy_field": text(spec.copy_field),
         "roots": isinstance(spec.roots, Mapping)
         and bool(spec.roots)
         and all(text(root) and isinstance(kind, type) for root, kind in spec.roots.items()),

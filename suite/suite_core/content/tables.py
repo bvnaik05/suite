@@ -6,7 +6,7 @@ keyed on the control row's id, never on the Drive node.
 
 import frappe
 
-KINDS = ("doc", "update", "session", "checkpoint", "stage", "recovery")
+KINDS = ("doc", "update", "session", "checkpoint", "stage", "recovery", "projection", "copy")
 
 
 def table(adapter: str, kind: str) -> str:
@@ -190,5 +190,27 @@ def ensure_tables(adapter: str) -> None:
             PRIMARY KEY (`id`),
             UNIQUE KEY `owner_sha` (`doc_id`, `owner`, `sha256`),
             KEY `open` (`doc_id`, `owner`, `resolved_at`)
+        ) {options}"""
+    )
+    # The rev of the checked readable copy in the app's row, and the sha of the fields it wrote
+    frappe.db.sql_ddl(
+        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "projection")}` (
+            `doc_id` varchar(20) NOT NULL,
+            `projected_rev` bigint unsigned NOT NULL DEFAULT 0,
+            `projection_hash` binary(32) NULL,
+            `updated` datetime(6) NULL,
+            PRIMARY KEY (`doc_id`)
+        ) {options}"""
+    )
+    # Checked readable copies at the latest rev and at revs a version holds; a held rev may have none yet
+    frappe.db.sql_ddl(
+        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "copy")}` (
+            `doc_id` varchar(20) NOT NULL,
+            `rev` bigint unsigned NOT NULL,
+            `html` longtext NULL,
+            `text` longtext NULL,
+            `held` tinyint(1) NOT NULL DEFAULT 0,
+            `created` datetime(6) NOT NULL,
+            PRIMARY KEY (`doc_id`, `rev`)
         ) {options}"""
     )

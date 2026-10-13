@@ -54,6 +54,7 @@ class TestAdapterDeclarations(UnitTestCase):
         cases = {
             "name": "Not A Table Name",
             "roots": {},
+            "copy_field": "",
             "codec": "json",
             "max_state": 0,
             "max_change": -1,

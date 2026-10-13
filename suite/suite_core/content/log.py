@@ -102,7 +102,7 @@ def delete_purged(adapter: str, doc_id: str) -> None:
     if not purged:
         return
 
-    for kind in ("update", "checkpoint", "session", "stage", "recovery"):
+    for kind in ("update", "checkpoint", "session", "stage", "recovery", "projection", "copy"):
         while True:
             frappe.db.sql(
                 f"DELETE FROM `{table(adapter, kind)}` WHERE `doc_id` = %s LIMIT %s", (doc_id, PURGE_BATCH)

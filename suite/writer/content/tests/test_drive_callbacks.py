@@ -20,7 +20,7 @@ from suite.drive._core.nodes import _trash, purge
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version, restore_version
 from suite.suite_core import content
-from suite.suite_core.content import documents, log, scheduling, touches
+from suite.suite_core.content import copies, documents, log, scheduling, touches
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
 from suite.writer.api.docs import save_comments
@@ -430,7 +430,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
     def row_counts(self, doc_id: str) -> dict:
         counts = {}
-        for kind in ("doc", "update", "checkpoint", "session", "stage"):
+        for kind in ("doc", "update", "checkpoint", "session", "stage", "projection", "copy"):
             doc_column = "id" if kind == "doc" else "doc_id"
             counts[kind] = frappe.db.sql(
                 f"SELECT COUNT(*) FROM `__writer_content_{kind}` WHERE `{doc_column}` = %s",
@@ -449,6 +449,10 @@ class TestWriterDriveCallbacks(CheckpointCase):
             `sha_total`, `bytes`, `created`) VALUES (%s, %s, 0, 'save', %s, 1, UNHEX(%s), 'x', NOW())""",
             (self.doc_row(node).id, "a" * 32, "b" * 32, "00" * 32),
         )
+        doc = self.doc_row(node)
+        copy = "<p>one two three four</p>"
+        installed = copies.install(writer_content.ADAPTER, doc.id, 4, doc.lineage, doc.q_epoch, copy)
+        self.assertEqual(installed, "installed")
 
         doc_id = self.purge_through_drive(node)
 
@@ -458,9 +462,8 @@ class TestWriterDriveCallbacks(CheckpointCase):
         )
         with patch.object(log, "PURGE_BATCH", 2):
             documents.delete_purged(writer_content.ADAPTER, doc_id)
-        self.assertEqual(
-            self.row_counts(doc_id), {"doc": 0, "update": 0, "checkpoint": 0, "session": 0, "stage": 0}
-        )
+
+        self.assertEqual(set(self.row_counts(doc_id).values()), {0})
 
     def test_the_sweeper_finishes_a_purge_whose_job_never_ran(self):
         node = self.new_document()

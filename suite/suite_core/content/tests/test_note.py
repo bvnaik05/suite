@@ -65,7 +65,7 @@ class TestNoteAdapter(IntegrationTestCase):
         cls.addClassCleanup(drop_owned_tables)
         frappe.db.sql_ddl(
             f"""CREATE TABLE `{APP_TABLE}` (`name` varchar(140) NOT NULL, `node` varchar(140),
-            `body` longtext, `modified` datetime(6), PRIMARY KEY (`name`))"""
+            `body` longtext, `html` longtext, `modified` datetime(6), PRIMARY KEY (`name`))"""
         )
         content.ensure_tables(note.SPEC.name)
 

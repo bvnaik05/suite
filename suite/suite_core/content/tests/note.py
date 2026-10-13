@@ -13,6 +13,7 @@ SPEC = ContentAdapterSpec(
     content_type="Content Layer Note",
     body_field="body",
     node_field="node",
+    copy_field="html",
     roots={"text": pycrdt.Text},
     schema=EditorSchema(
         1,

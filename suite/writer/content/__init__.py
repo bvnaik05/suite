@@ -42,6 +42,7 @@ SPEC = ContentAdapterSpec(
     content_type="Writer Document",
     body_field="content",
     node_field="node",
+    copy_field="html",
     roots=ROOTS,
     schema=SCHEMA,
     kernel=KERNEL,
