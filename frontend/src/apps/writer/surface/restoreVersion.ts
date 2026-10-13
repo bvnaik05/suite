@@ -1,16 +1,26 @@
 import type { CollabRoom, RestoreResult } from '@suite/collab-client'
 
+import { anchorEnds } from '@/apps/writer/collab/anchors'
 import { restoreEdit } from '@/apps/writer/collab/restore'
+import { restoredAnchors, type AnchoredThread } from '@/apps/writer/collab/restoredAnchors'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 
 import { readVersionBody } from './versions'
 
-type RestoringRoom = Pick<CollabRoom, 'doc' | 'lineage' | 'flush' | 'restoreVersion'>
+type RestoringRoom = Pick<
+  CollabRoom,
+  'doc' | 'lineage' | 'flush' | 'restoreVersion' | 'committedCovers'
+>
 
 /** What the person is told after a restore: whether the document is the version now, and how it went. */
 export interface RestoreNotice {
   isRestored: boolean
   message: string
+}
+
+/** A restore's notice, with new anchors for threads whose text it brought back and the server holds. */
+export interface VersionRestore extends RestoreNotice {
+  anchors: Record<string, string>
 }
 
 // The server's wait between restores, for a refusal that doesn't say how long is left
@@ -29,17 +39,35 @@ export async function restoreVersion(
   room: RestoringRoom,
   seq: number,
   bytes: Uint8Array,
-): Promise<RestoreNotice> {
+  threads: AnchoredThread[],
+): Promise<VersionRestore> {
   let body
   try {
     body = await readVersionBody(bytes)
   } catch {
-    return { isRestored: false, message: "This version can't be restored." }
+    return { isRestored: false, message: "This version can't be restored.", anchors: {} }
   }
 
   await withinTenSeconds(room.flush())
-  const result = await room.restoreVersion(seq, () => restoreEdit(room.doc, room.lineage, body))
-  return noticeFor(result)
+  let anchors: Record<string, string> = {}
+  const result = await room.restoreVersion(seq, () => {
+    restoreEdit(room.doc, room.lineage, body)
+    anchors = restoredAnchors(room.doc, room.lineage, body, threads)
+  })
+  const saved = result.outcome === 'landed' ? savedAnchors(room, anchors) : {}
+  return { ...noticeFor(result), anchors: saved }
+}
+
+// Only anchors on text the server holds, so a thread never points at text it lacks
+function savedAnchors(room: RestoringRoom, anchors: Record<string, string>) {
+  const saved: Record<string, string> = {}
+  for (const [thread, anchor] of Object.entries(anchors)) {
+    if (room.committedCovers(anchorEnds(anchor))) {
+      saved[thread] = anchor
+    }
+  }
+
+  return saved
 }
 
 function noticeFor(result: RestoreResult): RestoreNotice {

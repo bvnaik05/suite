@@ -104,7 +104,7 @@ function sameSpot(current: Y.Doc, version: Y.Doc, position: Y.RelativePosition) 
 
 function pathOf(body: Y.XmlFragment, type: Y.AbstractType<unknown>) {
   const path: number[] = []
-  let child = type
+  let child: Y.AbstractType<unknown> | Parent = type
   while (child !== body) {
     const parent = child.parent as Parent | null
     if (!parent) {

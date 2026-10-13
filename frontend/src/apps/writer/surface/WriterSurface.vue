@@ -55,10 +55,10 @@ import {
   type DocumentSaveState,
   type LeaveGuardOptions,
 } from './navigation'
-import { restoreVersion, type RestoreNotice } from './restoreVersion'
+import { restoreVersion, type VersionRestore } from './restoreVersion'
 import { saveFirst } from './saveFirst'
 import { useCommentDrafts } from './useCommentDrafts'
-import { versionLabel } from './useDocumentPanel'
+import { showError, versionLabel } from './useDocumentPanel'
 import { useDocumentThreads } from './useDocumentThreads'
 import { useWriterCollab } from './useWriterCollab'
 import {
@@ -389,6 +389,7 @@ async function restoreShownVersion(shown: DocumentVersion, images: MissingImage[
     toast.success(notice.message)
     closeAnyPreview()
     void sidePanel.value?.reloadVersions()
+    void moveThreadsBack(notice.anchors)
   } catch (error) {
     console.error(error)
     toast.error('The version was not restored.')
@@ -397,23 +398,39 @@ async function restoreShownVersion(shown: DocumentVersion, images: MissingImage[
   }
 }
 
-async function restoreBody(shown: DocumentVersion): Promise<RestoreNotice> {
+// Threads whose text the restore brought back go onto it; they keep showing as deleted if this fails
+async function moveThreadsBack(anchors: Record<string, string>) {
+  if (!Object.keys(anchors).length) {
+    return
+  }
+
+  try {
+    await props.session.comments.reanchor(anchors)
+  } catch (error) {
+    showError(error, "Comments on the restored text couldn't be put back on it.")
+    return
+  }
+
+  await refreshThreads()
+}
+
+async function restoreBody(shown: DocumentVersion): Promise<VersionRestore> {
   const liveRoom = room.value
   if (!liveRoom) {
     return restoreStoredVersion(shown)
   }
 
   const bytes = await fetchVersion(props.session, shown.seq)
-  return restoreVersion(liveRoom, shown.seq, bytes)
+  return restoreVersion(liveRoom, shown.seq, bytes, threads.value)
 }
 
 // A document edited without collaboration is restored on the server, then read again
-async function restoreStoredVersion(shown: DocumentVersion): Promise<RestoreNotice> {
+async function restoreStoredVersion(shown: DocumentVersion): Promise<VersionRestore> {
   await flush()
   await props.session.versions.restore(String(shown.seq))
   await documentResource.reload()
   bodyRevision.value += 1
-  return { isRestored: true, message: 'Version restored' }
+  return { isRestored: true, message: 'Version restored', anchors: {} }
 }
 
 function viewCopy(copy: RecoveryCopy) {
