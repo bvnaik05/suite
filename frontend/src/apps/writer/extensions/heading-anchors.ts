@@ -1,4 +1,7 @@
-import TableOfContents from '@tiptap/extension-table-of-contents'
+import TableOfContents, {
+  type TableOfContentData,
+  type TableOfContentDataItem,
+} from '@tiptap/extension-table-of-contents'
 import type { Node } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type PluginSpec } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -6,14 +9,6 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 // Opening or watching a document must never write to it. Ids are assigned
 // only on the user's own edits; headings saved without one get an anchor drawn
 // at render time instead.
-
-type Anchor = {
-  id: string | null
-  textContent: string
-  dom: HTMLElement
-  isActive: boolean
-  isScrolledOver: boolean
-}
 
 function renderedId(text: string, occurrence: number) {
   let hash = 0
@@ -23,17 +18,25 @@ function renderedId(text: string, occurrence: number) {
   return `h-${(hash >>> 0).toString(36)}-${occurrence}`
 }
 
-function renderedAnchors(doc: Node) {
+// Counts each heading text in document order, so repeated headings get ids of their own
+function renderedIds() {
   const occurrencesByText = new Map<string, number>()
+  return function nextRenderedId(text: string) {
+    const occurrence = occurrencesByText.get(text) ?? 0
+    occurrencesByText.set(text, occurrence + 1)
+    return renderedId(text, occurrence)
+  }
+}
+
+function renderedAnchors(doc: Node) {
+  const nextRenderedId = renderedIds()
   const decorations: Decoration[] = []
   const anchorHeading = (node: Node, pos: number) => {
     if (node.type.name !== 'heading') return
 
     if (!node.textContent || node.attrs['data-toc-id']) return false
 
-    const occurrence = occurrencesByText.get(node.textContent) ?? 0
-    occurrencesByText.set(node.textContent, occurrence + 1)
-    const id = renderedId(node.textContent, occurrence)
+    const id = nextRenderedId(node.textContent)
     const attrs = {
       id,
       'data-toc-id': id,
@@ -47,17 +50,12 @@ function renderedAnchors(doc: Node) {
   return DecorationSet.create(doc, decorations)
 }
 
-function withRenderedIds(anchors: Anchor[], scrollPosition: number) {
+function withRenderedIds(anchors: TableOfContentData, scrollPosition: number) {
   if (anchors.every((anchor) => anchor.id)) return anchors
 
-  const occurrencesByText = new Map<string, number>()
-  const withId = (anchor: Anchor) => {
-    let id = anchor.id
-    if (!id) {
-      const occurrence = occurrencesByText.get(anchor.textContent) ?? 0
-      occurrencesByText.set(anchor.textContent, occurrence + 1)
-      id = renderedId(anchor.textContent, occurrence)
-    }
+  const nextRenderedId = renderedIds()
+  function withId(anchor: TableOfContentDataItem) {
+    const id = anchor.id || nextRenderedId(anchor.textContent)
     return {
       ...anchor,
       id,
@@ -90,11 +88,12 @@ export const HeadingAnchors = TableOfContents.extend({
   onBeforeCreate() {
     const callerOnUpdate = this.options.onUpdate
     this.options.onUpdate = (anchors, isInitial) => {
-      const anchorsWithIds = withRenderedIds(anchors as Anchor[], this.storage.scrollPosition)
-      callerOnUpdate?.(anchorsWithIds as never, isInitial)
+      const anchorsWithIds = withRenderedIds(anchors, this.storage.scrollPosition)
+      callerOnUpdate?.(anchorsWithIds, isInitial)
     }
   },
 
+  // The stock onCreate writes ids into every heading, so its document changes are dropped
   onCreate(event) {
     const { view } = this.editor
     const originalDispatch = view.dispatch
