@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Button } from 'frappe-ui'
+import { computed } from 'vue'
 
 import { confirm, Dropdown, toast } from '@/platform/feedback'
 
@@ -29,13 +30,20 @@ const copyOptions = [
   { label: 'Download', icon: 'lucide-download', onClick: download },
   { label: 'Discard', icon: 'lucide-trash-2', theme: 'red' as const, onClick: discard },
 ]
-const options = [
-  { option: backOption, shown: props.canGoBack },
-  { option: viewOption, shown: props.canView },
-  ...copyOptions.map((option) => ({ option, shown: true })),
-]
-  .filter((entry) => entry.shown)
-  .map((entry) => entry.option)
+const options = computed(() => [...leadingOptions(), ...copyOptions])
+
+function leadingOptions() {
+  const leading = []
+  if (props.canGoBack) {
+    leading.push(backOption)
+  }
+
+  if (props.canView) {
+    leading.push(viewOption)
+  }
+
+  return leading
+}
 
 async function copyText() {
   try {
