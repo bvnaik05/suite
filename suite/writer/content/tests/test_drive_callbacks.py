@@ -20,7 +20,7 @@ from suite.drive._core.nodes import _trash, purge
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version, restore_version
 from suite.suite_core import content
-from suite.suite_core.content import copies, documents, log, scheduling, touches
+from suite.suite_core.content import copies, documents, live, log, scheduling, touches
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
 from suite.writer.api.docs import save_comments
@@ -253,6 +253,18 @@ class TestWriterDriveCallbacks(CheckpointCase):
             self.assertEqual(self.text_of(state), "one two")
             copied = self.copy_of(node)
         self.assertEqual(self.text_of(self.opened(copied).get_update()), "one two")
+
+    def test_a_comment_change_tells_the_documents_open_tabs(self):
+        node = self.new_document()
+        self.type_into(node, ["one"])
+        doc = self.doc_row(node)
+        room = live.rooms(writer_content.ADAPTER, doc.id, doc.lineage)["keys"][0]
+
+        with patch("frappe.publish_realtime") as publish:
+            drive_content.spec_for("Writer Document").threads_changed(node)
+
+        control = {"lineage": doc.lineage, "kind": "threads"}
+        publish.assert_called_once_with("suite_collab_ctl", control, room=room)
 
     def test_drive_refuses_to_restore_a_collab_version_and_the_log_is_untouched(self):
         node = self.new_document()

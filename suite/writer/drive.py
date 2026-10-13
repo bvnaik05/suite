@@ -76,7 +76,7 @@ from frappe import _
 
 from suite import drive
 from suite.suite_core import content
-from suite.suite_core.content import compaction, documents
+from suite.suite_core.content import compaction, documents, live
 from suite.writer import content as writer_content
 from suite.writer.content import ADAPTER, version_payload
 from suite.writer.content.files import BODY_FRAGMENT, elements, ids_in, load, remap_text, remapped_attribute
@@ -293,6 +293,13 @@ def remap_media(docname: str, mapping: dict[str, str]) -> None:
             raise drive.DriveConflict(_("The copy's pictures could not be moved to it")) from refused
 
 
+def threads_changed(node: str) -> None:
+    """Tell the document's open tabs to read its comment threads again."""
+    log_row = content.find(ADAPTER, node)
+    if log_row:
+        live.publish_control(ADAPTER, log_row.id, log_row.lineage, kind="threads")
+
+
 SPEC = drive.ContentTypeSpec(
     doctype=DOCTYPE,
     mime=MIME,
@@ -311,6 +318,7 @@ SPEC = drive.ContentTypeSpec(
     satellites=(),
     used_nodes=used_nodes,
     remap_media=remap_media,
+    threads_changed=threads_changed,
 )
 
 
