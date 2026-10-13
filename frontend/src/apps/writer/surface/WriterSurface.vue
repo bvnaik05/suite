@@ -87,12 +87,12 @@ const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const panel = ref<DocumentPanel | null>(null)
 // A version or a recovery copy shown read-only in the editor's place, one at a time
 const preview = shallowRef<
-  { kind: 'version'; version: DocumentVersion } | { kind: 'copy'; copy: RecoveryCopy } | null
->(null)
-const previewedVersion = computed({ get: shownVersion, set: showVersion })
-const previewedCopy = computed(shownCopy)
+  | { version: DocumentVersion; copy: null }
+  | { version: null; copy: RecoveryCopy }
+  | { version: null; copy: null }
+>({ version: null, copy: null })
 // The banner points at a copy, so it steps aside while one is shown
-const showsRecoveryBanner = computed(() => !previewedCopy.value)
+const showsRecoveryBanner = computed(() => !preview.value.copy)
 
 const recoveryBanner = ref<InstanceType<typeof RecoveryBanner> | null>(null)
 
@@ -255,7 +255,7 @@ async function closePreview() {
   const pressedVersionButton = document.querySelector<HTMLElement>(
     'aside button[aria-pressed="true"]',
   )
-  preview.value = null
+  closeAnyPreview()
   await nextTick()
   if (pressedVersionButton) {
     pressedVersionButton.focus()
@@ -264,28 +264,21 @@ async function closePreview() {
   }
 }
 
-function shownVersion() {
-  if (preview.value?.kind !== 'version') {
-    return null
-  }
-
-  return preview.value.version
-}
-
-function shownCopy() {
-  if (preview.value?.kind !== 'copy') {
-    return null
-  }
-
-  return preview.value.copy
-}
-
 function showVersion(shown: DocumentVersion | null) {
-  preview.value = shown && { kind: 'version', version: shown }
+  if (!shown) {
+    closeAnyPreview()
+    return
+  }
+
+  preview.value = { version: shown, copy: null }
 }
 
 function viewCopy(copy: RecoveryCopy) {
-  preview.value = { kind: 'copy', copy }
+  preview.value = { version: null, copy }
+}
+
+function closeAnyPreview() {
+  preview.value = { version: null, copy: null }
 }
 
 const route = useRoute()
@@ -309,13 +302,13 @@ async function viewRequestedCopy() {
 }
 
 async function closeCopy() {
-  preview.value = null
+  closeAnyPreview()
   await nextTick()
   editorSurface.value?.editor?.commands.focus()
 }
 
 function discardedCopy() {
-  preview.value = null
+  closeAnyPreview()
 }
 
 function retainRecovery(): boolean {
@@ -492,35 +485,36 @@ onBeforeUnmount(() => {
             :settings="settings"
             :editable="editable"
           >
-            <template v-if="previewedVersion" #toolbar>
+            <template v-if="preview.version" #toolbar>
               <DocumentStrip>
-                <p class="truncate">Viewing {{ versionLabel(previewedVersion) }}</p>
+                <p class="truncate">Viewing {{ versionLabel(preview.version) }}</p>
                 <Button size="sm" variant="ghost" label="Back to current" @click="closePreview" />
               </DocumentStrip>
             </template>
-            <template v-else-if="previewedCopy" #toolbar>
+            <template v-else-if="preview.copy" #toolbar>
               <DocumentStrip>
-                <p class="truncate">Viewing recovery copy from {{ savedAtLabel(previewedCopy) }}</p>
+                <p class="truncate">Viewing recovery copy from {{ savedAtLabel(preview.copy) }}</p>
                 <RecoveryCopyActions
-                  :copy="previewedCopy"
+                  :copy="preview.copy"
                   can-go-back
                   @back="closeCopy"
                   @discarded="discardedCopy"
                 />
               </DocumentStrip>
             </template>
-            <template v-if="previewedVersion" #cover>
-              <VersionPreview :session="session" :seq="previewedVersion.seq" :settings="settings" />
+            <template v-if="preview.version" #cover>
+              <VersionPreview :session="session" :seq="preview.version.seq" :settings="settings" />
             </template>
-            <template v-else-if="previewedCopy" #cover>
-              <RecoveryPreview :copy="previewedCopy" :settings="settings" />
+            <template v-else-if="preview.copy" #cover>
+              <RecoveryPreview :copy="preview.copy" :settings="settings" />
             </template>
             <template #aside>
               <DocumentSidePanel
                 v-model:panel="panel"
-                v-model:previewed-version="previewedVersion"
+                :previewed-version="preview.version"
                 :session="session"
                 :can-comment="canComment"
+                @update:previewed-version="showVersion"
               />
             </template>
           </component>
