@@ -1418,27 +1418,13 @@
         @navigate-to="onNavigateTo"
       />
 
-      <!-- Hyperlink dialog (Ctrl+L) — stores fmt.hyperlink on the active cell -->
-      <Dialog v-model:open="showHyperlinkDialog" title="Insert hyperlink" size="sm">
-        <template #default>
-          <div class="sn-form-stack">
-            <FormControl v-model="hyperlinkText" label="Display text" placeholder="Click here" />
-            <FormControl
-              v-model="hyperlinkUrl"
-              label="Link URL"
-              placeholder="https://example.com"
-              @keydown.enter="confirmHyperlink"
-            />
-          </div>
-        </template>
-        <template #actions>
-          <div class="flex flex-row-reverse gap-2">
-            <Button variant="solid" @click="confirmHyperlink">Apply</Button>
-            <Button v-if="hasActiveHyperlink" theme="red" @click="removeHyperlink">Remove</Button>
-            <Button @click="showHyperlinkDialog = false">Cancel</Button>
-          </div>
-        </template>
-      </Dialog>
+      <!-- Hyperlink dialog (Ctrl+L) — HyperlinkDialog.vue -->
+      <HyperlinkDialog
+        ref="hyperlinkDialogRef"
+        :has-link="hasActiveHyperlink"
+        @apply="confirmHyperlink"
+        @remove="removeHyperlink"
+      />
 
       <!-- Data validation dialog -->
       <ValidationDialog
@@ -1711,7 +1697,6 @@ import { createSlicerEngine } from '../../engine/slicers.js'
 import { createSortFilter } from '../../engine/sortFilter.js'
 import { parseSparkline, sparkSpec } from '../../engine/sparkline.js'
 import { createValidationEngine } from '../../engine/validation.js'
-import { fetchLinkPreview } from '../../services/linkPreview.js'
 import { cellHistory as fetchCellHistory } from '../../services/versions.js'
 import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
 import { isCanvasClipboardTarget } from '../../utils/clipboard-target.js'
@@ -1729,6 +1714,7 @@ import ColorPicker from './ColorPicker.vue'
 import ConditionalFormatDialog from './ConditionalFormatDialog.vue'
 import FilterPanel from './FilterPanel.vue'
 import FindReplace from './FindReplace.vue'
+import HyperlinkDialog from './HyperlinkDialog.vue'
 import InlineTitleInput from './InlineTitleInput.vue'
 import LinkPreviewCard from './LinkPreviewCard.vue'
 import NamedRangesDialog from './NamedRangesDialog.vue'
@@ -1744,6 +1730,7 @@ import { useEditOps } from './useEditOps.js'
 import { useExportImport } from './useExportImport.js'
 import { AC_FUNS, useFormulaAutocomplete } from './useFormulaAutocomplete.js'
 import { useHistory } from './useHistory.js'
+import { useLinkCard } from './useLinkCard.js'
 import { useNotesPanel } from './useNotesPanel.js'
 import { usePersistence } from './usePersistence.js'
 import { usePivotIntegration } from './usePivotIntegration.js'
@@ -2054,9 +2041,6 @@ const insertMany = reactive({
   count: 5,
   below: false,
 })
-const showHyperlinkDialog = ref(false)
-const hyperlinkText = ref('')
-const hyperlinkUrl = ref('')
 const hasActiveHyperlink = computed(() => !!activeFormat.value?.hyperlink)
 const showFormulas = ref(false)
 const selectionStats = ref(null)
@@ -5758,28 +5742,21 @@ function _maybeAutoLink(cells, sn) {
   grid?.render()
   syncFlags()
 }
+// The form is HyperlinkDialog.vue; it hands back the text and the link, and
+// this applies them to the active cell.
+const hyperlinkDialogRef = ref(null)
 function openHyperlinkDialog() {
   const id = activeCell.value
   const fmt = formats.get(id, currentSheet.value)
-  hyperlinkText.value = _inputAt(id) ?? ''
-  hyperlinkUrl.value = fmt.hyperlink || ''
-  showHyperlinkDialog.value = true
+  hyperlinkDialogRef.value?.open(_inputAt(id) ?? '', fmt.hyperlink || '')
 }
-async function confirmHyperlink() {
-  const url = (hyperlinkUrl.value || '').trim()
-  if (!url) {
-    showHyperlinkDialog.value = false
-    return
-  }
+async function confirmHyperlink({ text, url: rawUrl }) {
+  const url = (rawUrl || '').trim()
+  if (!url) return
   const id = activeCell.value
   const sh = currentSheet.value
-  if (_cellBlocked(id, sh)) {
-    showHyperlinkDialog.value = false
-    return
-  }
-  showHyperlinkDialog.value = false
+  if (_cellBlocked(id, sh)) return
   // The text and the link are one undo step.
-  const text = hyperlinkText.value
   const before = { [id]: await _readInput(id, sh) }
   const after = { [id]: text }
   const fmtOf = () => {
@@ -5811,7 +5788,6 @@ async function confirmHyperlink() {
   grid?.render()
   syncFlags()
   isDirty.value = true
-  showHyperlinkDialog.value = false
 }
 function removeHyperlink() {
   const id = activeCell.value
@@ -5828,137 +5804,42 @@ function removeHyperlink() {
   grid?.render()
   syncFlags()
   isDirty.value = true
-  showHyperlinkDialog.value = false
 }
 
 // ── Link hover card ───────────────────────────────────────────────────────────
-// Google-style preview card over a linked cell: favicon/title/description from
-// the server (see suite/sheets/link_preview.py), plus copy / edit / unlink
-// actions and the "Replace URL with its title?" offer for auto-linked cells.
-
-const linkCard = reactive({
-  open: false,
-  id: null,
-  r: 0,
-  c: 0,
-  url: '',
-  anchor: null,
-  // { x, y } canvas-local px
-  preview: {},
-  // { loading, error, title, description, favicon, host }
-  offerReplace: false,
+// The preview card over a linked cell and its actions (see useLinkCard.js).
+const {
+  linkCard,
+  onLinkHover: _onLinkHover,
+  onLinkCardEnter,
+  onLinkCardLeave,
+  openLinkCardUrl,
+  editLinkCardCell,
+  unlinkLinkCardCell,
+  replaceLinkWithTitle,
+} = useLinkCard({
+  formats,
+  currentSheet,
+  activeCell,
+  formulaValue,
+  readOnly,
+  gridWrapRef,
+  getGrid: () => grid,
+  inputAt: _inputAt,
+  readInput: _readInput,
+  writeInputs: _writeInputs,
+  cellBlocked: (id, sn) => _cellBlocked(id, sn),
+  cellSilentlyProtected: (id, sn) => _cellSilentlyProtected(id, sn),
+  recordFormatOp: (ids, sn, mutate) => _recordFormatOp(ids, sn, mutate),
+  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+  refreshActiveFormat: () => refreshActiveFormat(),
+  syncFlags: () => syncFlags(),
+  markDirty: () => {
+    isDirty.value = true
+  },
+  openHyperlinkDialog: () => openHyperlinkDialog(),
 })
-let _linkShowTimer = null
-let _linkHideTimer = null
 
-// Canvas feed — fires once on entering/leaving a linked cell. Short delays on
-// both edges so the card neither flickers during a sweep across links nor
-// vanishes while the pointer travels from the cell into the card.
-function _onLinkHover(info) {
-  if (info) {
-    clearTimeout(_linkHideTimer)
-    if (linkCard.open && linkCard.id === info.id && linkCard.url === info.url) return
-    clearTimeout(_linkShowTimer)
-    _linkShowTimer = setTimeout(() => _openLinkCard(info), 300)
-  } else {
-    clearTimeout(_linkShowTimer)
-    _scheduleLinkCardHide()
-  }
-}
-function _scheduleLinkCardHide() {
-  clearTimeout(_linkHideTimer)
-  _linkHideTimer = setTimeout(() => {
-    linkCard.open = false
-  }, 250)
-}
-function onLinkCardEnter() {
-  clearTimeout(_linkHideTimer)
-}
-function onLinkCardLeave() {
-  _scheduleLinkCardHide()
-}
-function _openLinkCard(info) {
-  const rect = grid?.getCellRect?.(info.r, info.c)
-  if (!rect) return
-  const CARD_W = 340,
-    EST_H = 120
-  const wrapW = gridWrapRef.value?.offsetWidth ?? Infinity
-  const wrapH = gridWrapRef.value?.offsetHeight ?? Infinity
-  const x = Math.max(0, Math.min(rect.x, wrapW - CARD_W - 8))
-  const y =
-    rect.y + rect.height + EST_H > wrapH ? Math.max(0, rect.y - EST_H) : rect.y + rect.height + 2
-  const isHttp = /^https?:\/\//i.test(info.url)
-  Object.assign(linkCard, {
-    open: true,
-    id: info.id,
-    r: info.r,
-    c: info.c,
-    url: info.url,
-    anchor: {
-      x,
-      y,
-    },
-    preview: isHttp
-      ? {
-          loading: true,
-        }
-      : {},
-    offerReplace: false,
-  })
-  if (!isHttp) return
-  fetchLinkPreview(info.url).then((res) => {
-    // Pointer may have moved on — only fill the card still showing this URL.
-    if (!linkCard.open || linkCard.url !== info.url) return
-    linkCard.preview = {
-      ...res,
-      loading: false,
-    }
-    linkCard.offerReplace =
-      !readOnly.value &&
-      !!res.title &&
-      isAutoLinkText(_inputAt(linkCard.id) ?? '', linkCard.url) &&
-      !_cellSilentlyProtected(linkCard.id)
-  })
-}
-function openLinkCardUrl() {
-  window.open(linkCard.url, '_blank', 'noopener,noreferrer')
-}
-function editLinkCardCell() {
-  linkCard.open = false
-  grid?.moveTo?.(linkCard.r, linkCard.c) // onSelect syncs activeCell
-  openHyperlinkDialog()
-}
-function unlinkLinkCardCell() {
-  const sn = currentSheet.value
-  const id = linkCard.id
-  linkCard.open = false
-  if (!id || readOnly.value || _cellBlocked(id, sn)) return
-  _recordFormatOp([id], sn, () =>
-    formats.applyToRange(
-      [id],
-      {
-        hyperlink: null,
-      },
-      sn,
-    ),
-  )
-  refreshActiveFormat()
-  grid?.render()
-  syncFlags()
-  isDirty.value = true
-}
-async function replaceLinkWithTitle() {
-  const sn = currentSheet.value
-  const id = linkCard.id
-  const title = linkCard.preview?.title
-  linkCard.open = false
-  if (!id || !title || readOnly.value || _cellBlocked(id, sn)) return
-  const before = { [id]: await _readInput(id, sn) }
-  const after = { [id]: title }
-  _writeInputs(sn, after)
-  _pushEditOp(sn, before, after, 'Replace URL with title')
-  if (activeCell.value === id) formulaValue.value = title
-}
 function openInsertMany(kind, below = false) {
   contextMenu.open = false
   insertMany.kind = kind
