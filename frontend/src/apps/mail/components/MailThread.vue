@@ -416,6 +416,7 @@
                                 :reload-mails="handleReload"
                                 :drop-mail
                                 :thread="thread"
+                                :hide-star="isCollapsed(mail)"
                                 @set-flagged="onSetFlagged"
                                 @sync-unseen="handleSyncUnseen"
                                 @move-mail="
@@ -426,6 +427,32 @@
                                 "
                                 @delete-mail="(m: Mail) => emit('deleteMail', m)"
                               />
+                            </div>
+                            <!-- A folded row's star keeps the far right whether or not the row is
+												     hovered: shown while starred, offered on hover while not, and
+												     a click either way. h-5 for the same reason as the actions:
+												     the button overhangs rather than growing the row. -->
+                            <div
+                              v-if="isCollapsed(mail) && !readonly && !mail.draft"
+                              class="h-5 items-center"
+                              :class="
+                                mail.flagged
+                                  ? 'flex'
+                                  : 'hidden sm:group-hover/card:flex sm:group-has-[[data-state=open]]/card:flex'
+                              "
+                            >
+                              <Button
+                                variant="ghost"
+                                :tooltip="mail.flagged ? __('Unstar') : __('Star')"
+                                @click.stop="onSetFlagged(mailCopyIds(mail), !mail.flagged)"
+                              >
+                                <template #icon>
+                                  <Star
+                                    :style="mail.flagged ? FLAGGED_STAR_STYLE : undefined"
+                                    class="icon"
+                                  />
+                                </template>
+                              </Button>
                             </div>
                           </div>
                         </div>

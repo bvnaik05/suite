@@ -1,6 +1,6 @@
 <template>
   <Button
-    v-for="action in primaryActions(mail).filter((d) => d.condition !== false && !isCollapsed)"
+    v-for="action in shown(mail).filter((d) => !d.star)"
     :key="action.label"
     variant="ghost"
     :tooltip="action.label"
@@ -23,6 +23,20 @@
       </Button>
     </AdaptiveDropdown>
   </div>
+
+  <!-- The star last, past More: it says whether the message is marked as much as it acts, and the
+	     edge is where every list and folded row keeps it. -->
+  <Button
+    v-for="action in shown(mail).filter((d) => d.star)"
+    :key="action.label"
+    variant="ghost"
+    :tooltip="action.label"
+    @click.stop="action.onClick"
+  >
+    <template #icon>
+      <component :is="action.icon" class="text-ink-gray-5 icon" />
+    </template>
+  </Button>
 </template>
 
 <script lang="ts" setup>
@@ -79,6 +93,7 @@ const {
   reloadMails,
   dropMail,
   thread,
+  hideStar = false,
 } = defineProps<{
   mailbox: string
   mail: Mail
@@ -93,6 +108,8 @@ const {
   /** Takes the message out of the pane ahead of the server; returns what puts it back. */
   dropMail: (mailId: string) => () => void
   thread: Mail[]
+  /** The host draws the star itself — a folded row, which keeps it at its far right. */
+  hideStar?: boolean
 }>()
 const emit = defineEmits(['setFlagged', 'syncUnseen', 'moveMail', 'markMailSpam', 'deleteMail'])
 const { isMobile } = useScreenSize()
@@ -121,19 +138,27 @@ const isSenderBlocked = (email: string) =>
 // A message alone in its thread has the star beside the subject (MailThread), which stars that same
 // message: a second one a line below would only repeat it.
 const isAlone = computed(() => thread.filter((m) => !m.draft).length <= 1)
+const shown = (mail: Mail) =>
+  primaryActions(mail).filter((action) => action.condition !== false && !isCollapsed)
 const primaryActions = (mail: Mail): MailAction[] => [
   {
     label: __('Unstar'),
+    star: true,
     onClick: () => emit('setFlagged', mailCopyIds(mail), false),
     icon: () =>
       h(Star, {
         style: FLAGGED_STAR_STYLE,
       }),
     condition:
-      !!mail.flagged && mailbox !== mailboxIds.value.trash && !isMobile.value && !isAlone.value,
+      !!mail.flagged &&
+      mailbox !== mailboxIds.value.trash &&
+      !isMobile.value &&
+      !isAlone.value &&
+      !hideStar,
   },
   {
     label: __('Star'),
+    star: true,
     onClick: () => emit('setFlagged', mailCopyIds(mail), true),
     icon: Star,
     condition:
@@ -141,7 +166,8 @@ const primaryActions = (mail: Mail): MailAction[] => [
       !mail.draft &&
       mailbox !== mailboxIds.value.trash &&
       !isMobile.value &&
-      !isAlone.value,
+      !isAlone.value &&
+      !hideStar,
   },
   {
     label: __('Edit Draft'),
@@ -161,6 +187,8 @@ interface MailAction {
   onClick: () => void
   icon: typeof SquarePen
   condition?: boolean | (() => boolean)
+  /** Drawn last, after More (see the template). */
+  star?: boolean
 }
 interface GroupedAction {
   group: string
