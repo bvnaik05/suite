@@ -207,20 +207,20 @@ const propertyColorKind = computed<'shape' | 'text' | 'draw' | 'arrow' | 'line'>
 })
 const propertyColorTarget = computed<'border' | 'fill'>(() => props.activeTool === 'draw' ? 'fill' : selectedShapes.value.some(shape => isLine(shape) || isFreeDraw(shape)) ? 'border' : 'fill')
 const activePropertyColor = computed(() => {
-  if (props.activeTool === 'draw') return drawStyle.fill === 'none' ? '#171717' : drawStyle.fill
+  if (props.activeTool === 'draw') return drawStyle.fill
   const shape = selectedShapes.value.at(-1)
   return shape
-    ? (isLine(shape) || isFreeDraw(shape) ? (isLine(shape) && shape.kind === 'arrow' ? shape.arrowHeadFill ?? shape.stroke : shape.stroke) ?? '#171717' : shape === selectedLabel.value ? shape.labelFill ?? '#171717' : shape.fill ?? '#e6f4ff')
+    ? (isLine(shape) || isFreeDraw(shape) ? (isLine(shape) && shape.kind === 'arrow' ? shape.arrowHeadFill ?? shape.stroke : shape.stroke) : shape === selectedLabel.value ? shape.labelFill : shape.fill)
     : textEditor.value?.fill ?? armedTextStyle.fill
 })
 const activePropertyBorderColor = computed(() => {
-  if (props.activeTool === 'draw') return drawStyle.stroke ?? '#171717'
+  if (props.activeTool === 'draw') return drawStyle.stroke
   const text = selectedTextShapes.value.at(-1)
   if (text) return text.backgroundColor
   if (textEditor.value?.kind === 'text') return textEditor.value.backgroundColor
   if (selectedLabel.value) return selectedLabel.value.fill ?? '#e6f4ff'
   if (!selectedShapes.value.length && textPropertyControlsEnabled.value) return armedTextStyle.backgroundColor
-  return selectedShapes.value.at(-1)?.stroke ?? '#171717'
+  return selectedShapes.value.at(-1)?.stroke
 })
 const activePropertyStrokeWidth = computed(() => props.activeTool === 'draw' ? drawStyle.strokeWidth : selectedShapes.value.at(-1)?.strokeWidth ?? 2)
 const activePropertyStrokeStyle = computed(() => props.activeTool === 'draw' ? drawStyle.strokeStyle : selectedShapes.value.at(-1)?.strokeStyle ?? 'solid')
@@ -3440,7 +3440,7 @@ onBeforeUnmount(() => {
     <div v-if="propertyToolbarVisible" class="property-toolbar" role="toolbar" aria-label="Property bar" @pointerdown.capture="beginPropertyToolbarInteraction" @pointerdown.stop @click.capture="endPropertyToolbarInteraction" @dblclick.stop>
       <div class="property-color-group">
         <ShapeColorPicker
-            :color="activePropertyColor ?? '#171717'"
+            :color="activePropertyColor"
             :secondary-color="activePropertyBorderColor"
             :stroke-width="activePropertyStrokeWidth"
             :stroke-style="activePropertyStrokeStyle"

@@ -30,8 +30,8 @@ const LaserPointerIcon = defineComponent(() => () => h('svg', { viewBox: '0 0 20
 ]))
 
 const overflowTools = computed(() => [
-  { label: 'Insert image', icon: ImagePlus, onClick: () => emit('select', 'image') },
-  { label: 'Laser pointer', icon: LaserPointerIcon, onClick: () => emit('select', 'laser') },
+  { label: 'Insert Image', icon: ImagePlus, onClick: () => emit('select', 'image') },
+  { label: 'Laser Pointer', icon: LaserPointerIcon, onClick: () => emit('select', 'laser') },
   { label: 'Lasso Select', icon: LassoSelect, selected: props.activeTool === 'lasso', onClick: () => emit('select', 'lasso') },
 ])
 </script>
@@ -40,7 +40,7 @@ const overflowTools = computed(() => [
   <nav class="drawing-toolbar" aria-label="Drawing tools">
     <TooltipProvider>
       <div class="drawing-toolbar__surface" role="toolbar" aria-label="Drawing tools">
-        <Tooltip v-for="tool in tools" :key="tool.label" :text="tool.value === 'select' ? 'Pointer (Esc)' : tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label" placement="top">
+        <Tooltip v-for="tool in tools" :key="tool.label" :text="tool.value === 'select' ? 'Pointer - Esc' : tool.shortcut ? `${tool.label} - ${tool.shortcut}` : tool.label" placement="top">
           <Button
             class="drawing-tool"
             size="sm"
