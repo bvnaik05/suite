@@ -1426,6 +1426,50 @@ def search_mails(
     return {"rows": mails, "total": total}
 
 
+@frappe.whitelist()
+def get_recent_threads_with(account: str, email: str, limit: int = 4) -> list[dict]:
+    """The newest conversations with one address, for the card about a person: mail from it or
+    sent to it, one message per conversation, newest first.
+
+    Summaries only, in one round trip: no bodies, avatars or account tags, which a card listing a
+    few subjects has no use for. Mail only in Trash or Junk is left out, as are drafts — a discarded
+    or unsent message to someone is not a conversation with them.
+    """
+
+    get_user_for_jmap_account(account, allow_system_manager=False, raise_exception=True)
+
+    email = (email or "").strip()
+    if not email:
+        return []
+    limit = min(max(cint(limit), 1), 10)
+
+    conditions = [with_address(email), {"notKeyword": "$draft"}]
+    binned = [m for m in (get_mailbox_id_by_role(account, r) for r in ("trash", "junk")) if m]
+    if binned:
+        conditions.append({"inMailboxOtherThan": binned})
+
+    client = get_account_client(account)
+    with client.batch() as b:
+        q = b.mail.email.query(
+            filter={"operator": "AND", "conditions": conditions},
+            sort=[{"property": "receivedAt", "isAscending": False}],
+            collapseThreads=True,
+            limit=limit,
+        )
+        g = b.mail.email.get(ids=q.ref_ids(), properties=["threadId", "subject", "receivedAt", "mailboxIds"])
+
+    rows = [
+        {
+            "thread_id": message["threadId"],
+            "subject": message.get("subject"),
+            "received_at": normalize_utc_z(message["receivedAt"]),
+            "mailboxes": [{"mailbox_id": m} for m in (message.get("mailboxIds") or {})],
+        }
+        for message in (item.to_wire() for item in g.result.items)
+    ]
+    return sorted(rows, key=lambda row: row["received_at"], reverse=True)
+
+
 def _search_all_accounts(filter: dict, limit: int, start: int) -> tuple[list[dict], int]:
     """Search across every JMAP account the user owns, returning a merged newest-first page.
 
@@ -1494,10 +1538,18 @@ def _tag_search_results(account: str, mails: list[dict], account_name: str | Non
         mail["trash"] = trash_id
 
 
+def with_address(email: str) -> dict:
+    """A JMAP condition for mail exchanged with an address: from it, or sent to it or copied to it."""
+
+    return {"operator": "OR", "conditions": [{"from": email}, {"to": email}, {"cc": email}]}
+
+
 def normalize_filter(filter: dict) -> dict:
     """Normalize and transform filter parameters for email search."""
 
     filter = filter.copy()
+    # `with` is ours, not JMAP's: it stands for the three header conditions any one of which will do.
+    exchanged_with = (filter.pop("with", None) or "").strip()
 
     if filter.get("hasAttachment") in ["true", "false"]:
         filter["hasAttachment"] = filter["hasAttachment"] == "true"
@@ -1512,7 +1564,10 @@ def normalize_filter(filter: dict) -> dict:
         if filter.get(date_key):
             filter[date_key] = normalize_utc_z(filter[date_key])
 
-    return {"operator": "AND", "conditions": [{k: v} for k, v in filter.items()]}
+    conditions = [{k: v} for k, v in filter.items()]
+    if exchanged_with:
+        conditions.append(with_address(exchanged_with))
+    return {"operator": "AND", "conditions": conditions}
 
 
 @frappe.whitelist()

@@ -213,6 +213,8 @@ import type {
   GetParticipantIdentitiesOutput,
   GetQuotaInput,
   GetQuotaOutput,
+  GetRecentThreadsWithInput,
+  GetRecentThreadsWithOutput,
   GetScheduledMailInput,
   GetScheduledMailOutput,
   GetScreenedAddressesInput,
@@ -2634,6 +2636,62 @@ export const operationGetCalendarClientConfig: Validators<
         type: 'object',
       },
       'get_calendar_client_config output',
+    )
+  },
+}
+
+export const operationGetRecentThreadsWith: Validators<
+  GetRecentThreadsWithInput,
+  GetRecentThreadsWithOutput
+> = {
+  validateInput(value: unknown): asserts value is GetRecentThreadsWithInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          email: { title: 'Email', type: 'string' },
+          limit: { title: 'Limit', type: 'integer' },
+        },
+        required: ['account', 'email'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_recent_threads_with input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetRecentThreadsWithOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          RecentThread: {
+            properties: {
+              thread_id: { title: 'Thread Id', type: 'string' },
+              subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
+              received_at: { title: 'Received At', type: 'string' },
+              mailboxes: {
+                items: { $ref: '#/$defs/RecentThreadMailbox' },
+                title: 'Mailboxes',
+                type: 'array',
+              },
+            },
+            required: ['thread_id', 'subject', 'received_at', 'mailboxes'],
+            title: 'RecentThread',
+            type: 'object',
+          },
+          RecentThreadMailbox: {
+            properties: { mailbox_id: { title: 'Mailbox Id', type: 'string' } },
+            required: ['mailbox_id'],
+            title: 'RecentThreadMailbox',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/RecentThread' },
+        type: 'array',
+      },
+      'get_recent_threads_with output',
     )
   },
 }
@@ -7685,6 +7743,7 @@ export const operationSearchMails: Validators<SearchMailsInput, SearchMailsOutpu
               to: { title: 'To', type: 'string' },
               cc: { title: 'Cc', type: 'string' },
               bcc: { title: 'Bcc', type: 'string' },
+              with: { title: 'With', type: 'string' },
               subject: { title: 'Subject', type: 'string' },
               body: { title: 'Body', type: 'string' },
               before: { title: 'Before', type: 'string' },

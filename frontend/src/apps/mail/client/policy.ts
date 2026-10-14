@@ -297,6 +297,7 @@ const messageReaders = [
   'get_unified_threads',
   'get_thread',
   'search_mails',
+  'get_recent_threads_with',
   'get_mailboxes',
   'get_unified_folders',
   'get_tab_counts',

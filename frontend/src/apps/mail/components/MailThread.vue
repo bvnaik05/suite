@@ -312,11 +312,13 @@
                                   :email="mail.from_email"
                                   :image="mail.user_image"
                                   :initial="getSenderInitial(mail)"
+                                  :thread-id="threadID"
+                                  @open="close()"
                                   @email="
                                     (close(), requestCompose({ to: [{ email: mail.from_email }] }))
                                   "
                                   @copy="(close(), copyToClipBoard(mail.from_email))"
-                                  @filter="(close(), filterBySender(mail.from_email))"
+                                  @view-all="(close(), viewAllWith(mail.from_email))"
                                 />
                               </template>
                             </Popover>
@@ -741,8 +743,8 @@ import {
 } from '@/apps/mail/utils'
 import { provideAccountScope } from '@/apps/mail/utils/accountScope'
 import {
+  mailSearchRoute,
   useComposeMail,
-  useFilterBySender,
   useScreenSize,
   useSettings,
   useTheme,
@@ -812,7 +814,9 @@ const emit = defineEmits([
   'slideDone',
 ])
 const { isMobile } = useScreenSize()
-const { filterBySender } = useFilterBySender()
+// Every conversation with a sender, from them or to them — the sender card's View all.
+const viewAllWith = (email: string) =>
+  router.push(mailSearchRoute(scopeAccountId.value, { with: email }))
 const { requestCompose } = useComposeMail()
 // The open message whose sender card is showing, if any.
 // A single click on the subject copies it. Not a double click or a drag, which are the reader

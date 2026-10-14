@@ -111,6 +111,7 @@ const SEARCH_FILTER_LABELS: Record<string, string> = {
   to: __('To'),
   cc: __('Cc'),
   bcc: __('Bcc'),
+  with: __('With'),
   after: __('After'),
   before: __('Before'),
 }

@@ -5177,6 +5177,105 @@
       "bytes": false
     },
     {
+      "id": "get_recent_threads_with",
+      "kind": "query",
+      "publicName": "messages.recentWith",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.get_recent_threads_with",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account",
+          "email"
+        ],
+        "title": "RecentThreadsInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "RecentThread": {
+            "properties": {
+              "thread_id": {
+                "title": "Thread Id",
+                "type": "string"
+              },
+              "subject": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Subject"
+              },
+              "received_at": {
+                "title": "Received At",
+                "type": "string"
+              },
+              "mailboxes": {
+                "items": {
+                  "$ref": "#/$defs/RecentThreadMailbox"
+                },
+                "title": "Mailboxes",
+                "type": "array"
+              }
+            },
+            "required": [
+              "thread_id",
+              "subject",
+              "received_at",
+              "mailboxes"
+            ],
+            "title": "RecentThread",
+            "type": "object"
+          },
+          "RecentThreadMailbox": {
+            "properties": {
+              "mailbox_id": {
+                "title": "Mailbox Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mailbox_id"
+            ],
+            "title": "RecentThreadMailbox",
+            "type": "object"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/RecentThread"
+        },
+        "type": "array"
+      },
+      "errors": [
+        "PermissionError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
       "id": "get_email_suggestions",
       "kind": "query",
       "publicName": "contacts.suggest",
@@ -17004,6 +17103,10 @@
               },
               "bcc": {
                 "title": "Bcc",
+                "type": "string"
+              },
+              "with": {
+                "title": "With",
                 "type": "string"
               },
               "subject": {

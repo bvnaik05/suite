@@ -176,6 +176,22 @@ class EmailSuggestion(TypedDict):
     user_image: NotRequired[str | None]
 
 
+class RecentThreadsInput(AccountInput):
+    email: str
+    limit: NotRequired[int]
+
+
+class RecentThreadMailbox(TypedDict):
+    mailbox_id: str
+
+
+class RecentThread(TypedDict):
+    thread_id: str
+    subject: str | None
+    received_at: str
+    mailboxes: list[RecentThreadMailbox]
+
+
 class AttachmentBytesInput(AccountInput):
     blob_id: str
 
