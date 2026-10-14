@@ -77,7 +77,7 @@
    "label": "Destroy Newsletter After Submit"
   },
   {
-   "default": "0",
+   "default": "1",
    "description": "When enabled, forwarded emails include an In-Reply-To header pointing to the original email, so the mail server keeps them in the same thread as the original.",
    "fieldname": "keep_forwarded_email_in_thread",
    "fieldtype": "Check",
@@ -337,7 +337,7 @@
    "link_fieldname": "account"
   }
  ],
- "modified": "2026-08-31 09:41:45.879147",
+ "modified": "2026-10-14 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Mail",
  "name": "JMAP Account",
