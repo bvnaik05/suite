@@ -130,7 +130,12 @@ import type { ComposeMailData } from '@/apps/mail/types'
 
 const show = defineModel<boolean>()
 
-const { mailDetails } = defineProps<{ mailDetails?: ComposeMailData }>()
+// `startExpanded`: open over the page rather than docked — a draft popped out of a thread was
+// already being written, and leaving the thread for it asks for room.
+const { mailDetails, startExpanded = false } = defineProps<{
+  mailDetails?: ComposeMailData
+  startExpanded?: boolean
+}>()
 
 const emit = defineEmits(['reloadMails', 'discardMail', 'discardStarted'])
 
@@ -146,12 +151,14 @@ claimComposeWindow(show, () => editor.value?.mail?.id)
 // come from the composer rather than from the copy the thread still remembers.
 defineExpose({ mail: computed(() => editor.value?.mail) })
 
-// Each compose starts docked: a request to write is not a request to resume whatever the last
-// draft's window happened to be doing.
-const expanded = ref(false)
+// Each compose starts docked, or expanded when the host asks: a request to write is not a request
+// to resume whatever the last draft's window happened to be doing.
+const expanded = ref(startExpanded)
 const minimised = ref(false)
 watch(show, (open) => {
-  if (open) expanded.value = minimised.value = false
+  if (!open) return
+  expanded.value = startExpanded
+  minimised.value = false
 })
 
 // What the window is for: a reply or a forward popped out of a thread (or reopened from Drafts)

@@ -55,8 +55,10 @@
             >
               <!-- Desktop: the subject heads the thread and scrolls with it, wrapping rather than
 				     cut short in the toolbar. A phone pins it under the toolbar instead (above). -->
+              <!-- Not over a draft that is the whole thread: its own Subject field says it, a line
+				     below, and a heading there repeated it or read "[No subject]" mid-sentence. -->
               <h1
-                v-if="!isMobile && thread?.length"
+                v-if="!isMobile && thread?.length && !isDraftAlone"
                 class="text-ink-gray-8 text-xl-semibold flex items-start gap-1 !leading-7 sm:pb-2"
               >
                 <!-- Copied on a click: a subject is what gets pasted into a ticket or a chat. -->
@@ -65,7 +67,8 @@
                     thread[0].subject
                   }}</span>
                 </Tooltip>
-                <template v-else>{{ __('[No subject]') }}</template>
+                <!-- A stand-in, not something anyone wrote: grey. -->
+                <span v-else class="text-ink-gray-4">{{ __('[No subject]') }}</span>
                 <!-- Starring marks the conversation, so it sits with the conversation's name rather
 				     than among the toolbar's actions on it. -->
                 <Button
@@ -100,7 +103,13 @@
 				     the new and more-messages dividers drop the pill outline, as quiet as the
 				     rows around them. -->
               <template v-for="group in mailsByDay" :key="group.date">
-                <div v-if="daysHeaded" class="text-ink-gray-5 text-sm-medium pb-1 pt-3">
+                <!-- The first sits straight under the subject: its gap is there to part one day from
+				     the last, and before the first day there is none. -->
+                <div
+                  v-if="daysHeaded"
+                  class="text-ink-gray-5 text-sm-medium pb-1"
+                  :class="{ 'pt-3': group !== mailsByDay[0] }"
+                >
                   {{ getFormattedDate(group.date) }}
                 </div>
                 <template v-for="mail in group.mails" :key="mail.name">
@@ -563,8 +572,8 @@
                       class="text-ink-blue-6 cursor-pointer font-medium hover:underline"
                       @click="showDraftInThread()"
                     >
-                      {{ __('Edit here instead') }}</button
-                    >.
+                      {{ __('Edit here instead') }}
+                    </button>
                   </div>
                 </template>
               </template>
@@ -598,6 +607,7 @@
       v-if="focusedDraft"
       ref="composeWindow"
       v-model="showSendModal"
+      start-expanded
       :mail-details="draftMails[focusedDraft]"
       @reload-mails="reload"
       @discard-mail="discardLocalDraft(focusedDraft)"
