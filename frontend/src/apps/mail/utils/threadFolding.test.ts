@@ -101,6 +101,12 @@ describe('mail arriving in an open thread', () => {
     expect(hidden([], [...thread, arrival('g')])).toEqual([])
   })
 
+  it('shows the newest replies left when the ones under them go', () => {
+    const [a, b, c, d, e, f] = names('a', 'b', 'c', 'd', 'e', 'f')
+    const fold = foldedNames([a, b, c, d, e, f])
+    expect(hidden(fold, [a, b, c, d])).toEqual(['b'])
+  })
+
   it('gives back mail marked unread, and forgets mail that has gone', () => {
     const [a, b, c, d, e, f] = names('a', 'b', 'c', 'd', 'e', 'f')
     const fold = foldedNames([a, b, c, d, e, f])

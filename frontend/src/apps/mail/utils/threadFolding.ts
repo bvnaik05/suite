@@ -31,11 +31,15 @@ export const foldedNames = (thread: Mail[]): string[] => {
 }
 
 // What a fold set when the thread loaded still hides as the thread changes on screen: the same
-// mail, less any that has gone or been marked unread. Never more — worked out afresh, mail landing
-// at the bottom made the message above the newest one more older mail, and it vanished into the
-// fold while the reader was looking at it.
+// mail, less any that has gone or been marked unread, and less what now stands at the fold's edges
+// — the first seen mail, the newest and the one above it stay out, as foldedNames leaves them. Never
+// more: worked out afresh, mail landing at the bottom made the message above the newest one more
+// older mail, and it vanished into the fold while the reader was looking at it. Nor stuck: when
+// the newest replies go, the ones left at the bottom come out from behind it.
 export const stillFolded = (folded: readonly string[], thread: Mail[]): Set<string> => {
-  const hideable = new Set(thread.filter((mail) => mail.seen && !mail.draft).map((m) => m.name))
+  const last = lastMessageOf(thread)
+  const seen = thread.filter((mail) => mail.seen && !mail.draft && mail !== last)
+  const hideable = new Set(seen.slice(1, -1).map((mail) => mail.name))
   return new Set(folded.filter((name) => hideable.has(name)))
 }
 
