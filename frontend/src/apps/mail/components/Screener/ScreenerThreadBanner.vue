@@ -36,8 +36,7 @@
           <Dropdown v-if="moreAnswers.length" :options="moreAnswers" align="end">
             <Button
               variant="solid"
-              class="!rounded-l-none !px-1.5"
-              style="border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent)"
+              class="!rounded-l-none border-l border-white/20 !px-1.5 dark:border-black/20"
               :aria-label="__('More ways to say yes')"
             >
               <template #icon><ChevronDown class="size-4" /></template>
