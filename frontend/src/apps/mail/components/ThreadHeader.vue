@@ -13,14 +13,28 @@
         <ChevronLeft class="icon max-sm:!h-[18px] max-sm:!w-[18px]" />
       </template>
     </Button>
+    <!-- Desktop keeps only actions up here: the subject heads the thread below, where it can
+	     wrap. -->
     <template v-if="thread?.length">
-      <Tooltip v-if="!isMobile" :text="thread?.[0]?.subject">
-        <h2 class="mr-2 truncate font-semibold leading-5">
-          {{ thread?.[0]?.subject || __('[No subject]') }}
-        </h2>
-      </Tooltip>
-      <div class="ml-auto shrink-0 space-x-2 max-sm:-mr-2">
+      <div
+        class="flex items-center space-x-2"
+        :class="isMobile ? 'ml-auto shrink-0 -mr-2' : 'min-w-0 flex-1'"
+      >
+        <!-- What a phone keeps in More, desktop leads with: the everyday ones. -->
         <Button
+          v-for="action in isMobile ? [] : visibleActions"
+          :key="action.label"
+          variant="ghost"
+          :tooltip="action.label"
+          @click="action.onClick"
+        >
+          <template #icon>
+            <component :is="action.icon" class="icon" />
+          </template>
+        </Button>
+        <!-- On desktop the star sits beside the subject, in the thread (MailThread). -->
+        <Button
+          v-if="isMobile"
           variant="ghost"
           class="max-sm:!h-8 max-sm:!w-8"
           :tooltip="isFlagged ? __('Unstar') : __('Star')"
@@ -65,7 +79,7 @@
             </template>
           </Button>
         </AdaptiveDropdown>
-        <AdaptiveDropdown :options="moreActions">
+        <AdaptiveDropdown v-if="isMobile" :options="moreActions">
           <Button variant="ghost" class="max-sm:!h-8 max-sm:!w-8" :tooltip="__('More')">
             <template #icon>
               <Ellipsis class="icon max-sm:!h-[18px] max-sm:!w-[18px]" />
@@ -74,7 +88,7 @@
         </AdaptiveDropdown>
 
         <!-- Prev/next thread arrows are a desktop affordance (↑/K, ↓/J). -->
-        <template v-if="threads.includes(threadID) && !isMobile">
+        <div v-if="threads.includes(threadID) && !isMobile" class="!ml-auto flex space-x-2">
           <Button
             variant="ghost"
             :tooltip="__('Previous Thread (↑/K)')"
@@ -96,14 +110,14 @@
               <ArrowRight class="icon" />
             </template>
           </Button>
-        </template>
+        </div>
       </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Button, Tooltip } from 'frappe-ui'
+import { Button } from 'frappe-ui'
 import { Icon } from 'frappe-ui/experimental'
 import {
   Archive,
@@ -244,6 +258,8 @@ const moreActions = computed((): Action[] => [
     condition: () => true,
   },
 ])
+
+const visibleActions = computed(() => moreActions.value.filter((action) => action.condition()))
 
 const showAddTo = computed(() =>
   threadMailboxes.value.every((m) => ![mailboxIds.value.junk, mailboxIds.value.trash].includes(m)),

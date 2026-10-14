@@ -53,6 +53,37 @@
                 'sm:flex sm:h-full sm:flex-col': isDraftAlone,
               }"
             >
+              <!-- Desktop: the subject heads the thread and scrolls with it, wrapping rather than
+				     cut short in the toolbar. A phone pins it under the toolbar instead (above). -->
+              <h1
+                v-if="!isMobile && thread?.length"
+                class="text-ink-gray-8 text-xl-semibold flex items-start gap-1 !leading-7 sm:pb-2"
+              >
+                <!-- Copied on a click: a subject is what gets pasted into a ticket or a chat. -->
+                <Tooltip v-if="thread[0].subject" :text="__('Copy subject')">
+                  <span class="cursor-pointer" @click="copySubject($event, thread[0].subject)">{{
+                    thread[0].subject
+                  }}</span>
+                </Tooltip>
+                <template v-else>{{ __('[No subject]') }}</template>
+                <!-- Starring marks the conversation, so it sits with the conversation's name rather
+				     than among the toolbar's actions on it. -->
+                <Button
+                  variant="ghost"
+                  class="shrink-0"
+                  :tooltip="isThreadFlagged ? __('Unstar') : __('Star')"
+                  @click="
+                    onSetFlagged(
+                      thread.map((m) => m.id),
+                      !isThreadFlagged,
+                    )
+                  "
+                >
+                  <template #icon>
+                    <Star :style="isThreadFlagged ? FLAGGED_STAR_STYLE : undefined" class="icon" />
+                  </template>
+                </Button>
+              </h1>
               <!-- pb, not mb: the thread's space-y is a margin, and the two would collapse. -->
               <ScreenerThreadBanner
                 v-if="screenedSenders.length"
@@ -69,7 +100,7 @@
 				     the new and more-messages dividers drop the pill outline, as quiet as the
 				     rows around them. -->
               <template v-for="group in mailsByDay" :key="group.date">
-                <div v-if="daysHeaded" class="text-ink-gray-5 text-sm-medium px-4 pb-1 pt-3">
+                <div v-if="daysHeaded" class="text-ink-gray-5 text-sm-medium pb-1 pt-3">
                   {{ getFormattedDate(group.date) }}
                 </div>
                 <template v-for="mail in group.mails" :key="mail.name">
@@ -200,7 +231,8 @@
                           :image="mail.user_image"
                           :size="isCollapsed(mail) ? (isMobile ? 'lg' : 'md') : 'xl'"
                           :class="{ 'cursor-pointer': !isCollapsed(mail) && !isMobile }"
-                          @click="openSenderCard(mail, $event)"
+                          @pointerdown="noteSenderCardPress(mail)"
+                          @click="toggleSenderCard(mail, $event)"
                         />
                         <!-- Collapsed rows align everything on one text baseline —
 									     name, preview and timestamp are three sizes with three
@@ -235,7 +267,8 @@
                                 <div
                                   class="flex items-center space-x-1.5"
                                   :class="{ 'cursor-pointer': !isCollapsed(mail) && !isMobile }"
-                                  @click="openSenderCard(mail, $event)"
+                                  @pointerdown="noteSenderCardPress(mail)"
+                                  @click="toggleSenderCard(mail, $event)"
                                 >
                                   <span
                                     class="truncate text-[15px] !font-semibold sm:text-base"
@@ -591,8 +624,17 @@
 </template>
 
 <script setup lang="ts">
-import { Avatar, Badge, Button, Popover } from 'frappe-ui'
-import { Ban, ChevronDown, Download, Forward, LoaderCircle, Reply, ReplyAll } from 'lucide-vue-next'
+import { Avatar, Badge, Button, Popover, Tooltip } from 'frappe-ui'
+import {
+  Ban,
+  ChevronDown,
+  Download,
+  Forward,
+  LoaderCircle,
+  Reply,
+  ReplyAll,
+  Star,
+} from 'lucide-vue-next'
 import {
   computed,
   inject,
@@ -632,6 +674,7 @@ import {
   isComposeWindowOpen,
 } from '@/apps/mail/composables/useComposeWindow'
 import { trustableDomains, useScreener } from '@/apps/mail/composables/useScreener'
+import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import { getAttachmentsZipUrl } from '@/apps/mail/resources'
 import { isMailRoute } from '@/apps/mail/router'
 import { userStore } from '@/apps/mail/stores/user'
@@ -733,11 +776,33 @@ const { isMobile } = useScreenSize()
 const { filterBySender } = useFilterBySender()
 const { requestCompose } = useComposeMail()
 // The open message whose sender card is showing, if any.
+// A single click on the subject copies it. Not a double click or a drag, which are the reader
+// selecting part of it: the copy waits out a second click, and stands down if text is selected.
+let subjectCopy: ReturnType<typeof setTimeout> | undefined
+const copySubject = (event: MouseEvent, subject: string) => {
+  clearTimeout(subjectCopy)
+  if (event.detail > 1) return
+  subjectCopy = setTimeout(() => {
+    if (window.getSelection()?.toString()) return
+    void copyToClipBoard(subject)
+  }, 200)
+}
+const isThreadFlagged = computed(
+  () => !!thread.value?.length && thread.value.every((m) => m.flagged),
+)
 const senderCardFor = ref<string | null>(null)
-const openSenderCard = (mail: Mail, event: MouseEvent) => {
+// A second click on the sender closes their card. The press lands outside the card, which closes
+// it before the click arrives, so whether it was open is read on the press: otherwise the click
+// found it shut and opened it again.
+let senderCardWasOpen = false
+const noteSenderCardPress = (mail: Mail) => {
+  senderCardWasOpen = senderCardFor.value === mail.name
+}
+const toggleSenderCard = (mail: Mail, event: MouseEvent) => {
   if (isCollapsed(mail) || isMobile.value) return
   event.stopPropagation()
-  senderCardFor.value = mail.name
+  senderCardFor.value = senderCardWasOpen ? null : mail.name
+  senderCardWasOpen = false
 }
 const { openSettings } = useSettings()
 const dayjs = inject('$dayjs')
