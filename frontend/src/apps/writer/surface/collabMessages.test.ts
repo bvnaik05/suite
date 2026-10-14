@@ -221,8 +221,8 @@ describe('collab stop copy', () => {
     const frozen = { isFrozen: true, failed: true }
 
     expect([
-      bannerFor({ ...defaultState, ...frozen })?.canReload,
-      bannerFor({ ...defaultState, ...frozen, stopped: 'browser' })?.canReload,
+      Boolean(bannerFor({ ...defaultState, ...frozen })?.canReload),
+      Boolean(bannerFor({ ...defaultState, ...frozen, stopped: 'browser' })?.canReload),
     ]).toEqual([true, false])
   })
 
@@ -243,7 +243,55 @@ describe('collab stop copy', () => {
       bannerFor({ ...frozen, held: 'change', recoveryKept: true }),
       bannerFor({ ...frozen, held: 'change', unsent: 0 }),
       bannerFor({ ...frozen, polling: true }),
-    ]).toEqual([keepOpen, keepOpen, reload, reload, reload, reload])
+      bannerFor({ ...frozen, restoring: true }),
+      bannerFor({ ...frozen, atLimit: true }),
+      bannerFor({ ...frozen, paused: 'server' }),
+      bannerFor({ ...frozen, onDevice: true, copyFailed: true }),
+    ]).toEqual([
+      keepOpen,
+      keepOpen,
+      reload,
+      reload,
+      reload,
+      keepOpen,
+      keepOpen,
+      keepOpen,
+      keepOpen,
+      keepOpen,
+    ])
+  })
+
+  it('asks a stopped frozen tab to stay open, with no Reload, while unsent work is kept nowhere', () => {
+    const stopped = { ...defaultState, isFrozen: true, failed: true }
+    const frozenText = "Part of this document can't be shown here, so editing stays paused."
+
+    expect([
+      bannerFor({ ...stopped, copyFailed: true }),
+      bannerFor({ ...stopped, onDevice: false }),
+      bannerFor({ ...stopped, onDevice: false, recoveryKept: true }),
+    ]).toEqual([
+      {
+        text: `Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open. ${frozenText}`,
+      },
+      { text: `Saving stopped in this tab. ${frozenText} Keep this tab open.` },
+      {
+        text: `Saving stopped in this tab. Unsent changes were kept as a recovery copy. ${frozenText} Reload to try saving again.`,
+        canReload: true,
+      },
+    ])
+  })
+
+  it('asks a tab behind a newer Writer to stay open while unsent work is kept nowhere', () => {
+    expect([
+      bannerText({ newerSchema: true, onDevice: false }),
+      bannerText({ newerSchema: true, copyFailed: true }),
+    ]).toEqual([
+      'This document was edited in a newer version of Writer. Keep this tab open, since your unsent changes are only here.',
+      'This document was edited in a newer version of Writer. Keep this tab open, since your unsent changes are only here.',
+    ])
+    expect(bannerText({ newerSchema: true, onDevice: false, recoveryKept: true })).toBe(
+      'This document was edited in a newer version of Writer. Reload to edit it.',
+    )
   })
 
   it('does not offer a reload for a stop a reload would only repeat', () => {

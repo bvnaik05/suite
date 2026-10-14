@@ -118,6 +118,12 @@ function newerSchemaBanner(state: BannerState): Banner {
     }
   }
 
+  if (isKeptNowhere(state)) {
+    return {
+      text: 'This document was edited in a newer version of Writer. Keep this tab open, since your unsent changes are only here.',
+    }
+  }
+
   const reloadTo = state.canEdit ? 'edit it' : 'see its latest changes'
   return { text: `This document was edited in a newer version of Writer. Reload to ${reloadTo}.` }
 }
@@ -202,12 +208,31 @@ const BLOCKED_BANNERS: Record<Blocked, (state: BannerState) => Banner> = {
   lost_read: lostReadBanner,
 }
 
+// Unsent work no device store holds, so the tab and any recovery copy are all that have it
+export function isUnsentOffDevice(room: Pick<CollabRoom, 'unsent' | 'onDevice' | 'copyFailed'>) {
+  return room.unsent > 0 && (!room.onDevice || room.copyFailed)
+}
+
+// A reload would lose this work, so no strip offers one while it holds
+function isKeptNowhere(state: BannerState) {
+  return isUnsentOffDevice(state) && !state.recoveryKept
+}
+
 // A frozen tab freezes again after a reload, so its stop offers the reload for saving only
 function frozenStopBanner(state: BannerState, reason: string, isLasting: boolean): Banner {
   const recovery = recoveryNote(state)
-  const reloadHint = isLasting ? '' : ' Reload to try saving again.'
-  const text = `${reason}${recovery} Part of this document can't be shown here, so editing stays paused.${reloadHint}`
-  return { text, canReload: !isLasting }
+  const frozenText = `${reason}${recovery} Part of this document can't be shown here, so editing stays paused.`
+  if (isKeptNowhere(state)) {
+    // The failed-copy note already asks for the tab to stay open
+    const keepOpen = state.copyFailed ? '' : ' Keep this tab open.'
+    return { text: `${frozenText}${keepOpen}` }
+  }
+
+  if (isLasting) {
+    return { text: frozenText }
+  }
+
+  return { text: `${frozenText} Reload to try saving again.`, canReload: true }
 }
 
 function stoppedBanner(state: BannerState): Banner {
@@ -227,20 +252,13 @@ function stoppedBanner(state: BannerState): Banner {
 export const FROZEN_MESSAGE =
   "Part of this document can't be shown here, so editing is paused to keep it safe."
 
-// `hasUnsentOnlyHere`: unsent work waits in this tab alone, so a reload would lose it
-export function frozenBanner(hasUnsentOnlyHere = false): Banner {
-  if (hasUnsentOnlyHere) {
+// `isUnsentOnlyHere`: unsent work is in this tab alone, so a reload would lose it
+export function frozenBanner(isUnsentOnlyHere = false): Banner {
+  if (isUnsentOnlyHere) {
     return { text: `${FROZEN_MESSAGE} Keep this tab open.` }
   }
 
   return { text: FROZEN_MESSAGE, canReload: true }
-}
-
-// Held or refused uploads keep unsent work from saving, and without a device store or a copy only
-// this tab has it
-function isUnsentOnlyHere(state: BannerState) {
-  const isWaiting = state.held || state.paused === 'upload_refused'
-  return isWaiting && state.unsent > 0 && !state.onDevice && !state.recoveryKept
 }
 
 // The old editor's whole-body save, refused once the document saves as it is edited
@@ -265,7 +283,7 @@ export function bannerFor(state: BannerState): Banner | null {
   }
 
   if (state.isFrozen) {
-    return frozenBanner(isUnsentOnlyHere(state))
+    return frozenBanner(isKeptNowhere(state))
   }
 
   if (state.held) {
