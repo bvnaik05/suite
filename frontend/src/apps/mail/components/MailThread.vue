@@ -752,8 +752,10 @@ import { mailCopies, mailCopyIds } from '@/apps/mail/utils/mailCopies'
 import { getSenderInitial } from '@/apps/mail/utils/participants'
 import {
   foldedNames,
+  holdNewestOpen,
   isCollapsed as isCollapsedIn,
   lastMessageOf,
+  stillFolded,
 } from '@/apps/mail/utils/threadFolding'
 import { mailRow } from '@/apps/mail/utils/threadRows'
 import { UNIFIED_ROUTE, UNIFIED_THREAD_ROUTE } from '@/apps/mail/utils/unifiedFolders'
@@ -924,9 +926,7 @@ const recipientsSummary = (mail: Mail) => {
   return __('to {0}, {1} and {2} others', [names[0], names[1], String(names.length - 2)])
 }
 
-const collapsedMailNames = computed(
-  () => new Set(isFolding.value ? foldedNames(thread.value || []) : []),
-)
+const collapsedMailNames = computed(() => stillFolded(foldedAway.value, thread.value || []))
 const mailBeforeUnseenMarker = computed(() => {
   if (!firstUnseenMail.value) return null
   const data = thread.value || []
@@ -1095,15 +1095,18 @@ const syncWithSource = () => {
   )
   if (!additions.length) return
   const draftIndex = thread.value.findIndex((mail) => mail.draft)
+  // Arrivals leave the reader's place alone: the message being read stays open under them, and
+  // the fold hides what it hid — still open, if it was opened.
+  holdNewestOpen(thread.value)
   if (draftIndex === -1) thread.value.push(...additions)
   else thread.value.splice(draftIndex, 0, ...additions)
-  setCollapsedGroup(thread.value)
 }
-// Shut whenever the thread loads or gains mail long enough to fold; the "more messages" divider
-// opens it. Which mail it hides is worked out from the thread as it stands (see foldedNames).
-const isFolding = ref(false)
-const resetCollapsedGroup = () => (isFolding.value = false)
-const setCollapsedGroup = (data: Mail[]) => (isFolding.value = foldedNames(data).length > 0)
+// The mail the "more messages" divider hides, settled when the thread loads and emptied when the
+// divider opens it (see stillFolded for what it hides as the thread changes).
+const foldedAway = ref<string[]>([])
+const isFolding = computed(() => collapsedMailNames.value.size > 0)
+const resetCollapsedGroup = () => (foldedAway.value = [])
+const setCollapsedGroup = (data: Mail[]) => (foldedAway.value = foldedNames(data))
 const firstMailOfCollapsedGroup = computed(
   () => thread.value?.find((m) => collapsedMailNames.value.has(m.name))?.name ?? null,
 )

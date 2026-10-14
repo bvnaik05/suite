@@ -29,3 +29,19 @@ export const foldedNames = (thread: Mail[]): string[] => {
   if (seen.length < 4) return []
   return seen.slice(1, -1).map((mail) => mail.name)
 }
+
+// What a fold set when the thread loaded still hides as the thread changes on screen: the same
+// mail, less any that has gone or been marked unread. Never more — worked out afresh, mail landing
+// at the bottom made the message above the newest one more older mail, and it vanished into the
+// fold while the reader was looking at it.
+export const stillFolded = (folded: readonly string[], thread: Mail[]): Set<string> => {
+  const hideable = new Set(thread.filter((mail) => mail.seen && !mail.draft).map((m) => m.name))
+  return new Set(folded.filter((name) => hideable.has(name)))
+}
+
+// Mail is about to land under the message being read, which was open only for being the newest.
+// Opened in its own right first, it stays open rather than folding away under the reader.
+export const holdNewestOpen = (thread: Mail[]) => {
+  const newest = lastMessageOf(thread)
+  if (newest) newest.collapsed = false
+}

@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import type { Mail } from '@/apps/mail/types'
 
-import { foldedNames, isCollapsed, lastMessageOf } from './threadFolding'
+import {
+  foldedNames,
+  holdNewestOpen,
+  isCollapsed,
+  lastMessageOf,
+  stillFolded,
+} from './threadFolding'
 
 // Every mail arrives seen, and so collapsed, the way a reloaded thread hands them over.
 const mail = (name: string, overrides: Partial<Mail> = {}) =>
@@ -69,5 +75,36 @@ describe('foldedNames', () => {
   it('never folds unseen mail', () => {
     const thread = [...names('a', 'b', 'c', 'd', 'e'), mail('new', { seen: 0 })]
     expect(foldedNames(thread)).toEqual(['b', 'c', 'd'])
+  })
+})
+
+describe('mail arriving in an open thread', () => {
+  const names = (...list: string[]) => list.map((name) => mail(name))
+  const arrival = (name: string) => mail(name, { seen: 0, collapsed: false })
+  const hidden = (fold: string[], thread: Mail[]) => [...stillFolded(fold, thread)]
+
+  it('keeps the message being read open under the new mail', () => {
+    const thread = names('a', 'b', 'c')
+    holdNewestOpen(thread)
+    thread.push(arrival('d'))
+    expect(folded(thread)).toEqual([true, true, false, false])
+  })
+
+  it('keeps hiding what the fold hid, and nothing more', () => {
+    const thread = names('a', 'b', 'c', 'd', 'e', 'f')
+    const fold = foldedNames(thread)
+    expect(hidden(fold, [...thread, arrival('g')])).toEqual(['b', 'c', 'd'])
+  })
+
+  it('stays open once the reader has opened it', () => {
+    const thread = names('a', 'b', 'c', 'd', 'e', 'f')
+    expect(hidden([], [...thread, arrival('g')])).toEqual([])
+  })
+
+  it('gives back mail marked unread, and forgets mail that has gone', () => {
+    const [a, b, c, d, e, f] = names('a', 'b', 'c', 'd', 'e', 'f')
+    const fold = foldedNames([a, b, c, d, e, f])
+    c.seen = 0
+    expect(hidden(fold, [a, b, c, e, f])).toEqual(['b'])
   })
 })
