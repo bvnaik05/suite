@@ -67,6 +67,7 @@ const hashOfJSON = (json) => buf.toBase64(_convolute(sha256.digest(buf.encodeAny
  * @property {ProsemirrorMapping} BindingMetadata.mapping
  * @property {Map<import('prosemirror-model').MarkType, boolean>} BindingMetadata.isOMark - is overlapping mark
  * @property {Set<Y.AbstractType<any>>} BindingMetadata.hidden - elements left holding nothing, kept in Yjs and not shown
+ * @property {Set<Y.AbstractType<any>>} BindingMetadata.unbuildable - elements the editor can't build wherever they sit, until they change
  * @property {Array<Y.AbstractType<any>>} BindingMetadata.lost - content the last build couldn't show
  */
 
@@ -77,6 +78,7 @@ const createEmptyMeta = () => ({
   mapping: new Map(),
   isOMark: new Map(),
   hidden: new Set(),
+  unbuildable: new Set(),
   lost: []
 });
 
@@ -495,6 +497,11 @@ class ProsemirrorBinding {
      */
     this.hidden = new Set();
     /**
+     * Elements the editor can't build wherever they sit; renders set them aside again until they change
+     * @type {Set<Y.AbstractType<any>>}
+     */
+    this.unbuildable = new Set();
+    /**
      * Content the last render couldn't show
      * @type {Array<Y.AbstractType<any>>}
      */
@@ -599,6 +606,7 @@ class ProsemirrorBinding {
   unrenderSnapshot () {
     this.mapping.clear();
     this.hidden.clear();
+    this.unbuildable.clear();
     this.mux(() => {
       const fragmentContent = this._place();
       this._freezeOnLoss('unrender', null);
@@ -616,6 +624,7 @@ class ProsemirrorBinding {
   _forceRerender () {
     this.mapping.clear();
     this.hidden.clear();
+    this.unbuildable.clear();
     this.mux(() => {
       // If this is a forced rerender, this might neither happen as a pm change nor within a Yjs
       // transaction. Then the "before selection" doesn't exist. In this case, we need to create a
@@ -698,6 +707,7 @@ class ProsemirrorBinding {
     // clear mapping because we are going to rerender
     this.mapping.clear();
     this.hidden.clear();
+    this.unbuildable.clear();
     this.mux(() => {
       historyDoc.transact((transaction) => {
         // before rendering, we are going to sanitize ops and split deleted ops
@@ -785,7 +795,10 @@ class ProsemirrorBinding {
        * @param {any} _
        * @param {Y.AbstractType<any>} type
        */
-      const delType = (_, type) => this.mapping.delete(type);
+      const delType = (_, type) => {
+        this.mapping.delete(type);
+        this.unbuildable.delete(type);
+      };
       Y.iterateDeletedStructs(
         transaction,
         transaction.deleteSet,
@@ -794,6 +807,7 @@ class ProsemirrorBinding {
             const type = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type;
             type && this.mapping.delete(type);
             type && this.hidden.delete(type);
+            type && this.unbuildable.delete(type);
           }
         }
       );
@@ -874,6 +888,7 @@ const createNodeIfNotExists = (
   const node = /** @type {PModel.Node} */ (meta.mapping.get(el));
   if (node === undefined) {
     if (el instanceof Y.XmlElement) {
+      if (meta.unbuildable.has(el)) return setAside(el, schema, meta)
       return createNodeFromYElement(
         el,
         schema,
@@ -925,6 +940,19 @@ const setAside = (type, schema, meta) => {
     meta.lost.push(type);
   }
   return null
+};
+
+/**
+ * Set aside an element the editor can't build wherever it sits, so later renders skip building it until it changes
+ *
+ * @param {Y.XmlElement} el
+ * @param {PModel.Schema} schema
+ * @param {BindingMetadata} meta
+ * @return {null}
+ */
+const setAsideUnbuildable = (el, schema, meta) => {
+  meta.unbuildable.add(el);
+  return setAside(el, schema, meta)
 };
 
 /**
@@ -994,7 +1022,7 @@ const createNodeFromYElement = (
     return createSnapshotNodeFromYElement(el, schema, meta, snapshot, prevSnapshot, computeYChange)
   }
   const nodeType = schema.nodes[el.nodeName];
-  if (nodeType === undefined) return setAside(el, schema, meta)
+  if (nodeType === undefined) return setAsideUnbuildable(el, schema, meta)
   const children = placeChildren(el, nodeType, schema, meta);
   try {
     const node = nodeType.createChecked(el.getAttributes(), children);
@@ -1002,7 +1030,7 @@ const createNodeFromYElement = (
     meta.hidden.delete(el);
     return node
   } catch (e) {
-    return setAside(el, schema, meta)
+    return setAsideUnbuildable(el, schema, meta)
   }
 };
 

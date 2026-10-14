@@ -18,16 +18,17 @@ const SHA256: Record<string, string> = {
   // can't hold freezes the binding, and leftovers holding nothing are hidden and skipped, never deleted;
   // then side-by-side texts are written as one run in place, never folded into one;
   // then formatting the editor can't show where it sits is kept on a keptFormatting mark;
-  // then the kept mark's shownFirst marks win, and builtMarks gives the marks a build would
-  'dist/y-tiptap.js': '1411d0fe317718d39a90061dc4afd00ab066dba1d35f8b69f66490f04ba273bb',
+  // then the kept mark's shownFirst marks win, and builtMarks gives the marks a build would;
+  // then renders set an element the editor can't build aside again without rebuilding it until it changes
+  'dist/y-tiptap.js': '3bf1b7e08ea2f29af520228c303a855b440837a4fc53ff5d2cb2f31aadb53c51',
   // published 788e88fe...; then positions skip hidden leftovers
   'dist/src/lib.d.ts': '7e43ada60eb3ffaf60754b08f4d5268a4cd261e54c2b774a362760f0f41749ef',
   'dist/src/plugins/cursor-plugin.d.ts':
     '14df8f3b1fd5b5cdc11bea5eadee07b107719aefd705a97c699465a31488f11a',
   'dist/src/plugins/keys.d.ts': '9596550a6e87582af85039f4c83300bbd6b3e69af1aef98caf2e4d8f632b96f2',
-  // published 7e5dc45b...; then onUnplaceable, the freeze and placeFragment; then builtMarks
+  // published 7e5dc45b...; then onUnplaceable, the freeze and placeFragment; then builtMarks; then unbuildable
   'dist/src/plugins/sync-plugin.d.ts':
-    '0fe8aafcaf430befde31f341fe8f56aea46681ada5adc6d1c4a8ec93755d0f67',
+    '027a00d90bf239d7d057f01854573ee9f19b070ce8e757172ed731fe742e78bd',
   'dist/src/plugins/undo-plugin.d.ts':
     '55375f35812f70dc78b932632264ef10864d39e804197deab1b9d3c7369813e2',
   'dist/src/utils.d.ts': 'c02eb8e03bba34945bf316eaf825c8c31c49e00bea3e5b5b81c8627b47b788f7',

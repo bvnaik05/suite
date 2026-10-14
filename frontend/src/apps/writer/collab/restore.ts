@@ -56,6 +56,7 @@ function replaceBody(doc: Y.Doc, body: Y.XmlFragment, root: PMNode) {
     mapping: new Map(),
     isOMark: new Map(),
     hidden: new Set(),
+    unbuildable: new Set(),
     lost: [],
   })
 }

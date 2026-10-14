@@ -54,6 +54,10 @@ export class ProsemirrorBinding {
      */
     hidden: Set<Y.AbstractType<any>>;
     /**
+     * Elements the editor can't build wherever they sit; renders set them aside again until they change
+     */
+    unbuildable: Set<Y.AbstractType<any>>;
+    /**
      * Content the last render couldn't show
      */
     lost: Array<Y.AbstractType<any>>;
@@ -126,6 +130,10 @@ export type BindingMetadata = {
      * - elements left holding nothing, kept in Yjs and not shown
      */
     hidden: Set<Y.AbstractType<any>>;
+    /**
+     * - elements the editor can't build wherever they sit, until they change
+     */
+    unbuildable: Set<Y.AbstractType<any>>;
     /**
      * - content the last build couldn't show
      */

@@ -795,24 +795,65 @@ describe('typing next to many hidden leftovers', () => {
     return times[7]
   }
 
-  it('takes at most twice as long per keystroke as the same body without them', () => {
-    function paragraphs() {
-      return Array.from({ length: 2000 }, (_, i) => paragraph(`paragraph ${i}`))
+  // Another tab types into the middle paragraph; this one renders each keystroke from Yjs
+  function remoteTypingTime(state: Uint8Array) {
+    const tab = open(state)
+    const source = new Y.Doc()
+    Y.applyUpdate(source, state)
+    const shown = source
+      .getXmlFragment(BODY_FIELD)
+      .toArray()
+      .filter((block) => (block as Y.XmlElement).nodeName === 'paragraph')
+    const text = (shown[1000] as Y.XmlElement).get(0) as Y.XmlText
+    const times = []
+    for (let i = 0; i < 15; i++) {
+      const before = Y.encodeStateVector(source)
+      text.insert(0, 'x')
+      const keystroke = Y.encodeStateAsUpdate(source, before)
+      const started = performance.now()
+      Y.applyUpdate(tab.ydoc, keystroke, REMOTE)
+      times.push(performance.now() - started)
     }
 
-    const withLeftovers = []
+    times.sort((left, right) => left - right)
+    return { time: times[7], text: tab.editor.state.doc.textContent, freezes: tab.freezes }
+  }
+
+  function paragraphs() {
+    return Array.from({ length: 2000 }, (_, i) => paragraph(`paragraph ${i}`))
+  }
+
+  function withLeftovers() {
+    const blocks = []
     for (const [i, block] of paragraphs().entries()) {
-      withLeftovers.push(block)
+      blocks.push(block)
       if (i % 2) {
-        withLeftovers.push(leftover())
+        blocks.push(leftover())
       }
     }
 
+    return blocks
+  }
+
+  it('takes at most twice as long per keystroke as the same body without them', () => {
     const plain = open(stored(...paragraphs()))
-    const hidden = open(stored(...withLeftovers))
+    const hidden = open(stored(...withLeftovers()))
     typingTime(plain)
     typingTime(hidden)
 
     expect(typingTime(hidden)).toBeLessThanOrEqual(2 * typingTime(plain))
+  })
+
+  it('takes at most twice as long per keystroke from another tab', () => {
+    const [plain, hidden] = [stored(...paragraphs()), stored(...withLeftovers())]
+    remoteTypingTime(plain)
+    remoteTypingTime(hidden)
+    const [plainTyping, hiddenTyping] = [remoteTypingTime(plain), remoteTypingTime(hidden)]
+
+    const typed = 'x'.repeat(15)
+
+    expect(hiddenTyping.text).toContain(`${typed}paragraph 1000`)
+    expect(hiddenTyping.freezes).toEqual([])
+    expect(hiddenTyping.time).toBeLessThanOrEqual(2 * plainTyping.time)
   })
 })
