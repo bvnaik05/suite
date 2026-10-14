@@ -271,4 +271,19 @@ describe('received content guard', () => {
       ]).toEqual([false, outcome === 'kept', 'xtyped'])
     },
   )
+
+  it("a normalizer's later step may land where its earlier step moved the user's edit", async () => {
+    function insertTwice(tr: Transaction) {
+      tr.insertText('abc', 1)
+
+      tr.insertText('!', 5)
+    }
+
+    const viewer = openViewer(storedState(paragraph('typed')), [followUp(insertTwice)])
+    await waitForUpdates()
+
+    viewer.editor.commands.insertContentAt(1, 'x')
+
+    expect(viewer.editor.state.doc.textContent).toBe('abcx!typed')
+  })
 })

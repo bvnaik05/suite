@@ -1,7 +1,7 @@
 import { Extension } from '@tiptap/core'
 import type { Node } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type PluginSpec, type Transaction } from '@tiptap/pm/state'
-import { ReplaceAroundStep, type Step } from '@tiptap/pm/transform'
+import { ReplaceAroundStep, type Step, type StepMap } from '@tiptap/pm/transform'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 
 import { changedRanges, mapRanges, rangesChangedBy, touches, type Range } from './ranges'
@@ -23,6 +23,17 @@ function settlesToOneValue(step: Step, doc: Node) {
     gapFrom === from + 1 && gapTo === to - 1 && insert === 1 && slice.content.childCount === 1
   const keepsNodeType = node?.type === doc.nodeAt(from)?.type
   return replacesOnlyWrapper && keepsNodeType
+}
+
+function staysInside(map: StepMap, ranges: Range[]) {
+  let isInside = true
+  function checkRange(from: number, to: number) {
+    isInside &&= touches(ranges, from, to)
+  }
+
+  // A step map is not iterable, so its own forEach
+  map.forEach(checkRange)
+  return isInside
 }
 
 // Every viewer runs the same normalizers, and Yjs keeps each viewer's copy of
@@ -73,20 +84,17 @@ export const ReceivedContentGuard = Extension.create<
         const ranges = guardKey.getState(state)
         if (!ranges) return false
 
-        const staysInside = (step: Step, i: number) => {
-          if (settlesToOneValue(step, tr.docs[i])) return true
-
-          const mappingBefore = tr.mapping.slice(0, i)
-          const allowedRanges = mapRanges(ranges, mappingBefore)
-          let isInside = true
-          const checkRange = (from: number, to: number) => {
-            isInside &&= touches(allowedRanges, from, to)
+        let allowedRanges = ranges
+        for (const [i, step] of tr.steps.entries()) {
+          const map = step.getMap()
+          if (!settlesToOneValue(step, tr.docs[i]) && !staysInside(map, allowedRanges)) {
+            return false
           }
-          step.getMap().forEach(checkRange)
-          return isInside
+
+          allowedRanges = mapRanges(allowedRanges, map)
         }
 
-        return tr.steps.every(staysInside)
+        return true
       },
     }
 
