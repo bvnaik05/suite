@@ -257,8 +257,11 @@
 			     the conversation up out of view. Given the pane to itself it has no conversation
 			     to protect and takes whatever height the fields and toolbar leave. -->
       <div
-        class="relative flex flex-1 cursor-text flex-col border-2 border-transparent text-sm sm:overflow-y-auto"
+        class="relative flex cursor-text flex-col border-2 border-transparent text-sm sm:overflow-y-auto"
         :class="{
+          // Docked, the body is its own height and gives way only at the window's cap; anywhere
+          // else it fills what the fields and toolbar leave.
+          'flex-1': !windowed || expanded,
           'px-4 py-3': windowed,
           'py-2.5 max-sm:px-3': !windowed,
           // Docked, the window is as tall as its fields and a fixed page; expanded, the page
