@@ -29,7 +29,7 @@ import { PageBreakExtension } from '@/apps/writer/extensions/page-break'
 import { ReceivedContentGuard } from '@/apps/writer/extensions/received-content-guard'
 import TabTrailingNode from '@/apps/writer/extensions/tab-trailing-node'
 import { TabsExtension } from '@/apps/writer/extensions/tabs'
-import { WRITER_STARTER_KIT } from '@/apps/writer/schema'
+import { HiddenWhenEmpty, WRITER_STARTER_KIT } from '@/apps/writer/schema'
 
 export type WriterEditorOptions = {
   collaborative: boolean
@@ -88,6 +88,7 @@ export const writerEditorExtensions = (options: WriterEditorOptions): AnyExtensi
   }),
   TabsExtension,
   TabTrailingNode,
+  HiddenWhenEmpty,
   JoinAdjacentLists,
   OldCommentExtension.configure({ onCommentActivated: options.onCommentActivated }),
   HeadingAnchors.configure({

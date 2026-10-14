@@ -1,9 +1,6 @@
-export function createEmptyMeta(): {
-    mapping: Map<any, any>;
-    isOMark: Map<any, any>;
-};
+export function createEmptyMeta(): BindingMetadata;
 export function isVisible(item: Y.Item, snapshot?: Y.Snapshot): boolean;
-export function ySyncPlugin(yXmlFragment: Y.XmlFragment, { colors, colorMapping, permanentUserData, onFirstRender, mapping }?: YSyncOpts): any;
+export function ySyncPlugin(yXmlFragment: Y.XmlFragment, { colors, colorMapping, permanentUserData, onFirstRender, onUnplaceable, mapping }?: YSyncOpts): any;
 export function getRelativeSelection(pmbinding: ProsemirrorBinding, state: import('prosemirror-state').EditorState): {
     type: any;
     depth: any;
@@ -53,6 +50,21 @@ export class ProsemirrorBinding {
     afterAllTransactions: () => void;
     _domSelectionInView: boolean;
     /**
+     * Elements left holding nothing that the editor can't show; they stay in Yjs as they are
+     */
+    hidden: Set<Y.AbstractType<any>>;
+    /**
+     * Content the last render couldn't show
+     */
+    lost: Array<Y.AbstractType<any>>;
+    /**
+     * Set once a render lost content; nothing is written to Yjs after
+     */
+    isFrozen: boolean;
+    onUnplaceable: (reason: UnplaceableReason, transaction: Y.Transaction | null) => void;
+    _place(): Array<PModel.Node>;
+    _freezeOnLoss(reason: UnplaceableReason, transaction: Y.Transaction | null): void;
+    /**
      * Create a transaction for changing the prosemirror state.
      *
      * @returns
@@ -78,6 +90,7 @@ export class ProsemirrorBinding {
      * @param {Y.Transaction} transaction
      */
     _typeChanged(events: Array<Y.YEvent<any>>, transaction: Y.Transaction): void;
+    _mergeOwnTexts(transaction: Y.Transaction): void;
     /**
      * @param {import('prosemirror-model').Node} doc
      */
@@ -89,6 +102,11 @@ export class ProsemirrorBinding {
     initView(prosemirrorView: any): void;
     destroy(): void;
 }
+export function placeFragment(yXmlFragment: Y.XmlFragment, schema: PModel.Schema): {
+    node: PModel.Node;
+    hidden: Set<Y.AbstractType<any>>;
+    lost: Array<Y.AbstractType<any>>;
+};
 export function createNodeFromYElement(el: Y.XmlElement, schema: any, meta: BindingMetadata, snapshot?: Y.Snapshot, prevSnapshot?: Y.Snapshot, computeYChange?: (arg0: 'removed' | 'added', arg1: Y.ID) => any): PModel.Node | null;
 export function yattr2markname(attrName: string): string;
 export function attributesToMarks(attrs: {
@@ -103,7 +121,20 @@ export type BindingMetadata = {
      * - is overlapping mark
      */
     isOMark: Map<import('prosemirror-model').MarkType, boolean>;
+    /**
+     * - elements left holding nothing, kept in Yjs and not shown
+     */
+    hidden: Set<Y.AbstractType<any>>;
+    /**
+     * - content the last build couldn't show
+     */
+    lost: Array<Y.AbstractType<any>>;
 };
+/**
+ * Why a render stopped the binding writing to Yjs: the first render, a row from elsewhere, an undo,
+ * another change made here, or leaving a past state
+ */
+export type UnplaceableReason = 'open' | 'row' | 'undo' | 'local' | 'unrender';
 /**
  * Either a node if type is YXmlElement or an Array of text nodes if YXmlText
  */
@@ -121,6 +152,11 @@ export type YSyncOpts = {
      * Fired when the content from Yjs is initially rendered to ProseMirror
      */
     onFirstRender?: Function;
+    /**
+     * Fired once when Yjs holds content the editor can't show, with why and the Yjs transaction that
+     * brought it, or null on the first render; the binding then writes nothing to Yjs
+     */
+    onUnplaceable?: (reason: UnplaceableReason, transaction: Y.Transaction | null) => void;
 };
 export type NormalizedPNodeContent = Array<Array<PModel.Node> | PModel.Node>;
 import * as Y from 'yjs';

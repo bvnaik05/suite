@@ -22,6 +22,7 @@ function canPlace(editor: Editor, position: unknown) {
     syncState.type,
     relative,
     syncState.binding.mapping,
+    syncState.binding.hidden,
   )
   return absolute !== null
 }

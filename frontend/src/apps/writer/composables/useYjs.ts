@@ -59,10 +59,20 @@ export const useComments = (document: LoadedDocument, editor: Ref<Editor | null>
       anchorText,
       anchor: {
         from: Y.encodeRelativePosition(
-          absolutePositionToRelativePosition(from, ystate.type, ystate.binding.mapping),
+          absolutePositionToRelativePosition(
+            from,
+            ystate.type,
+            ystate.binding.mapping,
+            ystate.binding.hidden,
+          ),
         ),
         to: Y.encodeRelativePosition(
-          absolutePositionToRelativePosition(to, ystate.type, ystate.binding.mapping),
+          absolutePositionToRelativePosition(
+            to,
+            ystate.type,
+            ystate.binding.mapping,
+            ystate.binding.hidden,
+          ),
         ),
       },
     })

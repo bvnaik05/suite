@@ -14,18 +14,22 @@ const VENDORED_DIR = path.resolve(__dirname, '../../../../packages/collab-prosem
 
 // Published @tiptap/y-tiptap 3.0.5, except where a later commit names its change
 const SHA256: Record<string, string> = {
-  // published 606fedd1...; then every new textblock gets its text node eagerly
-  'dist/y-tiptap.js': '56e2d4feca8e7dce32bf86c2c850560a706cb788506bdb07e0d71b3c5766d24b',
-  'dist/src/lib.d.ts': '788e88fe93b96cf2852cabfa746d4db525c3bf3b8e620c318627063f29054cd6',
+  // published 606fedd1...; then every new textblock gets its text node eagerly; then content the editor
+  // can't hold freezes the binding, and leftovers holding nothing are hidden and skipped, never deleted
+  'dist/y-tiptap.js': '0779a78794d9b5cfdc4f2e4ea0c7a0e8309cf2060aad699c7513cc4f9b537861',
+  // published 788e88fe...; then positions skip hidden leftovers
+  'dist/src/lib.d.ts': '7e43ada60eb3ffaf60754b08f4d5268a4cd261e54c2b774a362760f0f41749ef',
   'dist/src/plugins/cursor-plugin.d.ts':
     '14df8f3b1fd5b5cdc11bea5eadee07b107719aefd705a97c699465a31488f11a',
   'dist/src/plugins/keys.d.ts': '9596550a6e87582af85039f4c83300bbd6b3e69af1aef98caf2e4d8f632b96f2',
+  // published 7e5dc45b...; then onUnplaceable, the freeze and placeFragment
   'dist/src/plugins/sync-plugin.d.ts':
-    '7e5dc45b0517b35834216e6677b167ca8b8a6ad8cccc5cba7368f6182ffd0609',
+    'f2c3846a8b37108d7ca93549f93856cdd1cfb4f064f68d44fb1bb07af7b4035e',
   'dist/src/plugins/undo-plugin.d.ts':
     '55375f35812f70dc78b932632264ef10864d39e804197deab1b9d3c7369813e2',
   'dist/src/utils.d.ts': 'c02eb8e03bba34945bf316eaf825c8c31c49e00bea3e5b5b81c8627b47b788f7',
-  'dist/src/y-tiptap.d.ts': '456adef97f2428e2efbe0d4a9c18335320aef02f9f58e47b63bc6d12b92ca1d8',
+  // published 456adef9...; then placeFragment and UnplaceableReason
+  'dist/src/y-tiptap.d.ts': 'a0578082fc4e96c52dfe7e26ea2d2d1dee3254b3f2968e8e5d64738c3839faa6',
   LICENSE: 'fd69bd7c93b6c32f43c8244c3182029c1af6cc14bb259a0195750f1661e9e304',
 }
 

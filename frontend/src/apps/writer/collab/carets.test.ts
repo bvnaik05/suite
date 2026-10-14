@@ -48,7 +48,10 @@ function openEditor() {
 
 function caretAt(editor: Editor, at: number, to = at) {
   const { type, binding } = ySyncPluginKey.getState(editor.state)
-  const toRelative = (pos: number) => absolutePositionToRelativePosition(pos, type, binding.mapping)
+  function toRelative(pos: number) {
+    return absolutePositionToRelativePosition(pos, type, binding.mapping, binding.hidden)
+  }
+
   return { anchor: toRelative(at), head: toRelative(to) }
 }
 

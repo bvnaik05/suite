@@ -33,8 +33,9 @@ export function placeThread(state: EditorState, anchor: string): ThreadPlace {
   }
 
   const { doc, type, binding } = sync
-  const from = relativePositionToAbsolutePosition(doc, type, read.start, binding.mapping)
-  const to = relativePositionToAbsolutePosition(doc, type, read.end, binding.mapping)
+  const { mapping, hidden } = binding
+  const from = relativePositionToAbsolutePosition(doc, type, read.start, mapping, hidden)
+  const to = relativePositionToAbsolutePosition(doc, type, read.end, mapping, hidden)
   if (from === null || to === null || from >= to) {
     return { kind: 'deleted', quote: read.quote }
   }
@@ -51,8 +52,9 @@ export function anchorSelection(state: EditorState): string | null {
   }
 
   const { doc, type, binding } = sync
-  const start = positionAt(doc, absolutePositionToRelativePosition(from, type, binding.mapping), 0)
-  const end = positionAt(doc, absolutePositionToRelativePosition(to, type, binding.mapping), -1)
+  const { mapping, hidden } = binding
+  const start = positionAt(doc, absolutePositionToRelativePosition(from, type, mapping, hidden), 0)
+  const end = positionAt(doc, absolutePositionToRelativePosition(to, type, mapping, hidden), -1)
   return encodeAnchor(start, end, state.doc.textBetween(from, to, ' '))
 }
 

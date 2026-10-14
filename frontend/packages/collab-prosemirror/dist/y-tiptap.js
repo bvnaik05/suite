@@ -66,6 +66,8 @@ const hashOfJSON = (json) => buf.toBase64(_convolute(sha256.digest(buf.encodeAny
  * @typedef {Object} BindingMetadata
  * @property {ProsemirrorMapping} BindingMetadata.mapping
  * @property {Map<import('prosemirror-model').MarkType, boolean>} BindingMetadata.isOMark - is overlapping mark
+ * @property {Set<Y.AbstractType<any>>} BindingMetadata.hidden - elements left holding nothing, kept in Yjs and not shown
+ * @property {Array<Y.AbstractType<any>>} BindingMetadata.lost - content the last build couldn't show
  */
 
 /**
@@ -73,7 +75,9 @@ const hashOfJSON = (json) => buf.toBase64(_convolute(sha256.digest(buf.encodeAny
  */
 const createEmptyMeta = () => ({
   mapping: new Map(),
-  isOMark: new Map()
+  isOMark: new Map(),
+  hidden: new Set(),
+  lost: []
 });
 
 /**
@@ -105,6 +109,8 @@ const isVisible = (item, snapshot) =>
  * @property {Y.PermanentUserData|null} [YSyncOpts.permanentUserData]
  * @property {ProsemirrorMapping} [YSyncOpts.mapping]
  * @property {function} [YSyncOpts.onFirstRender] Fired when the content from Yjs is initially rendered to ProseMirror
+ * @property {function('open'|'row'|'undo'|'local'|'unrender', Y.Transaction | null):void} [YSyncOpts.onUnplaceable] Fired once
+ * when Yjs holds content the editor can't show, with what brought it; the binding then writes nothing to Yjs
  */
 
 /**
@@ -144,18 +150,23 @@ const ySyncPlugin = (yXmlFragment, {
   colorMapping = new Map(),
   permanentUserData = null,
   onFirstRender = () => {},
+  onUnplaceable = () => {},
   mapping
 } = {}) => {
   let initialContentChanged = false;
   const binding = new ProsemirrorBinding(yXmlFragment, mapping);
+  binding.onUnplaceable = onUnplaceable;
   const plugin = new Plugin({
     props: {
       editable: (state) => {
         const syncState = ySyncPluginKey.getState(state);
-        return syncState.snapshot == null && syncState.prevSnapshot == null
+        return !binding.isFrozen && syncState.snapshot == null && syncState.prevSnapshot == null
       }
     },
     key: ySyncPluginKey,
+    // A frozen editor takes no edits; its own renders of Yjs still show
+    filterTransaction: (tr) =>
+      !binding.isFrozen || !tr.docChanged || tr.getMeta(ySyncPluginKey) !== undefined,
     state: {
       /**
        * @returns {any}
@@ -294,7 +305,8 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         binding.doc,
         binding.type,
         relSel.anchor,
-        binding.mapping
+        binding.mapping,
+        binding.hidden
       );
       // anchor is null when the referenced node was deleted or moved out of
       // binding.type by a remote update; resolving null would throw.
@@ -306,13 +318,15 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         binding.doc,
         binding.type,
         relSel.anchor,
-        binding.mapping
+        binding.mapping,
+        binding.hidden
       );
       const head = relativePositionToAbsolutePosition(
         binding.doc,
         binding.type,
         relSel.head,
-        binding.mapping
+        binding.mapping,
+        binding.hidden
       );
       const selection = createSafeNodeRangeSelection(tr, anchor, head, relSel.depth);
       if (selection !== null) {
@@ -323,13 +337,15 @@ const restoreRelativeSelection = (tr, relSel, binding) => {
         binding.doc,
         binding.type,
         relSel.anchor,
-        binding.mapping
+        binding.mapping,
+        binding.hidden
       );
       const head = relativePositionToAbsolutePosition(
         binding.doc,
         binding.type,
         relSel.head,
-        binding.mapping
+        binding.mapping,
+        binding.hidden
       );
       if (anchor !== null && head !== null) {
         tr.setSelection(TextSelection.between(tr.doc.resolve(anchor), tr.doc.resolve(head)));
@@ -405,14 +421,25 @@ const getRelativeSelection = (pmbinding, state) => {
     anchor: absolutePositionToRelativePosition(
       state.selection.anchor,
       pmbinding.type,
-      pmbinding.mapping
+      pmbinding.mapping,
+      pmbinding.hidden
     ),
     head: absolutePositionToRelativePosition(
       state.selection.head,
       pmbinding.type,
-      pmbinding.mapping
+      pmbinding.mapping,
+      pmbinding.hidden
     )
   }
+};
+
+/**
+ * @param {Y.Transaction} transaction
+ * @return {'row'|'undo'|'local'}
+ */
+const transactionReason = (transaction) => {
+  if (transaction.origin instanceof Y.UndoManager) return 'undo'
+  return transaction.local ? 'local' : 'row'
 };
 
 /**
@@ -462,6 +489,48 @@ class ProsemirrorBinding {
       this.beforeTransactionSelection = null;
     };
     this._domSelectionInView = null;
+    /**
+     * Elements left holding nothing that the editor can't show; they stay in Yjs as they are
+     * @type {Set<Y.AbstractType<any>>}
+     */
+    this.hidden = new Set();
+    /**
+     * Content the last render couldn't show
+     * @type {Array<Y.AbstractType<any>>}
+     */
+    this.lost = [];
+    /**
+     * Set once a render lost content; nothing is written to Yjs after
+     */
+    this.isFrozen = false;
+    /**
+     * @type {function('open'|'row'|'undo'|'local'|'unrender', Y.Transaction | null):void}
+     */
+    this.onUnplaceable = () => {};
+  }
+
+  /**
+   * Build the editor's content from Yjs, recording in `lost` what it can't show
+   *
+   * @return {Array<PModel.Node>}
+   */
+  _place () {
+    this.lost = [];
+    const schema = this.prosemirrorView.state.schema;
+    return placeChildren(this.type, schema.topNodeType, schema, this)
+  }
+
+  /**
+   * Stop writing to Yjs and drop the undo history when the last render lost content
+   *
+   * @param {'open'|'row'|'undo'|'local'|'unrender'} reason
+   * @param {Y.Transaction | null} transaction
+   */
+  _freezeOnLoss (reason, transaction) {
+    if (this.isFrozen || this.lost.length === 0) return
+    this.isFrozen = true;
+    yUndoPluginKey.getState(this.prosemirrorView.state)?.undoManager?.clear();
+    this.onUnplaceable(reason, transaction);
   }
 
   /**
@@ -529,14 +598,10 @@ class ProsemirrorBinding {
 
   unrenderSnapshot () {
     this.mapping.clear();
+    this.hidden.clear();
     this.mux(() => {
-      const fragmentContent = this.type.toArray().map((t) =>
-        createNodeFromYElement(
-          /** @type {Y.XmlElement} */ (t),
-          this.prosemirrorView.state.schema,
-          this
-        )
-      ).filter((n) => n !== null);
+      const fragmentContent = this._place();
+      this._freezeOnLoss('unrender', null);
       // @ts-ignore
       const tr = this._tr.replace(
         0,
@@ -550,18 +615,14 @@ class ProsemirrorBinding {
 
   _forceRerender () {
     this.mapping.clear();
+    this.hidden.clear();
     this.mux(() => {
       // If this is a forced rerender, this might neither happen as a pm change nor within a Yjs
       // transaction. Then the "before selection" doesn't exist. In this case, we need to create a
       // relative position before replacing content. Fixes #126
       const sel = this.beforeTransactionSelection !== null ? null : this.prosemirrorView.state.selection;
-      const fragmentContent = this.type.toArray().map((t) =>
-        createNodeFromYElement(
-          /** @type {Y.XmlElement} */ (t),
-          this.prosemirrorView.state.schema,
-          this
-        )
-      ).filter((n) => n !== null);
+      const fragmentContent = this._place();
+      this._freezeOnLoss('open', null);
       // @ts-ignore
       const tr = this._tr.replace(
         0,
@@ -636,6 +697,7 @@ class ProsemirrorBinding {
     }
     // clear mapping because we are going to rerender
     this.mapping.clear();
+    this.hidden.clear();
     this.mux(() => {
       historyDoc.transact((transaction) => {
         // before rendering, we are going to sanitize ops and split deleted ops
@@ -679,7 +741,7 @@ class ProsemirrorBinding {
             return createNodeFromYElement(
               t,
               this.prosemirrorView.state.schema,
-              { mapping: new Map(), isOMark: new Map() },
+              createEmptyMeta(),
               snapshot,
               prevSnapshot,
               computeYChange
@@ -731,18 +793,17 @@ class ProsemirrorBinding {
           if (struct.constructor === Y.Item) {
             const type = /** @type {Y.ContentType} */ (/** @type {Y.Item} */ (struct).content).type;
             type && this.mapping.delete(type);
+            type && this.hidden.delete(type);
           }
         }
       );
       transaction.changed.forEach(delType);
       transaction.changedParentTypes.forEach(delType);
-      const fragmentContent = this.type.toArray().map((t) =>
-        createNodeIfNotExists(
-          /** @type {Y.XmlElement | Y.XmlHook} */ (t),
-          this.prosemirrorView.state.schema,
-          this
-        )
-      ).filter((n) => n !== null);
+      if (!this.isFrozen && transaction.local) {
+        this._mergeOwnTexts(transaction);
+      }
+      const fragmentContent = this._place();
+      this._freezeOnLoss(transactionReason(transaction), transaction);
       // @ts-ignore
       let tr = this._tr.replace(
         0,
@@ -761,9 +822,38 @@ class ProsemirrorBinding {
   }
 
   /**
+   * Fold a Y.Text this client made into the Y.Text before it, so two never sit side by side.
+   * This is a fix for #160 -- duplication of characters when two Y.Text exist next to each other
+   *
+   * @param {Y.Transaction} transaction
+   */
+  _mergeOwnTexts (transaction) {
+    const parents = new Set([...transaction.changed.keys(), ...transaction.changedParentTypes.keys()]);
+    parents.forEach((parent) => {
+      if (!(parent instanceof Y.XmlFragment) || (parent !== this.type && !Y.isParentOf(this.type, parent._item))) {
+        return
+      }
+      parent.toArray().forEach((type) => {
+        if (!(type instanceof Y.XmlText)) return
+        const nextytext = /** @type {Y.ContentType} */ (type._item.right?.content)?.type;
+        if (nextytext instanceof Y.Text && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
+          type.applyDelta([
+            { retain: type.length },
+            ...nextytext.toDelta()
+          ]);
+          nextytext.doc.transact(tr => {
+            nextytext._item.delete(tr);
+          });
+        }
+      });
+    });
+  }
+
+  /**
    * @param {import('prosemirror-model').Node} doc
    */
   _prosemirrorChanged (doc) {
+    if (this.isFrozen) return
     this.doc.transact(() => {
       updateYFragment(this.doc, this.type, doc, this);
       this.beforeTransactionSelection = getRelativeSelection(
@@ -831,6 +921,89 @@ const createNodeIfNotExists = (
 };
 
 /**
+ * Whether a Yjs type holds nothing a reader would miss: no text, and only element kinds the schema marks
+ * `hiddenWhenEmpty`, each with every attribute at its default (an attribute the kind doesn't declare isn't)
+ *
+ * @param {Y.AbstractType<any>} type
+ * @param {PModel.Schema} schema
+ * @return {boolean}
+ */
+const isContentFree = (type, schema) => {
+  if (type instanceof Y.XmlText) return type.length === 0
+  if (!(type instanceof Y.XmlElement)) return false
+  const nodeType = schema.nodes[type.nodeName];
+  if (!nodeType?.spec.hiddenWhenEmpty) return false
+  const attrs = type.getAttributes();
+  const isDefault = (key) => object.hasProperty(nodeType.attrs, key) && nodeType.attrs[key].default === attrs[key];
+  return object.keys(attrs).every(isDefault) &&
+    type.toArray().every((child) => isContentFree(child, schema))
+};
+
+/**
+ * Leave a type the editor can't show in Yjs as it is: hidden when it holds nothing, else recorded as lost
+ *
+ * @param {Y.AbstractType<any>} type
+ * @param {PModel.Schema} schema
+ * @param {BindingMetadata} meta
+ * @return {null}
+ */
+const setAside = (type, schema, meta) => {
+  meta.mapping.delete(type);
+  if (isContentFree(type, schema)) {
+    meta.hidden.add(type);
+  } else {
+    meta.hidden.delete(type);
+    meta.lost.push(type);
+  }
+  return null
+};
+
+/**
+ * Build the children of a Yjs parent and fit them, in order, to the content `nodeType` allows; a child
+ * that can't be built or doesn't fit is set aside
+ *
+ * @param {Y.XmlFragment} parent
+ * @param {PModel.NodeType} nodeType
+ * @param {PModel.Schema} schema
+ * @param {BindingMetadata} meta
+ * @return {Array<PModel.Node>}
+ */
+const placeChildren = (parent, nodeType, schema, meta) => {
+  const nodes = [];
+  let match = nodeType.contentMatch;
+  parent.toArray().forEach((ychild) => {
+    const built = ychild instanceof Y.XmlText
+      ? createTextNodesFromYText(ychild, schema, meta)
+      : createNodeIfNotExists(/** @type {Y.XmlElement} */ (ychild), schema, meta);
+    if (built === null) return
+    const pieces = built instanceof Array ? built : [built];
+    const next = pieces.reduce((fit, node) => fit && fit.matchType(node.type), match);
+    if (next) {
+      match = next;
+      nodes.push(...pieces);
+    } else {
+      setAside(ychild, schema, meta);
+    }
+  });
+  return nodes
+};
+
+/**
+ * Build the editor document a Yjs fragment holds, without writing to Yjs, with what it had to leave out:
+ * `hidden` holds nothing a reader would miss, `lost` does
+ *
+ * @param {Y.XmlFragment} yXmlFragment
+ * @param {PModel.Schema} schema
+ * @return {{ node: PModel.Node, hidden: Set<Y.AbstractType<any>>, lost: Array<Y.AbstractType<any>> }}
+ */
+const placeFragment = (yXmlFragment, schema) => {
+  const meta = createEmptyMeta();
+  const content = placeChildren(yXmlFragment, schema.topNodeType, schema, meta);
+  const node = schema.topNodeType.createAndFill(null, content) ?? schema.topNodeType.create(null, content);
+  return { node, hidden: meta.hidden, lost: meta.lost }
+};
+
+/**
  * @private
  * @param {Y.XmlElement} el
  * @param {any} schema
@@ -838,9 +1011,43 @@ const createNodeIfNotExists = (
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
- * @return {PModel.Node | null} Returns node if node could be created. Otherwise it deletes the yjs type and returns null
+ * @return {PModel.Node | null} Returns node if node could be created. Otherwise it sets the yjs type aside and returns null
  */
 const createNodeFromYElement = (
+  el,
+  schema,
+  meta,
+  snapshot,
+  prevSnapshot,
+  computeYChange
+) => {
+  if (snapshot !== undefined && prevSnapshot !== undefined) {
+    return createSnapshotNodeFromYElement(el, schema, meta, snapshot, prevSnapshot, computeYChange)
+  }
+  const nodeType = schema.nodes[el.nodeName];
+  if (nodeType === undefined) return setAside(el, schema, meta)
+  const children = placeChildren(el, nodeType, schema, meta);
+  try {
+    const node = nodeType.createChecked(el.getAttributes(), children);
+    meta.mapping.set(el, node);
+    meta.hidden.delete(el);
+    return node
+  } catch (e) {
+    return setAside(el, schema, meta)
+  }
+};
+
+/**
+ * @private
+ * @param {Y.XmlElement} el
+ * @param {any} schema
+ * @param {BindingMetadata} meta
+ * @param {Y.Snapshot} snapshot
+ * @param {Y.Snapshot} prevSnapshot
+ * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
+ * @return {PModel.Node | null}
+ */
+const createSnapshotNodeFromYElement = (
   el,
   schema,
   meta,
@@ -866,20 +1073,6 @@ const createNodeFromYElement = (
         children.push(n);
       }
     } else {
-      // If the next ytext exists and was created by us, move the content to the current ytext.
-      // This is a fix for #160 -- duplication of characters when two Y.Text exist next to each
-      // other.
-      const nextytext = /** @type {Y.ContentType} */ (type._item.right?.content)?.type;
-      if (nextytext instanceof Y.Text && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
-        type.applyDelta([
-          { retain: type.length },
-          ...nextytext.toDelta()
-        ]);
-        nextytext.doc.transact(tr => {
-          nextytext._item.delete(tr);
-        });
-      }
-      // now create the prosemirror text nodes
       const ns = createTextNodesFromYText(
         type,
         schema,
@@ -897,33 +1090,24 @@ const createNodeFromYElement = (
       }
     }
   };
-  if (snapshot === undefined || prevSnapshot === undefined) {
-    el.toArray().forEach(createChildren);
-  } else {
-    Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sv))
-      .forEach(createChildren);
-  }
+  Y.typeListToArraySnapshot(el, new Y.Snapshot(prevSnapshot.ds, snapshot.sv))
+    .forEach(createChildren);
   try {
     const attrs = el.getAttributes(snapshot);
-    if (snapshot !== undefined) {
-      if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
-        attrs.ychange = computeYChange
-          ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id)
-          : { type: 'removed' };
-      } else if (!isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot)) {
-        attrs.ychange = computeYChange
-          ? computeYChange('added', /** @type {Y.Item} */ (el._item).id)
-          : { type: 'added' };
-      }
+    if (!isVisible(/** @type {Y.Item} */ (el._item), snapshot)) {
+      attrs.ychange = computeYChange
+        ? computeYChange('removed', /** @type {Y.Item} */ (el._item).id)
+        : { type: 'removed' };
+    } else if (!isVisible(/** @type {Y.Item} */ (el._item), prevSnapshot)) {
+      attrs.ychange = computeYChange
+        ? computeYChange('added', /** @type {Y.Item} */ (el._item).id)
+        : { type: 'added' };
     }
     const node = schema.node(el.nodeName, attrs, children);
     meta.mapping.set(el, node);
     return node
   } catch (e) {
-    // an error occured while creating the node. This is probably a result of a concurrent action.
-    /** @type {Y.Doc} */ (el.doc).transact((transaction) => {
-      /** @type {Y.Item} */ (el._item).delete(transaction);
-    }, ySyncPluginKey);
+    // A past state shown read-only; what it can't show stays in Yjs untouched
     meta.mapping.delete(el);
     return null
   }
@@ -933,7 +1117,7 @@ const createNodeFromYElement = (
  * @private
  * @param {Y.XmlText} text
  * @param {import('prosemirror-model').Schema} schema
- * @param {BindingMetadata} _meta
+ * @param {BindingMetadata} meta
  * @param {Y.Snapshot} [snapshot]
  * @param {Y.Snapshot} [prevSnapshot]
  * @param {function('removed' | 'added', Y.ID):any} [computeYChange]
@@ -942,7 +1126,7 @@ const createNodeFromYElement = (
 const createTextNodesFromYText = (
   text,
   schema,
-  _meta,
+  meta,
   snapshot,
   prevSnapshot,
   computeYChange
@@ -955,11 +1139,7 @@ const createTextNodesFromYText = (
       nodes.push(schema.text(delta.insert, attributesToMarks(delta.attributes, schema)));
     }
   } catch (e) {
-    // an error occured while creating the node. This is probably a result of a concurrent action.
-    /** @type {Y.Doc} */ (text.doc).transact((transaction) => {
-      /** @type {Y.Item} */ (text._item).delete(transaction);
-    }, ySyncPluginKey);
-    return null
+    return snapshot === undefined ? setAside(text, schema, meta) : null
   }
   // @ts-ignore
   return nodes
@@ -1098,19 +1278,30 @@ const equalYTextPText = (ytext, ptexts) => {
 };
 
 /**
+ * The children of a Yjs parent the editor shows, leaving out hidden ones
+ *
+ * @param {Y.XmlFragment} parent
+ * @param {BindingMetadata} meta
+ * @return {Array<Y.XmlElement|Y.XmlText|Y.XmlHook>}
+ */
+const visibleChildren = (parent, meta) => parent.toArray().filter((child) => !meta.hidden.has(child));
+
+/**
  * @param {Y.XmlElement|Y.XmlText|Y.XmlHook} ytype
  * @param {any|Array<any>} pnode
+ * @param {BindingMetadata} meta
  */
-const equalYTypePNode = (ytype, pnode) => {
+const equalYTypePNode = (ytype, pnode, meta) => {
   if (
     ytype instanceof Y.XmlElement && !(pnode instanceof Array) &&
     matchNodeName(ytype, pnode)
   ) {
     const normalizedContent = normalizePNodeContent(pnode);
-    return ytype._length === normalizedContent.length &&
+    const yChildren = visibleChildren(ytype, meta);
+    return yChildren.length === normalizedContent.length &&
       equalAttrs(ytype.getAttributes(), pnode.attrs) &&
-      ytype.toArray().every((ychild, i) =>
-        equalYTypePNode(ychild, normalizedContent[i])
+      yChildren.every((ychild, i) =>
+        equalYTypePNode(ychild, normalizedContent[i], meta)
       )
   }
   return ytype instanceof Y.XmlText && pnode instanceof Array &&
@@ -1135,7 +1326,7 @@ const mappedIdentity = (mapped, pcontent) =>
  * @return {{ foundMappedChild: boolean, equalityFactor: number }}
  */
 const computeChildEqualityFactor = (ytype, pnode, meta) => {
-  const yChildren = ytype.toArray();
+  const yChildren = visibleChildren(ytype, meta);
   const pChildren = normalizePNodeContent(pnode);
   const pChildCnt = pChildren.length;
   const yChildCnt = yChildren.length;
@@ -1148,7 +1339,7 @@ const computeChildEqualityFactor = (ytype, pnode, meta) => {
     const leftP = pChildren[left];
     if (mappedIdentity(meta.mapping.get(leftY), leftP)) {
       foundMappedChild = true; // definite (good) match!
-    } else if (!equalYTypePNode(leftY, leftP)) {
+    } else if (!equalYTypePNode(leftY, leftP, meta)) {
       break
     }
   }
@@ -1157,7 +1348,7 @@ const computeChildEqualityFactor = (ytype, pnode, meta) => {
     const rightP = pChildren[pChildCnt - right - 1];
     if (mappedIdentity(meta.mapping.get(rightY), rightP)) {
       foundMappedChild = true;
-    } else if (!equalYTypePNode(rightY, rightP)) {
+    } else if (!equalYTypePNode(rightY, rightP, meta)) {
       break
     }
   }
@@ -1301,8 +1492,10 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
   // update children
   const pChildren = normalizePNodeContent(pNode);
   const pChildCnt = pChildren.length;
-  const yChildren = yDomFragment.toArray();
+  const yChildren = visibleChildren(yDomFragment, meta);
   const yChildCnt = yChildren.length;
+  // hidden children stay where they are, so writes find their place by reference
+  const hasHidden = yChildCnt !== yDomFragment.length;
   const minCnt = math.min(pChildCnt, yChildCnt);
   let left = 0;
   let right = 0;
@@ -1311,7 +1504,7 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
     const leftY = yChildren[left];
     const leftP = pChildren[left];
     if (!mappedIdentity(meta.mapping.get(leftY), leftP)) {
-      if (equalYTypePNode(leftY, leftP)) {
+      if (equalYTypePNode(leftY, leftP, meta)) {
         // update mapping
         meta.mapping.set(leftY, leftP);
       } else {
@@ -1324,7 +1517,7 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
     const rightY = yChildren[yChildCnt - right - 1];
     const rightP = pChildren[pChildCnt - right - 1];
     if (!mappedIdentity(meta.mapping.get(rightY), rightP)) {
-      if (equalYTypePNode(rightY, rightP)) {
+      if (equalYTypePNode(rightY, rightP, meta)) {
         // update mapping
         meta.mapping.set(rightY, rightP);
       } else {
@@ -1394,11 +1587,12 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
           );
           right += 1;
         } else {
-          meta.mapping.delete(yDomFragment.get(left));
-          yDomFragment.delete(left, 1);
-          yDomFragment.insert(left, [
-            createTypeFromTextOrElementNode(leftP, meta)
-          ]);
+          const index = hasHidden ? yDomFragment.toArray().indexOf(leftY) : left;
+          const replacement = createTypeFromTextOrElementNode(leftP, meta);
+          meta.mapping.delete(leftY);
+          yDomFragment.delete(index, 1);
+          yDomFragment.insert(index, [replacement]);
+          yChildren[left] = replacement;
           left += 1;
         }
       }
@@ -1411,6 +1605,10 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
       // Edge case handling https://github.com/yjs/y-prosemirror/issues/108
       // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
       yChildren[0].delete(0, yChildren[0].length);
+    } else if (yDelLen > 0 && hasHidden) {
+      const doomed = yChildren.slice(left, left + yDelLen);
+      doomed.forEach(type => meta.mapping.delete(type));
+      deleteChildren(yDomFragment, doomed);
     } else if (yDelLen > 0) {
       yDomFragment.slice(left, left + yDelLen).forEach(type => meta.mapping.delete(type));
       yDomFragment.delete(left, yDelLen);
@@ -1420,9 +1618,28 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
       for (let i = left; i < pChildCnt - right; i++) {
         ins.push(createTypeFromTextOrElementNode(pChildren[i], meta));
       }
-      yDomFragment.insert(left, ins);
+      const index = !hasHidden || left === 0 ? left : yDomFragment.toArray().indexOf(yChildren[left - 1]) + 1;
+      yDomFragment.insert(index, ins);
     }
   }, ySyncPluginKey);
+};
+
+/**
+ * Delete these children of `parent`, each run of neighbours at once, last run first
+ *
+ * @param {Y.XmlFragment} parent
+ * @param {Array<Y.AbstractType<any>>} children
+ */
+const deleteChildren = (parent, children) => {
+  const indexOf = new Map(parent.toArray().map((child, index) => [child, index]));
+  const indexes = children.map((child) => /** @type {number} */ (indexOf.get(child))).sort((a, b) => a - b);
+  let end = indexes.length;
+  while (end > 0) {
+    let start = end - 1;
+    while (start > 0 && indexes[start - 1] === indexes[start] - 1) start--;
+    parent.delete(indexes[start], end - start);
+    end = start;
+  }
 };
 
 /**
@@ -1566,9 +1783,10 @@ const setMeta = (view, key, value) => {
  * @param {number} pos
  * @param {Y.XmlFragment} type
  * @param {ProsemirrorMapping} mapping
+ * @param {Set<Y.AbstractType<any>>} hidden elements the editor doesn't show, each taking no room
  * @return {any} relative position
  */
-const absolutePositionToRelativePosition = (pos, type, mapping) => {
+const absolutePositionToRelativePosition = (pos, type, mapping, hidden) => {
   if (pos === 0) {
     return Y.createRelativePositionFromTypeIndex(type, 0, -1)
   }
@@ -1596,7 +1814,7 @@ const absolutePositionToRelativePosition = (pos, type, mapping) => {
         }
       }
     } else {
-      const pNodeSize = /** @type {any} */ (mapping.get(n) || { nodeSize: 0 }).nodeSize;
+      const pNodeSize = hidden.has(n) ? 0 : /** @type {any} */ (mapping.get(n) || { nodeSize: 0 }).nodeSize;
       if (n._first !== null && pos < pNodeSize) {
         n = /** @type {Y.ContentType} */ (n._first.content).type;
         pos--;
@@ -1652,12 +1870,17 @@ const createRelativePosition = (type, item) => {
  * @param {Y.XmlFragment} documentType Top level type that is bound to pView
  * @param {any} relPos Encoded Yjs based relative position
  * @param {ProsemirrorMapping} mapping
+ * @param {Set<Y.AbstractType<any>>} hidden elements the editor doesn't show, each taking no room
  * @return {null|number}
  */
-const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping) => {
+const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping, hidden) => {
   const decodedPos = Y.createAbsolutePositionFromRelativePosition(relPos, y);
   if (decodedPos === null || (decodedPos.type !== documentType && !Y.isParentOf(documentType, decodedPos.type._item))) {
     return null
+  }
+  // a position inside a hidden element has no place in the editor
+  for (let t = decodedPos.type; t !== documentType; t = /** @type {any} */ (t._item).parent) {
+    if (hidden.has(t)) return null
   }
   let type = decodedPos.type;
   let pos = 0;
@@ -1672,7 +1895,7 @@ const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping) =>
         i++;
         if (t instanceof Y.XmlText) {
           pos += t._length;
-        } else {
+        } else if (!hidden.has(t)) {
           const mapped = mapping.get(t);
           if (mapped == null) {
             return null
@@ -1700,7 +1923,7 @@ const relativePositionToAbsolutePosition = (y, documentType, relPos, mapping) =>
         if (!n.deleted) {
           if (contentType instanceof Y.XmlText) {
             pos += contentType._length;
-          } else {
+          } else if (!hidden.has(contentType)) {
             const mapped = mapping.get(contentType);
             if (mapped == null) {
               return null
@@ -1804,7 +2027,7 @@ function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
 function prosemirrorToYXmlFragment (doc, xmlFragment) {
   const type = xmlFragment || new Y.XmlFragment();
   const ydoc = type.doc ? type.doc : { transact: (transaction) => transaction(undefined) };
-  updateYFragment(ydoc, type, doc, { mapping: new Map(), isOMark: new Map() });
+  updateYFragment(ydoc, type, doc, createEmptyMeta());
   return type
 }
 
@@ -2064,13 +2287,15 @@ const createDecorations = (
         y,
         ystate.type,
         Y.createRelativePositionFromJSON(aw.cursor.anchor),
-        ystate.binding.mapping
+        ystate.binding.mapping,
+        ystate.binding.hidden
       );
       let head = relativePositionToAbsolutePosition(
         y,
         ystate.type,
         Y.createRelativePositionFromJSON(aw.cursor.head),
-        ystate.binding.mapping
+        ystate.binding.mapping,
+        ystate.binding.hidden
       );
       if (anchor !== null && head !== null) {
         const maxsize = math.max(state.doc.content.size - 1, 0);
@@ -2177,7 +2402,8 @@ const yCursorPlugin = (
           const anchor = absolutePositionToRelativePosition(
             selection.anchor,
             ystate.type,
-            ystate.binding.mapping
+            ystate.binding.mapping,
+            ystate.binding.hidden
           );
           /**
            * @type {Y.RelativePosition}
@@ -2185,7 +2411,8 @@ const yCursorPlugin = (
           const head = absolutePositionToRelativePosition(
             selection.head,
             ystate.type,
-            ystate.binding.mapping
+            ystate.binding.mapping,
+            ystate.binding.hidden
           );
           if (
             current.cursor == null ||
@@ -2209,7 +2436,8 @@ const yCursorPlugin = (
             ystate.doc,
             ystate.type,
             Y.createRelativePositionFromJSON(current.cursor.anchor),
-            ystate.binding.mapping
+            ystate.binding.mapping,
+            ystate.binding.hidden
           ) !== null
         ) {
           // delete cursor information if current cursor information is owned by this editor binding
@@ -2233,6 +2461,7 @@ const yCursorPlugin = (
 
 const undo = state => {
   const undoManager = yUndoPluginKey.getState(state).undoManager;
+  if (ySyncPluginKey.getState(state)?.binding?.isFrozen) return false
   if (undoManager != null) {
     undoManager.undo();
     return true
@@ -2241,6 +2470,7 @@ const undo = state => {
 
 const redo = state => {
   const undoManager = yUndoPluginKey.getState(state).undoManager;
+  if (ySyncPluginKey.getState(state)?.binding?.isFrozen) return false
   if (undoManager != null) {
     undoManager.redo();
     return true
@@ -2345,4 +2575,4 @@ const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOrigins = 
   }
 });
 
-export { ProsemirrorBinding, absolutePositionToRelativePosition, createDecorations, defaultAwarenessStateFilter, defaultCursorBuilder, defaultDeleteFilter, defaultProtectedNodes, defaultSelectionBuilder, getRelativeSelection, initProseMirrorDoc, isVisible, prosemirrorJSONToYDoc, prosemirrorJSONToYXmlFragment, prosemirrorToYDoc, prosemirrorToYXmlFragment, redo, relativePositionToAbsolutePosition, setMeta, undo, updateYFragment, yCursorPlugin, yCursorPluginKey, yDocToProsemirror, yDocToProsemirrorJSON, ySyncPlugin, ySyncPluginKey, yUndoPlugin, yUndoPluginKey, yXmlFragmentToProseMirrorFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProsemirror, yXmlFragmentToProsemirrorJSON };
+export { ProsemirrorBinding, absolutePositionToRelativePosition, createDecorations, defaultAwarenessStateFilter, defaultCursorBuilder, defaultDeleteFilter, defaultProtectedNodes, defaultSelectionBuilder, getRelativeSelection, initProseMirrorDoc, isVisible, placeFragment, prosemirrorJSONToYDoc, prosemirrorJSONToYXmlFragment, prosemirrorToYDoc, prosemirrorToYXmlFragment, redo, relativePositionToAbsolutePosition, setMeta, undo, updateYFragment, yCursorPlugin, yCursorPluginKey, yDocToProsemirror, yDocToProsemirrorJSON, ySyncPlugin, ySyncPluginKey, yUndoPlugin, yUndoPluginKey, yXmlFragmentToProseMirrorFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProsemirror, yXmlFragmentToProsemirrorJSON };

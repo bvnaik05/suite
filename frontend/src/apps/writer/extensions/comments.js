@@ -25,6 +25,7 @@ export const getEditorPos = (relativePos, editor) => {
     ystate.type,
     Y.decodeRelativePosition(relativePos),
     ystate.binding.mapping,
+    ystate.binding.hidden,
   )
 }
 
@@ -40,12 +41,14 @@ const createDecorations = (state, yDoc, comments, active, showResolved) => {
         ystate.type,
         Y.decodeRelativePosition(comment.anchor.from),
         ystate.binding.mapping,
+        ystate.binding.hidden,
       )
       const to = relativePositionToAbsolutePosition(
         yDoc,
         ystate.type,
         Y.decodeRelativePosition(comment.anchor.to),
         ystate.binding.mapping,
+        ystate.binding.hidden,
       )
 
       decos.push(

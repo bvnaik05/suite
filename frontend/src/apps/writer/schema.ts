@@ -1,4 +1,4 @@
-import { Node } from '@tiptap/core'
+import { Extension, Node } from '@tiptap/core'
 import { Heading, Image, ImageGroup, RichTextKit, Video } from 'frappe-ui/editor'
 
 import ExtendedParagraph from '@/apps/writer/extensions/extended-paragraph'
@@ -52,6 +52,30 @@ export const TabNode = Node.create({
 
 export const EmbedNode = Node.create({ name: 'embed' })
 
+// Kinds a merge can leave holding nothing; the collab binding hides such a leftover instead of freezing
+const HIDDEN_WHEN_EMPTY = new Set([
+  'bulletList',
+  'orderedList',
+  'taskList',
+  'listItem',
+  'taskItem',
+  'table',
+  'tableRow',
+  'tableCell',
+  'tableHeader',
+  'blockquote',
+  'paragraph',
+  'imageGroup',
+])
+
+export const HiddenWhenEmpty = Extension.create({
+  name: 'hiddenWhenEmpty',
+
+  extendNodeSchema(extension) {
+    return { hiddenWhenEmpty: HIDDEN_WHEN_EMPTY.has(extension.name) }
+  },
+})
+
 export const WRITER_STARTER_KIT = { paragraph: false } as const
 
 export const writerSchema = () => [
@@ -74,4 +98,5 @@ export const writerSchema = () => [
   TabNode,
   OldComment,
   HeadingAnchors,
+  HiddenWhenEmpty,
 ]

@@ -52,7 +52,12 @@ function alignDocument(doc: Y.Doc, lineage: string, target: VersionBody, version
 }
 
 function replaceBody(doc: Y.Doc, body: Y.XmlFragment, root: PMNode) {
-  updateYFragment(doc, body, root, { mapping: new Map(), isOMark: new Map() })
+  updateYFragment(doc, body, root, {
+    mapping: new Map(),
+    isOMark: new Map(),
+    hidden: new Set(),
+    lost: [],
+  })
 }
 
 function alignMeta(current: Y.Map<unknown>, version: Y.Map<unknown>) {
