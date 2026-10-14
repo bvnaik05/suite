@@ -45,7 +45,7 @@
 			     blank. The body scrolls inside the card past that. A reply draft under other mail
 			     keeps its cap — there the thread is what scrolls. -->
             <div
-              class="sm:space-y-3 sm:px-5 sm:pt-6"
+              class="sm:space-y-2 sm:px-5 sm:pt-5"
               :class="{
                 'pb-16': isMobile && !thread?.at(-1)?.draft,
                 'sm:pb-24': isComposeWindowOpen(),
@@ -69,18 +69,18 @@
                 :images="hiddenImages"
                 @show="imagesShown = true"
               />
+              <!-- Rows carry their own date until a long thread's fold is opened; from then
+				     a quiet header names each day and the rows keep only the clock. On desktop
+				     the new and more-messages dividers drop the pill outline, as quiet as the
+				     rows around them. -->
               <template v-for="group in mailsByDay" :key="group.date">
-                <!-- Borderless: the date is a label, not a control — only the
-					     more-messages toggle keeps the pill outline. -->
-                <ThreadDivider
-                  v-if="shouldShowDateDivider(group.mails)"
-                  :message="getFormattedDate(group.date)"
-                  class="[&_span:not(.border-t)]:text-ink-gray-4 [&_span:not(.border-t)]:border-0 [&_span:not(.border-t)]:text-xs"
-                />
+                <div v-if="daysHeaded" class="text-ink-gray-5 text-sm-medium px-4 pb-1 pt-3">
+                  {{ getFormattedDate(group.date) }}
+                </div>
                 <template v-for="mail in group.mails" :key="mail.name">
                   <ThreadDivider
                     v-if="shouldShowUnseenMarker(mail.id)"
-                    class="!text-ink-blue-6 [&_.border-t]:border-[var(--outline-blue-3)] [&_span:not(.border-t)]:border-[var(--outline-blue-3)]"
+                    class="!text-ink-blue-6 [&_.border-t]:border-[var(--outline-blue-3)] [&_span:not(.border-t)]:border-[var(--outline-blue-3)] sm:[&_span:not(.border-t)]:border-0 sm:[&_span:not(.border-t)]:text-xs"
                     :message="unseenMessage"
                   />
 
@@ -90,9 +90,19 @@
                     @click="resetCollapsedGroup"
                   >
                     <ThreadDivider
+                      v-if="isMobile"
                       :message="__('{0} more messages', [String(collapsedMailNames.size)])"
                       class="hover:text-ink-gray-8"
                     />
+                    <!-- The quiet line, with an icon that says the count opens. -->
+                    <div v-else class="text-ink-gray-5 hover:text-ink-gray-8 flex items-center">
+                      <span class="flex-1 border-t" />
+                      <span class="flex items-center gap-1.5 px-2 py-1 text-xs">
+                        <span class="lucide-chevrons-up-down size-3.5" aria-hidden="true" />
+                        {{ __('{0} more messages', [String(collapsedMailNames.size)]) }}
+                      </span>
+                      <span class="flex-1 border-t" />
+                    </div>
                   </button>
                   <!-- A draft that is popped out drops out of the thread entirely: it is being
 						     written in the composer window, and it must be the card that goes, not
@@ -115,8 +125,9 @@
                         mail.name !== mailBeforeUnseenMarker,
                       'sm:rounded-7': thread.length > 1 || mail.draft,
                       // A collapsed row only holds one line — reading-card padding
-                      // around it is what made the thread feel loose.
-                      'sm:px-4 sm:py-5': (thread.length > 1 || mail.draft) && !isCollapsed(mail),
+                      // around it is what made the thread feel loose. A draft's card
+                      // pads nothing: the composer insets its own rows, as in its window.
+                      'sm:px-4 sm:py-3': thread.length > 1 && !mail.draft && !isCollapsed(mail),
                       // The list rows' hover, so a clickable row answers the cursor.
                       'sm:hover:bg-surface-gray-1 sm:px-4 sm:py-3':
                         thread.length > 1 && isCollapsed(mail),
@@ -316,7 +327,11 @@
                                   isCollapsed(mail),
                               }"
                             >
-                              <MailDate :datetime="mail.received_at" :clock="showsClockTime" />
+                              <MailDate
+                                :datetime="mail.received_at"
+                                :in-thread="!daysHeaded"
+                                :clock="daysHeaded"
+                              />
                             </span>
                             <!-- h-5: the 28px ghost buttons overhang the padding
 											     instead of growing the one-line row on hover. -->
@@ -424,7 +439,7 @@
                           <PlainTextBody
                             v-else
                             :text="getPlainTextBody(mail)"
-                            class="pt-4 font-sans !font-normal text-base !leading-5 sm:text-sm"
+                            class="font-sans !font-normal text-base !leading-5 sm:text-sm"
                           />
                         </template>
 
@@ -624,7 +639,11 @@ import {
 import { containEmailHtml } from '@/apps/mail/utils/containEmailHtml'
 import { mailCopies, mailCopyIds } from '@/apps/mail/utils/mailCopies'
 import { getSenderInitial } from '@/apps/mail/utils/participants'
-import { isCollapsed as isCollapsedIn, lastMessageOf } from '@/apps/mail/utils/threadFolding'
+import {
+  foldedNames,
+  isCollapsed as isCollapsedIn,
+  lastMessageOf,
+} from '@/apps/mail/utils/threadFolding'
 import { mailRow } from '@/apps/mail/utils/threadRows'
 import { UNIFIED_ROUTE, UNIFIED_THREAD_ROUTE } from '@/apps/mail/utils/unifiedFolders'
 
@@ -683,7 +702,6 @@ const { isMobile } = useScreenSize()
 const { filterBySender } = useFilterBySender()
 const { openSettings } = useSettings()
 const dayjs = inject('$dayjs')
-const user = inject('$user')
 // The pane acts as the thread's owning account (the active one unless the `account`
 // prop says otherwise) — provided so ThreadHeader's folder menus and the reply
 // editors below resolve the same account.
@@ -727,23 +745,28 @@ const threadContainerRef = useTemplateRef('threadContainer')
 const draftMails = reactive<{
   [key: string]: ComposeMailData
 }>({})
+const user = inject('$user')
 const mailsByDay = computed(() => {
-  const groups: {
-    date: string
-    mails: Mail[]
-  }[] = []
+  const groups: { date: string; mails: Mail[] }[] = []
   for (const mail of thread.value || []) {
     const day = dayjs(mail.received_at).format('YYYY-MM-DD')
     const last = groups.at(-1)
     if (last && last.date === day) last.mails.push(mail)
-    else
-      groups.push({
-        date: day,
-        mails: [mail],
-      })
+    else groups.push({ date: day, mails: [mail] })
   }
   return groups
 })
+// A thread is read row by row, each row dated, until it is long enough to fold and its fold is
+// opened: then the reader is going through all of it, and a header for each day reads quicker
+// than the same date on every row. Desktop, more than one day, and grouping by date on.
+const daysHeaded = computed(
+  () =>
+    !isMobile.value &&
+    mailsByDay.value.length > 1 &&
+    !!user.data.group_by_date &&
+    !isFolding.value &&
+    foldedNames(thread.value || []).length > 0,
+)
 
 // The expanded header's second line: "to Pushkar", "to Pushkar and Neha", "to Pushkar,
 // Rushabh and Neha", "to Pushkar, Rushabh and 2 others". First names only — the full
@@ -760,25 +783,9 @@ const recipientsSummary = (mail: Mail) => {
   return __('to {0}, {1} and {2} others', [names[0], names[1], String(names.length - 2)])
 }
 
-// Rows state clock time only while day dividers state the date (multi-day thread, grouping
-// on, desktop). Otherwise the row's timestamp is the only date there is, and stays relative.
-const showsClockTime = computed(
-  () => !isMobile.value && mailsByDay.value.length > 1 && !!user.data.group_by_date,
+const collapsedMailNames = computed(
+  () => new Set(isFolding.value ? foldedNames(thread.value || []) : []),
 )
-const shouldShowDateDivider = (mails: Mail[]) =>
-  !isMobile.value &&
-  mailsByDay.value.length > 1 &&
-  !!user.data.group_by_date &&
-  !mails.every((m) => collapsedMailNames.value.has(m.name))
-const collapsedMailNames = computed(() => {
-  if (!firstMailOfCollapsedGroup.value) return new Set<string>()
-  const lastMailName = thread.value?.at(-1)?.name
-  const seenMails = (thread.value || []).filter(
-    (m) => m.seen && !m.name.startsWith('draft') && m.name !== lastMailName,
-  )
-  if (seenMails.length < 4) return new Set<string>()
-  return new Set(seenMails.slice(1, -1).map((m) => m.name))
-})
 const mailBeforeUnseenMarker = computed(() => {
   if (!firstUnseenMail.value) return null
   const data = thread.value || []
@@ -951,23 +958,19 @@ const syncWithSource = () => {
   else thread.value.splice(draftIndex, 0, ...additions)
   setCollapsedGroup(thread.value)
 }
-const firstMailOfCollapsedGroup = ref<string | null>(null)
-const mailBeforeCollapsedGroup = ref<string | null>(null)
-const resetCollapsedGroup = () => {
-  firstMailOfCollapsedGroup.value = null
-  mailBeforeCollapsedGroup.value = null
-}
-const setCollapsedGroup = (data: Mail[]) => {
-  const lastMailName = data.at(-1)?.name
-  const seenMails = data.filter((m) => m.seen && m.name !== lastMailName)
-  if (seenMails.length < 4) {
-    resetCollapsedGroup()
-    return
-  }
-  firstMailOfCollapsedGroup.value = seenMails[1]?.name ?? null
-  const triggerIdx = data.findIndex((m) => m.name === firstMailOfCollapsedGroup.value)
-  mailBeforeCollapsedGroup.value = triggerIdx > 0 ? data[triggerIdx - 1].name : null
-}
+// Shut whenever the thread loads or gains mail long enough to fold; the "more messages" divider
+// opens it. Which mail it hides is worked out from the thread as it stands (see foldedNames).
+const isFolding = ref(false)
+const resetCollapsedGroup = () => (isFolding.value = false)
+const setCollapsedGroup = (data: Mail[]) => (isFolding.value = foldedNames(data).length > 0)
+const firstMailOfCollapsedGroup = computed(
+  () => thread.value?.find((m) => collapsedMailNames.value.has(m.name))?.name ?? null,
+)
+const mailBeforeCollapsedGroup = computed(() => {
+  const data = thread.value || []
+  const index = data.findIndex((m) => m.name === firstMailOfCollapsedGroup.value)
+  return index > 0 ? data[index - 1].name : null
+})
 const filterRelevantMails = (mail: Mail) => {
   if (mailbox === 'search') return true
   const mailboxes = mail.mailboxes.map((m) => m.mailbox_id)

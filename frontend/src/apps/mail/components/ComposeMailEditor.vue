@@ -137,15 +137,8 @@
       </template>
       <div
         v-else
-        class="flex flex-col gap-2.5 border-b pb-2.5 max-sm:px-3 max-sm:pt-2.5"
-        :class="[
-          isDragging ? 'border-transparent' : '',
-          // Bleed the rule to the message card's edges while the fields stay on the content
-          // axis: the card pads this block by 5, so without cancelling that the separator stops
-          // short of both sides and reads as underlining the fields rather than dividing the
-          // composer.
-          'sm:-mx-5 sm:px-5',
-        ]"
+        class="flex flex-col gap-2.5 border-b px-3 py-2.5 sm:px-4 sm:py-2"
+        :class="{ 'border-transparent': isDragging }"
       >
         <!-- A reply inside a thread leaves From and Subject out: the conversation around it
 				     says both. Detached into a window there is no conversation around it, so a
@@ -257,13 +250,11 @@
 			     the conversation up out of view. Given the pane to itself it has no conversation
 			     to protect and takes whatever height the fields and toolbar leave. -->
       <div
-        class="relative flex cursor-text flex-col border-2 border-transparent text-sm sm:overflow-y-auto"
+        class="relative flex cursor-text flex-col border-2 border-transparent px-3 py-2.5 text-sm sm:overflow-y-auto sm:px-4 sm:py-3"
         :class="{
           // Docked, the body is its own height and gives way only at the window's cap; anywhere
           // else it fills what the fields and toolbar leave.
           'flex-1': !windowed || expanded,
-          'px-4 py-3': windowed,
-          'py-2.5 max-sm:px-3': !windowed,
           // Docked, the window is as tall as its fields and a fixed page; expanded, the page
           // takes whatever the window's fixed height leaves.
           // Shrinks (and scrolls) when the window meets its height cap on a short screen.
@@ -337,17 +328,14 @@
     <!-- Last child of the scroller, so `sticky bottom-0` (mobile, in the toolbar itself) pins it to
 		     the bottom of the scrollport while the fields and body scroll under it. The sheet ends where
 		     the keyboard begins, so that bottom edge is the top of the keyboard. -->
+    <!-- Neither the window nor a thread's draft card pads the composer, so the fields, the body
+         and the bar each carry their own inset. The phone's sticky bar insets itself. -->
     <template #bottom>
       <ComposeMailToolbar
         :is-recipients-empty
         :is-uploading
-        class="border-t"
-        :class="[
-          isDragging ? 'border-transparent' : '',
-          // The window pads nothing, so the bar carries its own inset there; in a thread the rule
-          // bleeds to the message card's edges while the buttons stay on the content axis.
-          windowed ? 'px-4 pb-2.5' : 'sm:-mx-5 sm:px-5',
-        ]"
+        class="border-t sm:px-4 sm:pb-2.5"
+        :class="{ 'border-transparent': isDragging }"
         @select-files="(files: File[]) => uploadFiles(files)"
         @append-emoji="(emoji: string) => appendEmoji(emoji)"
         @discard-mail="discardMail"

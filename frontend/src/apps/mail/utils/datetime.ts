@@ -28,6 +28,19 @@ export const inUserTimeZone = (value: string) => dayjs.utc(value).tz(userTimeZon
 export const formatDateTime = (value?: string | null, format = 'MMM D YYYY, h:mm A'): string =>
   value ? inUserTimeZone(value).format(format) : ''
 
+/**
+ * A message's time in a thread, where each row carries its own date: the clock alone for today,
+ * then "Yesterday, 4:15 PM", "9 Oct, 1:20 PM", and the year once it is not this one.
+ */
+export const formatMessageTime = (value: string, now = dayjs()): string => {
+  const at = inUserTimeZone(value)
+  const today = now.tz(userTimeZone())
+  const time = at.format('h:mm A')
+  if (at.isSame(today, 'day')) return time
+  if (at.isSame(today.subtract(1, 'day'), 'day')) return __('Yesterday, {0}', [time])
+  return at.format(at.isSame(today, 'year') ? 'D MMM, h:mm A' : 'D MMM YYYY, h:mm A')
+}
+
 /** Formats a UTC timestamp from an API as "3 hours ago"; relative, so the zone does not matter. */
 export const fromNow = (value?: string | null): string => (value ? dayjs.utc(value).fromNow() : '')
 

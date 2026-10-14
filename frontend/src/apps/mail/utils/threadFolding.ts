@@ -18,3 +18,14 @@ export const lastMessageOf = (thread: Mail[]): Mail | undefined =>
 // at its word it was styled as a folded row: the list's hover grey, a pointer, the slimmer padding.
 export const isCollapsed = (mail: Mail, lastMessage: Mail | undefined): boolean =>
   !!(mail.collapsed && !mail.draft && mail !== lastMessage)
+
+// The run of mail a long thread hides behind "N more messages": the seen mail between the first
+// one and the newest two, once there are four or more of it. A draft is not mail to hide and not
+// the newest message — counted as either, opening a reply under the last message made that message
+// look like one more older mail, and the fold grew by one and swallowed the mail just above it.
+export const foldedNames = (thread: Mail[]): string[] => {
+  const last = lastMessageOf(thread)
+  const seen = thread.filter((mail) => mail.seen && !mail.draft && mail !== last)
+  if (seen.length < 4) return []
+  return seen.slice(1, -1).map((mail) => mail.name)
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Mail } from '@/apps/mail/types'
 
-import { isCollapsed, lastMessageOf } from './threadFolding'
+import { foldedNames, isCollapsed, lastMessageOf } from './threadFolding'
 
 // Every mail arrives seen, and so collapsed, the way a reloaded thread hands them over.
 const mail = (name: string, overrides: Partial<Mail> = {}) =>
@@ -42,5 +42,32 @@ describe('isCollapsed', () => {
 
   it('never folds a draft that is the whole thread', () => {
     expect(folded([draft('new')])).toEqual([false])
+  })
+})
+
+describe('foldedNames', () => {
+  const names = (...list: string[]) => list.map((name) => mail(name))
+
+  it('folds the seen mail between the first and the two newest', () => {
+    expect(foldedNames(names('a', 'b', 'c', 'd', 'e', 'f'))).toEqual(['b', 'c', 'd'])
+  })
+
+  it('folds nothing in a short thread', () => {
+    expect(foldedNames(names('a', 'b', 'c', 'd'))).toEqual([])
+  })
+
+  it('folds nothing more when a reply draft is opened under the last message', () => {
+    const thread = names('a', 'b', 'c', 'd', 'e', 'f')
+    expect(foldedNames([...thread, draft('reply')])).toEqual(['b', 'c', 'd'])
+  })
+
+  it('folds nothing more for a draft opened under an earlier message', () => {
+    const [a, b, c, d, e, f] = names('a', 'b', 'c', 'd', 'e', 'f')
+    expect(foldedNames([a, b, c, d, e, draft('reply'), f])).toEqual(['b', 'c', 'd'])
+  })
+
+  it('never folds unseen mail', () => {
+    const thread = [...names('a', 'b', 'c', 'd', 'e'), mail('new', { seen: 0 })]
+    expect(foldedNames(thread)).toEqual(['b', 'c', 'd'])
   })
 })
