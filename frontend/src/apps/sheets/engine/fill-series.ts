@@ -7,6 +7,13 @@ import { cellId } from '../utils/cells.js'
 import { adjustFormula } from './formula-adjust.js'
 import { detectSeries } from './patterns/index.js'
 import { _asNumbers, _detectStep as numericStep } from './patterns/numeric.js'
+import type { Rect } from './types.js'
+
+/** See computeFillDown. */
+export type FillMode = 'auto' | 'series' | 'copy'
+
+/** A grid of source cells, rows × cols. Cells are whatever the caller read. */
+type Grid = readonly (readonly unknown[])[]
 
 // ── Fill DOWN / UP ────────────────────────────────────────────────────────
 
@@ -15,9 +22,14 @@ import { _asNumbers, _detectStep as numericStep } from './patterns/numeric.js'
 // mode  = 'auto'   (default) — series if a pattern is detected, else copy
 //       | 'series'           — force series; fall back to copy if no pattern
 //       | 'copy'             — always cycle the source
-export function computeFillDown(srcData, count, dir = 1, { mode = 'auto' } = {}) {
+export function computeFillDown(
+  srcData: Grid,
+  count: number,
+  dir = 1,
+  { mode = 'auto' }: { mode?: FillMode } = {},
+): unknown[][] {
   return srcData.length === 1
-    ? _fillVerticalFromRow(srcData[0], count, dir, mode)
+    ? _fillVerticalFromRow(srcData[0] as readonly unknown[], count, dir, mode)
     : _fillVerticalFromCols(srcData, count, dir, mode)
 }
 
@@ -25,22 +37,31 @@ export function computeFillDown(srcData, count, dir = 1, { mode = 'auto' } = {})
 // row's own series, but jumped by `cols * step`-equivalents per filled row.
 // Numeric path mirrors the legacy behaviour; everything else falls back to
 // repeating the row.
-function _fillVerticalFromRow(rowVals, count, dir, mode = 'auto') {
+function _fillVerticalFromRow(
+  rowVals: readonly unknown[],
+  count: number,
+  dir: number,
+  mode: FillMode = 'auto',
+) {
   const nums = _asNumbers(rowVals)
   const step = nums ? numericStep(nums) : null
   const srcCols = rowVals.length
   const useSeries = mode === 'copy' ? false : step !== null
+  // useSeries means a step was found, which means `nums` parsed.
   return Array.from({ length: count }, (_, rOff) =>
     Array.from({ length: srcCols }, (_, ci) =>
-      useSeries ? nums[ci] + dir * (rOff + 1) * srcCols * step : rowVals[ci],
+      useSeries
+        ? ((nums as number[])[ci] as number) + dir * (rOff + 1) * srcCols * (step as number)
+        : rowVals[ci],
     ),
   )
 }
 
 // Vertical source — N rows × M cols.  Each column is detected independently.
-function _fillVerticalFromCols(srcData, count, dir, mode = 'auto') {
+function _fillVerticalFromCols(srcData: Grid, count: number, dir: number, mode: FillMode = 'auto') {
   const srcRows = srcData.length
-  const srcCols = srcData[0].length
+  // An empty source throws here, as it always has.
+  const srcCols = (srcData[0] as readonly unknown[]).length
   const colSeries = Array.from({ length: srcCols }, (_, ci) => {
     const vals = srcData.map((row) => row[ci])
     // Skip detection in copy mode so the popup's "Copy cells" choice
@@ -64,8 +85,14 @@ function _fillVerticalFromCols(srcData, count, dir, mode = 'auto') {
 // ── Fill RIGHT / LEFT ─────────────────────────────────────────────────────
 
 // Returns srcRows × count.  See computeFillDown for mode semantics.
-export function computeFillRight(srcData, count, dir = 1, { mode = 'auto' } = {}) {
-  const srcCols = srcData[0].length
+export function computeFillRight(
+  srcData: Grid,
+  count: number,
+  dir = 1,
+  { mode = 'auto' }: { mode?: FillMode } = {},
+): unknown[][] {
+  // An empty source throws here, as it always has.
+  const srcCols = (srcData[0] as readonly unknown[]).length
   return srcCols === 1
     ? _fillHorizontalFromCol(
         srcData.map((r) => r[0]),
@@ -78,21 +105,34 @@ export function computeFillRight(srcData, count, dir = 1, { mode = 'auto' } = {}
 
 // Single-column vertical source extended horizontally — numeric path uses a
 // cross-row step jump per legacy behaviour; non-numeric repeats.
-function _fillHorizontalFromCol(colVals, count, dir, mode = 'auto') {
+function _fillHorizontalFromCol(
+  colVals: readonly unknown[],
+  count: number,
+  dir: number,
+  mode: FillMode = 'auto',
+) {
   const nums = _asNumbers(colVals)
   const step = nums ? numericStep(nums) : null
   const useSeries = mode === 'copy' ? false : step !== null
   const srcRows = colVals.length
+  // useSeries means a step was found, which means `nums` parsed.
   return colVals.map((v, ri) =>
     Array.from({ length: count }, (_, cOff) =>
-      useSeries ? nums[ri] + dir * (cOff + 1) * srcRows * step : v,
+      useSeries
+        ? ((nums as number[])[ri] as number) + dir * (cOff + 1) * srcRows * (step as number)
+        : v,
     ),
   )
 }
 
 // Horizontal source — each row is its own series.
-function _fillHorizontalFromRows(srcData, count, dir, mode = 'auto') {
-  const srcCols = srcData[0].length
+function _fillHorizontalFromRows(
+  srcData: Grid,
+  count: number,
+  dir: number,
+  mode: FillMode = 'auto',
+) {
+  const srcCols = (srcData[0] as readonly unknown[]).length
   return srcData.map((rowVals) => {
     const series =
       mode === 'copy' ? null : detectSeries(rowVals.map((v) => (v == null ? '' : String(v))))
@@ -115,22 +155,27 @@ function _fillHorizontalFromRows(srcData, count, dir, mode = 'auto') {
 //
 // A diagonal drag fills vertically first, then spreads the grown columns
 // sideways, so the off-axis block is filled too.
-export function planFill(src, total, inputAt, mode = 'auto') {
-  const writes = {}
-  const at = (r, c) => {
+export function planFill(
+  src: Rect,
+  total: Rect,
+  inputAt: (r: number, c: number) => unknown,
+  mode: FillMode = 'auto',
+): Record<string, string> {
+  const writes: Record<string, string> = {}
+  const at = (r: number, c: number) => {
     const id = cellId(r, c)
     return id in writes ? writes[id] : inputAt(r, c)
   }
-  const readGrid = (s) => {
-    const data = []
+  const readGrid = (s: Rect) => {
+    const data: unknown[][] = []
     for (let r = s.r0; r <= s.r1; r++) {
-      const row = []
+      const row: unknown[] = []
       for (let c = s.c0; c <= s.c1; c++) row.push(at(r, c))
       data.push(row)
     }
     return data
   }
-  const put = (r, c, val) => {
+  const put = (r: number, c: number, val: unknown) => {
     writes[cellId(r, c)] = val == null ? '' : String(val)
   }
   const goDown = total.r1 > src.r1,

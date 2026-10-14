@@ -24,15 +24,35 @@
 // We sample only the first 4 examples (Sheets uses a similar shallow window).
 // Adding more rarely changes the detection and slows things down on big sheets.
 
+/** One example row: the value the user typed and that row's source cells. */
+export interface SmartFillExample {
+  target: unknown
+  sources?: unknown[]
+}
+
+type CaseTransform = 'upper' | 'lower' | 'proper'
+type WordPosition = 'first' | 'last' | number
+type EmailPart = 'local' | 'domain'
+
+export type Pattern =
+  | { type: 'literal'; value: unknown }
+  | { type: 'column-copy'; col: number }
+  | { type: 'case'; col: number; transform: CaseTransform }
+  | { type: 'word'; col: number; position: WordPosition }
+  | { type: 'email-part'; col: number; part: EmailPart }
+  | { type: 'substring'; col: number; from: 'left' | 'right'; start: number; length: number }
+  | { type: 'concat'; cols: number[]; sep: string }
+
 const MAX_SAMPLES = 4
 
-/**
- * @param {{ target: any, sources: any[] }[]} examples
- * @returns {object|null}
- */
-export function detectPattern(examples) {
+export function detectPattern(
+  examples: readonly (SmartFillExample | null | undefined)[] | null | undefined,
+): Pattern | null {
   const sample = (examples || [])
-    .filter((e) => e && e.target !== undefined && e.target !== null && e.target !== '')
+    .filter(
+      (e): e is SmartFillExample =>
+        !!e && e.target !== undefined && e.target !== null && e.target !== '',
+    )
     .slice(0, MAX_SAMPLES)
   if (!sample.length) return null
 
@@ -53,7 +73,7 @@ export function detectPattern(examples) {
  * Returns `null` if the pattern's prerequisites aren't satisfied (e.g. a
  * required source column is empty); callers treat null as "skip this row".
  */
-export function applyPattern(pattern, sources) {
+export function applyPattern(pattern: Pattern | null | undefined, sources: unknown) {
   if (!pattern) return null
   switch (pattern.type) {
     case 'literal':
@@ -81,19 +101,25 @@ export function applyPattern(pattern, sources) {
 }
 
 // ── Detectors ────────────────────────────────────────────────────────────────
+// Every detector gets a non-empty sample (detectPattern returns early
+// otherwise), so `samples[0]` is always there.
 
-function _detectLiteral(samples) {
-  const first = String(samples[0].target)
+function _first(samples: readonly SmartFillExample[]) {
+  return samples[0] as SmartFillExample
+}
+
+function _detectLiteral(samples: readonly SmartFillExample[]): Pattern | null {
+  const first = String(_first(samples).target)
   if (samples.every((s) => String(s.target) === first)) {
-    return { type: 'literal', value: samples[0].target }
+    return { type: 'literal', value: _first(samples).target }
   }
   return null
 }
 
 // "Just copy column N verbatim". Used when only one source equals the target
 // across all examples and no other pattern would explain it.
-function _detectColumnCopy(samples) {
-  const ncols = samples[0].sources?.length || 0
+function _detectColumnCopy(samples: readonly SmartFillExample[]): Pattern | null {
+  const ncols = _first(samples).sources?.length || 0
   for (let c = 0; c < ncols; c++) {
     if (samples.every((s) => String(_safeGet(s.sources, c)) === String(s.target))) {
       return { type: 'column-copy', col: c }
@@ -102,10 +128,10 @@ function _detectColumnCopy(samples) {
   return null
 }
 
-function _detectCase(samples) {
-  const ncols = samples[0].sources?.length || 0
+function _detectCase(samples: readonly SmartFillExample[]): Pattern | null {
+  const ncols = _first(samples).sources?.length || 0
   for (let c = 0; c < ncols; c++) {
-    for (const transform of ['upper', 'lower', 'proper']) {
+    for (const transform of ['upper', 'lower', 'proper'] as const) {
       const ok = samples.every((s) => {
         const src = _safeGet(s.sources, c)
         if (src == null || src === '') return false
@@ -117,11 +143,11 @@ function _detectCase(samples) {
   return null
 }
 
-function _detectWord(samples) {
-  const ncols = samples[0].sources?.length || 0
+function _detectWord(samples: readonly SmartFillExample[]): Pattern | null {
+  const ncols = _first(samples).sources?.length || 0
   for (let c = 0; c < ncols; c++) {
     // `first` / `last` are the common cases; also try Nth for n in 0..3.
-    for (const position of ['first', 'last', 0, 1, 2, 3]) {
+    for (const position of ['first', 'last', 0, 1, 2, 3] as const) {
       const ok = samples.every((s) => {
         const v = _applyWord(_safeGet(s.sources, c), position)
         return v != null && v === String(s.target)
@@ -132,10 +158,10 @@ function _detectWord(samples) {
   return null
 }
 
-function _detectEmailPart(samples) {
-  const ncols = samples[0].sources?.length || 0
+function _detectEmailPart(samples: readonly SmartFillExample[]): Pattern | null {
+  const ncols = _first(samples).sources?.length || 0
   for (let c = 0; c < ncols; c++) {
-    for (const part of ['local', 'domain']) {
+    for (const part of ['local', 'domain'] as const) {
       const ok = samples.every((s) => {
         const src = _safeGet(s.sources, c)
         if (typeof src !== 'string' || !src.includes('@')) return false
@@ -149,11 +175,11 @@ function _detectEmailPart(samples) {
 
 // LEFT(src, n) / RIGHT(src, n) / MID(src, start, len). We try the
 // shortest-fixed-position interpretation that's consistent across examples.
-function _detectSubstring(samples) {
-  const ncols = samples[0].sources?.length || 0
+function _detectSubstring(samples: readonly SmartFillExample[]): Pattern | null {
+  const ncols = _first(samples).sources?.length || 0
   for (let c = 0; c < ncols; c++) {
-    const firstSrc = String(_safeGet(samples[0].sources, c) ?? '')
-    const firstTgt = String(samples[0].target)
+    const firstSrc = String(_safeGet(_first(samples).sources, c) ?? '')
+    const firstTgt = String(_first(samples).target)
     if (!firstSrc || !firstTgt) continue
     // Try LEFT(_, n) for n in [1 .. firstSrc.length]
     for (let n = 1; n <= firstSrc.length; n++) {
@@ -185,8 +211,8 @@ function _detectSubstring(samples) {
 // the same shortlist.
 const _SEP_CANDIDATES = ['', ' ', ', ', ',', '-', '_', '|', ' / ', '/', '.', ' & ']
 
-function _detectConcat(samples) {
-  const ncols = samples[0].sources?.length || 0
+function _detectConcat(samples: readonly SmartFillExample[]): Pattern | null {
+  const ncols = _first(samples).sources?.length || 0
   if (ncols < 2) return null
   // Try every pair of columns (col i + col j) and every separator.
   for (let i = 0; i < ncols; i++) {
@@ -217,7 +243,7 @@ function _detectConcat(samples) {
 
 // ── Appliers ────────────────────────────────────────────────────────────────
 
-function _applyCase(v, transform) {
+function _applyCase(v: unknown, transform: CaseTransform) {
   if (v == null) return null
   const s = String(v)
   if (transform === 'upper') return s.toUpperCase()
@@ -226,7 +252,7 @@ function _applyCase(v, transform) {
   return null
 }
 
-function _applyWord(v, position) {
+function _applyWord(v: unknown, position: WordPosition) {
   if (v == null || v === '') return null
   const words = String(v).split(/\s+/).filter(Boolean)
   if (!words.length) return null
@@ -236,26 +262,26 @@ function _applyWord(v, position) {
   return null
 }
 
-function _applyEmail(v, part) {
+function _applyEmail(v: unknown, part: EmailPart) {
   if (typeof v !== 'string' || !v.includes('@')) return null
   const [local, domain] = v.split('@')
   return part === 'local' ? local : domain
 }
 
-function _applySubstring(v, start, length, from) {
+function _applySubstring(v: unknown, start: number, length: number, from: 'left' | 'right') {
   if (v == null) return null
   const s = String(v)
   if (from === 'right') return s.slice(-length)
   return s.slice(start, start + length)
 }
 
-function _applyConcat(sources, cols, sep) {
+function _applyConcat(sources: unknown, cols: readonly number[], sep: string) {
   return cols.map((c) => String(_safeGet(sources, c) ?? '')).join(sep)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function _safeGet(arr, idx) {
+function _safeGet(arr: unknown, idx: number): unknown {
   if (!Array.isArray(arr)) return null
   return arr[idx] === undefined ? null : arr[idx]
 }
