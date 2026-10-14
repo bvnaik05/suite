@@ -1,4 +1,7 @@
-export function colLabel(idx) {
+// A1-style cell ids. Rows and columns are 0-based.
+
+/** 0 → 'A', 25 → 'Z', 26 → 'AA'. */
+export function colLabel(idx: number): string {
   let s = ''
   idx++
   while (idx > 0) {
@@ -8,15 +11,18 @@ export function colLabel(idx) {
   return s
 }
 
-export function cellId(row, col) {
+/** (0, 0) → 'A1'. */
+export function cellId(row: number, col: number): string {
   return colLabel(col) + (row + 1)
 }
 
-export function parseCellId(id) {
+/** 'B3' → { row: 2, col: 1 }; null when not a cell id. */
+export function parseCellId(id: string): { row: number; col: number } | null {
   const m = id.match(/^([A-Z]+)(\d+)$/)
   if (!m) return null
+  const [, letters = '', digits = ''] = m
   return {
-    row: parseInt(m[2]) - 1,
-    col: m[1].split('').reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0) - 1,
+    row: parseInt(digits) - 1,
+    col: letters.split('').reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0) - 1,
   }
 }

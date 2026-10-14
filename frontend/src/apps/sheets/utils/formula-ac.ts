@@ -1,4 +1,5 @@
-export const AC_FUNS = {
+/** Function name → its signature text, e.g. SUM → '(number1, ...)'. */
+export const AC_FUNS: { readonly [name: string]: string } = {
   ABS: '(number)',
   AND: '(logical1, ...)',
   AVERAGE: '(number1, ...)',
@@ -85,22 +86,28 @@ export const AC_FUNS = {
   SPARKLINE: '(data_range, [type], [color])',
 }
 
+/** The function a caret sits inside, and which argument (0-based) it is in. */
+export interface SignatureContext {
+  fn: string
+  argIndex: number
+}
+
 // Pre-sorted for O(1) reuse in autocomplete filtering.
-export const AC_FUN_KEYS = Object.keys(AC_FUNS).sort()
+export const AC_FUN_KEYS: readonly string[] = Object.keys(AC_FUNS).sort()
 
 /**
  * Returns { tok, tokStart } for the identifier token being typed before `cursor`,
  * or null if the value is not a formula or there is no token at the cursor.
- * @param {string} value
- * @param {number} cursor
- * @returns {{ tok: string, tokStart: number } | null}
  */
-export function parseAcToken(value, cursor) {
+export function parseAcToken(
+  value: string,
+  cursor: number,
+): { tok: string; tokStart: number } | null {
   if (!value || !value.startsWith('=')) return null
   const before = value.slice(0, cursor)
   const m = before.match(/(?:[=(+\-*/&^,])([A-Za-z][A-Za-z0-9_]*)$|^=([A-Za-z][A-Za-z0-9_]*)$/)
   if (!m) return null
-  const tok = m[1] || m[2]
+  const tok = m[1] || m[2] || ''
   return { tok, tokStart: cursor - tok.length }
 }
 
@@ -109,15 +116,14 @@ export function parseAcToken(value, cursor) {
  * inside and which argument is being typed. Used to show parameter help once
  * the user has passed the opening paren (where {@link parseAcToken} stops).
  * Respects string literals and nested calls.
- * @returns {{ fn: string, argIndex: number } | null}
  */
-export function parseSignatureContext(value, cursor) {
+export function parseSignatureContext(value: string, cursor: number): SignatureContext | null {
   if (!value || !value.startsWith('=')) return null
   const s = value.slice(0, cursor)
-  const stack = []
+  const stack: (SignatureContext | null)[] = []
   let inStr = false
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i]
+    const ch = s.charAt(i)
     if (inStr) {
       if (ch === '"') inStr = false
       continue
@@ -125,13 +131,16 @@ export function parseSignatureContext(value, cursor) {
     if (ch === '"') inStr = true
     else if (ch === '(') {
       const name = s.slice(0, i).match(/([A-Za-z][A-Za-z0-9_]*)$/)
-      stack.push(name ? { fn: name[1].toUpperCase(), argIndex: 0 } : null)
+      stack.push(name ? { fn: (name[1] ?? '').toUpperCase(), argIndex: 0 } : null)
     } else if (ch === ')') stack.pop()
-    else if (ch === ',' && stack.length && stack[stack.length - 1])
-      stack[stack.length - 1].argIndex++
+    else if (ch === ',') {
+      const top = stack[stack.length - 1]
+      if (top) top.argIndex++
+    }
   }
   for (let i = stack.length - 1; i >= 0; i--) {
-    if (stack[i] && AC_FUNS[stack[i].fn]) return stack[i]
+    const ctx = stack[i]
+    if (ctx && AC_FUNS[ctx.fn]) return ctx
   }
   return null
 }
@@ -154,7 +163,7 @@ const RANGE_SUGGEST_FUNS = new Set([
  * function — the spot where Google Sheets offers an adjacent-range guess.
  * Requires the arg to be empty on both sides so `=SUM(A1)` never re-suggests.
  */
-export function shouldSuggestRange(value, cursor) {
+export function shouldSuggestRange(value: string, cursor: number): boolean {
   const ctx = parseSignatureContext(value, cursor)
   if (!ctx || ctx.argIndex !== 0 || !RANGE_SUGGEST_FUNS.has(ctx.fn)) return false
   const left = value.slice(0, cursor).replace(/\s+$/, '')
@@ -168,7 +177,7 @@ export function shouldSuggestRange(value, cursor) {
  * thousands separators, percent and surrounding space) — used to decide which
  * cells belong to a suggested range.
  */
-export function isNumericText(v) {
+export function isNumericText(v: unknown): boolean {
   if (v == null) return false
   const stripped = String(v).replace(/[$€£₹%,\s]/g, '')
   return stripped !== '' && Number.isFinite(Number(stripped))
@@ -180,7 +189,11 @@ export function isNumericText(v) {
  * `isNumericAt(r, c)` reports whether that cell holds a number. Returns
  * { r0, c0, r1, c1 } or null when no run of >= 2 cells abuts the cell.
  */
-export function detectAdjacentRange(r, c, isNumericAt) {
+export function detectAdjacentRange(
+  r: number,
+  c: number,
+  isNumericAt: (r: number, c: number) => boolean,
+): { r0: number; c0: number; r1: number; c1: number } | null {
   if (r - 1 >= 0 && isNumericAt(r - 1, c)) {
     let top = r - 1
     while (top - 1 >= 0 && isNumericAt(top - 1, c)) top--
@@ -198,9 +211,11 @@ export function detectAdjacentRange(r, c, isNumericAt) {
  * Split a function's signature into its parameter names and mark which one is
  * active for the given argument index. The trailing variadic param (`...`)
  * stays active for any overflow index.
- * @returns {{ params: string[], active: number } | null}
  */
-export function describeSignature(fn, argIndex) {
+export function describeSignature(
+  fn: string,
+  argIndex: number,
+): { params: string[]; active: number } | null {
   const sig = AC_FUNS[fn]
   if (!sig) return null
   const inner = sig.slice(1, -1).trim() // strip the wrapping parens

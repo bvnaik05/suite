@@ -7,7 +7,12 @@
 // Handle a keydown that may trigger auto-close. Returns the next
 // { value, caret } when handled (caller should preventDefault and apply it),
 // or null when the key isn't one we act on and native input should proceed.
-export function autoCloseKey(key, value, selStart, selEnd) {
+export function autoCloseKey(
+  key: string,
+  value: string,
+  selStart: number,
+  selEnd: number,
+): { value: string; caret: number } | null {
   if (!value.startsWith('=')) return null
 
   if (key === '(') {

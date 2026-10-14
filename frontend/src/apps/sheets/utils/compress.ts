@@ -16,11 +16,11 @@ const KIND = 'gzip'
 // outweighs the wire-size saving.
 const MIN_BYTES = 64 * 1024
 
-function isCompressionSupported() {
+function isCompressionSupported(): boolean {
   return typeof CompressionStream !== 'undefined'
 }
 
-export function isDecompressionSupported() {
+export function isDecompressionSupported(): boolean {
   return typeof DecompressionStream !== 'undefined'
 }
 
@@ -30,7 +30,9 @@ export function isDecompressionSupported() {
 // Lets get_sheet ship the ~1.5MB compressed payload instead of the ~20MB
 // decoded one and decompress here — gunzip runs on a stream, off the critical
 // parse path.
-export async function decodeFromDownload(stored) {
+export async function decodeFromDownload(
+  stored: string | null | undefined,
+): Promise<string | null | undefined> {
   if (!stored || typeof stored !== 'string') return stored
   // Envelopes are tiny and always start with the marker key; the workbook JSON
   // starts with `{"sheet"`/`{"v"`, so this cheap check avoids parsing a 20MB
@@ -46,20 +48,20 @@ export async function decodeFromDownload(stored) {
   return _gunzip(env.data)
 }
 
-async function _gunzip(base64) {
+async function _gunzip(base64: string): Promise<string> {
   const bytes = _base64ToBytes(base64)
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
   return new Response(stream).text()
 }
 
-function _base64ToBytes(b64) {
+function _base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64)
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
   return out
 }
 
-export async function encodeForUpload(jsonString) {
+export async function encodeForUpload(jsonString: string): Promise<string> {
   if (!jsonString || jsonString.length < MIN_BYTES) return jsonString
   if (!isCompressionSupported()) return jsonString
   const gz = await _gzip(jsonString)
@@ -67,17 +69,18 @@ export async function encodeForUpload(jsonString) {
   return JSON.stringify({ [MARKER]: KIND, data })
 }
 
-async function _gzip(text) {
+async function _gzip(text: string): Promise<Uint8Array> {
   const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))
   const buf = await new Response(stream).arrayBuffer()
   return new Uint8Array(buf)
 }
 
 // Chunked to avoid "Maximum call stack size exceeded" on multi-MB inputs.
-function _bytesToBase64(bytes) {
+function _bytesToBase64(bytes: Uint8Array): string {
   const CHUNK = 0x8000
   let binary = ''
+  // `apply` accepts any array-like at runtime; its typing only allows arrays.
   for (let i = 0; i < bytes.length; i += CHUNK)
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[])
   return btoa(binary)
 }

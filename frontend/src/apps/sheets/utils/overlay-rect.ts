@@ -15,7 +15,33 @@
 // `tl`/`br` are the top-left and bottom-right cell rects (canvas-local CSS px,
 // zoom already applied). Returns null when the range sits entirely under the
 // header gutter (nothing to draw).
-export function overlayRectStyle(tl, br, { headerX, headerY, viewW, viewH }) {
+
+interface CellRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface OverlayRectStyle {
+  top: string
+  left: string
+  width: string
+  height: string
+  borderRightWidth?: string
+  borderBottomWidth?: string
+}
+
+export function overlayRectStyle(
+  tl: CellRect,
+  br: CellRect,
+  {
+    headerX,
+    headerY,
+    viewW,
+    viewH,
+  }: { headerX: number; headerY: number; viewW: number; viewH: number },
+): OverlayRectStyle | null {
   const right = br.x + br.width
   const bottom = br.y + br.height
   if (bottom <= headerY || right <= headerX) return null
@@ -25,7 +51,7 @@ export function overlayRectStyle(tl, br, { headerX, headerY, viewW, viewH }) {
   const clampedRight = Math.min(right, viewW)
   const clampedBottom = Math.min(bottom, viewH)
 
-  const style = {
+  const style: OverlayRectStyle = {
     top: top + 'px',
     left: left + 'px',
     width: Math.max(0, clampedRight - left) + 'px',

@@ -21,17 +21,36 @@ import { colLabel } from './cells.js'
 
 const PACK_VERSION = 2
 
+type Cells = Record<string, unknown>
+
+/** In-memory shape: each sheet's cells keyed by A1 id. */
+export interface SheetSnapshot {
+  sheets: Record<string, Cells>
+  current: string
+}
+
+/** Row key → that row's values by 0-based column. */
+type PackedRows = Record<string, unknown[]>
+
+export interface PackedSheets {
+  v: typeof PACK_VERSION
+  current: string
+  sheets: Record<string, { rows: PackedRows }>
+}
+
+type SnapshotInput = { sheets?: Record<string, Cells>; current?: string } | null | undefined
+
 // Pack a `{ sheets, current }` snapshot into the compact wire shape. Reads the
 // input without mutating it, so callers can hand it the engine's live data.
 // Synchronous: use for the keepalive/unmount save, where the page may die
 // before an async pass could finish. Interactive autosave should prefer
 // packSheetChunked so it doesn't freeze the main thread.
-export function packSheet(snap) {
+export function packSheet(snap: SnapshotInput): PackedSheets {
   const sheets = (snap && snap.sheets) || {}
-  const out = {}
+  const out: PackedSheets['sheets'] = {}
   for (const name of Object.keys(sheets)) {
-    const cells = sheets[name]
-    const rows = {}
+    const cells = sheets[name] as Cells
+    const rows: PackedRows = {}
     for (const id in cells) _packCellInto(rows, id, cells[id])
     out[name] = { rows }
   }
@@ -45,16 +64,20 @@ export function packSheet(snap) {
 // are snapshotted up front and each value read is atomic, so a concurrent edit
 // at worst lands in the NEXT autosave rather than tearing this payload (still
 // valid JSON either way; isDirty stays set so the follow-up save catches it).
-export async function packSheetChunked(snap, { yieldEvery = 50000 } = {}) {
+export async function packSheetChunked(
+  snap: SnapshotInput,
+  { yieldEvery = 50000 }: { yieldEvery?: number } = {},
+): Promise<PackedSheets> {
   const sheets = (snap && snap.sheets) || {}
-  const out = {}
+  const out: PackedSheets['sheets'] = {}
   let since = 0
   for (const name of Object.keys(sheets)) {
-    const cells = sheets[name]
-    const rows = {}
+    const cells = sheets[name] as Cells
+    const rows: PackedRows = {}
     const ids = Object.keys(cells)
     for (let k = 0; k < ids.length; k++) {
-      _packCellInto(rows, ids[k], cells[ids[k]])
+      const id = ids[k] ?? ''
+      _packCellInto(rows, id, cells[id])
       if (++since >= yieldEvery) {
         since = 0
         await _tick()
@@ -65,20 +88,19 @@ export async function packSheetChunked(snap, { yieldEvery = 50000 } = {}) {
   return { v: PACK_VERSION, current: (snap && snap.current) || 'Sheet1', sheets: out }
 }
 
-function _tick() {
+function _tick(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0))
 }
 
 // Unpack the compact wire shape back to `{ sheets, current }`. Anything that
 // isn't a version-2 envelope (legacy snapshots, the empty-default fallback) is
-// returned unchanged.
-export function unpackSheet(data) {
-  if (!data || typeof data !== 'object' || data.v !== PACK_VERSION) return data
-  const sheets = {}
+// returned unchanged, which is why the result is `unknown`.
+export function unpackSheet(data: unknown): unknown {
+  if (!_isPacked(data)) return data
+  const sheets: Record<string, Cells> = {}
   const packed = data.sheets || {}
-  for (const name of Object.keys(packed))
-    sheets[name] = _unpackRows(packed[name] && packed[name].rows)
-  return { sheets, current: data.current || 'Sheet1' }
+  for (const name of Object.keys(packed)) sheets[name] = _unpackRows(packed[name]?.rows)
+  return { sheets, current: data.current || 'Sheet1' } satisfies SheetSnapshot
 }
 
 // Cheaply derive each sheet's { maxRow, maxCol } extent straight from the
@@ -86,15 +108,15 @@ export function unpackSheet(data) {
 // single cell id. The load path hands this to the engine so the grid can size
 // itself without _repopulateGrid re-parsing every cell id for bounds (~0.5s on
 // a 2M-cell sheet). Returns null for legacy/non-packed input.
-export function boundsOf(data) {
-  if (!data || typeof data !== 'object' || data.v !== PACK_VERSION) return null
-  const out = {}
+export function boundsOf(data: unknown): Record<string, { maxRow: number; maxCol: number }> | null {
+  if (!_isPacked(data)) return null
+  const out: Record<string, { maxRow: number; maxCol: number }> = {}
   const packed = data.sheets || {}
   for (const name of Object.keys(packed)) {
-    const rows = packed[name] && packed[name].rows
+    const rows = packed[name]?.rows || {}
     let maxRow = 0,
       maxCol = 0
-    for (const r in rows || {}) {
+    for (const r in rows) {
       const arr = rows[r]
       if (!arr) continue
       const row = +r
@@ -106,17 +128,22 @@ export function boundsOf(data) {
   return out
 }
 
+// A version-2 envelope; its fields are still checked where they're read.
+function _isPacked(data: unknown): data is Partial<PackedSheets> {
+  return !!data && typeof data === 'object' && (data as { v?: unknown }).v === PACK_VERSION
+}
+
 // Column labels are stable, so cache them module-wide and grow on demand —
 // unpacking 2M cells otherwise re-walks colLabel's character loop per cell.
-const _labelCache = []
-function _label(c) {
+const _labelCache: string[] = []
+function _label(c: number): string {
   for (let i = _labelCache.length; i <= c; i++) _labelCache[i] = colLabel(i)
-  return _labelCache[c]
+  return _labelCache[c] ?? ''
 }
 
 // Place one cell into the row-major `rows` accumulator. Shared by the sync and
 // chunked packers so they can't drift. Skips empties and malformed ids.
-function _packCellInto(rows, id, v) {
+function _packCellInto(rows: PackedRows, id: string, v: unknown): void {
   if (v === '' || v == null) return
   const { row, col } = _parseId(id)
   if (!(row >= 0) || !(col >= 0)) return
@@ -125,8 +152,8 @@ function _packCellInto(rows, id, v) {
   arr[col] = v
 }
 
-function _unpackRows(rows) {
-  const cells = {}
+function _unpackRows(rows: PackedRows | undefined): Cells {
+  const cells: Cells = {}
   if (!rows) return cells
   for (const r in rows) {
     const arr = rows[r]
@@ -146,7 +173,7 @@ function _unpackRows(rows) {
 // Regex-free cell-id parse — the hot path runs once per cell on multi-million
 // cell sheets, where `parseCellId`'s regex + split is ~3x slower. Returns
 // 0-based { row, col }; row/col are NaN for malformed ids and skipped above.
-function _parseId(id) {
+function _parseId(id: string): { row: number; col: number } {
   let i = 0,
     col = 0
   for (; i < id.length; i++) {
