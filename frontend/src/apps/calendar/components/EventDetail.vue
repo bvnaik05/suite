@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  ExternalLink,
   Globe,
   Lock,
   Mail,
@@ -19,7 +20,7 @@ import {
   Users,
   X,
 } from 'lucide-vue-next'
-import { computed, inject, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { api, useMutation } from '@/api'
@@ -42,6 +43,7 @@ import { getRepeatMessage } from '@/apps/calendar/utils/format'
 import { scopeOptions, type RecurringScope } from '@/apps/calendar/utils/recurringScope'
 import LinkifiedText from '@/components/LinkifiedText.vue'
 import { meetLogo } from '@/platform/brand'
+import { useSession } from '@/platform/session'
 
 const { calendarEvent, variant = 'popover' } = defineProps<{
   calendarEvent: any
@@ -75,7 +77,16 @@ const userParticipant = computed(() =>
     participantIdentities.data?.some((id) => id.email === p.email),
   ),
 )
-const userResponse = computed(() => userParticipant.value?.participation_status)
+// The answer the server has just taken, shown at once: a host that doesn't reload its events after
+// an answer (mail's popover over an invite) would otherwise go on showing the old one.
+const answered = ref<string>()
+const userResponse = computed(() => answered.value ?? userParticipant.value?.participation_status)
+// Until the event itself says otherwise: fresh participants (the calendar's reload, or an answer
+// given elsewhere) are the truth again.
+watch(
+  () => userParticipant.value?.participation_status,
+  () => (answered.value = undefined),
+)
 
 const RSVP_OPTIONS = [
   { label: __('Yes'), value: 'ACCEPTED' },
@@ -96,6 +107,7 @@ async function respond(response: string, scope: RecurringScope) {
     response: response.toLowerCase(),
     recurrence_id: scope === 'instance' ? calendarEvent.recurrence_id : null,
   })
+  answered.value = response
   emit('reloadEvents')
 }
 
@@ -508,8 +520,25 @@ const dropdownOptions = computed(() => [
   // Beside Edit rather than beside the Meet row's copy: that button copies the link,
   // which is a property of the call, where this copies the event.
   { label: __('Copy Invite'), icon: Copy, onClick: copyInvite, condition: () => canEdit.value },
+  // For system managers, as mail's messages have it: the event's record in Desk. Read-only events
+  // too, since looking is all it does.
+  {
+    label: __('View in Desk'),
+    icon: ExternalLink,
+    onClick: openInDesk,
+    condition: () => !!deskName.value && session.capabilities.value.systemManager,
+  },
   { ...deleteOption.value, condition: () => canEdit.value },
 ])
+
+const session = useSession()
+// The Desk record is the series, not one occurrence of it: `account|id`.
+const deskName = computed(() => {
+  const id = serverEventId(calendarEvent)
+  return calendarEvent.account && id ? `${calendarEvent.account}|${id}` : null
+})
+const openInDesk = () =>
+  window.open(`/desk/calendar-event/${encodeURIComponent(deskName.value!)}`, '_blank')?.focus()
 
 const openUrl = (location: string) => {
   if (isUrl(location)) window.open(location, '_blank')
@@ -675,7 +704,7 @@ const openUrl = (location: string) => {
                   :tooltip="__('Copy Frappe Meet link')"
                   @click="copyMeetLink"
                 >
-                  <Copy class="icon text-ink-gray-7 size-4" />
+                  <Copy class="icon text-ink-gray-5 size-4" />
                 </Button>
               </div>
               <!-- The subtle Button, as the participants page's email action is, so
@@ -828,7 +857,7 @@ const openUrl = (location: string) => {
                   :tooltip="__('Email participants')"
                   @click="emit('emailParticipants', participantEmails)"
                 >
-                  <Mail class="icon text-ink-gray-7 size-4" />
+                  <Mail class="icon text-ink-gray-5 size-4" />
                 </Button>
               </div>
               <!-- Indented to the header row's text axis (gutter + icon + gap): the
