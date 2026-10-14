@@ -49,6 +49,27 @@ export const formatMessageTime = (value: string, now: Date = new Date()): string
   return at.format(at.isSame(today, 'year') ? 'D MMM, h:mm A' : 'D MMM YYYY, h:mm A')
 }
 
+/**
+ * A message's time in the mailbox list, where a row is scanned for recency: the clock for today,
+ * "Yesterday", then the day and month, and the year once it is not this one.
+ */
+export const formatListTime = (value: string, now: Date = new Date()): string => {
+  const at = inUserTimeZone(value)
+  const today = dayjs(now).tz(userTimeZone())
+  if (at.isSame(today, 'day')) return at.format('h:mm A')
+  if (at.isSame(today.subtract(1, 'day'), 'day')) return __('Yesterday')
+  return at.format(at.isSame(today, 'year') ? 'D MMM' : 'D MMM YYYY')
+}
+
+/** The clock alone, for a row under a header that already names its day. */
+export const formatClockTime = (value: string): string => inUserTimeZone(value).format('h:mm A')
+
+/** The whole date, weekday first: "Friday, 9 October 2026 at 1:30 AM". */
+export const formatFullDateTime = (value: string): string => {
+  const at = inUserTimeZone(value)
+  return __('{0} at {1}', [at.format('dddd, D MMMM YYYY'), at.format('h:mm A')])
+}
+
 /** Formats a UTC timestamp from an API as "3 hours ago"; relative, so the zone does not matter. */
 export const fromNow = (value?: string | null): string => (value ? dayjs.utc(value).fromNow() : '')
 

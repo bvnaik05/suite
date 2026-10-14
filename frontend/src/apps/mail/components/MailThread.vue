@@ -324,8 +324,7 @@
                             >
                               <MailDate
                                 :datetime="mail.received_at"
-                                :in-thread="!daysHeaded"
-                                :clock="daysHeaded"
+                                :format="daysHeaded ? 'clock' : 'thread'"
                               />
                             </span>
                             <!-- h-5: the 28px ghost buttons overhang the padding

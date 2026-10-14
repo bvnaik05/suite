@@ -80,7 +80,7 @@
             <span>{{ __('in {0}', [accountLabel]) }}</span>
           </div>
         </div>
-        <MailDate v-if="!isFullWidth" :datetime :in-list="true" />
+        <MailDate v-if="!isFullWidth" :datetime format="list" />
       </div>
 
       <h4
@@ -115,7 +115,7 @@
     </div>
 
     <div v-if="isFullWidth" class="flex w-32 shrink-0 items-center justify-end space-x-4">
-      <MailDate v-if="!isHovered" :datetime :in-list="true" />
+      <MailDate v-if="!isHovered" :datetime format="list" />
       <slot name="trailing" :is-hovered="isHovered" />
     </div>
 

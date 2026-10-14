@@ -95,3 +95,49 @@ describe('formatMessageTime', () => {
     expect(formatMessageTime('2025-12-31T07:50:00Z', now)).toBe('31 Dec 2025, 1:20 PM')
   })
 })
+
+describe('formatListTime', () => {
+  vi.stubGlobal('__', (text: string, args?: string[]) =>
+    args ? text.replace(/\{(\d+)\}/g, (_, i) => args[Number(i)]) : text,
+  )
+  // 14 Oct 2026, 3 PM in Kolkata.
+  const now = new Date('2026-10-14T09:30:00Z')
+
+  it('gives the clock for today, in the user zone', async () => {
+    const { formatListTime } = await load()
+    expect(formatListTime('2026-10-14T04:30:00Z', now)).toBe('10:00 AM')
+  })
+
+  it('names yesterday without a time', async () => {
+    const { formatListTime } = await load()
+    expect(formatListTime('2026-10-13T10:45:00Z', now)).toBe('Yesterday')
+  })
+
+  it('gives day and month this year, and the year before it', async () => {
+    const { formatListTime } = await load()
+    expect(formatListTime('2026-10-08T20:00:00Z', now)).toBe('9 Oct')
+    expect(formatListTime('2025-12-31T07:50:00Z', now)).toBe('31 Dec 2025')
+  })
+
+  it('moves on with the clock it is given', async () => {
+    const { formatListTime } = await load()
+    const tomorrow = new Date('2026-10-15T09:30:00Z')
+    expect(formatListTime('2026-10-14T04:30:00Z', tomorrow)).toBe('Yesterday')
+  })
+})
+
+describe('formatClockTime and formatFullDateTime', () => {
+  vi.stubGlobal('__', (text: string, args?: string[]) =>
+    args ? text.replace(/\{(\d+)\}/g, (_, i) => args[Number(i)]) : text,
+  )
+
+  it('gives only the clock, in the user zone', async () => {
+    const { formatClockTime } = await load()
+    expect(formatClockTime('2026-10-08T20:00:00Z')).toBe('1:30 AM')
+  })
+
+  it('gives the whole date, weekday first, in the user zone', async () => {
+    const { formatFullDateTime } = await load()
+    expect(formatFullDateTime('2026-10-08T20:00:00Z')).toBe('Friday, 9 October 2026 at 1:30 AM')
+  })
+})
