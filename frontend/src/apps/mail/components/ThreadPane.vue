@@ -75,7 +75,7 @@
 
 <script setup lang="ts">
 import { usePortalTarget } from 'frappe-ui'
-import { computed, ref, useTemplateRef } from 'vue'
+import { computed, onBeforeUnmount, ref, useTemplateRef } from 'vue'
 
 import { SPLIT_LIST_CLASS, SPLIT_PANE_CLASS } from '@/apps/mail/constants'
 import { useReadingPane, useScreenSize } from '@/apps/mail/utils/composables'
@@ -123,6 +123,11 @@ const clampTo = (width: number) => {
   return clampListWidth(width, row, window.innerWidth >= 1024)
 }
 
+// Ends the drag under way, if one is. Held here rather than in the handler so leaving the view
+// mid-drag ends it too: the handle that would hear the pointer go up goes with the view, and the
+// page was left with text selection off and the resize cursor over everything.
+let stopResize: (() => void) | undefined
+
 const startResize = (event: PointerEvent) => {
   if (event.button !== 0 || !listColumn.value) return
   event.preventDefault()
@@ -138,16 +143,23 @@ const startResize = (event: PointerEvent) => {
 
   const move = (e: PointerEvent) => (listWidth.value = clampTo(startWidth + e.clientX - startX))
   const end = () => {
+    stopResize = undefined
     resizing.value = false
     document.body.style.userSelect = ''
     document.body.style.cursor = ''
     handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', end)
+    handle.removeEventListener('pointercancel', end)
+    handle.removeEventListener('lostpointercapture', end)
     writeListWidth(listWidth.value)
   }
+  stopResize = end
   handle.addEventListener('pointermove', move)
-  handle.addEventListener('pointerup', end, { once: true })
-  handle.addEventListener('pointercancel', end, { once: true })
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+  handle.addEventListener('lostpointercapture', end)
 }
+onBeforeUnmount(() => stopResize?.())
 
 const nudge = (by: number) => {
   if (!listColumn.value) return
