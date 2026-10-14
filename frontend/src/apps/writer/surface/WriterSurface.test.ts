@@ -307,6 +307,34 @@ function recoveryBanner(root: Element) {
   return statuses.find((status) => status.textContent?.includes('This device has unsaved work'))
 }
 
+const STOPPED = 'Saving stopped in this tab. Reload to keep editing.'
+
+// A live room whose saving failed for good, which the page shows as the stop strip
+function stoppedRoom() {
+  const room = liveRoom()
+  room.saveState = 'failed'
+  room.unsent = 1
+  return room
+}
+
+// Each shown strip's message, without its buttons
+function stripTexts(root: Element) {
+  const strips = [...root.querySelectorAll('[role="status"]')]
+  return strips.map((strip) => strip.querySelector('p')?.textContent?.trim() ?? '')
+}
+
+// Lets the recovery strip finish reading the device's copies
+async function settled() {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  await nextTick()
+}
+
+async function discardCopies() {
+  for (const copy of await listCopies('node-1')) {
+    await discardCopy(copy)
+  }
+}
+
 const shownText = (root: Element) => root.querySelector('[data-editor] .ProseMirror')!.textContent
 
 describe('Writer surface', () => {
@@ -526,6 +554,45 @@ describe('Writer surface', () => {
     expect([shapeOf(banner), copyShape]).toEqual([versionShape, versionShape])
     expect(banner.querySelector('[class*="lucide-"]')).toBeNull()
     await discardCopy(copy)
+  })
+
+  it('shows the stop strip alone when this device also holds a recovery copy', async () => {
+    stoppedRoom()
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(statusWith(root, STOPPED)).toBeDefined())
+    await settled()
+    expect(stripTexts(root)).toEqual([STOPPED])
+    await discardCopies()
+  })
+
+  it('shows only the version bar while a version is previewed over a stop and a recovery copy', async () => {
+    stoppedRoom()
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const root = await openedSurface(oneVersion)
+    await vi.waitFor(() => expect(statusWith(root, STOPPED)).toBeDefined())
+
+    let during: string[] = []
+    await previewAndReturn(root, () => {
+      during = stripTexts(root)
+    })
+
+    expect([during, stripTexts(root)]).toEqual([['Viewing Before review'], [STOPPED]])
+    await discardCopies()
+  })
+
+  it('shows only the recovery bar while a copy is viewed over a stop', async () => {
+    stoppedRoom()
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const [copy] = await listCopies('node-1')
+    const key = encodeURIComponent(copy.key)
+    const root = await openedSurface(undefined, `/d/node-1?recovery=${key}`)
+
+    await vi.waitFor(() => expect(statusWith(root, 'Viewing recovery copy from')).toBeDefined())
+    await settled()
+    expect(stripTexts(root)).toHaveLength(1)
+    await discardCopies()
   })
 
   it('opens the recovery copy a link names, in place of the editor', async () => {

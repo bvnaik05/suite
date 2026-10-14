@@ -114,8 +114,6 @@ const preview = shallowRef<
   | { version: null; copy: RecoveryCopy }
   | { version: null; copy: null }
 >({ version: null, copy: null })
-// The banner points at a copy, so it steps aside while one is shown
-const showsRecoveryBanner = computed(() => !preview.value.copy)
 
 const recoveryBanner = ref<InstanceType<typeof RecoveryBanner> | null>(null)
 const { threads, refresh: refreshThreads } = useDocumentThreads(props.session)
@@ -156,13 +154,24 @@ const writes = createWriteGate(props.session, () => {
 const writerDocument = createWriterDocument(props.session)
 
 const refusedSaveKept = ref(false)
-const shownBanner = computed(() => {
+const stopBanner = computed(() => {
   if (writes.refusedForGood.value) {
     return refusedSaveBanner(refusedSaveKept.value)
   }
 
   return banner.value
 })
+
+// One strip at a time: a preview's own bar, else the stop strip, else the recovery strip
+const isPreviewing = computed(() => !!preview.value.version || !!preview.value.copy)
+const shownBanner = computed(() => {
+  if (isPreviewing.value) {
+    return null
+  }
+
+  return stopBanner.value
+})
+const showsRecoveryBanner = computed(() => !isPreviewing.value && !stopBanner.value)
 
 watch(writes.refusedForGood, () => {
   refusedSaveKept.value = retainRecovery()
