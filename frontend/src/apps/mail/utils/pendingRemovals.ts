@@ -76,9 +76,11 @@ export const resumeRemovals = async (onSent?: () => void): Promise<void> => {
   const now = Date.now()
   const entries = Object.entries(read())
   const due = entries.filter(([, entry]) => entry.due <= now)
+  // Forgotten once the request is done, not before: a page closed mid-request leaves it for the
+  // next start. Two tabs resuming at once may both send it; the second is refused and let go.
   for (const [key, entry] of due) {
-    forgetRemoval(key)
     await sendRemoval(entry.removal).catch(() => {})
+    forgetRemoval(key)
   }
   if (due.length) onSent?.()
   const next = Math.min(...entries.filter(([, entry]) => entry.due > now).map(([, e]) => e.due))
