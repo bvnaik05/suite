@@ -1433,11 +1433,11 @@ const discardDrafts = (rows: Thread[]) => {
     (discarding.value = new Set([...discarding.value].filter((k) => !keys.includes(k))))
   commitAfterUndo({
     message: rows.length === 1 ? __('Draft discarded.') : __('Drafts discarded.'),
-    commit: () =>
-      client.mutation(api.mail.messages.delete, { names }).then(() => {
-        refreshCounts()
-        refreshThreads()
-      }),
+    removal: { kind: 'messages', names },
+    onSent: () => {
+      refreshCounts()
+      refreshThreads()
+    },
     restore: show,
     undoSlot: { set: (action) => setUndoAction(action), retire: retireUndoAction },
   })

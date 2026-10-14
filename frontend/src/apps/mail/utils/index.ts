@@ -11,6 +11,12 @@ import type { ComposeMailData, MailboxData, Recipient } from '@/apps/mail/types'
 import dayjs from '@/apps/mail/utils/dayjs'
 import { preserveEditorColors } from '@/apps/mail/utils/editorColors'
 import { flattenMentions } from '@/apps/mail/utils/mentions'
+import {
+  forgetRemoval,
+  rememberRemoval,
+  sendRemoval,
+  type PendingRemoval,
+} from '@/apps/mail/utils/pendingRemovals'
 import { reportMutationError } from '@/platform/feedback'
 
 export const toTitleCase = (str: string) =>
@@ -145,34 +151,41 @@ export const raiseOptimisticToast = (
 /**
  * A removal the server cannot take back, offered with an Undo all the same: the caller has already
  * taken the rows off screen, and the request waits out the toast. Undo puts them back and nothing is
- * sent. Closing the page in the meantime sends nothing either, so the worst a lost wait does is
- * leave what was there.
+ * sent; the toast going sends it. The removal is written down meanwhile, so a page closed inside the
+ * window has it sent on the next start rather than silently kept (see pendingRemovals).
  */
 export const commitAfterUndo = ({
   message,
-  commit,
+  removal,
   restore,
+  onSent,
   undoSlot,
 }: {
   message: string
-  commit: () => Promise<unknown>
+  removal: PendingRemoval
   restore: () => void
+  /** After the server has carried it out: refresh whatever lists or counts it touched. */
+  onSent?: () => void
   /** The app's Cmd/Ctrl+Z, offered the same Undo for as long as the toast is: `useUndo`'s slot. */
   undoSlot?: { set: (action: () => void) => void; retire: (action: () => void) => void }
 }) => {
+  const remembered = rememberRemoval(removal)
   let settled = false
   const settle = (keep: boolean) => {
     if (settled) return
     settled = true
     undoSlot?.retire(undo)
     if (keep) {
+      forgetRemoval(remembered)
       toast.dismiss(shown)
       return restore()
     }
-    void commit().catch((error) => {
-      restore()
-      raiseError(error)
-    })
+    void sendRemoval(removal)
+      .then(onSent, (error) => {
+        restore()
+        raiseError(error)
+      })
+      .finally(() => forgetRemoval(remembered))
   }
   const undo = () => settle(true)
   toast.dismiss()

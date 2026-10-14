@@ -10,50 +10,91 @@ vi.mock('frappe-ui', async (original) => ({
     error: vi.fn(),
   },
 }))
+
+// The server, and what has been written down for a page that closes mid-wait.
+const sent: unknown[] = []
+let refuse = false
+const stored = new Map<string, unknown>()
+vi.mock('@/apps/mail/utils/pendingRemovals', () => ({
+  sendRemoval: vi.fn((removal: unknown) => {
+    sent.push(removal)
+    return refuse ? Promise.reject(new Error('refused')) : Promise.resolve()
+  }),
+  rememberRemoval: vi.fn((removal: unknown) => {
+    const key = String(stored.size + 1)
+    stored.set(key, removal)
+    return key
+  }),
+  forgetRemoval: vi.fn((key: string) => stored.delete(key)),
+}))
 vi.stubGlobal('__', (text: string) => text)
 
 const load = async () => (await import('./index')).commitAfterUndo
+const removal = { kind: 'draft', account: 'a', id: 'd1' } as const
 
 describe('commitAfterUndo', () => {
-  beforeEach(() => (shown.length = 0))
+  beforeEach(() => {
+    shown.length = 0
+    sent.length = 0
+    stored.clear()
+    refuse = false
+  })
 
-  it('puts the rows back on Undo and sends nothing', async () => {
+  it('writes the removal down while it waits, so a closed page leaves it to send later', async () => {
     const commitAfterUndo = await load()
-    const commit = vi.fn(() => Promise.resolve())
+    commitAfterUndo({ message: 'Draft discarded.', removal, restore: vi.fn() })
+    expect([...stored.values()]).toEqual([removal])
+    expect(sent).toEqual([])
+  })
+
+  it('puts the rows back on Undo, sends nothing and forgets it', async () => {
+    const commitAfterUndo = await load()
     const restore = vi.fn()
-    commitAfterUndo({ message: 'Draft discarded.', commit, restore })
+    commitAfterUndo({ message: 'Draft discarded.', removal, restore })
     shown[0].action.onClick()
     shown[0].onDismiss()
     expect(restore).toHaveBeenCalledOnce()
-    expect(commit).not.toHaveBeenCalled()
+    expect(sent).toEqual([])
+    expect(stored.size).toBe(0)
   })
 
-  it('sends the removal once the toast is gone, and only once', async () => {
+  it('sends the removal once the toast is gone, only once, then forgets it', async () => {
     const commitAfterUndo = await load()
-    const commit = vi.fn(() => Promise.resolve())
-    const restore = vi.fn()
-    commitAfterUndo({ message: 'Draft discarded.', commit, restore })
+    const onSent = vi.fn()
+    commitAfterUndo({ message: 'Draft discarded.', removal, restore: vi.fn(), onSent })
     shown[0].onAutoClose()
     shown[0].onDismiss()
-    expect(commit).toHaveBeenCalledOnce()
-    expect(restore).not.toHaveBeenCalled()
+    expect(sent).toEqual([removal])
+    await vi.waitFor(() => expect(onSent).toHaveBeenCalledOnce())
+    expect(stored.size).toBe(0)
+  })
+
+  it('puts the rows back when the removal fails', async () => {
+    const commitAfterUndo = await load()
+    refuse = true
+    const restore = vi.fn()
+    commitAfterUndo({ message: 'Draft discarded.', removal, restore })
+    shown[0].onDismiss()
+    await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(stored.size).toBe(0))
   })
 
   it('offers the same Undo to Cmd/Ctrl+Z until the removal is sent', async () => {
     const commitAfterUndo = await load()
-    const commit = vi.fn(() => Promise.resolve())
     const restore = vi.fn()
     let slot: (() => void) | undefined
-    const retire = vi.fn((action: () => void) => slot === action && (slot = undefined))
+    const retire = (action: () => void) => {
+      if (slot === action) slot = undefined
+    }
     commitAfterUndo({
       message: 'Draft discarded.',
-      commit,
+      removal,
       restore,
       undoSlot: { set: (action) => (slot = action), retire },
     })
     slot!()
     expect(restore).toHaveBeenCalledOnce()
-    expect(commit).not.toHaveBeenCalled()
+    expect(sent).toEqual([])
     expect(slot).toBeUndefined()
   })
 
@@ -62,26 +103,16 @@ describe('commitAfterUndo', () => {
     let slot: (() => void) | undefined
     commitAfterUndo({
       message: 'Draft discarded.',
-      commit: () => Promise.resolve(),
+      removal,
       restore: vi.fn(),
       undoSlot: {
         set: (action) => (slot = action),
-        retire: (action) => slot === action && (slot = undefined),
+        retire: (action) => {
+          if (slot === action) slot = undefined
+        },
       },
     })
     shown[0].onAutoClose()
     expect(slot).toBeUndefined()
-  })
-
-  it('puts the rows back when the removal fails', async () => {
-    const commitAfterUndo = await load()
-    const restore = vi.fn()
-    commitAfterUndo({
-      message: 'Draft discarded.',
-      commit: () => Promise.reject(new Error('refused')),
-      restore,
-    })
-    shown[0].onDismiss()
-    await vi.waitFor(() => expect(restore).toHaveBeenCalledOnce())
   })
 })

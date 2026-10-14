@@ -1034,7 +1034,8 @@ export function useThreadActions(deps: {
     }
     commitAfterUndo({
       message: thread_ids.length === 1 ? __('Draft discarded.') : __('Drafts discarded.'),
-      commit: () => bulkDeleteSubmit({ names }).then(() => refillIfEmpty()),
+      removal: { kind: 'messages', names },
+      onSent: refillIfEmpty,
       restore,
       undoSlot: { set: (action) => setUndoAction(action), retire: retireUndoAction },
     })

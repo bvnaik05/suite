@@ -86,6 +86,7 @@ import {
   useMobileSelection,
   useScreenSize,
 } from '@/apps/mail/utils/composables'
+import { resumeRemovals } from '@/apps/mail/utils/pendingRemovals'
 import { useShellPhoneChrome } from '@/platform/phone-chrome'
 
 const store = userStore()
@@ -93,6 +94,8 @@ const { userResource } = store
 
 const { isMobile } = useScreenSize()
 const { requestListReload } = useListReload()
+// Removals a closed page left inside their Undo window: the window is over, so they go now.
+void resumeRemovals().then((sent) => sent && requestListReload())
 
 const router = useRouter()
 const route = useRoute()

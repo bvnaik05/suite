@@ -393,12 +393,11 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     if (draft.id) holdDraft(draft.id)
     commitAfterUndo({
       message: __('Draft discarded.'),
-      commit: () =>
-        draft.id
-          ? client
-              .mutation(api.mail.messages.deleteDraft, { account, id: draft.id })
-              .then(requestListReload)
-          : Promise.resolve(),
+      // A draft never saved has nothing on the server to remove: only Undo's reopening matters.
+      removal: draft.id
+        ? { kind: 'draft', account, id: draft.id }
+        : { kind: 'messages', names: [] },
+      onSent: requestListReload,
       restore: () => {
         if (draft.id) releaseDraft(draft.id)
         requestCompose(draft)
