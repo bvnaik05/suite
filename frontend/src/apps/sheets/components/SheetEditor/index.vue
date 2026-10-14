@@ -2742,6 +2742,10 @@ function _setupEventListeners() {
   // covers tab switches within the same window.
   window.addEventListener('focus', _refocusGridIfIdle)
   document.addEventListener('visibilitychange', _refocusGridIfIdle)
+  // Reload / tab close never unmount the editor, so onBeforeUnmount's save
+  // doesn't run for them. These two cover the page going away.
+  window.addEventListener('beforeunload', _onBeforeUnload)
+  document.addEventListener('visibilitychange', _saveWhenHidden)
 }
 // The tab each viewer had open, per document, kept in this browser only: a
 // convenience, so it never makes a save. Storage can be unavailable
@@ -2846,13 +2850,12 @@ onBeforeUnmount(() => {
   // CRITICAL: flush any pending debounced save before the component dies.
   // Without this, navigating away within ~2s of an edit (the autosave
   // debounce window) silently drops the most recent changes — exactly the
-  // "data is lost when I come back" report. The fetch uses `keepalive: true`
-  // so the request survives the unmount.
+  // "data is lost when I come back" report. Unmount only happens on in-app
+  // navigation, where the page lives on and the request completes, so no
+  // `keepalive`: it would cap the body at 64 KB and skip the retries.
   const lastSave =
     isDirty.value && !readOnly.value && props.id && props.id !== 'new'
-      ? saveExisting(props.id, currentTitle.value, {
-          keepalive: true,
-        }).catch(() => {})
+      ? saveExisting(props.id, currentTitle.value).catch(() => {})
       : null
   // That save reads the workbook from the worker, so stop it only after.
   if (lastSave) void lastSave.finally(_stopEngine)
@@ -2867,6 +2870,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', _onDocMouseDown)
   window.removeEventListener('focus', _refocusGridIfIdle)
   document.removeEventListener('visibilitychange', _refocusGridIfIdle)
+  window.removeEventListener('beforeunload', _onBeforeUnload)
+  document.removeEventListener('visibilitychange', _saveWhenHidden)
 })
 
 // ── Save ──────────────────────────────────────────────────────────────────────
@@ -2882,6 +2887,28 @@ const confirmUnsavedNavigation = () => {
   if (props.embedded) return true
   if (!hasUnsavedChanges() || readOnly.value) return true
   return confirmLeave()
+}
+// Reload / tab close with unsaved edits: start the save now and ask the
+// browser to confirm leaving. A save can't be finished during unload (it reads
+// the workbook from the worker first), so staying gives it time to land and
+// leaving is the user's informed choice.
+function _onBeforeUnload(e) {
+  if (!hasUnsavedChanges() || readOnly.value) return
+  _flushSoon()
+  e.preventDefault()
+  e.returnValue = '' // older browsers need it set to show the prompt
+}
+// Tab hidden (switch, minimise, phone backgrounded; also the start of a
+// close): save now instead of waiting out the autosave debounce. On phones
+// this is the last event that reliably fires before the page is killed.
+function _saveWhenHidden() {
+  if (document.visibilityState === 'hidden' && isDirty.value) _flushSoon()
+}
+// Not for a doc that has no id yet: _doAutoSave skips it without clearing
+// isDirty, so flushSave would loop forever.
+function _flushSoon() {
+  if (readOnly.value || !props.id || props.id === 'new') return
+  void flushSave().catch(() => {})
 }
 onBeforeRouteLeave(confirmUnsavedNavigation)
 onBeforeRouteUpdate((to, from) => {
