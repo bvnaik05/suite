@@ -2,7 +2,7 @@
 import { loadDrawing, queueSave, drawingTitle, warnUnsaved, saveDrawing, drawingLoading } from '../canvas/persistence'
 import { bounds, transformShape, isFreeDraw, isLine, parseScene, type Shape } from '../canvas/selection'
 import { applyLassoSelection, shapesIntersectingLasso, type LassoOperation } from '../canvas/lasso-selection'
-import { Button, Icon, Select, Tooltip, TooltipProvider } from 'frappe-ui'
+import { Button, Icon, Select, TextInput, Tooltip, TooltipProvider } from 'frappe-ui'
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, ChevronUp, Italic, Minus, Plus, Redo2, Underline, Undo2 } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ArrowShape from './ArrowShape.vue'
@@ -85,6 +85,10 @@ const fontOptions = [
   { label: 'Monospace', value: 'mono' },
 ] satisfies { label: string; value: TextFontFamily }[]
 const fontSizeOptions = [12, 14, 16, 18, 20, 24, 32, 48].map(value => ({ label: `${value}`, value }))
+const MAX_FONT_SIZE = 999
+function normalizeFontSize(fontSize: number) {
+  return Number.isFinite(fontSize) ? Math.min(MAX_FONT_SIZE, Math.max(1, Math.round(fontSize))) : 16
+}
 const textAlignOptions = [
   { value: 'left', label: 'Align left', icon: AlignLeft },
   { value: 'center', label: 'Align center', icon: AlignCenter },
@@ -144,6 +148,9 @@ const cropFrame = ref<RectangleShape>()
 const textEditor = ref<TextEditor>()
 const propertyToolbarInteracting = ref(false)
 const propertyPopupOpen = ref<'color' | 'font' | 'size'>()
+const propertyFontSizeEditing = ref(false)
+const propertyFontSizeDraft = ref('')
+const propertyFontSizeInput = ref<{ inputElement: HTMLInputElement | null }>()
 const textArea = ref<HTMLTextAreaElement>()
 const selectedRectangleId = ref<string>()
 const selectedLineId = ref<string>()
@@ -171,6 +178,7 @@ let pendingZoomAnnouncement = false
 let clipboard: SceneSnapshot | undefined
 let imageInsertPoint: Point | undefined
 let lastSelectPointerDown: { time: number; point: Point } | undefined
+let lastFontSizeTouch = 0
 const modifiers = reactive({ alt: false, bypass: false })
 const marquee = ref<RectangleShape>()
 let marqueeGesture: { pointerId: number; start: Point; previous: string[] } | undefined
@@ -231,6 +239,13 @@ const propertyTextStyle = computed(() => {
     textDecoration: editor?.textDecoration ?? text?.textDecoration ?? selectedLabel.value?.labelTextDecoration ?? armedTextStyle.textDecoration ?? 'none',
     textAlign: editor?.textAlign ?? text?.textAlign ?? selectedLabel.value?.labelTextAlign ?? armedTextStyle.textAlign ?? 'center',
   }
+})
+const propertyFontSize = computed(() => normalizeFontSize(propertyTextStyle.value.fontSize))
+const propertyFontSizeOptions = computed(() => {
+  const fontSize = propertyFontSize.value
+  return fontSizeOptions.some(option => option.value === fontSize)
+    ? fontSizeOptions
+    : [...fontSizeOptions, { label: String(fontSize), value: fontSize }]
 })
 const propertyTextAlignOption = computed(() => textAlignOptions.find(option => option.value === propertyTextStyle.value.textAlign) ?? textAlignOptions[0]!)
 const layerActions = computed(() => ({
@@ -1327,6 +1342,47 @@ function updatePropertyPopupOpen(popup: 'color' | 'font' | 'size', open: boolean
   else if (propertyPopupOpen.value === popup) propertyPopupOpen.value = undefined
 }
 
+function beginPropertyFontSizeEdit() {
+  if (propertyFontSizeEditing.value || !textPropertyControlsEnabled.value) return
+  propertyPopupOpen.value = undefined
+  propertyFontSizeDraft.value = String(propertyFontSize.value)
+  propertyFontSizeEditing.value = true
+  void nextTick(() => {
+    const input = propertyFontSizeInput.value?.inputElement
+    input?.focus()
+    input?.select()
+  })
+}
+
+function commitPropertyFontSizeEdit() {
+  if (!propertyFontSizeEditing.value) return
+  propertyFontSizeEditing.value = false
+  const value = propertyFontSizeDraft.value.trim()
+  const fontSize = Number.parseInt(value, 10)
+  if (/^\d{1,3}$/.test(value) && fontSize >= 1 && fontSize <= MAX_FONT_SIZE) {
+    updatePropertyTextStyle({ fontSize })
+  }
+}
+
+function updatePropertyFontSizeDraft(value: string) {
+  propertyFontSizeDraft.value = value.replace(/\D/g, '').slice(0, 3)
+}
+
+function cancelPropertyFontSizeEdit() {
+  propertyFontSizeEditing.value = false
+}
+
+function handlePropertyFontSizePointerUp(event: PointerEvent) {
+  if (event.pointerType !== 'touch' || !(event.target instanceof Element) || !event.target.closest('.property-text-control--size')) return
+  const now = performance.now()
+  if (!lastFontSizeTouch || now - lastFontSizeTouch > 400) {
+    lastFontSizeTouch = now
+    return
+  }
+  lastFontSizeTouch = 0
+  beginPropertyFontSizeEdit()
+}
+
 function updateLabel(id: string, label: string | undefined) {
   const shape = rectangles.value.find((candidate) => candidate.id === id)
   if (!shape || isText(shape)) return
@@ -2109,7 +2165,7 @@ function isImage(shape: Shape): shape is ImageShape {
 
 function resizeText(original: TextShape, next: RectangleShape, scaleFont: boolean): TextShape {
   const scale = Math.max(8 / original.fontSize, next.width / original.width)
-  const fontSize = scaleFont ? original.fontSize * scale : original.fontSize
+  const fontSize = normalizeFontSize(scaleFont ? original.fontSize * scale : original.fontSize)
   const width = scaleFont ? original.width * scale : Math.max(24, next.width)
   const wrap = !scaleFont || original.wrap
   const layout = layoutText(original.text, width, fontSize, wrap, original)
@@ -2137,7 +2193,7 @@ function fitTextBounds(shape: RectangleShape, width: number, height: number, anc
 function resizeLabel(original: RectangleShape, next: RectangleShape): RectangleShape {
   if (!original.label) return next
   const scale = Math.min(next.width / original.width, next.height / original.height)
-  return { ...next, labelFontSize: Math.max(MIN_LABEL_FONT_SIZE, (original.labelFontSize ?? 16) * scale) }
+  return { ...next, labelFontSize: normalizeFontSize(Math.max(MIN_LABEL_FONT_SIZE, (original.labelFontSize ?? 16) * scale)) }
 }
 
 function labelTextWidth(shape: RectangleShape): number {
@@ -3452,9 +3508,28 @@ onBeforeUnmount(() => {
         @update:open="updatePropertyPopupOpen('font', $event)"
         @update:model-value="updatePropertyTextStyle({ fontFamily: $event as TextFontFamily })"
       />
+      <TextInput
+        v-if="propertyFontSizeEditing"
+        ref="propertyFontSizeInput"
+        :model-value="propertyFontSizeDraft"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]{1,3}"
+        maxlength="3"
+        variant="outline"
+        size="sm"
+        class="property-text-control property-text-control--size"
+        aria-label="Font size"
+        :disabled="!textPropertyControlsEnabled"
+        @update:model-value="updatePropertyFontSizeDraft"
+        @keydown.enter.prevent="commitPropertyFontSizeEdit"
+        @keydown.esc.prevent="cancelPropertyFontSizeEdit"
+        @blur="commitPropertyFontSizeEdit"
+      />
       <Select
-        :model-value="propertyTextStyle.fontSize"
-        :options="fontSizeOptions"
+        v-else
+        :model-value="propertyFontSize"
+        :options="propertyFontSizeOptions"
         :open="propertyPopupOpen === 'size'"
         variant="outline"
         size="sm"
@@ -3463,7 +3538,20 @@ onBeforeUnmount(() => {
         :disabled="!textPropertyControlsEnabled"
         @update:open="updatePropertyPopupOpen('size', $event)"
         @update:model-value="updatePropertyTextStyle({ fontSize: $event as number })"
-      />
+      >
+        <template #trigger>
+          <span class="flex min-w-0 flex-1 items-center justify-between gap-1">
+            <span
+              class="min-w-0 truncate"
+              @pointerdown.stop
+              @pointerup.stop="handlePropertyFontSizePointerUp"
+              @click.stop
+              @dblclick.stop.prevent="beginPropertyFontSizeEdit"
+            >{{ propertyFontSize }}</span>
+            <Icon :name="ChevronDown" class="property-size-chevron" :stroke-width="1.5" />
+          </span>
+        </template>
+      </Select>
       <Tooltip text="Bold" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontWeight >= 600 }" label="Bold" :aria-pressed="propertyTextStyle.fontWeight >= 600" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontWeight: propertyTextStyle.fontWeight >= 600 ? 400 : 600 })"><Icon :name="Bold" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
       <Tooltip text="Italic" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontStyle === 'italic' }" label="Italic" :aria-pressed="propertyTextStyle.fontStyle === 'italic'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontStyle: propertyTextStyle.fontStyle === 'italic' ? 'normal' : 'italic' })"><Icon :name="Italic" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
       <Tooltip text="Underline" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.textDecoration === 'underline' }" label="Underline" :aria-pressed="propertyTextStyle.textDecoration === 'underline'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ textDecoration: propertyTextStyle.textDecoration === 'underline' ? 'none' : 'underline' })"><Icon :name="Underline" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
@@ -3559,6 +3647,8 @@ onBeforeUnmount(() => {
 }
 .property-toolbar::-webkit-scrollbar { display: none; }
 .property-toolbar :deep(button) { pointer-events: auto; }
+.property-toolbar :deep(.property-text-control--size input) { height: 28px; min-height: 28px; padding: 0 6px; text-align: center; pointer-events: auto; }
+.property-size-chevron { width: 12px; height: 12px; flex: 0 0 auto; }
 .property-color-group { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .property-color { width: 28px !important; height: 28px !important; padding: 0 6px; border-radius: 6px !important; }
 .property-color :deep(.truncate) { display: none; }
@@ -3569,7 +3659,7 @@ onBeforeUnmount(() => {
 .property-toolbar :deep(.property-tool.is-active) { color: var(--ink-gray-8); background: var(--surface-gray-3); }
 .property-toolbar :deep(.property-text-control) { flex: 0 0 auto; min-width: 0; }
 .property-toolbar :deep(.property-text-control--font) { width: 116px; }
-.property-toolbar :deep(.property-text-control--size) { width: 60px; }
+.property-toolbar :deep(.property-text-control--size) { flex: 0 0 60px; width: 60px; min-width: 60px; max-width: 60px; }
 .property-text-control :deep(button) { height: 28px; min-height: 28px; padding: 0 8px; }
 /* Select and Tooltip both use data-slot="content"; these rules are for Select's listbox only. */
 :global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))),
@@ -3584,7 +3674,6 @@ onBeforeUnmount(() => {
 @media (max-width: 760px) {
   .property-toolbar { right: 16px; bottom: 64px; left: 16px; width: auto; transform: none; }
   .property-toolbar :deep(.property-text-control--font) { width: 104px; }
-  .property-toolbar :deep(.property-text-control--size) { width: 52px; }
 }
 @media (max-width: 600px) {
   :global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])),
