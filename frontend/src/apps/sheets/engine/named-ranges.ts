@@ -18,6 +18,23 @@
 
 import { deepClone } from '../utils/deep-clone.js'
 import { remapRangeString } from './ref-remap.js'
+import type { IndexMap } from './types.js'
+
+export interface NamedRange {
+  name: string
+  sheet: string
+  range: string
+}
+
+/** add/update outcome: the saved name, or why it was refused. */
+export type NamedRangeResult = { name: string } | { error: string }
+
+export interface NamedRangesSnapshot {
+  /** upper-case name → entry */
+  entries: Record<string, NamedRange>
+}
+
+export type NamedRanges = ReturnType<typeof createNamedRanges>
 
 const _RESERVED = new Set(['TRUE', 'FALSE', 'NULL'])
 
@@ -28,7 +45,7 @@ const _NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 // no leading '=' ({ sheet: 'My Data', range: 'B2:B9' } → 'My Data'!$B$2:$B$9).
 // IronCalc evaluates `=Revenue` from these; the store stays the source the
 // dialog edits and the document saves.
-export function definedNameFormula({ sheet, range }) {
+export function definedNameFormula({ sheet, range }: Pick<NamedRange, 'sheet' | 'range'>) {
   const quoted = `'${String(sheet).replace(/'/g, "''")}'`
   const abs = String(range)
     .split(':')
@@ -43,22 +60,24 @@ export function definedNameFormula({ sheet, range }) {
 }
 
 /**
- * @param {{ isBuiltinFunction?: (name: string) => boolean }} [opts]
- *   Optional hook to detect collisions with built-in formula functions
- *   (so names like "SUM" or "VLOOKUP" can't be defined).
+ * @param opts.isBuiltinFunction Optional hook to detect collisions with
+ *   built-in formula functions (so names like "SUM" or "VLOOKUP" can't be
+ *   defined).
  */
-export function createNamedRanges({ isBuiltinFunction } = {}) {
-  let _store = {} // upper-case name → entry
-  let _onChange = null
+export function createNamedRanges({
+  isBuiltinFunction,
+}: { isBuiltinFunction?: (name: string) => boolean } = {}) {
+  let _store: Record<string, NamedRange> = {} // upper-case name → entry
+  let _onChange: (() => void) | null = null
 
-  function setOnChange(cb) {
+  function setOnChange(cb: (() => void) | null) {
     _onChange = cb
   }
   function _notify() {
     _onChange?.()
   }
 
-  function _validateName(name) {
+  function _validateName(name: unknown) {
     const trimmed = String(name || '').trim()
     if (!trimmed) return 'Name is required'
     if (!_NAME_RE.test(trimmed))
@@ -70,7 +89,7 @@ export function createNamedRanges({ isBuiltinFunction } = {}) {
     return null
   }
 
-  function _validateRange(range) {
+  function _validateRange(range: unknown) {
     const r = String(range || '').trim()
     if (!r) return 'Range is required'
     // Accept A1 single-cell or A1:B5 ranges. Sheet prefix is stored
@@ -80,7 +99,7 @@ export function createNamedRanges({ isBuiltinFunction } = {}) {
     return null
   }
 
-  function _key(name) {
+  function _key(name: unknown) {
     return String(name || '')
       .trim()
       .toUpperCase()
@@ -88,19 +107,22 @@ export function createNamedRanges({ isBuiltinFunction } = {}) {
 
   // ── Public API ──────────────────────────────────────────────────────────
 
-  function add({ name, sheet, range } = {}) {
+  function add({ name, sheet, range }: Partial<NamedRange> = {}): NamedRangeResult {
     const nameErr = _validateName(name)
     if (nameErr) return { error: nameErr }
     const rangeErr = _validateRange(range)
     if (rangeErr) return { error: rangeErr }
-    const k = _key(name)
-    if (_store[k]) return { error: `"${name}" already exists` }
-    _store[k] = { name: name.trim(), sheet: sheet || '', range: range.trim().toUpperCase() }
+    // Both passed validation, so both are non-empty strings.
+    const n = name as string,
+      rg = range as string
+    const k = _key(n)
+    if (_store[k]) return { error: `"${n}" already exists` }
+    _store[k] = { name: n.trim(), sheet: sheet || '', range: rg.trim().toUpperCase() }
     _notify()
-    return { name: name.trim() }
+    return { name: n.trim() }
   }
 
-  function update(oldName, patch = {}) {
+  function update(oldName: string, patch: Partial<NamedRange> = {}): NamedRangeResult {
     const k = _key(oldName)
     const cur = _store[k]
     if (!cur) return { error: `"${oldName}" not found` }
@@ -124,14 +146,14 @@ export function createNamedRanges({ isBuiltinFunction } = {}) {
     return { name: (patch.name ?? cur.name).trim() }
   }
 
-  function remove(name) {
+  function remove(name: string) {
     const k = _key(name)
     if (!_store[k]) return
     delete _store[k]
     _notify()
   }
 
-  function get(name) {
+  function get(name: string) {
     return _store[_key(name)]
   }
   function list() {
@@ -140,29 +162,31 @@ export function createNamedRanges({ isBuiltinFunction } = {}) {
 
   // Returns true if `name` is a defined named range — lookup is case-
   // insensitive. Used by the tokenizer / parser to choose ref-vs-function.
-  function has(name) {
+  function has(name: string) {
     return !!_store[_key(name)]
   }
 
   // Resolve a name to its underlying reference. Returns:
   //   { sheet, start, end }   — start/end are cell IDs (A1, B5, etc.)
   //   null if not found
-  function resolve(name) {
+  function resolve(name: string) {
     const entry = _store[_key(name)]
     if (!entry) return null
     const range = entry.range
-    const [start, end] = range.includes(':') ? range.split(':') : [range, range]
+    // split(':') on a string containing ':' always yields at least two parts.
+    const [start = '', end = ''] = range.includes(':') ? range.split(':') : [range, range]
     return { sheet: entry.sheet, start, end }
   }
 
   // Walk all entries on a sheet — used when the sheet gets renamed so we
   // can rewrite the `sheet` field rather than break the binding.
-  function renameSheet(oldName, newName) {
+  function renameSheet(oldName: string, newName: string) {
     if (!oldName || !newName || oldName === newName) return
     let changed = false
     for (const k of Object.keys(_store)) {
-      if (_store[k].sheet === oldName) {
-        _store[k] = { ..._store[k], sheet: newName }
+      const e = _store[k] as NamedRange
+      if (e.sheet === oldName) {
+        _store[k] = { ...e, sheet: newName }
         changed = true
       }
     }
@@ -171,11 +195,11 @@ export function createNamedRanges({ isBuiltinFunction } = {}) {
 
   // Structural permutation — rewrite the range of every named range that lives
   // on the op sheet so it keeps pointing at the same logical data.
-  function _remap(sheet, mapCol, mapRow) {
+  function _remap(sheet: string, mapCol: IndexMap | null, mapRow: IndexMap | null) {
     const lc = String(sheet || '').toLowerCase()
     let changed = false
     for (const k of Object.keys(_store)) {
-      const e = _store[k]
+      const e = _store[k] as NamedRange
       if (String(e.sheet || '').toLowerCase() !== lc) continue
       const next = remapRangeString(e.range, { opSheet: e.sheet, mapCol, mapRow })
       if (next !== e.range) {
@@ -185,17 +209,17 @@ export function createNamedRanges({ isBuiltinFunction } = {}) {
     }
     if (changed) _notify()
   }
-  function remapCols(mapCol, sheet) {
+  function remapCols(mapCol: IndexMap, sheet: string) {
     _remap(sheet, mapCol, null)
   }
-  function remapRows(mapRow, sheet) {
+  function remapRows(mapRow: IndexMap, sheet: string) {
     _remap(sheet, null, mapRow)
   }
 
-  function snapshot() {
+  function snapshot(): NamedRangesSnapshot {
     return { entries: deepClone(_store) }
   }
-  function restore(data) {
+  function restore(data: Partial<NamedRangesSnapshot> | null | undefined) {
     _store = {}
     if (data?.entries) {
       for (const [k, v] of Object.entries(data.entries)) _store[k] = { ...v }
