@@ -27,51 +27,136 @@
 //        icon?:{shape,color} }
 // — strictly additive; rules that don't use the new keys are unaffected.
 
-import { cellId, colLabel, parseCellId } from '../utils/cells.js'
+import { cellId, parseCellId } from '../utils/cells.js'
 import { deepClone } from '../utils/deep-clone.js'
 import { remapRect } from './ref-remap.js'
+import type { IndexMap, Rect } from './types.js'
+
+export interface CfCondition {
+  type: string
+  /** The comparison value, or the formula text for type 'formula'. */
+  value?: string
+  /** Upper bound for 'between'. */
+  value2?: string
+}
+
+export interface CfScale {
+  variant?: '2color' | '3color' | string
+  minColor?: string
+  midColor?: string
+  maxColor?: string
+  /** 3color: where the mid colour sits, 0..1. */
+  midPercent?: number
+}
+
+export interface CfBar {
+  color?: string
+  negativeColor?: string
+  axis?: 'auto' | 'cell'
+}
+
+export interface CfIcons {
+  set?: 'arrows3' | 'circles3' | 'traffic3' | string
+  /** Bucket edges, each 0..1 of the range's [min, max]. */
+  thresholds?: [number, number]
+}
+
+/** A stored rule. `kind` absent = condition rule (uses `condition` + `format`). */
+export interface CfRule {
+  id: number
+  range: Rect
+  kind?: 'color-scale' | 'data-bar' | 'icon-set'
+  condition?: CfCondition
+  format?: CfOverride
+  scale?: CfScale
+  bar?: CfBar
+  icons?: CfIcons
+}
+
+export interface CfDataBar {
+  /** Bar width, 0..1. */
+  value: number
+  color: string
+  negativeColor?: string
+  negative?: boolean
+}
+
+export interface CfIcon {
+  shape: string
+  color: string
+}
+
+/** What a cell's rules add on top of its own format. */
+export interface CfOverride {
+  backgroundColor?: string
+  color?: string
+  dataBar?: CfDataBar
+  icon?: CfIcon
+}
+
+/** { sheetName: [rule, ...] } */
+export type CfSnapshot = Record<string, CfRule[]>
+
+/** Reads a cell's value by id (or evaluates a formula, for 'formula' rules). */
+export type CellValueGetter = (id: string) => unknown
+
+export type CondFormatEngine = ReturnType<typeof createCondFormatEngine>
+
+interface RangeStats {
+  min: number
+  max: number
+  count: number
+}
+
+type Bucket = 'low' | 'mid' | 'high'
 
 let _nextId = 1
 
 export function createCondFormatEngine() {
-  // { sheetName: [ rule, ... ] }
-  const store = {}
+  const store: CfSnapshot = {}
 
-  function ensure(sheet) {
+  function ensure(sheet: string): CfRule[] {
     if (!store[sheet]) store[sheet] = []
+    return store[sheet]
   }
 
   function getRules(sheet = 'Sheet1') {
     return store[sheet] || []
   }
 
-  function addRule(rule, sheet = 'Sheet1') {
-    ensure(sheet)
+  function addRule(rule: Omit<CfRule, 'id'>, sheet = 'Sheet1') {
+    const rules = ensure(sheet)
     const r = { ...rule, id: _nextId++ }
-    store[sheet].push(r)
+    rules.push(r)
     return r.id
   }
 
-  function updateRule(id, patch, sheet = 'Sheet1') {
+  function updateRule(id: number, patch: Partial<CfRule>, sheet = 'Sheet1') {
     const rules = store[sheet]
     if (!rules) return
     const idx = rules.findIndex((r) => r.id === id)
-    if (idx !== -1) rules[idx] = { ...rules[idx], ...patch }
+    if (idx !== -1) rules[idx] = { ...(rules[idx] as CfRule), ...patch }
   }
 
-  function removeRule(id, sheet = 'Sheet1') {
+  function removeRule(id: number, sheet = 'Sheet1') {
     if (!store[sheet]) return
     store[sheet] = store[sheet].filter((r) => r.id !== id)
   }
 
   // ── Condition evaluation (legacy rules) ────────────────────────────────────
 
-  function _testCondition(cond, rawVal, getCellValue) {
+  // parseFloat stringifies whatever it's given, so the `as string` casts below
+  // only quiet TS.
+  function _testCondition(
+    cond: CfCondition,
+    rawVal: unknown,
+    getCellValue: CellValueGetter | null | undefined,
+  ) {
     if (cond.type === 'empty') return rawVal === '' || rawVal == null
     if (cond.type === 'notempty') return rawVal !== '' && rawVal != null
     if (cond.type === 'formula') {
       try {
-        return !!getCellValue?.(cond.value)
+        return !!getCellValue?.(cond.value as string)
       } catch {
         return false
       }
@@ -80,8 +165,8 @@ export function createCondFormatEngine() {
     if (cond.type === 'contains') return s.toLowerCase().includes(String(cond.value).toLowerCase())
     if (cond.type === 'notcontains')
       return !s.toLowerCase().includes(String(cond.value).toLowerCase())
-    const n = parseFloat(rawVal)
-    const v = parseFloat(cond.value)
+    const n = parseFloat(rawVal as string)
+    const v = parseFloat(cond.value as string)
     if (isNaN(n) || isNaN(v)) return false
     if (cond.type === 'gt') return n > v
     if (cond.type === 'lt') return n < v
@@ -89,7 +174,7 @@ export function createCondFormatEngine() {
     if (cond.type === 'lte') return n <= v
     if (cond.type === 'eq') return n === v
     if (cond.type === 'neq') return n !== v
-    if (cond.type === 'between') return n >= v && n <= parseFloat(cond.value2)
+    if (cond.type === 'between') return n >= v && n <= parseFloat(cond.value2 as string)
     return false
   }
 
@@ -100,15 +185,19 @@ export function createCondFormatEngine() {
   // per visible cell, so without memoisation a 1000-cell range would scan
   // itself a thousand times per render. Cache is cleared by `_invalidate`.
 
-  const _statsCache = new Map() // key = `${sheet}|${ruleId}` → { min, max, sum }
+  const _statsCache = new Map<string, RangeStats>() // key = `${sheet}|${ruleId}`
 
   function _invalidateStats() {
     _statsCache.clear()
   }
 
-  function _rangeStats(rule, sheet, getCellValue) {
+  function _rangeStats(
+    rule: CfRule,
+    sheet: string,
+    getCellValue: CellValueGetter | null | undefined,
+  ): RangeStats {
     const key = `${sheet}|${rule.id}`
-    if (_statsCache.has(key)) return _statsCache.get(key)
+    if (_statsCache.has(key)) return _statsCache.get(key) as RangeStats
     const { r0, c0, r1, c1 } = rule.range
     let min = Infinity,
       max = -Infinity,
@@ -116,7 +205,7 @@ export function createCondFormatEngine() {
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
         const v = getCellValue?.(cellId(r, c))
-        const n = parseFloat(v)
+        const n = parseFloat(v as string)
         if (isNaN(n)) continue
         if (n < min) min = n
         if (n > max) max = n
@@ -130,14 +219,18 @@ export function createCondFormatEngine() {
 
   // ── Format computation per kind ────────────────────────────────────────────
 
-  function _formatForColorScale(rule, rawVal, stats) {
-    const n = parseFloat(rawVal)
+  function _formatForColorScale(
+    rule: CfRule,
+    rawVal: unknown,
+    stats: RangeStats,
+  ): CfOverride | null {
+    const n = parseFloat(rawVal as string)
     if (isNaN(n) || stats.count === 0 || stats.max === stats.min) {
       // No gradient possible — leave the cell unstyled.
       return null
     }
     const t = (n - stats.min) / (stats.max - stats.min) // [0..1]
-    const s = rule.scale || {}
+    const s: CfScale = rule.scale || {}
     if (s.variant === '3color') {
       const mid = s.midPercent ?? 0.5
       const lo = s.minColor || '#ffffff'
@@ -155,8 +248,8 @@ export function createCondFormatEngine() {
     return { backgroundColor: _interp(lo, hi, t) }
   }
 
-  function _formatForDataBar(rule, rawVal, stats) {
-    const n = parseFloat(rawVal)
+  function _formatForDataBar(rule: CfRule, rawVal: unknown, stats: RangeStats): CfOverride | null {
+    const n = parseFloat(rawVal as string)
     if (isNaN(n) || stats.count === 0) return null
     // Normalised bar width in [0..1]. Negative values render from the centre
     // in `axis: 'cell'` mode; the simpler `axis: 'auto'` fills from the left.
@@ -175,8 +268,8 @@ export function createCondFormatEngine() {
 
   // Icon sets — three icons mapped to value buckets at `thresholds[0]` and
   // `thresholds[1]` (each in [0..1] relative to the range's [min, max]).
-  function _formatForIconSet(rule, rawVal, stats) {
-    const n = parseFloat(rawVal)
+  function _formatForIconSet(rule: CfRule, rawVal: unknown, stats: RangeStats): CfOverride | null {
+    const n = parseFloat(rawVal as string)
     if (isNaN(n) || stats.count === 0) return null
     const t = stats.max === stats.min ? 0.5 : (n - stats.min) / (stats.max - stats.min)
     const [lo, hi] = rule.icons?.thresholds || [0.33, 0.66]
@@ -185,7 +278,7 @@ export function createCondFormatEngine() {
     return { icon: _iconForBucket(set, bucket) }
   }
 
-  function _iconForBucket(set, bucket) {
+  function _iconForBucket(set: string, bucket: Bucket): CfIcon {
     // Set-specific palettes + shape codes. The painter knows how to draw each
     // `shape` value — see canvas/painters/cell-decorations.ts.
     if (set === 'arrows3') {
@@ -212,44 +305,54 @@ export function createCondFormatEngine() {
   // separate icon-set rule providing the icon both contribute to the same
   // cell's final paint — they only conflict on the same key).
 
-  function getFormatOverride(id, rawVal, sheet = 'Sheet1', getCellValue = null) {
+  function getFormatOverride(
+    id: string,
+    rawVal: unknown,
+    sheet = 'Sheet1',
+    getCellValue: CellValueGetter | null = null,
+  ): CfOverride | null {
     const p = parseCellId(id)
     if (!p) return null
     const rules = store[sheet] || []
-    let out = null
+    let out: CfOverride | null = null
     for (const rule of rules) {
       const { r0, c0, r1, c1 } = rule.range
       if (p.row < r0 || p.row > r1 || p.col < c0 || p.col > c1) continue
 
-      let contribution = null
+      let contribution: CfOverride | null | undefined = null
       if (rule.kind === 'color-scale') {
         contribution = _formatForColorScale(rule, rawVal, _rangeStats(rule, sheet, getCellValue))
       } else if (rule.kind === 'data-bar') {
         contribution = _formatForDataBar(rule, rawVal, _rangeStats(rule, sheet, getCellValue))
       } else if (rule.kind === 'icon-set') {
         contribution = _formatForIconSet(rule, rawVal, _rangeStats(rule, sheet, getCellValue))
-      } else if (_testCondition(rule.condition, rawVal, getCellValue)) {
+      } else if (
+        // No kind = a condition rule, which always has a condition.
+        _testCondition(rule.condition as CfCondition, rawVal, getCellValue)
+      ) {
         contribution = rule.format
       }
       if (!contribution) continue
       if (!out) out = { ...contribution }
       else {
         // Merge — earlier rules win on shared keys.
-        for (const k of Object.keys(contribution)) if (out[k] == null) out[k] = contribution[k]
+        const merged = out as Record<string, unknown>
+        const add = contribution as Record<string, unknown>
+        for (const k of Object.keys(add)) if (merged[k] == null) merged[k] = add[k]
       }
     }
     return out
   }
 
   // Duplicate any rules that overlap srcRect into destRect (used by copy-paste).
-  function addRulesForRange(srcRect, destRect, sheet = 'Sheet1') {
+  function addRulesForRange(srcRect: Rect, destRect: Rect, sheet = 'Sheet1') {
     const rules = store[sheet] || []
     const overlapping = rules.filter(
       ({ range: { r0, c0, r1, c1 } }) =>
         r0 <= srcRect.r1 && r1 >= srcRect.r0 && c0 <= srcRect.c1 && c1 >= srcRect.c0,
     )
     for (const rule of overlapping) {
-      const clone = deepClone(rule)
+      const clone: Omit<CfRule, 'id'> & { id?: number } = deepClone(rule)
       clone.range = { ...destRect }
       delete clone.id
       addRule(clone, sheet)
@@ -257,7 +360,7 @@ export function createCondFormatEngine() {
   }
 
   // Expand any rule that overlaps srcRect to also cover newTotal (used by fill handle).
-  function extendRulesToRange(srcRect, newTotal, sheet = 'Sheet1') {
+  function extendRulesToRange(srcRect: Rect, newTotal: Rect, sheet = 'Sheet1') {
     const rules = store[sheet]
     if (!rules) return
     for (const rule of rules) {
@@ -273,7 +376,12 @@ export function createCondFormatEngine() {
     _invalidateStats()
   }
 
-  function _shiftRules(sheet, rowDelta, colDelta, pred) {
+  function _shiftRules(
+    sheet: string,
+    rowDelta: number,
+    colDelta: number,
+    pred: (r0: number, c0: number, r1: number, c1: number) => boolean,
+  ) {
     const rules = store[sheet]
     if (!rules) return
     for (const rule of rules) {
@@ -289,27 +397,27 @@ export function createCondFormatEngine() {
     _invalidateStats()
   }
 
-  function insertRow(atRow, sheet = 'Sheet1') {
+  function insertRow(atRow: number, sheet = 'Sheet1') {
     _shiftRules(sheet, 1, 0, (r0) => r0 >= atRow)
   }
 
-  function deleteRow(atRow, sheet = 'Sheet1') {
+  function deleteRow(atRow: number, sheet = 'Sheet1') {
     if (!store[sheet]) return
     store[sheet] = store[sheet].filter((r) => !(r.range.r0 === atRow && r.range.r1 === atRow))
     _shiftRules(sheet, -1, 0, (r0) => r0 > atRow)
   }
 
-  function insertCol(atCol, sheet = 'Sheet1') {
-    _shiftRules(sheet, 0, 1, (r0, c0) => c0 >= atCol)
+  function insertCol(atCol: number, sheet = 'Sheet1') {
+    _shiftRules(sheet, 0, 1, (_r0, c0) => c0 >= atCol)
   }
 
-  function deleteCol(atCol, sheet = 'Sheet1') {
+  function deleteCol(atCol: number, sheet = 'Sheet1') {
     if (!store[sheet]) return
     store[sheet] = store[sheet].filter((r) => !(r.range.c0 === atCol && r.range.c1 === atCol))
-    _shiftRules(sheet, 0, -1, (r0, c0) => c0 > atCol)
+    _shiftRules(sheet, 0, -1, (_r0, c0) => c0 > atCol)
   }
 
-  function _remap(sheet, mapCol, mapRow) {
+  function _remap(sheet: string, mapCol: IndexMap | null, mapRow: IndexMap | null) {
     const rules = store[sheet]
     if (!rules) return
     store[sheet] = rules
@@ -317,29 +425,29 @@ export function createCondFormatEngine() {
         const range = remapRect(rule.range, mapCol, mapRow)
         return range ? { ...rule, range } : null
       })
-      .filter(Boolean)
+      .filter((r): r is CfRule => Boolean(r))
     _invalidateStats()
   }
-  function remapCols(mapCol, sheet = 'Sheet1') {
+  function remapCols(mapCol: IndexMap, sheet = 'Sheet1') {
     _remap(sheet, mapCol, null)
   }
-  function remapRows(mapRow, sheet = 'Sheet1') {
+  function remapRows(mapRow: IndexMap, sheet = 'Sheet1') {
     _remap(sheet, null, mapRow)
   }
 
-  function renameSheet(oldName, newName) {
+  function renameSheet(oldName: string, newName: string) {
     if (!store[oldName] || store[newName] || oldName === newName) return
     store[newName] = store[oldName]
     delete store[oldName]
     _invalidateStats()
   }
 
-  function duplicateSheet(srcName, newName) {
+  function duplicateSheet(srcName: string, newName: string) {
     if (store[newName]) return
     store[newName] = deepClone(store[srcName] || [])
   }
 
-  function deleteSheet(name) {
+  function deleteSheet(name: string) {
     delete store[name]
     _invalidateStats()
   }
@@ -348,7 +456,7 @@ export function createCondFormatEngine() {
     return deepClone(store)
   }
 
-  function restore(snap) {
+  function restore(snap: CfSnapshot) {
     for (const k of Object.keys(store)) delete store[k]
     for (const [k, v] of Object.entries(snap)) store[k] = v
     _invalidateStats()
@@ -385,7 +493,13 @@ export function createCondFormatEngine() {
 
 // ── Colour interpolation utility ─────────────────────────────────────────────
 
-function _interp(loHex, hiHex, t) {
+interface Rgb {
+  r: number
+  g: number
+  b: number
+}
+
+function _interp(loHex: string, hiHex: string, t: number) {
   const lo = _hexToRgb(loHex)
   const hi = _hexToRgb(hiHex)
   return _rgbToHex({
@@ -395,13 +509,14 @@ function _interp(loHex, hiHex, t) {
   })
 }
 
-function _hexToRgb(hex) {
+function _hexToRgb(hex: string): Rgb {
   const h = String(hex || '').replace(/^#/, '')
   if (h.length === 3) {
+    // length 3, so charAt(0..2) are the three digits.
     return {
-      r: parseInt(h[0] + h[0], 16),
-      g: parseInt(h[1] + h[1], 16),
-      b: parseInt(h[2] + h[2], 16),
+      r: parseInt(h.charAt(0) + h.charAt(0), 16),
+      g: parseInt(h.charAt(1) + h.charAt(1), 16),
+      b: parseInt(h.charAt(2) + h.charAt(2), 16),
     }
   }
   return {
@@ -411,8 +526,8 @@ function _hexToRgb(hex) {
   }
 }
 
-function _rgbToHex({ r, g, b }) {
-  const c = (v) =>
+function _rgbToHex({ r, g, b }: Rgb) {
+  const c = (v: number) =>
     Math.max(0, Math.min(255, Math.round(v)))
       .toString(16)
       .padStart(2, '0')

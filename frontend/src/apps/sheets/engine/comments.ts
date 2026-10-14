@@ -12,10 +12,41 @@
 import { colLabel, parseCellId } from '../utils/cells.js'
 import { deepClone } from '../utils/deep-clone.js'
 import { remapCellKeys } from './ref-remap.js'
+import type { CellPos, IndexMap } from './types.js'
+
+export interface CommentReply {
+  author: string
+  name: string
+  text: string
+  /** Epoch ms; null for a note migrated from the legacy string form. */
+  ts: number | null
+  mentions?: string[]
+}
+
+export interface CommentThread {
+  resolved: boolean
+  thread: CommentReply[]
+}
+
+/** What a cell holds: a thread, or a legacy string note not migrated yet. */
+export type StoredComment = CommentThread | string
+
+/** { sheetName: { cellId: thread } } */
+export type CommentsSnapshot = Record<string, Record<string, StoredComment>>
+
+export interface ReplyInput {
+  author?: string
+  name?: string
+  text?: string
+  ts?: number | null
+  mentions?: string[]
+}
+
+export type CommentsEngine = ReturnType<typeof createCommentsEngine>
 
 // Upgrade a legacy string note to a thread; pass a thread object through.
 // Returns null for an empty/blank note (nothing to keep).
-function _migrate(v) {
+function _migrate(v: unknown): CommentThread | null {
   if (v == null) return null
   if (typeof v === 'string') {
     const t = v.trim()
@@ -23,26 +54,44 @@ function _migrate(v) {
   }
   // Only a well-formed thread object survives; a number / array / corrupt value
   // is dropped rather than crashing hasOpenComment's `.thread.length` later.
-  return v && Array.isArray(v.thread) ? v : null
+  return v && Array.isArray((v as CommentThread).thread) ? (v as CommentThread) : null
+}
+
+interface CommentEntry {
+  id: string
+  p: CellPos
+  val: StoredComment
+}
+
+// Each stored comment with its parsed position; ids that don't parse are skipped.
+function _entries(
+  st: Record<string, StoredComment>,
+  pred: (p: CellPos) => boolean,
+): CommentEntry[] {
+  return Object.entries(st)
+    .map(([id, val]) => ({ id, p: parseCellId(id), val }))
+    .filter((e): e is CommentEntry => !!e.p && pred(e.p))
 }
 
 export function createCommentsEngine() {
-  // { sheetName: { cellId: { resolved, thread:[...] } } }
-  const store = {}
+  const store: CommentsSnapshot = {}
 
-  function ensure(sheet) {
+  function ensure(sheet: string): Record<string, StoredComment> {
     if (!store[sheet]) store[sheet] = {}
+    return store[sheet]
   }
 
   // ── Reads ──────────────────────────────────────────────────────────────────
 
   // The thread at a cell, migrating a legacy string in place on first touch.
-  function getThread(id, sheet = 'Sheet1') {
-    const v = store[sheet]?.[id]
+  function getThread(id: string, sheet = 'Sheet1'): CommentThread | null {
+    const st = store[sheet]
+    if (!st) return null
+    const v = st[id]
     if (v == null) return null
     if (typeof v === 'string') {
       const m = _migrate(v)
-      if (m) store[sheet][id] = m
+      if (m) st[id] = m
       return m
     }
     return v
@@ -50,7 +99,7 @@ export function createCommentsEngine() {
 
   // Drives the grid marker — only unresolved threads mark the cell so resolved
   // discussions don't clutter the sheet (they stay in the all-comments list).
-  function hasOpenComment(id, sheet = 'Sheet1') {
+  function hasOpenComment(id: string, sheet = 'Sheet1') {
     const t = getThread(id, sheet)
     return !!(t && !t.resolved && t.thread.length)
   }
@@ -60,7 +109,7 @@ export function createCommentsEngine() {
   }
 
   // First reply's text — a one-line preview for the all-comments list.
-  function preview(id, sheet = 'Sheet1') {
+  function preview(id: string, sheet = 'Sheet1') {
     return getThread(id, sheet)?.thread?.[0]?.text || ''
   }
 
@@ -75,36 +124,39 @@ export function createCommentsEngine() {
   // Append a reply, creating the thread if new. A new reply reopens a resolved
   // thread (someone had more to say). `ts` is injectable for deterministic tests.
   function addReply(
-    id,
-    { author = '', name = '', text, ts = Date.now(), mentions = [] } = {},
+    id: string,
+    { author = '', name = '', text, ts = Date.now(), mentions = [] }: ReplyInput = {},
     sheet = 'Sheet1',
   ) {
     const clean = (text || '').trim()
     if (!clean) return
-    ensure(sheet)
-    const entry = { author, name, text: clean, ts }
+    const st = ensure(sheet)
+    const entry: CommentReply = { author, name, text: clean, ts }
     if (mentions.length) entry.mentions = mentions
     const t = getThread(id, sheet)
-    store[sheet][id] = t
+    st[id] = t
       ? { resolved: false, thread: [...t.thread, entry] }
       : { resolved: false, thread: [entry] }
   }
 
   // Drop one reply; if it was the last, the whole thread goes.
-  function removeReply(id, index, sheet = 'Sheet1') {
+  function removeReply(id: string, index: number, sheet = 'Sheet1') {
+    const st = store[sheet]
     const t = getThread(id, sheet)
-    if (!t || !t.thread[index]) return
+    // A thread was found, so its sheet exists; `st` is only checked for TS.
+    if (!st || !t || !t.thread[index]) return
     const thread = t.thread.filter((_, i) => i !== index)
-    if (thread.length) store[sheet][id] = { ...t, thread }
-    else delete store[sheet][id]
+    if (thread.length) st[id] = { ...t, thread }
+    else delete st[id]
   }
 
-  function resolve(id, resolved, sheet = 'Sheet1') {
+  function resolve(id: string, resolved: boolean, sheet = 'Sheet1') {
+    const st = store[sheet]
     const t = getThread(id, sheet)
-    if (t) store[sheet][id] = { ...t, resolved: !!resolved }
+    if (st && t) st[id] = { ...t, resolved: !!resolved }
   }
 
-  function clear(id, sheet = 'Sheet1') {
+  function clear(id: string, sheet = 'Sheet1') {
     if (store[sheet]) delete store[sheet][id]
   }
 
@@ -112,20 +164,22 @@ export function createCommentsEngine() {
   // captures the entire before/after thread rather than a single reply. Deep-
   // clones so the stored thread is isolated from the caller's object — later
   // in-place mutations (addReply/resolve) can never leak into a restored state.
-  function setThread(id, value, sheet = 'Sheet1') {
-    ensure(sheet)
-    if (value) store[sheet][id] = deepClone(value)
-    else delete store[sheet][id]
+  function setThread(id: string, value: CommentThread | null | undefined, sheet = 'Sheet1') {
+    const st = ensure(sheet)
+    if (value) st[id] = deepClone(value)
+    else delete st[id]
   }
 
   // ── Row/col shifts (value-agnostic — move whole threads by cell id) ───────────
 
-  function _shift(sheet, pred, newIdFn, descending) {
-    ensure(sheet)
-    const st = store[sheet]
-    const entries = Object.entries(st)
-      .map(([id, val]) => ({ id, p: parseCellId(id), val }))
-      .filter(({ p }) => p && pred(p))
+  function _shift(
+    sheet: string,
+    pred: (p: CellPos) => boolean,
+    newIdFn: (p: CellPos) => string,
+    descending: boolean,
+  ) {
+    const st = ensure(sheet)
+    const entries = _entries(st, pred)
     entries.sort((a, b) => (descending ? b.p.row - a.p.row : a.p.row - b.p.row))
     for (const { id, p, val } of entries) {
       delete st[id]
@@ -134,7 +188,7 @@ export function createCommentsEngine() {
     }
   }
 
-  function insertRow(atRow, sheet = 'Sheet1') {
+  function insertRow(atRow: number, sheet = 'Sheet1') {
     _shift(
       sheet,
       (p) => p.row >= atRow,
@@ -143,11 +197,11 @@ export function createCommentsEngine() {
     )
   }
 
-  function deleteRow(atRow, sheet = 'Sheet1') {
-    ensure(sheet)
-    for (const id of Object.keys(store[sheet] || {})) {
+  function deleteRow(atRow: number, sheet = 'Sheet1') {
+    const st = ensure(sheet)
+    for (const id of Object.keys(st)) {
       const p = parseCellId(id)
-      if (p && p.row === atRow) delete store[sheet][id]
+      if (p && p.row === atRow) delete st[id]
     }
     _shift(
       sheet,
@@ -157,58 +211,50 @@ export function createCommentsEngine() {
     )
   }
 
-  function insertCol(atCol, sheet = 'Sheet1') {
-    ensure(sheet)
-    const st = store[sheet]
-    const entries = Object.entries(st)
-      .map(([id, val]) => ({ id, p: parseCellId(id), val }))
-      .filter(({ p }) => p && p.col >= atCol)
-      .sort((a, b) => b.p.col - a.p.col)
+  function insertCol(atCol: number, sheet = 'Sheet1') {
+    const st = ensure(sheet)
+    const entries = _entries(st, (p) => p.col >= atCol).sort((a, b) => b.p.col - a.p.col)
     for (const { id, p, val } of entries) {
       delete st[id]
       st[colLabel(p.col + 1) + (p.row + 1)] = val
     }
   }
 
-  function deleteCol(atCol, sheet = 'Sheet1') {
-    ensure(sheet)
-    const st = store[sheet]
+  function deleteCol(atCol: number, sheet = 'Sheet1') {
+    const st = ensure(sheet)
     for (const id of Object.keys(st)) {
       const p = parseCellId(id)
       if (p && p.col === atCol) delete st[id]
     }
-    const entries = Object.entries(st)
-      .map(([id, val]) => ({ id, p: parseCellId(id), val }))
-      .filter(({ p }) => p && p.col > atCol)
-      .sort((a, b) => a.p.col - b.p.col)
+    const entries = _entries(st, (p) => p.col > atCol).sort((a, b) => a.p.col - b.p.col)
     for (const { id, p, val } of entries) {
       delete st[id]
       st[colLabel(p.col - 1) + (p.row + 1)] = val
     }
   }
 
-  function remapCols(mapCol, sheet = 'Sheet1') {
+  function remapCols(mapCol: IndexMap, sheet = 'Sheet1') {
     if (store[sheet]) store[sheet] = remapCellKeys(store[sheet], mapCol, null)
   }
 
-  function remapRows(mapRow, sheet = 'Sheet1') {
+  function remapRows(mapRow: IndexMap, sheet = 'Sheet1') {
     if (store[sheet]) store[sheet] = remapCellKeys(store[sheet], null, mapRow)
   }
 
   // ── Sheet lifecycle ──────────────────────────────────────────────────────────
 
-  function renameSheet(oldName, newName) {
+  function renameSheet(oldName: string, newName: string) {
     if (!store[oldName] || store[newName] || oldName === newName) return
     store[newName] = store[oldName]
     delete store[oldName]
   }
 
-  function duplicateSheet(srcName, newName) {
+  function duplicateSheet(srcName: string, newName: string) {
     if (store[newName]) return
     store[newName] = deepClone(store[srcName] || {})
   }
 
-  function deleteSheet(name) {
+  function deleteSheet(name: string) {
     delete store[name]
   }
 
@@ -220,14 +266,15 @@ export function createCommentsEngine() {
   // Deep-clone the incoming snapshot first: threads are mutated in place
   // (addReply/resolve), so aliasing a history entry here would let a later edit
   // corrupt the stored snapshot and break a subsequent undo/redo.
-  function restore(snap) {
+  function restore(snap: Record<string, Record<string, unknown>> | null | undefined) {
     for (const k of Object.keys(store)) delete store[k]
     const clone = deepClone(snap || {})
     for (const [sheet, cells] of Object.entries(clone)) {
-      store[sheet] = {}
+      const st: Record<string, StoredComment> = {}
+      store[sheet] = st
       for (const [id, v] of Object.entries(cells)) {
         const m = _migrate(v)
-        if (m) store[sheet][id] = m
+        if (m) st[id] = m
       }
     }
   }

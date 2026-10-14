@@ -20,15 +20,43 @@
 //   then receives the touches so it reverts only those cells. Op entries
 //   don't need this — they already target exactly the cells they changed.
 
-export function createHistory({
-  snapshot,
-  restore,
-  applyOp,
-  revertOp,
-  maxSize = 50,
-  getLocalTouches,
-} = {}) {
-  const stack = []
+type Touches = Set<string>
+
+export interface HistoryOptions<Snap, Op extends object> {
+  snapshot: () => Snap
+  restore?: ((snap: Snap, opts: { touches: Touches | null }) => void) | undefined
+  applyOp?: ((op: Op) => void) | undefined
+  revertOp?: ((op: Op) => void) | undefined
+  maxSize?: number | undefined
+  getLocalTouches?: (() => Touches) | undefined
+}
+
+type SnapEntry<Snap> = { kind: 'snap'; snap: Snap; touches: Touches | null }
+type Entry<Snap, Op> = SnapEntry<Snap> | { kind: 'op'; op: Op }
+
+export interface History<Op> {
+  push(): void
+  pushOp(op: Op): void
+  undo(): boolean
+  redo(): boolean
+  canUndo(): boolean
+  canRedo(): boolean
+  init(): void
+  reset(): void
+}
+
+// Callers always pass options; the `{}` default only keeps the old signature.
+export function createHistory<Snap, Op extends object = object>(
+  {
+    snapshot,
+    restore,
+    applyOp,
+    revertOp,
+    maxSize = 50,
+    getLocalTouches,
+  }: HistoryOptions<Snap, Op> = {} as HistoryOptions<Snap, Op>,
+): History<Op> {
+  const stack: Entry<Snap, Op>[] = []
   let index = -1
 
   // Snapshot push. Used by mutations that don't have a natural op
@@ -43,7 +71,7 @@ export function createHistory({
 
   // Op push. Used by mutations that ship a `{ before, after }` diff.
   // Tens of bytes per entry instead of tens of MB.
-  function pushOp(op) {
+  function pushOp(op: Op) {
     if (index < stack.length - 1) stack.splice(index + 1)
     stack.push({ kind: 'op', op })
     index++
@@ -64,7 +92,7 @@ export function createHistory({
 
   function undo() {
     if (index <= 0) return false
-    const entry = stack[index]
+    const entry = stack[index] as Entry<Snap, Op>
     if (entry.kind === 'op') {
       // Step PAST the op (apply its inverse), but leave the stack
       // entry intact so redo can re-apply forward.
@@ -75,7 +103,7 @@ export function createHistory({
       // The touches hint travels with the entry being undone.
       const undoingTouches = entry.touches || null
       index--
-      if (stack[index].kind === 'snap') {
+      if ((stack[index] as Entry<Snap, Op>).kind === 'snap') {
         // Previous entry is itself a snapshot — restore it directly.
         _restoreSnap(index, undoingTouches)
       } else {
@@ -102,19 +130,20 @@ export function createHistory({
   // collab mode it does not honour the per-cell `touches` optimisation for
   // this (rarer) path, trading a touch of collab precision for correctness
   // over the previous behaviour, which silently did nothing.
-  function _rebuildTo(target) {
+  function _rebuildTo(target: number) {
     let base = target
-    while (base >= 0 && stack[base].kind !== 'snap') base--
+    while (base >= 0 && (stack[base] as Entry<Snap, Op>).kind !== 'snap') base--
     if (base >= 0) _restoreSnap(base, null)
     for (let k = base + 1; k <= target; k++) {
-      if (stack[k].kind === 'op') applyOp?.(stack[k].op)
+      const e = stack[k] as Entry<Snap, Op>
+      if (e.kind === 'op') applyOp?.(e.op)
     }
   }
 
   function redo() {
     if (index >= stack.length - 1) return false
     index++
-    const entry = stack[index]
+    const entry = stack[index] as Entry<Snap, Op>
     if (entry.kind === 'op') applyOp?.(entry.op)
     else _restoreSnap(index, null)
     return true
@@ -124,10 +153,11 @@ export function createHistory({
   // before it is in that state and none after it. An op that tracks whether
   // the engine holds it (an `applied` flag, as structural ops do) is told so,
   // and replaying it afterwards sends it again.
-  function _restoreSnap(i, touches) {
-    restore?.(stack[i].snap, { touches })
+  // Only ever called with the index of a snapshot entry.
+  function _restoreSnap(i: number, touches: Touches | null) {
+    restore?.((stack[i] as SnapEntry<Snap>).snap, { touches })
     stack.forEach((e, k) => {
-      if (e.kind === 'op' && 'applied' in e.op) e.op.applied = k < i
+      if (e.kind === 'op' && 'applied' in e.op) (e.op as { applied: boolean }).applied = k < i
     })
   }
 

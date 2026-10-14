@@ -12,14 +12,29 @@
 
 import { deepClone } from '../utils/deep-clone.js'
 import { remapRect } from './ref-remap.js'
+import type { IndexMap, Rect } from './types.js'
+
+export interface ProtectedRange extends Rect {
+  id: number
+  description: string
+}
+
+export interface ProtectionSheet {
+  locked: boolean
+  ranges: ProtectedRange[]
+}
+
+export type ProtectionSnapshot = Record<string, ProtectionSheet>
+
+export type ProtectionEngine = ReturnType<typeof createProtectionEngine>
 
 let _nextId = 1
 
 export function createProtectionEngine() {
   // { sheetName: { locked: bool, ranges: [{ id, r0, c0, r1, c1, description }] } }
-  const store = {}
+  const store: ProtectionSnapshot = {}
 
-  function ensure(sheet) {
+  function ensure(sheet: string): ProtectionSheet {
     if (!store[sheet]) store[sheet] = { locked: false, ranges: [] }
     return store[sheet]
   }
@@ -35,7 +50,7 @@ export function createProtectionEngine() {
   }
 
   // Is a single cell protected? Sheet lock short-circuits every range check.
-  function isProtected(row, col, sheet = 'Sheet1') {
+  function isProtected(row: number, col: number, sheet = 'Sheet1') {
     const s = store[sheet]
     if (!s) return false
     if (s.locked) return true
@@ -44,7 +59,7 @@ export function createProtectionEngine() {
 
   // Does `rect` overlap any protected cell? Used to block a whole block-write
   // (paste / fill / delete-block) when any target cell is protected.
-  function isAnyProtected(rect, sheet = 'Sheet1') {
+  function isAnyProtected(rect: Rect, sheet = 'Sheet1') {
     const s = store[sheet]
     if (!s) return false
     if (s.locked) return true
@@ -54,18 +69,18 @@ export function createProtectionEngine() {
 
   // ── Mutations ────────────────────────────────────────────────────────────────
 
-  function setSheetLocked(locked, sheet = 'Sheet1') {
+  function setSheetLocked(locked: boolean, sheet = 'Sheet1') {
     ensure(sheet).locked = !!locked
   }
 
-  function addRange(rect, description = '', sheet = 'Sheet1') {
+  function addRange(rect: Rect, description = '', sheet = 'Sheet1') {
     const s = ensure(sheet)
     const id = _nextId++
     s.ranges.push({ id, ..._norm(rect), description })
     return id
   }
 
-  function removeRange(id, sheet = 'Sheet1') {
+  function removeRange(id: number, sheet = 'Sheet1') {
     const s = store[sheet]
     if (s) s.ranges = s.ranges.filter((r) => r.id !== id)
   }
@@ -78,12 +93,12 @@ export function createProtectionEngine() {
   // or past `at`, so a straddling range shrinks and a range that was only the
   // deleted line collapses (start > end) and is removed.
 
-  function _shift(sheet, axis, at, delta) {
+  function _shift(sheet: string, axis: 'row' | 'col', at: number, delta: number) {
     const s = store[sheet]
     if (!s) return
     const lo = axis === 'row' ? 'r0' : 'c0'
     const hi = axis === 'row' ? 'r1' : 'c1'
-    const kept = []
+    const kept: ProtectedRange[] = []
     for (const r of s.ranges) {
       let a = r[lo],
         b = r[hi]
@@ -100,20 +115,20 @@ export function createProtectionEngine() {
     s.ranges = kept
   }
 
-  function insertRow(at, sheet = 'Sheet1') {
+  function insertRow(at: number, sheet = 'Sheet1') {
     _shift(sheet, 'row', at, +1)
   }
-  function deleteRow(at, sheet = 'Sheet1') {
+  function deleteRow(at: number, sheet = 'Sheet1') {
     _shift(sheet, 'row', at, -1)
   }
-  function insertCol(at, sheet = 'Sheet1') {
+  function insertCol(at: number, sheet = 'Sheet1') {
     _shift(sheet, 'col', at, +1)
   }
-  function deleteCol(at, sheet = 'Sheet1') {
+  function deleteCol(at: number, sheet = 'Sheet1') {
     _shift(sheet, 'col', at, -1)
   }
 
-  function _remap(sheet, mapCol, mapRow) {
+  function _remap(sheet: string, mapCol: IndexMap | null, mapRow: IndexMap | null) {
     const s = store[sheet]
     if (!s?.ranges) return
     s.ranges = s.ranges
@@ -121,29 +136,29 @@ export function createProtectionEngine() {
         const box = remapRect(r, mapCol, mapRow)
         return box ? { ...r, ...box } : null
       })
-      .filter(Boolean)
+      .filter((r): r is ProtectedRange => Boolean(r))
   }
-  function remapCols(mapCol, sheet = 'Sheet1') {
+  function remapCols(mapCol: IndexMap, sheet = 'Sheet1') {
     _remap(sheet, mapCol, null)
   }
-  function remapRows(mapRow, sheet = 'Sheet1') {
+  function remapRows(mapRow: IndexMap, sheet = 'Sheet1') {
     _remap(sheet, null, mapRow)
   }
 
   // ── Sheet lifecycle ──────────────────────────────────────────────────────────
 
-  function renameSheet(oldName, newName) {
+  function renameSheet(oldName: string, newName: string) {
     if (!store[oldName] || store[newName] || oldName === newName) return
     store[newName] = store[oldName]
     delete store[oldName]
   }
 
-  function duplicateSheet(srcName, newName) {
+  function duplicateSheet(srcName: string, newName: string) {
     if (store[newName]) return
     store[newName] = deepClone(store[srcName] || { locked: false, ranges: [] })
   }
 
-  function deleteSheet(name) {
+  function deleteSheet(name: string) {
     delete store[name]
   }
 
@@ -151,7 +166,7 @@ export function createProtectionEngine() {
     return deepClone(store)
   }
 
-  function restore(snap) {
+  function restore(snap: ProtectionSnapshot) {
     for (const k of Object.keys(store)) delete store[k]
     // Advance the id counter past every restored range. Without this a reload
     // (module re-init → _nextId=1) followed by a new addRange would mint an id
@@ -187,7 +202,7 @@ export function createProtectionEngine() {
 }
 
 // Normalise a rect so r0<=r1 and c0<=c1 regardless of selection direction.
-function _norm({ r0, c0, r1, c1 }) {
+function _norm({ r0, c0, r1, c1 }: Rect): Rect {
   return {
     r0: Math.min(r0, r1),
     r1: Math.max(r0, r1),

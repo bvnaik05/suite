@@ -7,7 +7,16 @@
 // This is what keeps "bold the whole column / whole sheet" from writing
 // hundreds of thousands of per-cell format records.
 
-export function formatScope(rect, totalRows, totalCols) {
+import type { Rect } from './types.js'
+
+export type FormatScope =
+  { kind: 'cells' } | { kind: 'cols'; cols: number[] } | { kind: 'rows'; rows: number[] }
+
+export function formatScope(
+  rect: Rect | null | undefined,
+  totalRows: number,
+  totalCols: number,
+): FormatScope {
   if (!rect) return { kind: 'cells' }
   const { r0, c0, r1, c1 } = rect
   const fullCols = r0 === 0 && r1 >= totalRows - 1
@@ -18,8 +27,8 @@ export function formatScope(rect, totalRows, totalCols) {
   return { kind: 'cells' }
 }
 
-function _range(a, b) {
-  const out = []
+function _range(a: number, b: number): number[] {
+  const out: number[] = []
   for (let i = a; i <= b; i++) out.push(i)
   return out
 }

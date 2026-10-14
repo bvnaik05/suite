@@ -1,6 +1,7 @@
 import { cellId } from '../utils/cells.js'
 import { deepClone } from '../utils/deep-clone.js'
 import { remapRect } from './ref-remap.js'
+import type { IndexMap } from './types.js'
 
 // Per-sheet merge state.
 //
@@ -19,15 +20,33 @@ import { remapRect } from './ref-remap.js'
 // to `'Sheet1'` to match formats.js so call sites that never carried a
 // sheet name behave the same way they used to in a single-sheet doc.
 
-export function createMergeEngine() {
-  const store = {} // { sheetName: { masterMap, slaveMap } }
+/** A merge, stored under its top-left (master) cell id. */
+export interface MergeInfo {
+  r: number
+  c: number
+  rowSpan: number
+  colSpan: number
+}
 
-  function _slice(sheet) {
+/** One sheet's merges: master id → merge, covered (slave) id → master id. */
+export interface MergeSlice {
+  masterMap: Record<string, MergeInfo>
+  slaveMap: Record<string, string>
+}
+
+export type MergeSnapshot = Record<string, MergeSlice>
+
+export type MergeEngine = ReturnType<typeof createMergeEngine>
+
+export function createMergeEngine() {
+  const store: MergeSnapshot = {}
+
+  function _slice(sheet: string): MergeSlice {
     if (!store[sheet]) store[sheet] = { masterMap: {}, slaveMap: {} }
     return store[sheet]
   }
 
-  function merge(r0, c0, r1, c1, sheet = 'Sheet1') {
+  function merge(r0: number, c0: number, r1: number, c1: number, sheet = 'Sheet1') {
     _unmergeRect(r0, c0, r1, c1, sheet)
     if (r0 === r1 && c0 === c1) return
     const s = _slice(sheet)
@@ -37,15 +56,15 @@ export function createMergeEngine() {
       for (let c = c0; c <= c1; c++) if (!(r === r0 && c === c0)) s.slaveMap[cellId(r, c)] = mid
   }
 
-  function unmerge(r0, c0, r1, c1, sheet = 'Sheet1') {
+  function unmerge(r0: number, c0: number, r1: number, c1: number, sheet = 'Sheet1') {
     _unmergeRect(r0, c0, r1, c1, sheet)
   }
 
-  function _unmergeRect(r0, c0, r1, c1, sheet) {
+  function _unmergeRect(r0: number, c0: number, r1: number, c1: number, sheet: string) {
     const s = store[sheet]
     if (!s) return
     for (const mid of Object.keys(s.masterMap)) {
-      const { r: mr, c: mc, rowSpan, colSpan } = s.masterMap[mid]
+      const { r: mr, c: mc, rowSpan, colSpan } = s.masterMap[mid] as MergeInfo
       const mr1 = mr + rowSpan - 1,
         mc1 = mc + colSpan - 1
       if (mr1 < r0 || mr > r1 || mc1 < c0 || mc > c1) continue
@@ -58,7 +77,7 @@ export function createMergeEngine() {
   // Structural permutation — rebuild every merge from its remapped bounding box.
   // A move that would split a merge grows it to the box (Sheets blocks such a
   // move; here it degrades to the covering rectangle rather than corrupting).
-  function _remap(sheet, mapCol, mapRow) {
+  function _remap(sheet: string, mapCol: IndexMap | null, mapRow: IndexMap | null) {
     const s = store[sheet]
     if (!s) return
     const masters = Object.values(s.masterMap)
@@ -81,26 +100,26 @@ export function createMergeEngine() {
           if (!(r === box.r0 && c === box.c0)) s.slaveMap[cellId(r, c)] = mid
     }
   }
-  function remapCols(mapCol, sheet = 'Sheet1') {
+  function remapCols(mapCol: IndexMap, sheet = 'Sheet1') {
     _remap(sheet, mapCol, null)
   }
-  function remapRows(mapRow, sheet = 'Sheet1') {
+  function remapRows(mapRow: IndexMap, sheet = 'Sheet1') {
     _remap(sheet, null, mapRow)
   }
 
-  function isMaster(id, sheet = 'Sheet1') {
+  function isMaster(id: string, sheet = 'Sheet1') {
     return !!store[sheet]?.masterMap[id]
   }
-  function isSlave(id, sheet = 'Sheet1') {
+  function isSlave(id: string, sheet = 'Sheet1') {
     return !!store[sheet]?.slaveMap[id]
   }
-  function getMasterInfo(id, sheet = 'Sheet1') {
+  function getMasterInfo(id: string, sheet = 'Sheet1') {
     return store[sheet]?.masterMap[id] || null
   }
-  function getMasterId(id, sheet = 'Sheet1') {
+  function getMasterId(id: string, sheet = 'Sheet1') {
     return store[sheet]?.slaveMap[id] || null
   }
-  function resolveId(id, sheet = 'Sheet1') {
+  function resolveId(id: string, sheet = 'Sheet1') {
     return store[sheet]?.slaveMap[id] || id
   }
 
@@ -113,18 +132,20 @@ export function createMergeEngine() {
   //     per-sheet rewrite — migrate it under the default sheet name
   //     so old saved docs keep their merges
   //   * new per-sheet snapshot { sheetName: { masterMap, slaveMap } }
-  function restore(snap) {
+  function restore(snap: MergeSnapshot | MergeSlice | null | undefined) {
     for (const k of Object.keys(store)) delete store[k]
     if (!snap) return
-    if (snap.masterMap && snap.slaveMap) {
+    const legacy = snap as Partial<MergeSlice>
+    if (legacy.masterMap && legacy.slaveMap) {
       // legacy
       store['Sheet1'] = {
-        masterMap: deepClone(snap.masterMap),
-        slaveMap: deepClone(snap.slaveMap),
+        masterMap: deepClone(legacy.masterMap),
+        slaveMap: deepClone(legacy.slaveMap),
       }
       return
     }
-    for (const [name, slice] of Object.entries(snap)) {
+    // Saved slices may be missing either map.
+    for (const [name, slice] of Object.entries(snap as Record<string, Partial<MergeSlice>>)) {
       store[name] = {
         masterMap: deepClone(slice.masterMap || {}),
         slaveMap: deepClone(slice.slaveMap || {}),
@@ -136,25 +157,25 @@ export function createMergeEngine() {
   // Mirror formats.js so useSheetTabs can plumb this engine through its
   // `extras` array and merges follow tab renames / duplications.
 
-  function renameSheet(oldName, newName) {
+  function renameSheet(oldName: string, newName: string) {
     if (!store[oldName] || store[newName] || oldName === newName) return
     store[newName] = store[oldName]
     delete store[oldName]
   }
 
-  function duplicateSheet(srcName, newName) {
+  function duplicateSheet(srcName: string, newName: string) {
     if (store[newName]) return
     store[newName] = deepClone(store[srcName] || { masterMap: {}, slaveMap: {} })
   }
 
-  function deleteSheet(name) {
+  function deleteSheet(name: string) {
     delete store[name]
   }
 
-  function reorderSheets(orderedNames) {
-    const next = {}
+  function reorderSheets(orderedNames: readonly string[]) {
+    const next: MergeSnapshot = {}
     for (const name of orderedNames) if (store[name]) next[name] = store[name]
-    for (const name of Object.keys(store)) if (!next[name]) next[name] = store[name]
+    for (const name of Object.keys(store)) if (!next[name]) next[name] = store[name] as MergeSlice
     for (const k of Object.keys(store)) delete store[k]
     Object.assign(store, next)
   }

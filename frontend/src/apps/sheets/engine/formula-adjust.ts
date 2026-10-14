@@ -1,12 +1,19 @@
 import { colLabel } from '../utils/cells.js'
 
 // Convert column letters (e.g. "AB") to 0-based index.
-function _colIndex(letters) {
+function _colIndex(letters: string): number {
   return letters.split('').reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0) - 1
 }
 
 // Shift a single cell reference token by (dr, dc), respecting $ anchors.
-function _shiftRef(cDollar, colStr, rDollar, rowStr, dr, dc) {
+function _shiftRef(
+  cDollar: string,
+  colStr: string,
+  rDollar: string,
+  rowStr: string,
+  dr: number,
+  dc: number,
+): string {
   const col = _colIndex(colStr)
   const row = parseInt(rowStr, 10) - 1
   const newCol = cDollar ? col : col + dc
@@ -18,12 +25,13 @@ function _shiftRef(cDollar, colStr, rDollar, rowStr, dr, dc) {
 // Adjust all relative cell references in a formula by (dr, dc) rows/cols.
 // Absolute refs (prefixed with $) are left unchanged.
 // The (?!!) negative lookahead skips sequences like SHEET2! (sheet-name identifiers).
-export function adjustFormula(formula, dr, dc) {
+// Anything that isn't a formula string comes back unchanged.
+export function adjustFormula<T>(formula: T, dr: number, dc: number): T | string {
   if (!formula || typeof formula !== 'string' || !formula.startsWith('=')) return formula
   if (dr === 0 && dc === 0) return formula
   return formula.replace(
     /(\$?)([A-Za-z]+)(\$?)(\d+)(?!!)/g,
-    (_, cDollar, colStr, rDollar, rowStr) =>
+    (_: string, cDollar: string, colStr: string, rDollar: string, rowStr: string) =>
       _shiftRef(cDollar, colStr.toUpperCase(), rDollar, rowStr, dr, dc),
   )
 }
@@ -36,7 +44,11 @@ export function adjustFormula(formula, dr, dc) {
 //
 // Preserves the quoting style of each occurrence so the formula reads the
 // same after the rename.
-export function renameSheetInFormula(formula, oldName, newName) {
+export function renameSheetInFormula<T>(
+  formula: T,
+  oldName: string | null | undefined,
+  newName: string | null | undefined,
+): T | string {
   if (!formula || typeof formula !== 'string' || !formula.startsWith('=')) return formula
   if (!oldName || !newName || oldName === newName) return formula
 
