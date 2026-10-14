@@ -8,8 +8,13 @@ import { useScreener } from '@/apps/mail/composables/useScreener'
 import { FOLDER_ICON_COLOR_MAP } from '@/apps/mail/constants'
 import { userStore, type MailboxRole } from '@/apps/mail/stores/user'
 import type { Mail, Mailbox, MailCopy, Thread } from '@/apps/mail/types'
-import { getIcon, raiseOptimisticToast, raisePromiseToast } from '@/apps/mail/utils'
-import { useUndo } from '@/apps/mail/utils/composables'
+import {
+  commitAfterUndo,
+  getIcon,
+  raiseOptimisticToast,
+  raisePromiseToast,
+} from '@/apps/mail/utils'
+import { useDiscardingDrafts, useUndo } from '@/apps/mail/utils/composables'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
 import { mailCopies, mailCopyIds, mailCopyNames, rowMailIds } from '@/apps/mail/utils/mailCopies'
 
@@ -66,7 +71,8 @@ export function useThreadActions(deps: {
   } = deps
   const store = userStore()
   const { mailboxes, mailboxIds } = store
-  const { setUndoAction, undo } = useUndo()
+  const { setUndoAction, retireUndoAction, undo } = useUndo()
+  const { holdDraft, releaseDraft } = useDiscardingDrafts()
   const screener = useScreener()
 
   // The loaded rows behind the current selection. In Search each row is itself a mail rather than
@@ -479,6 +485,9 @@ export function useThreadActions(deps: {
   const showJunkOrDeleteThreads = ref(false)
   const threadsToBeDeleted = ref<string[]>([])
 
+  // In Drafts the bin discards: a draft is one's own unsent text, let go for good rather than filed
+  // in Trash, and taken back with Undo rather than confirmed up front (see discardDrafts).
+  const isDraftsList = computed(() => mailbox.value === mailboxIds.drafts)
   // Marking as Junk is reversible (and may still prompt to block per the account setting), so it
   // runs inline with no confirmation; only the destructive delete keeps a confirmation dialog.
   const junkOrDeleteThreads = (threadIDs: string[], isJunk: boolean) => {
@@ -487,6 +496,7 @@ export function useThreadActions(deps: {
       return handleSetSpamStatus({
         1: threadIDs,
       })
+    if (isDraftsList.value) return discardDrafts(threadIDs)
     threadsToBeDeleted.value = threadIDs
     showJunkOrDeleteThreads.value = true
   }
@@ -1005,6 +1015,29 @@ export function useThreadActions(deps: {
       forward,
       thread_ids.length === 1 ? __('Thread deleted.') : __('Threads deleted.'),
     )
+  }
+
+  // Drafts leave the list at once and are deleted once the toast's Undo has passed; Undo puts the
+  // rows back and sends nothing. Only the copies in Drafts go: a reply draft's conversation stays.
+  const discardDrafts = (thread_ids: string[]) => {
+    if (!thread_ids?.length) return
+    closeComposeWindowHolding(thread_ids)
+    const names = currentMailboxMails(thread_ids).map((m) => m.name)
+    const removed = handleSuccessAndRemoveFromList(thread_ids, false)
+    // Removing from the list only names the rows; the list hides them because they are held as
+    // discarding, until the delete lands or Undo lets them go.
+    const held = removed.flatMap((thread) => thread.messages.map((m) => m.id))
+    held.forEach(holdDraft)
+    const restore = () => {
+      held.forEach(releaseDraft)
+      if (removed.length) restoreThreadsToList(removed)
+    }
+    commitAfterUndo({
+      message: thread_ids.length === 1 ? __('Draft discarded.') : __('Drafts discarded.'),
+      commit: () => bulkDeleteSubmit({ names }).then(() => refillIfEmpty()),
+      restore,
+      undoSlot: { set: (action) => setUndoAction(action), retire: retireUndoAction },
+    })
   }
 
   // ── Per-message (single mail) actions from the reading pane ─────────────────────────────────────

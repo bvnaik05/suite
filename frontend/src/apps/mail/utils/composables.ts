@@ -369,6 +369,19 @@ export const useComposeMail = () => ({
 // whichever list is on screen answers in its own terms — the mailbox resets Drafts and Sent, All
 // Inboxes refreshes in place, the screener reloads its senders.
 const listReloadRequest = ref(0)
+
+// Drafts discarded from a composer and still inside their Undo window: deleted only once the toast
+// has passed, so the server still lists them. A list leaves out a row made of nothing else — in
+// Drafts a row's messages are its drafts, so a conversation with a reply draft keeps its row
+// everywhere else.
+const discardingDrafts = ref(new Set<string>())
+export const useDiscardingDrafts = () => ({
+  holdDraft: (id: string) => (discardingDrafts.value = new Set([...discardingDrafts.value, id])),
+  releaseDraft: (id: string) =>
+    (discardingDrafts.value = new Set([...discardingDrafts.value].filter((held) => held !== id))),
+  isDiscarding: (row: { messages?: { id: string }[] }) =>
+    !!row.messages?.length && row.messages.every((m) => discardingDrafts.value.has(m.id)),
+})
 export const useListReload = () => ({
   listReloadRequest,
   requestListReload: () => listReloadRequest.value++,

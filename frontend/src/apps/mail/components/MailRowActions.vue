@@ -51,12 +51,16 @@ const {
   isHovered,
   threads,
   showStar = true,
+  drafts = false,
 } = defineProps<{
   isHovered: boolean
   // One thread for a mail row; the whole run for a stack row.
   threads: Thread[]
   // Off for stacks, where the chevron occupies the star's slot.
   showStar?: boolean
+  // The list is Drafts: its bin discards rather than trashes. Asked of the list, not the thread —
+  // a conversation with a reply draft is filed in Drafts and in Inbox alike.
+  drafts?: boolean
 }>()
 
 const emit = defineEmits(['setSeen', 'archive', 'trash', 'delete', 'setFlagged'])
@@ -106,13 +110,19 @@ const actions = computed(() =>
       label: many.value ? __('Move {0} threads to Trash', [count.value]) : __('Move to Trash'),
       onClick: () => emit('trash'),
       icon: Trash2,
-      condition: !someIn(trashId.value),
+      condition: !drafts && !someIn(trashId.value),
     },
     {
       label: many.value ? __('Delete {0} threads', [count.value]) : __('Delete Thread'),
       onClick: () => emit('delete'),
       icon: Trash2,
-      condition: everyIn(trashId.value),
+      condition: !drafts && everyIn(trashId.value),
+    },
+    {
+      label: many.value ? __('Discard {0} drafts', [count.value]) : __('Discard'),
+      onClick: () => emit('delete'),
+      icon: Trash2,
+      condition: drafts,
     },
   ].filter((action) => action.condition),
 )

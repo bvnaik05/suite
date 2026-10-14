@@ -154,6 +154,7 @@
                 <template v-for="row in rows" :key="row.key">
                   <StackListItem
                     v-if="row.type === 'stack'"
+                    :drafts="folder === 'drafts'"
                     :threads="row.threads"
                     :expanded="row.expanded"
                     :is-selected="isStackSelected(row.threads.map(threadKey))"
@@ -173,6 +174,7 @@
                   <MailListItem
                     v-else
                     :mailbox="row.thread.view_mailbox || ''"
+                    :drafts="folder === 'drafts'"
                     :account-id="row.thread.account"
                     :account-label="shortAccountLabel(row.thread.account_name)"
                     :mail="row.thread"
@@ -302,6 +304,7 @@ import { useScreener } from '@/apps/mail/composables/useScreener'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Mail, Mailbox, MailboxData, MailCopy, Thread, UnifiedFolder } from '@/apps/mail/types'
 import {
+  commitAfterUndo,
   isMac,
   raiseError,
   raiseOptimisticToast,
@@ -310,6 +313,7 @@ import {
 } from '@/apps/mail/utils'
 import { useAccountScope } from '@/apps/mail/utils/accountScope'
 import {
+  useDiscardingDrafts,
   useListReload,
   useReadingPane,
   useScreenSize,
@@ -453,7 +457,15 @@ const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
   filter_by: filter.value,
   category: inboxTab.value,
 }))
-const threadRows = computed(() => threads.rows.map((row) => threadRow(row, store.accountId)))
+// Drafts discarded but still inside their Undo window: off the list, not yet off the server.
+const discarding = ref(new Set<string>())
+const { isDiscarding: isDiscardingDraft } = useDiscardingDrafts()
+const threadRows = computed(() =>
+  threads.rows
+    .map((row) => threadRow(row, store.accountId))
+    .filter((row) => !isDiscardingDraft(row))
+    .filter((row) => !discarding.value.has(threadKey(row))),
+)
 const isLoading = computed(
   () =>
     threads.status === 'pending' && !(tabSwitched.value && inboxTab.value) && !filterChanged.value,
@@ -615,7 +627,8 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
   // Backspace on Mac, Delete elsewhere.
   if (key === (isMac ? 'backspace' : 'delete')) {
     e.preventDefault()
-    handleTrash(thread)
+    if (folder === 'drafts') confirmDelete([thread])
+    else handleTrash(thread)
     return true
   }
   if (key === 'u') {
@@ -640,7 +653,8 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
 }
 const handleSelectionShortcut = (e: KeyboardEvent, key: string) => {
   const action = {
-    [isMac ? 'backspace' : 'delete']: isTrashFolder.value ? deleteSelected : trashSelected,
+    [isMac ? 'backspace' : 'delete']:
+      isTrashFolder.value || folder === 'drafts' ? deleteSelected : trashSelected,
     u: () => setThreadsSeen(takeSelected(), e.shiftKey),
     e: archiveSelected,
     '!': () => setThreadsSpam(takeSelected(), !isJunkFolder.value),
@@ -977,7 +991,7 @@ const handleSetSpamStatus = (spam: boolean, target?: Thread) => {
 
 // Per-message actions from a message's own menu, on the shared orchestration (see useMailRemoval).
 // Each row carries the mailbox it was listed from, which is what it is summarised and dated by.
-const { setUndoAction } = useUndo()
+const { setUndoAction, retireUndoAction } = useUndo()
 const { runMailRemoval } = useMailRemoval({
   row: () => openRow.value,
   mailThreadRef: mailThread,
@@ -1371,6 +1385,7 @@ const toDelete = ref<Thread[]>([])
 
 const confirmDelete = (rows: Thread[]) => {
   if (!rows.length) return
+  if (folder === 'drafts') return discardDrafts(rows)
   toDelete.value = rows
   showDelete.value = true
 }
@@ -1396,13 +1411,40 @@ const deleteOptions = computed(() => {
   }
 })
 
-const handleDelete = (rows: Thread[]) => {
-  const names = rows.flatMap((thread) =>
+// The copies a removal takes from the folder on screen: in Trash the trashed ones, in Drafts the
+// drafts. The rest of the conversation lives on in the folders it was filed in.
+const copiesHere = (rows: Thread[]) =>
+  rows.flatMap((thread) =>
     (thread.messages ?? [])
       .flatMap(mailCopies)
       .filter((copy) => copy.mailboxes.some((m) => m.mailbox_id === thread.view_mailbox))
       .map((copy) => copy.name),
   )
+
+// Drafts are discarded with an Undo rather than a confirmation: hidden here at once, deleted once
+// the toast has passed. Nothing is sent before then, so Undo only has to show them again.
+const discardDrafts = (rows: Thread[]) => {
+  const names = copiesHere(rows)
+  const keys = rows.map(threadKey)
+  goToNextThreadOrClose(keys)
+  closeComposeWindowFor(rows.flatMap(messageIds))
+  discarding.value = new Set([...discarding.value, ...keys])
+  const show = () =>
+    (discarding.value = new Set([...discarding.value].filter((k) => !keys.includes(k))))
+  commitAfterUndo({
+    message: rows.length === 1 ? __('Draft discarded.') : __('Drafts discarded.'),
+    commit: () =>
+      client.mutation(api.mail.messages.delete, { names }).then(() => {
+        refreshCounts()
+        refreshThreads()
+      }),
+    restore: show,
+    undoSlot: { set: (action) => setUndoAction(action), retire: retireUndoAction },
+  })
+}
+
+const handleDelete = (rows: Thread[]) => {
+  const names = copiesHere(rows)
   goToNextThreadOrClose(rows.map(threadKey))
   closeComposeWindowFor(rows.flatMap(messageIds))
   raiseOptimisticToast(

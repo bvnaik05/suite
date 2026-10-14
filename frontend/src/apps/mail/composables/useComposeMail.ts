@@ -4,12 +4,17 @@ import { Mention } from 'frappe-ui/editor'
 import { computed, inject, onScopeDispose, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { api, useMutation, type InputOf, type OutputOf } from '@/api'
+import { api, client, useMutation, type InputOf, type OutputOf } from '@/api'
 import { getAttachmentUrl } from '@/apps/mail/resources'
 import type { ComposeMailData, DraftRecipient, Identity, UserResource } from '@/apps/mail/types'
-import { processInlineImages, raiseError, raiseToast } from '@/apps/mail/utils'
+import { commitAfterUndo, processInlineImages, raiseError, raiseToast } from '@/apps/mail/utils'
 import { injectAccountScope } from '@/apps/mail/utils/accountScope'
-import { useUndo } from '@/apps/mail/utils/composables'
+import {
+  useComposeMail as useComposeRequest,
+  useDiscardingDrafts,
+  useListReload,
+  useUndo,
+} from '@/apps/mail/utils/composables'
 import { createMentionSuggestion, type MentionCandidate } from '@/apps/mail/utils/mentionSuggestion'
 import {
   moveRecipient as moveRecipientBetweenFields,
@@ -42,7 +47,7 @@ interface ComposeMailOptions {
   close: () => void
   /** Whether the composer is still on screen. Drives whether a result is worth a toast. */
   isOpen: () => boolean
-  /** Called instead of a server delete when discarding something never saved. */
+  /** Called as a discard takes the draft off screen, so a host showing it elsewhere drops it too. */
   onDiscardUnsaved?: () => void
   /**
    * Fired the moment Discard is pressed, before the composer comes off screen — unlike
@@ -88,6 +93,9 @@ export const useComposeMail = (options: ComposeMailOptions) => {
   // post-render effect on top of that, so a `saveDraft` gated on disposal would be a no-op exactly
   // when it is needed most, and everything typed since the last tick would go with the component.
   let disposed = false
+  const { requestCompose } = useComposeRequest()
+  const { requestListReload } = useListReload()
+  const { holdDraft, releaseDraft } = useDiscardingDrafts()
   onScopeDispose(() => (disposed = true))
   const router = useRouter()
   const route = useRoute()
@@ -167,6 +175,25 @@ export const useComposeMail = (options: ComposeMailOptions) => {
       !mail.attachments?.length &&
       isRecipientsEmpty.value &&
       isBodyEmpty.value,
+  )
+  // A fresh composition the reader has not written in: its fields still what it opened with (a
+  // reply's recipients and quote, a forward's attachments) and its body only the signature and any
+  // prefill. A draft reopened from Drafts is never this — what it holds was written before.
+  const fieldsOf = () =>
+    JSON.stringify([
+      mail.to,
+      mail.cc,
+      mail.bcc,
+      mail.subject,
+      mail.attachments,
+      mail.quoted_content,
+    ])
+  const openedWith = fieldsOf()
+  const isUntouched = computed(
+    () =>
+      !isSavedDraft &&
+      fieldsOf() === openedWith &&
+      bodyText(mail.html_body) === bodyText(buildSignature(mail.from_email) + prefilledBody),
   )
   const openQuotedContent = () => {
     mail.html_body += `<br>${mail.quoted_content}`
@@ -304,7 +331,6 @@ export const useComposeMail = (options: ComposeMailOptions) => {
   const sendMode = ref<'undo' | 'scheduled'>('undo')
   let sentAs = scopeAccountId.value
   const sendMail = async (sendAt?: string) => {
-    if (deleteMail.isPending) return
     if (options.isUploading?.()) {
       const message = __('Please wait for attachments to finish uploading.')
       if (sendAt) throw new Error(message)
@@ -337,21 +363,52 @@ export const useComposeMail = (options: ComposeMailOptions) => {
       if (sendAt) throw error /* Keep the composer open after refusal. */
     }
   }
+  // Discarding closes the composer at once and offers Undo; the draft is deleted only once the
+  // toast has passed (see commitAfterUndo). Undo reopens it, as it was, in the compose window — the
+  // composer that held it is gone, and nothing on the server has changed.
   const discardMail = async () => {
-    if (deleteMail.isPending) return
     isDiscarding.value = true
     try {
       await pendingSave
-      if (mail.id) await deleteMailSubmit()
-      else options.onDiscardUnsaved?.()
-      discarded = true
-      options.onDiscardStarted?.()
-      close()
     } catch {
-      /* Keep the draft open after refusal. */
-    } finally {
-      isDiscarding.value = false
+      /* A failed last save leaves the draft as the server has it, which is what Undo brings back. */
     }
+    const draft: ComposeMailData = JSON.parse(JSON.stringify(mail))
+    const account = scopeAccountId.value
+    discarded = true
+    options.onDiscardUnsaved?.()
+    options.onDiscardStarted?.()
+    close()
+    isDiscarding.value = false
+    // Nothing written: no toast and nothing to undo. One already autosaved (a body that is only the
+    // signature still saves) goes quietly.
+    if (isUntouched.value) {
+      if (draft.id)
+        void client
+          .mutation(api.mail.messages.deleteDraft, { account, id: draft.id })
+          .then(requestListReload, () => {})
+      return
+    }
+    // Off every list now, like a discard from the list itself; back on Undo.
+    if (draft.id) holdDraft(draft.id)
+    commitAfterUndo({
+      message: __('Draft discarded.'),
+      commit: () =>
+        draft.id
+          ? client
+              .mutation(api.mail.messages.deleteDraft, { account, id: draft.id })
+              .then(requestListReload)
+          : Promise.resolve(),
+      restore: () => {
+        if (draft.id) releaseDraft(draft.id)
+        requestCompose(draft)
+      },
+      // Reopening a draft needs no particular list on screen, so its Cmd/Ctrl+Z outlives the view.
+      undoSlot: {
+        set: (action) => setUndoAction(action, { outlivesView: true }),
+        retire: retireUndoAction,
+      },
+    })
   }
 
   /** Reset the in-flight flags once the composer is off screen. */
@@ -554,19 +611,7 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     const result = await updateDraft.run(input)
     await onMailUpdateSuccess(result)
   }
-  const deleteMail = useMutation(api.mail.messages.deleteDraft)
-  async function deleteMailSubmit() {
-    const input: InputOf<typeof api.mail.messages.deleteDraft> = {
-      account: scopeAccountId.value,
-      id: mail.id,
-    }
-    await deleteMail.run(input)
-    reloadMails()
-    raiseToast(__('Draft discarded.'))
-  }
-  const isLoading = computed(
-    () => createMail.isPending || updateDraft.isPending || deleteMail.isPending,
-  )
+  const isLoading = computed(() => createMail.isPending || updateDraft.isPending)
 
   // ── Attachments ─────────────────────────────────────────────────────────────────────────────
 

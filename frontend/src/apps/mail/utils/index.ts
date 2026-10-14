@@ -142,6 +142,49 @@ export const raiseOptimisticToast = (
   )
 }
 
+/**
+ * A removal the server cannot take back, offered with an Undo all the same: the caller has already
+ * taken the rows off screen, and the request waits out the toast. Undo puts them back and nothing is
+ * sent. Closing the page in the meantime sends nothing either, so the worst a lost wait does is
+ * leave what was there.
+ */
+export const commitAfterUndo = ({
+  message,
+  commit,
+  restore,
+  undoSlot,
+}: {
+  message: string
+  commit: () => Promise<unknown>
+  restore: () => void
+  /** The app's Cmd/Ctrl+Z, offered the same Undo for as long as the toast is: `useUndo`'s slot. */
+  undoSlot?: { set: (action: () => void) => void; retire: (action: () => void) => void }
+}) => {
+  let settled = false
+  const settle = (keep: boolean) => {
+    if (settled) return
+    settled = true
+    undoSlot?.retire(undo)
+    if (keep) {
+      toast.dismiss(shown)
+      return restore()
+    }
+    void commit().catch((error) => {
+      restore()
+      raiseError(error)
+    })
+  }
+  const undo = () => settle(true)
+  toast.dismiss()
+  undoSlot?.set(undo)
+  const shown = toast.success(message, {
+    action: { label: __('Undo'), onClick: undo },
+    // Gone on its own, closed by hand, or pushed out by the next toast: the removal stands.
+    onAutoClose: () => settle(false),
+    onDismiss: () => settle(false),
+  })
+}
+
 export const copyToClipBoard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)

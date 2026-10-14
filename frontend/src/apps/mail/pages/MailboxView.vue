@@ -228,6 +228,7 @@
 									     rows below they never need the all-accounts cross-account handling. -->
                   <StackListItem
                     v-if="row.type === 'stack'"
+                    :drafts="mailbox === mailboxIds.drafts"
                     :threads="row.threads"
                     :expanded="row.expanded"
                     :is-selected="isStackSelected(row.threads.map((t) => t.thread_id))"
@@ -249,6 +250,7 @@
                   <MailListItem
                     v-else
                     :mailbox
+                    :drafts="mailbox === mailboxIds.drafts"
                     :mail="row.thread"
                     :account-id="isAllAccountsSearch ? row.thread.account : undefined"
                     :account-label="
@@ -405,6 +407,7 @@ import {
   shouldIgnoreKeypress,
 } from '@/apps/mail/utils'
 import {
+  useDiscardingDrafts,
   useListReload,
   useMobileSearch,
   useReadingPane,
@@ -640,7 +643,9 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
   // Delete/Trash (Backspace on Mac, Delete on Windows)
   if (key === (isMac ? 'backspace' : 'delete')) {
     e.preventDefault()
-    if (e.shiftKey || mailbox === mailboxIds.trash) return junkOrDeleteThreads(thread_ids, false)
+    // Trash and Drafts let go for good: a draft is discarded rather than filed in Trash.
+    if (e.shiftKey || mailbox === mailboxIds.trash || mailbox === mailboxIds.drafts)
+      return junkOrDeleteThreads(thread_ids, false)
     return handleMoveThreads({
       [mailboxIds.trash]: thread_ids,
     })
@@ -846,8 +851,11 @@ const threads = useInfiniteQuery(api.mail.threads.list, () =>
     : false,
 )
 const activeThreads = computed(() => (mailbox === 'search' ? searchResults : threads))
+const { isDiscarding } = useDiscardingDrafts()
 const threadRows = computed(() =>
-  activeThreads.value.rows.map((row) => threadRow(row, store.accountId)),
+  activeThreads.value.rows
+    .map((row) => threadRow(row, store.accountId))
+    .filter((row) => !isDiscarding(row)),
 )
 watch(
   () => threads.status,

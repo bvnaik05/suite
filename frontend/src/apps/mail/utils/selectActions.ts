@@ -87,7 +87,7 @@ export const selectActions = (
       shortLabel: __('Trash'),
       onClick: run.trash,
       icon: Trash2,
-      condition: () => !folder().trash,
+      condition: () => !folder().trash && !folder().drafts,
     },
     {
       label: __('Delete Threads (Shift+Delete)'),
@@ -95,6 +95,15 @@ export const selectActions = (
       onClick: run.delete,
       icon: Trash2,
       condition: () => folder().trash,
+    },
+    // A draft is one's own unsent text: thrown away for good, as the composer's bin does, rather
+    // than filed in Trash among mail that was received.
+    {
+      label: __('Discard (Delete)'),
+      shortLabel: __('Discard'),
+      onClick: run.delete,
+      icon: Trash2,
+      condition: () => folder().drafts,
     },
     {
       label: __('Mark as Read (Shift+U)'),

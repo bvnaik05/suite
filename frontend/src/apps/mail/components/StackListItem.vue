@@ -40,6 +40,7 @@
         :is-hovered
         :threads
         :show-star="false"
+        :drafts
         @set-seen="(seen: boolean) => emit('setSeen', seen)"
         @archive="emit('archiveThreads')"
         @trash="emit('trashThreads')"
@@ -77,6 +78,7 @@ const {
   selectable = true,
   hideAvatar,
   accountLabel,
+  drafts = false,
 } = defineProps<{
   threads: Thread[]
   expanded: boolean
@@ -87,6 +89,8 @@ const {
   hideAvatar?: boolean
   // Which account received the run (merged lists) — a stack never mixes accounts.
   accountLabel?: string
+  // The list is Drafts, so the run's bin discards (see MailRowActions).
+  drafts?: boolean
 }>()
 
 const emit = defineEmits<{

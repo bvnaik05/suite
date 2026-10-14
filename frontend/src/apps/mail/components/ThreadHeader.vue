@@ -243,7 +243,16 @@ const moreActions = computed((): Action[] => [
     label: __('Move to Trash (Delete)'),
     onClick: () => emit('moveThread', mailboxIds.value.trash),
     icon: Trash2,
-    condition: () => !threadMailboxes.value.includes(mailboxIds.value.trash),
+    condition: () =>
+      mailbox.value !== mailboxIds.value.drafts &&
+      !threadMailboxes.value.includes(mailboxIds.value.trash),
+  },
+  // Read from Drafts, a draft is discarded for good, as the list and the composer do.
+  {
+    label: __('Discard (Delete)'),
+    onClick: () => emit('deleteThread'),
+    icon: Trash2,
+    condition: () => mailbox.value === mailboxIds.value.drafts,
   },
   {
     label: __('Delete Thread (Shift+Delete)'),

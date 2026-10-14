@@ -21,6 +21,7 @@ vi.mock('@/apps/mail/utils', () => ({
 }))
 vi.mock('@/apps/mail/utils/composables', () => ({
   useUndo: () => ({ setUndoAction: vi.fn(), undo: vi.fn() }),
+  useDiscardingDrafts: () => ({ holdDraft: vi.fn(), releaseDraft: vi.fn() }),
 }))
 vi.mock('@/apps/mail/stores/user', () => ({ userStore: () => store }))
 
