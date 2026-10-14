@@ -61,50 +61,19 @@
         />
       </DefineTopbarStatus>
       <DefineTopbarActions>
-        <!-- AI Assist entry point — shown only when an admin has configured a
-           key and enabled it (gated server-side via the boot flag). -->
-        <template v-if="aiEnabled && !readOnly">
-          <span class="sn-wide-only">
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="lucide-sparkles"
-              label="Ask AI"
-              tooltip="Ask AI to work on your selection"
-              @click="openAskBar"
-            />
-          </span>
-          <span class="sn-topbar-divider" aria-hidden="true" />
-        </template>
-        <span class="sn-wide-only">
-          <Dropdown :options="fileDropdownOptions" align="end">
-            <template #default="{ open }">
-              <Button
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon-left="lucide-file-text"
-                icon-right="lucide-chevron-down"
-                label="File"
-                tooltip="Import / export"
-              />
-            </template>
-          </Dropdown>
-        </span>
-        <!-- A narrow bar folds Ask AI, File and Keyboard shortcuts into one
-           menu. A container query swaps the two, so nothing moves on load. -->
-        <span class="sn-compact-only">
-          <Dropdown :options="compactMenuOptions" align="end">
-            <template #default="{ open }">
-              <Button
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon="lucide-ellipsis"
-                aria-label="More actions"
-                tooltip="More actions"
-              />
-            </template>
-          </Dropdown>
-        </span>
+        <SheetTopbarActions
+          :ai-enabled="aiEnabled"
+          :read-only="readOnly"
+          :file-dropdown-options="fileDropdownOptions"
+          :compact-menu-options="compactMenuOptions"
+          :notes-open="notesPanel.open"
+          :notes-count="allNotes.length"
+          :present-users="presentUsers"
+          :current-sheet="currentSheet"
+          @ask-ai="openAskBar"
+          @toggle-notes="toggleNotesPanel"
+          @shortcuts="showShortcutsHelp = true"
+        />
         <input
           ref="csvInputRef"
           name="csv-import"
@@ -121,59 +90,6 @@
           style="display: none"
           @change="importXLSX"
         />
-        <span class="sn-topbar-divider" aria-hidden="true" />
-        <!-- Notes: button toggles the side panel listing all notes across sheets.
-           Shift+F2 still opens the per-cell inline editor for quick capture. -->
-        <span class="sn-notes-btn-wrap">
-          <Button
-            :variant="notesPanel.open ? 'subtle' : 'ghost'"
-            size="sm"
-            icon="lucide-sticky-note"
-            :aria-label="allNotes.length ? `Notes (${allNotes.length})` : 'Notes'"
-            :aria-pressed="notesPanel.open"
-            :tooltip="`Notes${allNotes.length ? ` (${allNotes.length})` : ''} — Shift+F2 to add`"
-            @click="toggleNotesPanel"
-          />
-          <span v-if="allNotes.length" class="sn-notes-badge">{{
-            allNotes.length > 9 ? '9+' : allNotes.length
-          }}</span>
-        </span>
-        <span class="sn-wide-only">
-          <Button
-            aria-label="Keyboard shortcuts"
-            variant="ghost"
-            size="sm"
-            icon="lucide-help-circle"
-            tooltip="Keyboard shortcuts"
-            @click="showShortcutsHelp = true"
-          />
-        </span>
-        <span class="sn-topbar-divider" aria-hidden="true" />
-        <!-- Presence avatars — other users currently in the workbook.
-           Outline = their cursor color; tooltip says which sub-sheet
-           they're on so cross-sheet collaborators are discoverable. -->
-        <div v-if="presentUsers.length" class="sn-presence">
-          <Avatar
-            v-for="u in presentUsers.slice(0, 3)"
-            :key="u.user"
-            :label="u.initials"
-            :image="u.user_image || undefined"
-            size="sm"
-            :tooltip="
-              u.sub_sheet && u.sub_sheet !== currentSheet
-                ? `${u.full_name} — on ${u.sub_sheet}`
-                : u.full_name
-            "
-            class="sn-presence-avatar"
-            :style="{ '--rc': u.color }"
-          />
-          <span
-            v-if="presentUsers.length > 3"
-            class="sn-presence-more"
-            :title="`${presentUsers.length - 3} more people`"
-            >+{{ presentUsers.length - 3 }}</span
-          >
-        </div>
       </DefineTopbarActions>
 
       <!-- On /d/ the surface draws the Drive document header: title, Comments,
@@ -185,456 +101,62 @@
         :status="ReuseTopbarStatus"
         :actions="ReuseTopbarActions"
       />
-      <div v-else class="sn-topbar">
-        <div class="sn-topbar-left">
-          <div class="sn-identity">
-            <Dropdown :options="brandMenuOptions" :offset="16">
-              <template #default="{ open }">
-                <Tooltip text="Open Sheets menu">
-                  <div class="sn-app-menu-trigger" aria-label="Open Sheets menu">
-                    <svg
-                      class="sn-app-icon"
-                      width="28"
-                      height="28"
-                      viewBox="0 0 118 118"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M93.9278 0H23.1013C10.3428 0 0 10.3428 0 23.1013V93.9278C0 106.686 10.3428 117.029 23.1013 117.029H93.9278C106.686 117.029 117.029 106.686 117.029 93.9278V23.1013C117.029 10.3428 106.686 0 93.9278 0Z"
-                        fill="#278F5E"
-                      />
-                      <path
-                        d="M77.757 25.9364H23.5215V36.437H77.757C80.6447 36.437 83.0073 38.7996 83.0073 41.6873V75.3942C83.0073 78.2818 80.6447 80.6445 77.757 80.6445H39.2724C36.3847 80.6445 34.0221 78.2818 34.0221 75.3942V50.6653H23.5215V75.3942C23.5215 84.0572 30.6094 91.1451 39.2724 91.1451H77.757C86.42 91.1451 93.5079 84.0572 93.5079 75.3942V41.6873C93.5079 33.0243 86.42 25.9364 77.757 25.9364Z"
-                        fill="white"
-                      />
-                      <path d="M53.8678 59.6958H43.3672V70.0914H53.8678V59.6958Z" fill="white" />
-                      <path d="M73.6617 50.6653H63.1611V70.1439H73.6617V50.6653Z" fill="white" />
-                    </svg>
-                    <FeatherIcon
-                      :name="open ? 'chevron-up' : 'chevron-down'"
-                      class="size-4 text-ink-gray-7"
-                    />
-                  </div>
-                </Tooltip>
-              </template>
-            </Dropdown>
-            <Breadcrumbs v-if="!isTitleEditing" :items="sheetBreadcrumbs" />
-            <template v-else>
-              <div class="flex min-w-0 items-center">
-                <Breadcrumbs class="sn-parent-breadcrumb" :items="sheetHomeBreadcrumbs" />
-                <span class="mx-0.5 text-base text-ink-gray-4" aria-hidden="true">/</span>
-                <InlineTitleInput
-                  v-model="currentTitle"
-                  class="max-w-[520px]"
-                  @submit="finishTitleEditing"
-                  @cancel="cancelTitleEditing"
-                  @blur="finishTitleEditing"
-                />
-              </div>
-            </template>
-          </div>
-          <!-- Save status — muted inline text; never competes with the title -->
-          <span v-if="isSaving" class="sn-save-status" aria-label="Saving…">
-            <FeatherIcon name="loader" class="sn-save-icon sn-save-spin" />
-            <span class="sn-save-label">Saving…</span>
-          </span>
-          <span v-else-if="justSaved" class="sn-save-status" aria-label="Saved">
-            <FeatherIcon name="check" class="sn-save-icon" />
-            <span class="sn-save-label">Saved</span>
-          </span>
-          <ReuseTopbarStatus />
-          <!-- View-only indicator — shown up front so a viewer knows they can't
-             edit before they try. Neutral gray (not an error) because read
-             access is expected, not a failure. Uses the Frappe UI Badge so it
-             matches the save-error chip beside it and the Espresso tokens. -->
-          <Tooltip
-            v-if="readOnly"
-            text="You have view access. Ask the owner for edit access to make changes."
-          >
-            <Badge theme="gray" variant="subtle" size="lg" aria-label="View only">
-              <template #prefix><FeatherIcon name="eye" class="h-3.5 w-3.5" /></template>
-              <span class="sn-view-only-label">View only</span>
-            </Badge>
-          </Tooltip>
-        </div>
-        <div class="sn-topbar-right">
-          <ReuseTopbarActions />
-          <Avatar
-            :label="userInitial"
-            :image="userImage || undefined"
-            size="sm"
-            :tooltip="userFullName || userEmail"
-            class="sn-user-avatar"
-          />
-        </div>
-      </div>
-
-      <!-- Bar 2 · Formatting toolbar -->
-      <!-- Read-only viewers: dim the whole bar and swallow pointer events so no
-         formatting/insert/chart action is reachable. Undo/Redo and dropdowns
-         come along for free without touching each button. -->
-      <div
-        class="sn-toolbar"
-        :class="{ 'sn-toolbar--readonly': readOnly }"
-        :aria-disabled="readOnly || undefined"
+      <SheetTopbar
+        v-else
+        v-model:title="currentTitle"
+        :brand-menu-options="brandMenuOptions"
+        :is-title-editing="isTitleEditing"
+        :sheet-breadcrumbs="sheetBreadcrumbs"
+        :sheet-home-breadcrumbs="sheetHomeBreadcrumbs"
+        :is-saving="isSaving"
+        :just-saved="justSaved"
+        :read-only="readOnly"
+        :user-initial="userInitial"
+        :user-image="userImage"
+        :user-full-name="userFullName"
+        :user-email="userEmail"
+        @finish-title="finishTitleEditing"
+        @cancel-title="cancelTitleEditing"
       >
-        <!-- Number format -->
-        <Dropdown :options="numberFormatDropdownOptions" class="sn-numfmt">
-          <template #default="{ open }">
-            <Button
-              :variant="open ? 'subtle' : 'ghost'"
-              size="sm"
-              icon-right="lucide-chevron-down"
-              :aria-label="`Number format: ${numberFormatLabel}`"
-              tooltip="Number format"
-              >{{ numberFormatLabel }}</Button
-            >
-          </template>
-        </Dropdown>
-        <Dropdown :options="currencyDropdownOptions" class="sn-currency">
-          <template #default="{ open }">
-            <Button
-              :variant="
-                activeNumberFormatType === 'currency' ? 'subtle' : open ? 'subtle' : 'ghost'
-              "
-              size="sm"
-              :aria-label="`Currency: ${activeCurrencySymbol}`"
-              tooltip="Currency"
-              >{{ activeCurrencySymbol }}</Button
-            >
-          </template>
-        </Dropdown>
-        <Button
-          :variant="activeNumberFormatType === 'percentage' ? 'subtle' : 'ghost'"
-          size="sm"
-          aria-label="Percentage"
-          :aria-pressed="activeNumberFormatType === 'percentage'"
-          tooltip="Percentage"
-          @click="toggleNumberFmt('percentage')"
-          >%</Button
-        >
-        <Button
-          :variant="activeNumberFormatType === 'number' ? 'subtle' : 'ghost'"
-          size="sm"
-          aria-label="Thousands separator"
-          :aria-pressed="activeNumberFormatType === 'number'"
-          tooltip="Thousands separator"
-          @click="toggleNumberFmt('number')"
-          >,</Button
-        >
-        <div class="sn-tool-extra">
-          <Button
-            aria-label="Decrease decimal places"
-            variant="ghost"
-            size="sm"
-            :icon="DecreaseDecimalIcon"
-            tooltip="Decrease decimal places"
-            @click="adjustDecimals(-1)"
-          />
-          <Button
-            aria-label="Increase decimal places"
-            variant="ghost"
-            size="sm"
-            :icon="IncreaseDecimalIcon"
-            tooltip="Increase decimal places"
-            @click="adjustDecimals(+1)"
-          />
-        </div>
+        <template #status><ReuseTopbarStatus /></template>
+        <template #actions><ReuseTopbarActions /></template>
+      </SheetTopbar>
 
-        <div class="sn-vr" />
-
-        <!-- Font -->
-        <Dropdown :options="fontFamilyDropdownOptions" class="sn-font-family">
-          <template #default="{ open }">
-            <Button
-              :variant="open ? 'subtle' : 'ghost'"
-              size="sm"
-              icon-right="lucide-chevron-down"
-              :aria-label="`Font: ${activeFontFamilyLabel}`"
-              tooltip="Font family"
-              >{{ activeFontFamilyLabel }}</Button
-            >
-          </template>
-        </Dropdown>
-        <!-- The wrapper carries the sizing: TextInput puts `class` on an inner
-           element that does not get this component's scoped attribute. -->
-        <div class="sn-font-size">
-          <Tooltip text="Font size">
-            <TextInput
-              type="number"
-              size="sm"
-              aria-label="Font size"
-              :model-value="activeFormat.fontSize || 13"
-              min="8"
-              max="72"
-              @change="onFontSizeInput"
-              @keydown.enter.prevent="onFontSizeInput"
-            />
-          </Tooltip>
-        </div>
-
-        <div class="sn-vr" />
-
-        <!-- Style -->
-        <Button
-          aria-label="Bold"
-          :variant="activeFormat.bold ? 'subtle' : 'ghost'"
-          :class="{ 'sn-fmt-active': activeFormat.bold }"
-          :aria-pressed="!!activeFormat.bold"
-          size="sm"
-          icon="lucide-bold"
-          tooltip="Bold (Ctrl+B)"
-          @click="toggleFmt('bold')"
-        />
-        <Button
-          aria-label="Italic"
-          :variant="activeFormat.italic ? 'subtle' : 'ghost'"
-          :class="{ 'sn-fmt-active': activeFormat.italic }"
-          :aria-pressed="!!activeFormat.italic"
-          size="sm"
-          icon="lucide-italic"
-          tooltip="Italic (Ctrl+I)"
-          @click="toggleFmt('italic')"
-        />
-        <Button
-          aria-label="Underline"
-          :variant="activeFormat.underline ? 'subtle' : 'ghost'"
-          :class="{ 'sn-fmt-active': activeFormat.underline }"
-          :aria-pressed="!!activeFormat.underline"
-          size="sm"
-          icon="lucide-underline"
-          tooltip="Underline (Ctrl+U)"
-          @click="toggleFmt('underline')"
-        />
-        <div class="sn-tool-extra">
-          <Button
-            aria-label="Strikethrough"
-            :variant="activeFormat.strikethrough ? 'subtle' : 'ghost'"
-            :class="{ 'sn-fmt-active': activeFormat.strikethrough }"
-            :aria-pressed="!!activeFormat.strikethrough"
-            size="sm"
-            icon="lucide-strikethrough"
-            tooltip="Strikethrough (Ctrl+Shift+X)"
-            @click="toggleFmt('strikethrough')"
-          />
-        </div>
-
-        <div class="sn-vr" />
-
-        <!-- Align + Color -->
-        <Dropdown :options="alignDropdownOptions">
-          <template #default="{ open }">
-            <Button
-              aria-label="Alignment"
-              :variant="open ? 'subtle' : 'ghost'"
-              size="sm"
-              :icon="hAlignIcon"
-              tooltip="Alignment"
-            />
-          </template>
-        </Dropdown>
-        <ColorPicker
-          :model-value="activeFormat.color || ''"
-          allow-default
-          default-label="Default text color"
-          title="Text colour"
-          fallback="#171717"
-          @update:model-value="setColor('color', $event)"
-        >
-          <template #trigger="{ toggle, open }">
-            <Tooltip text="Text colour">
-              <button
-                type="button"
-                class="sn-swatch-btn"
-                :class="{ 'is-open': open }"
-                aria-label="Text colour"
-                @click="toggle()"
-              >
-                <FeatherIcon name="type" class="sn-swatch-glyph" />
-                <span
-                  class="sn-swatch-underline"
-                  :style="{ background: activeFormat.color || '#171717' }"
-                ></span>
-              </button>
-            </Tooltip>
-          </template>
-        </ColorPicker>
-        <ColorPicker
-          :model-value="activeFormat.backgroundColor || ''"
-          allow-default
-          default-label="No fill"
-          title="Fill colour"
-          fallback="#ffffff"
-          @update:model-value="setColor('backgroundColor', $event)"
-        >
-          <template #trigger="{ toggle, open }">
-            <Tooltip text="Fill colour">
-              <button
-                type="button"
-                class="sn-swatch-btn"
-                :class="{ 'is-open': open }"
-                aria-label="Fill colour"
-                @click="toggle()"
-              >
-                <FeatherIcon name="droplet" class="sn-swatch-glyph" />
-                <span
-                  class="sn-swatch-underline sn-swatch-fill"
-                  :style="{ background: activeFormat.backgroundColor || '#ffffff' }"
-                ></span>
-              </button>
-            </Tooltip>
-          </template>
-        </ColorPicker>
-
-        <div class="sn-vr" />
-
-        <!-- Undo / Redo -->
-        <Button
-          aria-label="Undo"
-          variant="ghost"
-          size="sm"
-          icon="lucide-corner-up-left"
-          tooltip="Undo (Ctrl+Z)"
-          :disabled="!canUndo"
-          @click="undo"
-        />
-        <Button
-          aria-label="Redo"
-          variant="ghost"
-          size="sm"
-          icon="lucide-corner-up-right"
-          tooltip="Redo (Ctrl+Y)"
-          :disabled="!canRedo"
-          @click="redo"
-        />
-
-        <div class="sn-vr" />
-
-        <!-- Extra tools (visible at wide widths; hidden at narrow — overflow via ···) -->
-        <div class="sn-tool-extra">
-          <Button
-            aria-label="Format painter"
-            :aria-pressed="isPaintingFormat"
-            :variant="isPaintingFormat ? 'subtle' : 'ghost'"
-            size="sm"
-            icon="lucide-paint-roller"
-            tooltip="Format painter"
-            @click="toggleFormatPainter"
-          />
-          <Button
-            aria-label="Clear formatting"
-            variant="ghost"
-            size="sm"
-            icon="lucide-eraser"
-            tooltip="Clear formatting"
-            @click="clearFormatting"
-          />
-          <div class="sn-vr" />
-          <Button
-            aria-label="Filter"
-            :aria-pressed="showSortFilter"
-            :variant="showSortFilter ? 'subtle' : 'ghost'"
-            size="sm"
-            icon="lucide-filter"
-            tooltip="Toggle filter"
-            @click="showSortFilter = !showSortFilter"
-          />
-          <div class="sn-vr" />
-          <Dropdown :options="textWrapDropdownOptions">
-            <template #default="{ open }">
-              <Button
-                aria-label="Text wrapping"
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                :icon="textWrapIcon"
-                tooltip="Text wrapping"
-              />
-            </template>
-          </Dropdown>
-          <div class="sn-vr" />
-          <Button
-            aria-label="Conditional formatting"
-            variant="ghost"
-            size="sm"
-            icon="lucide-blend"
-            tooltip="Conditional formatting"
-            @click="openCfDialog(null)"
-          />
-          <Button
-            aria-label="Insert hyperlink"
-            variant="ghost"
-            size="sm"
-            icon="lucide-link"
-            tooltip="Insert hyperlink (Ctrl+L)"
-            @click="openHyperlinkDialog"
-          />
-          <div class="sn-vr" />
-          <Dropdown :options="borderDropdownOptions">
-            <template #default="{ open }">
-              <Button
-                aria-label="Borders"
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon="lucide-layout-grid"
-                tooltip="Borders"
-              />
-            </template>
-          </Dropdown>
-          <!-- Custom merge glyph (Lucide table-cells-merge) — reads as
-             "join two cells" better than the generic maximize-2 icon. -->
-          <Button
-            aria-label="Merge / unmerge cells"
-            variant="ghost"
-            size="sm"
-            tooltip="Merge / unmerge cells"
-            @click="toggleMerge"
-          >
-            <template #icon>
-              <svg
-                viewBox="0 0 24 24"
-                class="sn-merge-glyph"
-                aria-hidden="true"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M12 21v-6" />
-                <path d="M12 9V3" />
-                <path d="M3 15h18" />
-                <path d="M3 9h18" />
-                <rect width="18" height="18" x="3" y="3" rx="2" />
-              </svg>
-            </template>
-          </Button>
-          <div class="sn-vr" />
-          <Button
-            aria-label="Insert chart"
-            variant="ghost"
-            size="sm"
-            icon="lucide-chart-bar"
-            tooltip="Insert chart"
-            @click="openChartDialog()"
-          />
-        </div>
-
-        <!-- More -->
-        <div class="sn-tool-more">
-          <Dropdown :options="moreToolbarOptions">
-            <template #default="{ open }">
-              <Button
-                aria-label="More tools"
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon="lucide-more-horizontal"
-                tooltip="More tools"
-              />
-            </template>
-          </Dropdown>
-        </div>
-      </div>
+      <!-- Bar 2 · Formatting toolbar (SheetToolbar.vue) -->
+      <SheetToolbar
+        v-model:show-sort-filter="showSortFilter"
+        :read-only="readOnly"
+        :active-format="activeFormat"
+        :number-format-dropdown-options="numberFormatDropdownOptions"
+        :number-format-label="numberFormatLabel"
+        :currency-dropdown-options="currencyDropdownOptions"
+        :active-number-format-type="activeNumberFormatType"
+        :active-currency-symbol="activeCurrencySymbol"
+        :font-family-dropdown-options="fontFamilyDropdownOptions"
+        :active-font-family-label="activeFontFamilyLabel"
+        :align-dropdown-options="alignDropdownOptions"
+        :h-align-icon="hAlignIcon"
+        :can-undo="canUndo"
+        :can-redo="canRedo"
+        :is-painting-format="isPaintingFormat"
+        :text-wrap-dropdown-options="textWrapDropdownOptions"
+        :text-wrap-icon="textWrapIcon"
+        :border-dropdown-options="borderDropdownOptions"
+        :more-toolbar-options="moreToolbarOptions"
+        @number-format="toggleNumberFmt"
+        @adjust-decimals="adjustDecimals"
+        @font-size-input="onFontSizeInput"
+        @toggle-format="toggleFmt"
+        @set-color="setColor"
+        @undo="undo"
+        @redo="redo"
+        @toggle-format-painter="toggleFormatPainter"
+        @clear-formatting="clearFormatting"
+        @cond-format="openCfDialog(null)"
+        @hyperlink="openHyperlinkDialog"
+        @merge="toggleMerge"
+        @chart="openChartDialog()"
+      />
 
       <!-- Bar 3 · Formula bar -->
       <div class="sn-formula-bar">
@@ -717,54 +239,17 @@
         <!-- The surface's Drive panels (comments, versions) dock the same edge. -->
         <slot name="side-panel" />
 
-        <!-- Notes side panel — Google-Sheets-style global list. Lives inside
-           sn-grid-wrap so it docks the same right edge as Version History. -->
-        <aside v-if="notesPanel.open" class="sn-notes-panel" @click.stop>
-          <header class="sn-notes-header">
-            <div class="sn-notes-title">
-              Notes
-              <span v-if="allNotes.length" class="sn-notes-count">· {{ allNotes.length }}</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="lucide-x"
-              aria-label="Close notes"
-              @click="notesPanel.open = false"
-            />
-          </header>
-          <div class="sn-notes-toolbar">
-            <Button
-              size="sm"
-              variant="subtle"
-              icon-left="lucide-plus"
-              :label="`Add note to ${activeCell}`"
-              @click="addNoteFromPanel"
-            />
-          </div>
-          <div v-if="!allNotes.length" class="sn-notes-empty">
-            <div class="sn-notes-empty-title">No notes yet.</div>
-            <div class="sn-notes-empty-hint">
-              Select a cell and press <KeyboardShortcut combo="Shift+F2" />, or use the button
-              above. Notes appear here once added.
-            </div>
-          </div>
-          <div v-else class="sn-notes-list">
-            <div v-for="g in notesGrouped" :key="g.sheet" class="sn-notes-group">
-              <div class="sn-notes-group-h">{{ g.sheet }}</div>
-              <div
-                v-for="n in g.items"
-                :key="g.sheet + ':' + n.id"
-                class="sn-notes-row"
-                :class="{ 'sn-notes-row-active': n.sheet === currentSheet && n.id === activeCell }"
-                @click="jumpToNote(n)"
-              >
-                <div class="sn-notes-row-ref">{{ n.id }}</div>
-                <div class="sn-notes-row-text">{{ n.text }}</div>
-              </div>
-            </div>
-          </div>
-        </aside>
+        <!-- Notes side panel (NotesPanel.vue) -->
+        <NotesPanel
+          v-if="notesPanel.open"
+          :groups="notesGrouped"
+          :count="allNotes.length"
+          :active-cell="activeCell"
+          :current-sheet="currentSheet"
+          @close="notesPanel.open = false"
+          @add="addNoteFromPanel"
+          @jump="jumpToNote"
+        />
 
         <CellHistoryPopover
           v-model="cellHistory.open"
@@ -861,132 +346,19 @@
           </template>
         </Dropdown>
 
-        <!-- Inline filter panel — sort + condition + Google-Sheets-style
-           "Filter by values" checklist with search and Select all/Clear. -->
-        <div v-if="filterPanel.open" class="sn-filter-panel" :style="filterPanelStyle">
-          <div class="sn-fp-title">Column {{ colLabel(filterPanel.col) }}</div>
-          <div class="sn-fp-row">
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              icon-left="lucide-arrow-up"
-              label="A → Z"
-              tooltip="Sort ascending"
-              @click="doSort(filterPanel.col, 'asc')"
-            />
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              icon-left="lucide-arrow-down"
-              label="Z → A"
-              tooltip="Sort descending"
-              @click="doSort(filterPanel.col, 'desc')"
-            />
-          </div>
-
-          <!-- Mode toggle: condition vs values. Labels are short ("Values" /
-             "Condition") so both fit inside the 260 px panel at the default
-             Button text-base size — the full "Filter by …" wording overflowed
-             at this width. Both modes share the Apply/Clear actions at the
-             bottom, so the user can flip between modes before committing. -->
-          <div class="sn-fp-mode" role="tablist" aria-label="Filter mode">
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              :variant="filterPanel.mode === 'values' ? 'subtle' : 'ghost'"
-              label="Values"
-              @click="filterPanel.mode = 'values'"
-            />
-            <Button
-              class="sn-fp-grow"
-              size="sm"
-              :variant="filterPanel.mode === 'condition' ? 'subtle' : 'ghost'"
-              label="Condition"
-              @click="filterPanel.mode = 'condition'"
-            />
-          </div>
-
-          <!-- Filter by values -->
-          <template v-if="filterPanel.mode === 'values'">
-            <!-- When a search is active these act on the *shown* matches only
-               (Google-Sheets behaviour). Relabel so it's obvious — otherwise
-               "Clear" during a search reads as "clear everything" and silently
-               leaves the hidden values checked. -->
-            <div class="sn-fp-vlinks">
-              <Button
-                variant="ghost"
-                size="sm"
-                :label="valueSearchActive ? 'Select shown' : 'Select all'"
-                @click="selectAllFilterValues"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                :label="valueSearchActive ? 'Clear shown' : 'Clear'"
-                @click="clearAllFilterValues"
-              />
-              <span class="sn-fp-count">Displaying {{ filterPanel.valueSet.size }}</span>
-            </div>
-            <FormControl
-              v-model="filterPanel.valueSearch"
-              type="text"
-              size="sm"
-              placeholder="Search…"
-            >
-              <template #prefix>
-                <FeatherIcon name="search" class="sn-fp-search-icon" />
-              </template>
-            </FormControl>
-            <div class="sn-fp-values">
-              <div
-                v-for="v in filteredFilterValues"
-                :key="v || '__blanks__'"
-                class="sn-fp-value-row"
-                @click="toggleFilterValue(v)"
-              >
-                <Checkbox
-                  :model-value="filterPanel.valueSet.has(v)"
-                  :aria-label="v === '' ? '(Blanks)' : v"
-                  @update:model-value="toggleFilterValue(v)"
-                  @click.stop
-                />
-                <span class="sn-fp-value-text">{{ v === '' ? '(Blanks)' : v }}</span>
-              </div>
-              <div v-if="!filteredFilterValues.length" class="sn-fp-empty">No matching values</div>
-            </div>
-          </template>
-
-          <!-- Filter by condition -->
-          <template v-else>
-            <FormControl
-              v-model="filterPanel.operator"
-              type="select"
-              size="sm"
-              :options="FILTER_OPERATOR_OPTIONS"
-              aria-label="Condition"
-            />
-            <FormControl
-              v-if="!['empty', 'notempty'].includes(filterPanel.operator)"
-              v-model="filterPanel.value"
-              type="text"
-              size="sm"
-              placeholder="Value"
-              @keydown.enter="applyFilter"
-            />
-          </template>
-
-          <div class="sn-fp-actions">
-            <Button
-              class="sn-fp-grow"
-              variant="solid"
-              size="sm"
-              label="Apply"
-              @click="applyFilter"
-            />
-            <Button class="sn-fp-grow" size="sm" label="Clear" @click="clearFilterCol" />
-            <Button class="sn-fp-grow" size="sm" label="Close" @click="filterPanel.open = false" />
-          </div>
-        </div>
+        <!-- Inline filter panel (FilterPanel.vue) -->
+        <FilterPanel
+          v-if="filterPanel.open"
+          :key="filterPanel.seq"
+          :style="filterPanelStyle"
+          :col="filterPanel.col"
+          :all-values="filterPanel.allValues"
+          :spec="filterPanel.spec"
+          @sort="(dir) => doSort(filterPanel.col, dir)"
+          @apply="applyFilter"
+          @clear="clearFilterCol"
+          @close="filterPanel.open = false"
+        />
       </div>
 
       <!-- Add-more-rows strip — only when the user has scrolled near the bottom -->
@@ -1011,131 +383,38 @@
         />
       </div>
 
-      <!-- Bottom · sheet tabs + selection stats -->
-      <div class="sn-bottom">
-        <!-- Pinned outside the scroll track so it stays reachable no matter
-           how many tabs there are. The wrapper owns the divider + margins so
-           the Button itself stays a clean square pill (frappe-ui puts our
-           `class` on the <button> root, so any spacing/border set on it would
-           become part of the button's own hover box). -->
-        <!-- Add-sheet is a mutation, so viewers don't get it — hide the whole
-           wrapper (button + its divider) rather than leave a dead, greyed pill. -->
-        <div v-if="!readOnly" class="sn-tab-add-wrap">
-          <Button
-            aria-label="Add sheet"
-            variant="ghost"
-            size="sm"
-            icon="lucide-plus"
-            class="sn-tab-add"
-            tooltip="Add sheet"
-            @click="addSheet"
-          />
-        </div>
-        <div class="sn-tabs-track">
-          <div
-            v-for="name in sheetNames"
-            :key="name"
-            class="sn-tab"
-            :class="{
-              'sn-tab--active': name === currentSheet,
-              'sn-tab--pivot': isPivotSheet(name),
-              'sn-tab-drag-over': tabDragOver === name && tabDragName !== name,
-              'sn-tab--static': readOnly,
-            }"
-            :draggable="!readOnly"
-            @dragstart="onTabDragStart($event, name)"
-            @dragend="onTabDragEnd"
-            @dragover.prevent="onTabDragOver($event, name)"
-            @drop.prevent="onTabDrop($event, name)"
-          >
-            <!-- One visual unit: label + chevron share a single pill background
-               so they read as one button. The chevron — the tab-menu affordance
-               — renders only when editable; a viewer has no tab actions, so it
-               would be a dead button. Clicking the label switches sheets. -->
-            <Button
-              variant="ghost"
-              size="sm"
-              :icon-left="isPivotSheet(name) ? 'lucide-layout' : undefined"
-              :label="name"
-              class="sn-tab-btn"
-              @mousedown="onTabMousedown($event, name)"
-              @click="onTabClick(name)"
-              @dblclick="openRenameDialog(name)"
-              @contextmenu.prevent="_onTabMenu($event, name)"
-            />
-            <Button
-              v-if="!readOnly"
-              variant="ghost"
-              size="sm"
-              icon="lucide-chevron-down"
-              class="sn-tab-chevron"
-              :aria-label="`${name} options`"
-              @click.stop="_onTabMenu($event, name)"
-            />
-            <!-- Peer dots — one colored circle per peer currently on this
-               tab. Capped at 3 + a "+N" overflow so a busy tab doesn't
-               blow out the tab's width. -->
-            <span v-if="peersBySubSheet.get(name)?.length" class="sn-tab-peers">
-              <span
-                v-for="p in peersBySubSheet.get(name).slice(0, 3)"
-                :key="p.user"
-                class="sn-tab-peer-dot"
-                :style="{ '--rc': p.color }"
-                :title="p.full_name"
-              />
-              <span
-                v-if="peersBySubSheet.get(name).length > 3"
-                class="sn-tab-peer-more"
-                :title="`${peersBySubSheet.get(name).length - 3} more`"
-                >+{{ peersBySubSheet.get(name).length - 3 }}</span
-              >
-            </span>
-          </div>
-        </div>
+      <!-- Bottom · sheet tabs + selection stats (SheetTabsBar.vue) -->
+      <SheetTabsBar
+        :read-only="readOnly"
+        :sheet-names="sheetNames"
+        :current-sheet="currentSheet"
+        :is-pivot-sheet="isPivotSheet"
+        :tab-drag-over="tabDragOver"
+        :tab-drag-name="tabDragName"
+        :peers-by-sub-sheet="peersBySubSheet"
+        :selection-stats="selectionStats"
+        @add-sheet="addSheet"
+        @drag-start="onTabDragStart"
+        @drag-end="onTabDragEnd"
+        @drag-over="onTabDragOver"
+        @tab-drop="onTabDrop"
+        @tab-mousedown="onTabMousedown"
+        @tab-click="onTabClick"
+        @rename="openRenameDialog"
+        @tab-menu="_onTabMenu"
+      />
 
-        <div v-if="selectionStats" class="sn-stats">
-          <span v-if="selectionStats.count > 0">Count: {{ selectionStats.count }}</span>
-          <span v-if="selectionStats.sum !== null">Sum: {{ formatStat(selectionStats.sum) }}</span>
-          <span v-if="selectionStats.avg !== null">Avg: {{ formatStat(selectionStats.avg) }}</span>
-        </div>
-      </div>
-
-      <!-- Sheet-tab context menu (rename / duplicate / delete) -->
-      <div
+      <!-- Sheet-tab context menu (SheetTabMenu.vue) -->
+      <SheetTabMenu
         v-if="tabMenu.open"
-        class="sn-ctx-menu"
-        :style="{ left: tabMenu.x + 'px', bottom: tabMenu.bottom + 'px' }"
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          icon-left="lucide-edit-2"
-          label="Rename"
-          @click="openRenameDialog(tabMenu.name)"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          icon-left="lucide-copy"
-          label="Duplicate"
-          @click="doDuplicateSheet(tabMenu.name)"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          :icon-left="tabMenuSheetLocked() ? 'lucide-unlock' : 'lucide-lock'"
-          :label="tabMenuSheetLocked() ? 'Unprotect sheet' : 'Protect sheet'"
-          @click="toggleSheetProtection(tabMenu.name)"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          icon-left="lucide-trash-2"
-          label="Delete"
-          :disabled="sheetNames.length <= 1"
-          @click="doDeleteSheet(tabMenu.name)"
-        />
-      </div>
+        :menu="tabMenu"
+        :locked="tabMenuSheetLocked()"
+        :can-delete="sheetNames.length > 1"
+        @rename="openRenameDialog(tabMenu.name)"
+        @duplicate="doDuplicateSheet(tabMenu.name)"
+        @toggle-protect="toggleSheetProtection(tabMenu.name)"
+        @delete="doDeleteSheet(tabMenu.name)"
+      />
 
       <!-- Rename sheet dialog -->
       <Dialog v-model:open="showRenameDialog" title="Rename sheet" size="sm">
@@ -1157,355 +436,46 @@
         </template>
       </Dialog>
 
-      <!-- Right-click context menu (cursor-anchored; uses Frappe UI Buttons internally) -->
-      <div
+      <!-- Right-click context menu (SheetContextMenu.vue) -->
+      <SheetContextMenu
         v-if="contextMenu.open"
-        class="sn-ctx-menu"
-        :style="
-          contextMenu.useBottom
-            ? {
-                left: contextMenu.x + 'px',
-                bottom: contextMenu.bottom + 'px',
-                maxHeight: contextMenu.maxH + 'px',
-              }
-            : {
-                left: contextMenu.x + 'px',
-                top: contextMenu.y + 'px',
-                maxHeight: contextMenu.maxH + 'px',
-              }
-        "
-      >
-        <!-- Column-header menu -->
-        <template v-if="contextMenu.mode === 'colHeader'">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-left"
-            label="Insert column left"
-            @click="doInsertCol(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-right"
-            label="Insert column right"
-            @click="doInsertCol(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-plus"
-            label="Insert N columns…"
-            @click="openInsertMany('col', false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete column"
-            @click="doDeleteCol()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            v-if="contextMenu.targetCol > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-chevron-left"
-            label="Move column left"
-            @click="doMoveColLeft()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-chevron-right"
-            label="Move column right"
-            @click="doMoveColRight()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-maximize-2"
-            label="Auto-fit width"
-            @click="doAutoFitCol()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye-off"
-            label="Hide column"
-            @click="doHideCols()"
-          />
-          <Button
-            v-if="manualHiddenCols.size > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye"
-            label="Unhide all columns"
-            @click="doUnhideAllCols()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze up to this column"
-            @click="doFreezeCol()"
-          />
-          <Button
-            v-if="freezeCols > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze columns"
-            @click="doUnfreezeCols()"
-          />
-        </template>
-
-        <!-- Row-header menu -->
-        <template v-else-if="contextMenu.mode === 'rowHeader'">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-up"
-            label="Insert row above"
-            @click="doInsertRow(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-down"
-            label="Insert row below"
-            @click="doInsertRow(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-plus"
-            label="Insert N rows…"
-            @click="openInsertMany('row', false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete row"
-            @click="doDeleteRow()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-maximize-2"
-            label="Auto-fit height"
-            @click="doAutoFitRow()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye-off"
-            label="Hide row"
-            @click="doHideRows()"
-          />
-          <Button
-            v-if="manualHiddenRows.size > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-eye"
-            label="Unhide all rows"
-            @click="doUnhideAllRows()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze up to this row"
-            @click="doFreezeRow()"
-          />
-          <Button
-            v-if="freezeRows > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze rows"
-            @click="doUnfreezeRows()"
-          />
-        </template>
-
-        <!-- Cell menu (default) -->
-        <template v-else>
-          <Button
-            v-if="clipboardHas"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-clipboard"
-            label="Paste values only"
-            @click="doPasteSpecial('values')"
-          />
-          <Button
-            v-if="clipboardHas"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-clipboard"
-            label="Paste formats only"
-            @click="doPasteSpecial('formats')"
-          />
-          <Button
-            v-if="clipboardHas"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-clipboard"
-            label="Paste formulas only"
-            @click="doPasteSpecial('formulas')"
-          />
-          <hr v-if="clipboardHas" class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-up"
-            label="Insert row above"
-            @click="doInsertRow(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-down"
-            label="Insert row below"
-            @click="doInsertRow(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete row"
-            @click="doDeleteRow()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-left"
-            label="Insert column left"
-            @click="doInsertCol(false)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-arrow-right"
-            label="Insert column right"
-            @click="doInsertCol(true)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-trash-2"
-            label="Delete column"
-            @click="doDeleteCol()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze rows to here"
-            @click="doFreezeRow()"
-          />
-          <Button
-            v-if="freezeRows > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze rows"
-            @click="doUnfreezeRows()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Freeze cols to here"
-            @click="doFreezeCol()"
-          />
-          <Button
-            v-if="freezeCols > 0"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Unfreeze cols"
-            @click="doUnfreezeCols()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-square-check"
-            label="Data validation…"
-            @click="fromContextMenu(openValidationDialog)"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-blend"
-            label="Conditional format…"
-            @click="fromContextMenu(() => openCfDialog(null))"
-          />
-          <Button
-            v-if="!selectionHasProtectedRange()"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-lock"
-            label="Protect range"
-            @click="protectSelection()"
-          />
-          <Button
-            v-else
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-unlock"
-            label="Remove protection"
-            @click="unprotectSelection()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-columns"
-            label="Split text to columns"
-            @click="doSplitTextToColumns()"
-          />
-          <hr class="sn-ctx-sep" />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-layout"
-            label="Insert pivot table…"
-            @click="openPivotDialog()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-chart-bar"
-            label="Insert chart…"
-            @click="openChartDialog()"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-filter"
-            label="Insert slicer"
-            @click="insertSlicer()"
-          />
-          <hr v-if="props.id !== 'new'" class="sn-ctx-sep" />
-          <Button
-            v-if="props.id !== 'new'"
-            variant="ghost"
-            size="sm"
-            icon-left="lucide-history"
-            :label="`Cell history for ${activeCell}`"
-            @click="openCellHistory()"
-          />
-        </template>
-      </div>
+        :menu="contextMenu"
+        :freeze-rows="freezeRows"
+        :freeze-cols="freezeCols"
+        :has-hidden-rows="manualHiddenRows.size > 0"
+        :has-hidden-cols="manualHiddenCols.size > 0"
+        :can-paste="clipboardHas"
+        :range-protected="selectionHasProtectedRange()"
+        :show-cell-history="props.id !== 'new'"
+        :active-cell="activeCell"
+        @insert-row="doInsertRow"
+        @insert-col="doInsertCol"
+        @insert-many="(kind) => openInsertMany(kind, false)"
+        @delete-row="doDeleteRow()"
+        @delete-col="doDeleteCol()"
+        @move-col-left="doMoveColLeft()"
+        @move-col-right="doMoveColRight()"
+        @auto-fit-row="doAutoFitRow()"
+        @auto-fit-col="doAutoFitCol()"
+        @hide-rows="doHideRows()"
+        @hide-cols="doHideCols()"
+        @unhide-all-rows="doUnhideAllRows()"
+        @unhide-all-cols="doUnhideAllCols()"
+        @freeze-row="doFreezeRow()"
+        @freeze-col="doFreezeCol()"
+        @unfreeze-rows="doUnfreezeRows()"
+        @unfreeze-cols="doUnfreezeCols()"
+        @paste-special="doPasteSpecial"
+        @validation="fromContextMenu(openValidationDialog)"
+        @cond-format="fromContextMenu(() => openCfDialog(null))"
+        @protect="protectSelection()"
+        @unprotect="unprotectSelection()"
+        @split-text="doSplitTextToColumns()"
+        @pivot="openPivotDialog()"
+        @chart="openChartDialog()"
+        @slicer="insertSlicer()"
+        @cell-history="openCellHistory()"
+      />
 
       <!-- Pivot dialog -->
       <PivotDialog
@@ -1568,156 +538,20 @@
         @navigate-to="onNavigateTo"
       />
 
-      <!-- Hyperlink dialog (Ctrl+L) — stores fmt.hyperlink on the active cell -->
-      <Dialog v-model:open="showHyperlinkDialog" title="Insert hyperlink" size="sm">
-        <template #default>
-          <div class="sn-form-stack">
-            <FormControl v-model="hyperlinkText" label="Display text" placeholder="Click here" />
-            <FormControl
-              v-model="hyperlinkUrl"
-              label="Link URL"
-              placeholder="https://example.com"
-              @keydown.enter="confirmHyperlink"
-            />
-          </div>
-        </template>
-        <template #actions>
-          <div class="flex flex-row-reverse gap-2">
-            <Button variant="solid" @click="confirmHyperlink">Apply</Button>
-            <Button v-if="hasActiveHyperlink" theme="red" @click="removeHyperlink">Remove</Button>
-            <Button @click="showHyperlinkDialog = false">Cancel</Button>
-          </div>
-        </template>
-      </Dialog>
+      <!-- Hyperlink dialog (Ctrl+L) — HyperlinkDialog.vue -->
+      <HyperlinkDialog
+        ref="hyperlinkDialogRef"
+        :has-link="hasActiveHyperlink"
+        @apply="confirmHyperlink"
+        @remove="removeHyperlink"
+      />
 
       <!-- Data validation dialog -->
-      <Dialog v-model:open="validationDialog.open" title="Data validation" size="sm">
-        <template #default>
-          <div class="sn-form-stack">
-            <!-- Type -->
-            <FormControl
-              v-model="validationDialog.type"
-              type="select"
-              label="Type"
-              :options="[
-                { label: 'Checkbox', value: 'checkbox' },
-                { label: 'List of items', value: 'list' },
-                { label: 'Number', value: 'number' },
-                { label: 'Text length', value: 'text_length' },
-              ]"
-            />
-
-            <!-- List — one row per item: a colour swatch, the label, and remove.
-               Paste a comma/newline list into any field to split it into rows. -->
-            <div v-if="validationDialog.type === 'list'" ref="vdListEl" class="sn-vd-list">
-              <label class="sn-vd-list-label">Items</label>
-              <div v-for="(item, i) in validationDialog.listItems" :key="i" class="sn-vd-item">
-                <ColorPicker
-                  :model-value="item.color || ''"
-                  allow-default
-                  default-label="Automatic colour"
-                  :fallback="autoChipColor(i)"
-                  title="Label colour"
-                  @update:model-value="item.color = $event"
-                >
-                  <template #trigger="{ toggle, open }">
-                    <button
-                      type="button"
-                      class="sn-vd-swatch"
-                      :class="{ 'is-open': open }"
-                      :style="{ background: item.color || autoChipColor(i) }"
-                      title="Label colour"
-                      @click="toggle()"
-                    />
-                  </template>
-                </ColorPicker>
-                <input
-                  v-model="item.label"
-                  class="sn-vd-item-input"
-                  placeholder="Item"
-                  @keydown.enter.prevent="addListItem(i)"
-                  @paste="onListPaste($event, i)"
-                />
-                <button
-                  type="button"
-                  class="sn-vd-item-x"
-                  title="Remove item"
-                  @click="removeListItem(i)"
-                >
-                  <FeatherIcon name="x" class="sn-vd-item-xg" />
-                </button>
-              </div>
-              <button type="button" class="sn-vd-add" @click="addListItem()">
-                <FeatherIcon name="plus" class="sn-vd-add-g" /> Add item
-              </button>
-            </div>
-
-            <!-- Operator (number / text_length) -->
-            <FormControl
-              v-if="['number', 'text_length'].includes(validationDialog.type)"
-              v-model="validationDialog.operator"
-              type="select"
-              label="Condition"
-              :options="[
-                { label: 'Between', value: 'between' },
-                { label: 'Not between', value: 'not_between' },
-                { label: 'Greater than', value: 'gt' },
-                { label: 'Greater than or equal', value: 'gte' },
-                { label: 'Less than', value: 'lt' },
-                { label: 'Less than or equal', value: 'lte' },
-                { label: 'Equal to', value: 'eq' },
-                { label: 'Not equal to', value: 'neq' },
-              ]"
-            />
-
-            <!-- Values -->
-            <div
-              v-if="['number', 'text_length'].includes(validationDialog.type)"
-              class="sn-vd-vals"
-            >
-              <FormControl
-                v-model="validationDialog.val1"
-                type="number"
-                :label="
-                  ['between', 'not_between'].includes(validationDialog.operator) ? 'Min' : 'Value'
-                "
-              />
-              <FormControl
-                v-if="['between', 'not_between'].includes(validationDialog.operator)"
-                v-model="validationDialog.val2"
-                type="number"
-                label="Max"
-              />
-            </div>
-
-            <!-- Custom error message -->
-            <FormControl
-              v-model="validationDialog.message"
-              label="Error message (optional)"
-              placeholder="This value is not allowed"
-            />
-
-            <!-- On invalid: block the edit, or allow it with a warning -->
-            <FormControl
-              v-if="validationDialog.type !== 'checkbox'"
-              v-model="validationDialog.severity"
-              type="select"
-              label="When the value is invalid"
-              :options="[
-                { label: 'Reject the input', value: 'reject' },
-                { label: 'Allow, but show a warning', value: 'warn' },
-              ]"
-            />
-          </div>
-        </template>
-        <template #actions>
-          <div class="flex flex-row-reverse gap-2">
-            <Button variant="solid" @click="confirmValidation">Apply</Button>
-            <Button variant="ghost" theme="red" @click="removeValidation">Remove rule</Button>
-            <Button @click="validationDialog.open = false">Cancel</Button>
-          </div>
-        </template>
-      </Dialog>
+      <ValidationDialog
+        ref="validationDialogRef"
+        @apply="_applyValidation"
+        @remove="removeValidation"
+      />
 
       <!-- Insert N rows / columns dialog -->
       <Dialog
@@ -1777,58 +611,18 @@
          so it can never drift from the handlers. -->
       <KeyboardShortcutsDialog v-model:open="showShortcutsHelp" title="Keyboard shortcuts" />
 
-      <!-- Slicers — floating value-filter controls bound to a filter column -->
-      <div
+      <!-- Slicers — floating value-filter controls (SlicerPanel.vue) -->
+      <SlicerPanel
         v-for="sl in activeSlicers"
         :key="sl.id"
-        class="sn-slicer"
-        :style="{ left: sl.x + 'px', top: sl.y + 'px' }"
-      >
-        <div class="sn-slicer-head" @mousedown="startSlicerDrag(sl, $event)">
-          <Dropdown :options="slicerColMenu(sl)" class="sn-slicer-colsel">
-            <template #default="{ open }">
-              <Button
-                :variant="open ? 'subtle' : 'ghost'"
-                size="sm"
-                icon-right="lucide-chevron-down"
-                :label="sl.label"
-                tooltip="Filter column"
-                @mousedown.stop
-                @click.stop
-              />
-            </template>
-          </Dropdown>
-          <Button
-            aria-label="Remove slicer"
-            variant="ghost"
-            size="sm"
-            icon="lucide-x"
-            tooltip="Remove slicer"
-            @mousedown.stop
-            @click="removeSlicer(sl)"
-          />
-        </div>
-        <div class="sn-fp-vlinks sn-slicer-actions" @mousedown.stop>
-          <Button variant="ghost" size="sm" label="Select all" @click="selectAllSlicer(sl)" />
-          <Button variant="ghost" size="sm" label="Clear" @click="clearSlicerValues(sl)" />
-        </div>
-        <div class="sn-slicer-values">
-          <div
-            v-for="row in sl.rows"
-            :key="'v:' + row.v"
-            class="sn-fp-value-row"
-            @click="toggleSlicerValue(sl, row.v)"
-          >
-            <Checkbox
-              :model-value="row.checked"
-              :aria-label="row.v === '' ? '(Blanks)' : row.v"
-              @update:model-value="toggleSlicerValue(sl, row.v)"
-              @click.stop
-            />
-            <span class="sn-fp-value-text">{{ row.v === '' ? '(Blanks)' : row.v }}</span>
-          </div>
-        </div>
-      </div>
+        :slicer="sl"
+        @drag-start="(e) => startSlicerDrag(sl, e)"
+        @change-col="(col) => changeSlicerColumn(sl, col)"
+        @remove="removeSlicer(sl)"
+        @select-all="selectAllSlicer(sl)"
+        @clear="clearSlicerValues(sl)"
+        @toggle="(v) => toggleSlicerValue(sl, v)"
+      />
 
       <!-- Threaded comment panel (floating near cell) -->
       <div
@@ -1951,203 +745,14 @@
       </div>
 
       <!-- Conditional formatting dialog -->
-      <Dialog v-model:open="cfDialog.open" title="Conditional formatting" size="sm">
-        <template #default>
-          <div class="sn-form-stack">
-            <!-- Existing rules — click to edit, ✕ to delete. Only shown when
-               the active sheet has any rules; otherwise we jump straight to
-               the editor for the new rule. -->
-            <div v-if="cfRulesForSheet.length" class="sn-cf-rule-list">
-              <div class="sn-cf-rule-list-title">Rules on this sheet</div>
-              <div
-                v-for="r in cfRulesForSheet"
-                :key="r.id"
-                class="sn-cf-rule-row"
-                :class="{ 'sn-cf-rule-row--active': cfDialog.editId === r.id }"
-              >
-                <button type="button" class="sn-cf-rule-pick" @click="openCfDialog(r.id)">
-                  {{ cfRuleLabel(r) }}
-                </button>
-                <Button
-                  aria-label="Delete rule"
-                  variant="ghost"
-                  size="sm"
-                  icon="lucide-x"
-                  theme="red"
-                  tooltip="Delete rule"
-                  @click="deleteCfRuleById(r.id)"
-                />
-              </div>
-            </div>
-
-            <FormControl
-              v-model="cfDialog.kind"
-              type="select"
-              label="Rule type"
-              :options="CF_KIND_OPTIONS"
-            />
-
-            <!-- Classic single-colour rule (the original feature). -->
-            <template v-if="cfDialog.kind === 'classic'">
-              <FormControl
-                v-model="cfDialog.condType"
-                type="select"
-                label="Condition"
-                :options="CF_COND_OPTIONS"
-              />
-              <FormControl
-                v-if="!['empty', 'notempty'].includes(cfDialog.condType)"
-                v-model="cfDialog.condValue"
-                label="Value"
-                placeholder="e.g. 0"
-              />
-              <FormControl
-                v-if="cfDialog.condType === 'between'"
-                v-model="cfDialog.condValue2"
-                label="And"
-                placeholder="e.g. 100"
-              />
-              <div class="sn-cf-fmt">
-                <ColorPicker
-                  v-model="cfDialog.fmtColor"
-                  allow-default
-                  default-label="Automatic"
-                  title="Text colour"
-                  fallback="#171717"
-                >
-                  <template #trigger="{ toggle, open }">
-                    <button
-                      type="button"
-                      class="sn-swatch-btn"
-                      :class="{ 'is-open': open }"
-                      title="Text colour"
-                      @click="toggle()"
-                    >
-                      <FeatherIcon name="type" class="sn-swatch-glyph" />
-                      <span
-                        class="sn-swatch-underline"
-                        :style="{ background: cfDialog.fmtColor || '#171717' }"
-                      ></span>
-                    </button>
-                  </template>
-                </ColorPicker>
-                <ColorPicker
-                  v-model="cfDialog.fmtBg"
-                  allow-default
-                  default-label="No fill"
-                  title="Fill colour"
-                  fallback="#ffffff"
-                >
-                  <template #trigger="{ toggle, open }">
-                    <button
-                      type="button"
-                      class="sn-swatch-btn"
-                      :class="{ 'is-open': open }"
-                      title="Fill colour"
-                      @click="toggle()"
-                    >
-                      <FeatherIcon name="droplet" class="sn-swatch-glyph" />
-                      <span
-                        class="sn-swatch-underline sn-swatch-fill"
-                        :style="{ background: cfDialog.fmtBg || '#ffffff' }"
-                      ></span>
-                    </button>
-                  </template>
-                </ColorPicker>
-                <span class="sn-cf-fmt-label">Apply to range: {{ cfRangeLabel }}</span>
-              </div>
-            </template>
-
-            <!-- Colour scale: 2- or 3-stop gradient mapped across the range's min/max. -->
-            <template v-else-if="cfDialog.kind === 'color-scale'">
-              <FormControl
-                v-model="cfDialog.scaleVariant"
-                type="select"
-                label="Variant"
-                :options="CF_SCALE_VARIANT_OPTIONS"
-              />
-              <div class="sn-cf-scale">
-                <div class="sn-cf-stop">
-                  <span>Min</span>
-                  <ColorPicker
-                    v-model="cfDialog.scaleMin"
-                    title="Min colour"
-                    :fallback="cfDialog.scaleMin"
-                  />
-                </div>
-                <div v-if="cfDialog.scaleVariant === '3color'" class="sn-cf-stop">
-                  <span>Mid</span>
-                  <ColorPicker
-                    v-model="cfDialog.scaleMid"
-                    title="Mid colour"
-                    :fallback="cfDialog.scaleMid"
-                  />
-                </div>
-                <div class="sn-cf-stop">
-                  <span>Max</span>
-                  <ColorPicker
-                    v-model="cfDialog.scaleMax"
-                    title="Max colour"
-                    :fallback="cfDialog.scaleMax"
-                  />
-                </div>
-              </div>
-              <div
-                class="sn-cf-scale-preview"
-                :style="{
-                  background:
-                    cfDialog.scaleVariant === '3color'
-                      ? `linear-gradient(90deg, ${cfDialog.scaleMin}, ${cfDialog.scaleMid}, ${cfDialog.scaleMax})`
-                      : `linear-gradient(90deg, ${cfDialog.scaleMin}, ${cfDialog.scaleMax})`,
-                }"
-              />
-              <span class="sn-cf-fmt-label">Apply to range: {{ cfRangeLabel }}</span>
-            </template>
-
-            <!-- Data bars: horizontal bar inside each cell, proportional to value. -->
-            <template v-else-if="cfDialog.kind === 'data-bar'">
-              <div class="sn-cf-stop">
-                <span>Bar colour</span>
-                <ColorPicker
-                  v-model="cfDialog.barColor"
-                  title="Bar colour"
-                  :fallback="cfDialog.barColor"
-                />
-              </div>
-              <div class="sn-cf-bar-preview">
-                <div v-for="t in [0.25, 0.5, 0.85]" :key="t" class="sn-cf-bar-row">
-                  <div
-                    class="sn-cf-bar-fill"
-                    :style="{ width: t * 100 + '%', background: cfDialog.barColor }"
-                  />
-                </div>
-              </div>
-              <span class="sn-cf-fmt-label">Apply to range: {{ cfRangeLabel }}</span>
-            </template>
-
-            <!-- Icon sets: small icons at the start of each cell based on bucket. -->
-            <template v-else-if="cfDialog.kind === 'icon-set'">
-              <FormControl
-                v-model="cfDialog.iconSet"
-                type="select"
-                label="Icon set"
-                :options="CF_ICON_SET_OPTIONS"
-              />
-              <span class="sn-cf-fmt-label">Apply to range: {{ cfRangeLabel }}</span>
-              <p class="sn-cf-hint">Values are split into three equal buckets across the range.</p>
-            </template>
-          </div>
-        </template>
-        <template #actions>
-          <div class="flex flex-row-reverse gap-2">
-            <Button variant="solid" @click="saveCfRule">Apply</Button>
-            <Button v-if="cfDialog.editId !== null" theme="red" @click="deleteCfRule"
-              >Delete</Button
-            >
-            <Button @click="cfDialog.open = false">Cancel</Button>
-          </div>
-        </template>
-      </Dialog>
+      <ConditionalFormatDialog
+        ref="cfDialogRef"
+        :cond-format="condFormat"
+        :current-sheet="currentSheet"
+        :render-version="renderVersion"
+        @before-change="history.push()"
+        @changed="_onCfChanged"
+      />
     </template>
   </div>
 </template>
@@ -2155,18 +760,13 @@
 <script setup>
 import { createReusableTemplate, useMediaQuery } from '@vueuse/core'
 import {
-  Avatar,
   Badge,
-  Breadcrumbs,
   Button,
-  Checkbox,
   Dialog,
   Dropdown,
   FormControl,
-  KeyboardShortcut,
   KeyboardShortcutsDialog,
   Spinner,
-  TextInput,
   Tooltip,
   usePageMeta,
 } from 'frappe-ui'
@@ -2174,45 +774,32 @@ import { Icon as FeatherIcon } from 'frappe-ui/experimental'
 import {
   computed,
   customRef,
-  h,
   nextTick,
   onBeforeUnmount,
   onMounted,
-  onScopeDispose,
   reactive,
   ref,
   watch,
 } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 
-import { api, client } from '@/api'
 import { useCurrentUser, useSessionStore } from '@/boot/session'
 import { useSettingsMenuOption } from '@/composables/useSettingsMenuOption'
 import { useThemeMenuOption } from '@/composables/useThemeMenuOption'
 import { appPageMeta } from '@/platform/page-meta'
-import { useRootStore } from '@/stores/root'
 import { confirmLeave } from '@/utils/confirmLeave'
 
-import { chipColor, chipPaletteColor } from '../../canvas/chip-geometry'
-import { COL_HEADER_H, ROW_HEADER_W } from '../../canvas/constants'
+import { chipColor } from '../../canvas/chip-geometry'
 import { createGrid } from '../../canvas/index'
-import { createCellProvider } from '../../core/cell-provider'
-import { createWorkbookClient } from '../../core/client'
-import { createDisplayCache } from '../../core/display-cache'
-import { MAX_VIEWPORT_CELLS } from '../../core/limits'
 import { createChartEngine } from '../../engine/charts.js'
 import { createClipboard } from '../../engine/clipboard.js'
 import { createCommentsEngine } from '../../engine/comments.js'
 import { createCondFormatEngine } from '../../engine/cond-format.js'
-import { planFill } from '../../engine/fill-series.js'
 import { formatScope } from '../../engine/format-scope.js'
 import { createFormatsEngine } from '../../engine/formats.js'
-import { adjustFormula } from '../../engine/formula-adjust.js'
-import { createHistory } from '../../engine/history.js'
 import { detectHyperlink, isAutoLinkText } from '../../engine/links.js'
 import { createMergeEngine } from '../../engine/merge.js'
-import { createNamedRanges, definedNameFormula } from '../../engine/named-ranges.js'
-import { detectSeries } from '../../engine/patterns/index.js'
+import { createNamedRanges } from '../../engine/named-ranges.js'
 import { createPivotEngine } from '../../engine/pivot.js'
 import { createProtectionEngine } from '../../engine/protection.js'
 import { deleteMap, insertMap, moveMap } from '../../engine/ref-remap.js'
@@ -2220,14 +807,11 @@ import { createSlicerEngine } from '../../engine/slicers.js'
 import { createSortFilter } from '../../engine/sortFilter.js'
 import { parseSparkline, sparkSpec } from '../../engine/sparkline.js'
 import { createValidationEngine } from '../../engine/validation.js'
-import { fetchLinkPreview } from '../../services/linkPreview.js'
 import { cellHistory as fetchCellHistory } from '../../services/versions.js'
 import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
-import { isCanvasClipboardTarget } from '../../utils/clipboard-target.js'
 import { applyNumberFmt, buildNumberFmt, parseNumberFmt } from '../../utils/format-number.js'
 import { AC_FUN_KEYS } from '../../utils/formula-ac.js'
 import { autoCloseKey } from '../../utils/formula-autoclose.js'
-import { overlayRectStyle } from '../../utils/overlay-rect.js'
 import { userInitials } from '../../utils/session.js'
 import { getTextWrap } from '../../utils/text-wrap.js'
 import AISettingsDialog from './AISettingsDialog.vue'
@@ -2235,27 +819,47 @@ import AskBar from './AskBar.vue'
 import CellHistoryPopover from './CellHistoryPopover.vue'
 import ChartDialog from './ChartDialog.vue'
 import ChartOverlay from './ChartOverlay.vue'
-import ColorPicker from './ColorPicker.vue'
+import ConditionalFormatDialog from './ConditionalFormatDialog.vue'
+import FilterPanel from './FilterPanel.vue'
 import FindReplace from './FindReplace.vue'
-import InlineTitleInput from './InlineTitleInput.vue'
+import HyperlinkDialog from './HyperlinkDialog.vue'
 import LinkPreviewCard from './LinkPreviewCard.vue'
 import NamedRangesDialog from './NamedRangesDialog.vue'
+import NotesPanel from './NotesPanel.vue'
 import PivotDialog from './PivotDialog.vue'
+import SheetContextMenu from './SheetContextMenu.vue'
+import SheetTabMenu from './SheetTabMenu.vue'
+import SheetTabsBar from './SheetTabsBar.vue'
+import SheetToolbar from './SheetToolbar.vue'
+import SheetTopbar from './SheetTopbar.vue'
+import SheetTopbarActions from './SheetTopbarActions.vue'
+import SlicerPanel from './SlicerPanel.vue'
 import SplitTextPopover from './SplitTextPopover.vue'
 import { buildAlignOptions, buildBorderOptions, buildMoreToolbarOptions } from './toolbar.config.js'
+import { useAiAssist } from './useAiAssist.js'
 import { useChartIntegration } from './useChartIntegration.js'
+import { useClipboard } from './useClipboard.js'
 import { useCollaboration } from './useCollaboration.js'
 import { useContextMenu } from './useContextMenu.js'
 import { useEditOps } from './useEditOps.js'
 import { useExportImport } from './useExportImport.js'
+import { useFill } from './useFill.js'
 import { AC_FUNS, useFormulaAutocomplete } from './useFormulaAutocomplete.js'
+import { useHistory } from './useHistory.js'
+import { useLinkCard } from './useLinkCard.js'
+import { useNotesPanel } from './useNotesPanel.js'
 import { usePersistence } from './usePersistence.js'
 import { usePivotIntegration } from './usePivotIntegration.js'
+import { useProtection } from './useProtection.js'
 import { useSheetTabs } from './useSheetTabs.js'
 import { useShortcuts } from './useShortcuts.js'
+import { useSlicers } from './useSlicers.js'
 import { useSmartFill } from './useSmartFill.js'
+import { useSortFilter } from './useSortFilter.js'
 import { useSplitText } from './useSplitText.js'
 import { useToolbar } from './useToolbar.js'
+import { useWorkbook } from './useWorkbook.js'
+import ValidationDialog from './ValidationDialog.vue'
 
 const props = defineProps({
   id: {
@@ -2342,9 +946,42 @@ const brandMenuOptions = computed(() => [
 
 // The open tab. The editor owns it; IronCalc's sheet list sets it on load.
 const currentSheet = ref('Sheet1')
-// IronCalc: { client, provider, offSheets, offVersion } once started (see _startEngine).
-// Declared up here because setup code (the sheet tabs) reads it.
-let _engine = null
+// IronCalc holds every cell (see useWorkbook.js). Declared up here because
+// setup code (the sheet tabs) reads it.
+const {
+  startEngine: _startEngine,
+  stopEngine: _stopEngine,
+  engineClient: _client,
+  engineBytes: _engineBytes,
+  command: _command,
+  writeInputs: _writeInputs,
+  syncDefinedNames: _syncDefinedNames,
+  inputAt: _inputAt,
+  paintedInput: _paintedInput,
+  readRect: _readRect,
+  readInputs: _readInputs,
+  readIds: _readIds,
+  readInput: _readInput,
+  displayValue: _displayValue,
+  refreshUsedCells: _refreshUsedCells,
+  usedCellIds: _usedCellIds,
+  usedExtent: _usedExtent,
+  readWholeSheet: _readWholeSheet,
+  readDisplays: _readDisplays,
+  readSourceRange: _readSourceRange,
+  clearRect: _clearRect,
+  clearSheet: _clearSheet,
+} = useWorkbook({
+  currentSheet,
+  // Created below; read only once the engine runs.
+  namedRanges: () => namedRanges,
+  getGrid: () => grid,
+  syncNames: () => syncNames(),
+  onVersion: () => _onEngineVersion(),
+  onUsedExtent: (max) => {
+    if (grid) _expandGridTo(max.maxCol, max.maxRow)
+  },
+})
 const formats = createFormatsEngine()
 const merge = createMergeEngine()
 const sortFilter = createSortFilter({
@@ -2387,26 +1024,6 @@ function openNamedRangesDialog() {
   contextMenu.open = false
   namedRangesDialogOpen.value = true
 }
-// Named ranges live in their own store (the dialog edits it, the document
-// saves it); IronCalc evaluates `=Name` from defined names. This sends
-// IronCalc whatever differs from what it was last sent, so calling it after
-// anything that may change the store (dialog, undo, load, sheet rename,
-// row/column ops) is cheap.
-let _namesInEngine = new Map() // name → formula
-function _syncDefinedNames() {
-  if (!_engine) return
-  const want = new Map(namedRanges.list().map((e) => [e.name, definedNameFormula(e)]))
-  const commands = []
-  for (const name of _namesInEngine.keys())
-    if (!want.has(name)) commands.push(_command('deleteDefinedName', { name }))
-  for (const [name, formula] of want)
-    if (_namesInEngine.get(name) !== formula)
-      commands.push(_command('setDefinedName', { name, formula }))
-  _namesInEngine = want
-  if (commands.length === 1) _engine.client.dispatch(commands[0])
-  else if (commands.length > 1) _engine.client.dispatch(_command('batch', { commands }))
-}
-
 function _onNamedRangesChanged() {
   _syncDefinedNames()
   // The engine notifies via onChange too, but we explicitly push history
@@ -2449,177 +1066,42 @@ async function runSmartFill() {
   }
 }
 
-// Single source of truth for "what does undo restore?". Every engine that
-// owns mutable state (sheet data, formats, merges, filters, comments,
-// validations, conditional formats) plus the canvas-side view state (column
-// widths, freeze, hidden rows/cols, zoom, total rows) is captured. Anything
-// not snapshotted here is invisible to undo — that was the bug behind
-// "filter doesn't undo".
-// Everything undo restores apart from the cells: every engine beside the
-// cell engine, and the grid's view state.
-function _sideSnapshot() {
-  return {
-    formats: formats.snapshot(),
-    merge: merge.snapshot(),
-    sortFilter: sortFilter.snapshot(),
-    slicers: slicers.snapshot(),
-    comments: comments.snapshot(),
-    validation: validation.snapshot(),
-    protection: protection.snapshot(),
-    condFormat: condFormat.snapshot(),
-    pivot: pivot.snapshot(),
-    charts: charts.snapshot(),
-    namedRanges: namedRanges.snapshot(),
-    view: grid?.viewSnapshot?.() ?? null,
-  }
-}
-function _restoreSide(snap) {
-  formats.restore(snap.formats)
-  if (snap.merge) merge.restore(snap.merge)
-  if (snap.sortFilter) sortFilter.restore(snap.sortFilter)
-  if (snap.slicers) slicers.restore(snap.slicers)
-  if (snap.comments) comments.restore(snap.comments)
-  if (snap.validation) validation.restore(snap.validation)
-  if (snap.protection) protection.restore(snap.protection)
-  if (snap.condFormat) condFormat.restore(snap.condFormat)
-  if (snap.pivot) pivot.restore(snap.pivot)
-  if (snap.charts) charts.restore(snap.charts)
-  if (snap.namedRanges) {
-    namedRanges.restore(snap.namedRanges)
-    _syncDefinedNames()
-  }
-  if (snap.view && grid?.viewRestore) grid.viewRestore(snap.view)
-}
-
-const history = createHistory({
-  // A snapshot step holds IronCalc's bytes (cells, sheets and their order),
-  // taken in dispatch order, plus every side engine. The bytes promise is
-  // shared with the previous step when no command ran in between, so a
-  // format-only step serializes nothing.
-  snapshot() {
-    return { bytes: _engine ? _engine.client.snapshot() : null, ..._sideSnapshot() }
+// Undo/redo (see useHistory.js).
+const {
+  history,
+  undo,
+  redo,
+  structural: _structural,
+} = useHistory({
+  currentSheet,
+  engines: {
+    formats,
+    merge,
+    sortFilter,
+    slicers,
+    comments,
+    validation,
+    protection,
+    condFormat,
+    pivot,
+    charts,
+    namedRanges,
   },
-  restore(snap) {
-    if (snap.bytes && _engine) {
-      _engine.client
-        .restore(snap.bytes)
-        .catch((e) => console.error('[sheets] restoring an undo step failed', e))
-    }
-    _restoreSide(snap)
-    // Caller (undo/redo) repopulates the canvas + reapplies hidden rows.
-  },
-  // Cheap op-based undo/redo. The op shape mirrors what _queueOp already
-  // captures for server sync: a {opType, subSheet, before, after} diff over
-  // a set of cell IDs. Undo writes `before` back; redo writes `after`.
-  // Both go through sheet.setCell so the engine's notify cascade + memo
-  // invalidation + collab Y.Doc mirror all stay in sync — same path a
-  // human edit takes, just with the saved values.
-  //
-  // Paste-style ops carry additional optional maps:
-  //   - beforeFormats / afterFormats — per-cell format snapshots
-  //   - beforeValidation / afterValidation — per-cell validation rules
-  // so the full paste effect (values + formats + validation) round-trips
-  // through undo/redo without the 320 ms snapshot tax.
-  revertOp(op) {
-    if (op.opType === 'structural') {
-      _revertStructural(op)
-      return
-    }
-    // Structural op: undo of "add sheet" is just deleting the (empty) sheet.
-    if (op.opType === 'sheet_add') {
-      _deleteSheet(op.name)
-      return
-    }
-    _applyCellMap(op.before, op.subSheet)
-    // A cut pasted onto another sheet: put its source cells back.
-    if (op.source) _applyCellMap(op.source.before, op.source.sheet)
-    if (op.beforeFormats) _applyFormatMap(op.beforeFormats, op.subSheet)
-    if (op.beforeCols) _applyAxisFormatMap('col', op.beforeCols, op.subSheet)
-    if (op.beforeRows) _applyAxisFormatMap('row', op.beforeRows, op.subSheet)
-    if (op.beforeValidation) _applyValidationMap(op.beforeValidation, op.subSheet)
-    if (op.beforeMerge) {
-      merge.restore(op.beforeMerge)
-      grid?.render?.()
-    }
-    if (op.beforeRowH) _applyRowHeightMap(op.beforeRowH, op.subSheet)
-  },
-  applyOp(op) {
-    if (op.opType === 'structural') {
-      _redoStructural(op)
-      return
-    }
-    // Structural op: redo of "add sheet" recreates the same empty sheet.
-    if (op.opType === 'sheet_add') {
-      _addSheet(op.name)
-      return
-    }
-    _applyCellMap(op.after, op.subSheet)
-    if (op.source) _applyCellMap(op.source.after, op.source.sheet)
-    if (op.afterFormats) _applyFormatMap(op.afterFormats, op.subSheet)
-    if (op.afterCols) _applyAxisFormatMap('col', op.afterCols, op.subSheet)
-    if (op.afterRows) _applyAxisFormatMap('row', op.afterRows, op.subSheet)
-    if (op.afterValidation) _applyValidationMap(op.afterValidation, op.subSheet)
-    if (op.afterMerge) {
-      merge.restore(op.afterMerge)
-      grid?.render?.()
-    }
-    if (op.afterRowH) _applyRowHeightMap(op.afterRowH, op.subSheet)
-  },
+  getGrid: () => grid,
+  engineClient: _client,
+  command: _command,
+  writeInputs: _writeInputs,
+  syncDefinedNames: _syncDefinedNames,
+  addSheet: (name) => _addSheet(name),
+  deleteSheet: (name) => _deleteSheet(name),
   getLocalTouches: () => _drainCollabLocalTouches(),
+  syncFlags: () => syncFlags(),
+  markDirty: () => {
+    isDirty.value = true
+  },
+  afterStructural: (sn) => _afterStructural(sn),
+  afterNavigate: () => _afterHistoryNavigate(),
 })
-
-// Used by op-based undo/redo to write a {cellId: value} diff back, as one
-// command.
-function _applyCellMap(map, sheetName) {
-  if (!map) return
-  _writeInputs(sheetName || currentSheet.value, map)
-}
-
-// Apply a {cellId: format|null} diff. Used by paste/fill undo/redo to
-// revert format changes the user wouldn't get back from the cell-value
-// diff alone. After mutating the store we manually push display strings
-// for each affected cell — number format affects the rendered value, so
-// the canvas needs the new strings for those cells. Validation doesn't
-// affect the display string, so its apply is just the store mutation.
-function _applyFormatMap(map, sheetName) {
-  if (!map) return
-  const sn = sheetName || currentSheet.value
-  for (const [id, fmt] of Object.entries(map)) {
-    if (fmt && Object.keys(fmt).length) formats.set(id, fmt, sn)
-    else formats.clear(id, sn)
-  }
-  grid?.render?.() // the grid applies number formats as it paints
-}
-
-// Apply a { colIdx|rowIdx: format|null } diff to the column or row format
-// layer (undo/redo of range-level formatting). Exact replacement, so undo
-// restores the captured layer precisely. One render covers the whole axis.
-function _applyAxisFormatMap(axis, map, sheetName) {
-  if (!map) return
-  const sn = sheetName || currentSheet.value
-  const replace = axis === 'col' ? formats.replaceCol : formats.replaceRow
-  for (const [k, fmt] of Object.entries(map)) replace(+k, fmt || {}, sn)
-  grid?.render?.()
-}
-function _applyValidationMap(map, sheetName) {
-  if (!map) return
-  const sn = sheetName || currentSheet.value
-  for (const [id, rule] of Object.entries(map)) {
-    if (rule) validation.set(id, rule, sn)
-    else validation.clear(id, sn)
-  }
-  // Validation only affects the dropdown-arrow indicator the canvas
-  // paints from getValidation each render — next paint picks it up.
-  grid?.render?.()
-}
-
-// Apply a {row: height} diff from a multi-line-edit op. Row heights are
-// canvas view state scoped to the current sheet, so cross-sheet undo skips
-// them rather than resizing the wrong sheet's rows.
-function _applyRowHeightMap(map, sheetName) {
-  if ((sheetName || currentSheet.value) !== currentSheet.value) return
-  for (const [r, h] of Object.entries(map)) grid?.setRowHeight?.(+r, h)
-}
 
 // Forward-declaration: `useCollaboration` (further down the script) sets
 // `_collabDrainLocalTouches` to its real implementation once the binding
@@ -2675,9 +1157,6 @@ const insertMany = reactive({
   count: 5,
   below: false,
 })
-const showHyperlinkDialog = ref(false)
-const hyperlinkText = ref('')
-const hyperlinkUrl = ref('')
 const hasActiveHyperlink = computed(() => !!activeFormat.value?.hyperlink)
 const showFormulas = ref(false)
 const selectionStats = ref(null)
@@ -2710,14 +1189,6 @@ const commentPanel = reactive({
   draft: '',
 })
 
-// Notes side panel — global list of notes across all sheets, click-to-jump.
-// `rev` is bumped whenever a note is saved/deleted so the computed list
-// re-runs (the comments engine is plain state, not reactive).
-const notesPanel = reactive({
-  open: false,
-  rev: 0,
-})
-
 // ── Dropdown (validation) UI state ────────────────────────────────────────────
 const dropdownPanel = reactive({
   open: false,
@@ -2728,47 +1199,6 @@ const dropdownPanel = reactive({
   x: 0,
   y: 0,
   w: 120,
-})
-const vdListEl = ref(null)
-const validationDialog = reactive({
-  open: false,
-  type: 'list',
-  // 'list' | 'number' | 'text_length'
-  operator: 'between',
-  // 'between' | 'not_between' | 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq'
-  val1: '',
-  val2: '',
-  listItems: [],
-  // [{ label, color }] — color '' means auto (palette by position)
-  message: '',
-  severity: 'reject', // 'reject' blocks the edit; 'warn' allows it but flags the cell
-})
-
-// ── Conditional format dialog state ───────────────────────────────────────────
-const cfDialog = reactive({
-  open: false,
-  editId: null,
-  range: {
-    r0: 0,
-    c0: 0,
-    r1: 0,
-    c1: 0,
-  },
-  // 'classic' = one-off condition (the original feature).
-  // 'color-scale' / 'data-bar' / 'icon-set' = range-scoped scales.
-  kind: 'classic',
-  condType: 'gt',
-  condValue: '',
-  condValue2: '',
-  fmtColor: '',
-  fmtBg: '',
-  // Scale-rule state (read only when `kind` is non-classic).
-  scaleVariant: '2color',
-  scaleMin: '#FFFFFF',
-  scaleMid: '#FFEB3B',
-  scaleMax: '#0E7490',
-  barColor: '#0E7490',
-  iconSet: 'arrows3',
 })
 const cellHistory = reactive({
   open: false,
@@ -2968,99 +1398,6 @@ const CURRENCY_QUICK_PICKS = [
     symbol: '¥',
   },
 ]
-// Custom decimals-with-arrow glyphs for the precision toolbar buttons. Not in
-// lucide, so passed as component props through Button's icon API instead of as
-// "lucide-…" strings. stroke-width 1.5 keeps the small inner shapes legible at
-// 16 px (Button sm icon size). currentColor + stroke → inherits text-ink-gray
-// in light + dark mode, same as the neighbouring lucide icons.
-function _decimalsIcon(children) {
-  return {
-    render: () =>
-      h(
-        'svg',
-        {
-          xmlns: 'http://www.w3.org/2000/svg',
-          viewBox: '0 0 24 24',
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': 1.5,
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-          'aria-hidden': 'true',
-        },
-        children,
-      ),
-  }
-}
-const DecreaseDecimalIcon = _decimalsIcon([
-  h('path', {
-    d: 'm13 21-3-3 3-3',
-  }),
-  h('path', {
-    d: 'M20 18H10',
-  }),
-  h('path', {
-    d: 'M3 11h.01',
-  }),
-  h('rect', {
-    x: 6,
-    y: 3,
-    width: 5,
-    height: 8,
-    rx: 2.5,
-  }),
-])
-const IncreaseDecimalIcon = _decimalsIcon([
-  h('path', {
-    d: 'M10 18h10',
-  }),
-  h('path', {
-    d: 'm17 21 3-3-3-3',
-  }),
-  h('path', {
-    d: 'M3 11h.01',
-  }),
-  h('rect', {
-    x: 15,
-    y: 3,
-    width: 5,
-    height: 8,
-    rx: 2.5,
-  }),
-  h('rect', {
-    x: 6,
-    y: 3,
-    width: 5,
-    height: 8,
-    rx: 2.5,
-  }),
-])
-const FILTER_OPERATOR_OPTIONS = [
-  {
-    label: 'Contains',
-    value: 'contains',
-  },
-  {
-    label: 'Equals',
-    value: 'equals',
-  },
-  {
-    label: 'Greater than',
-    value: 'gt',
-  },
-  {
-    label: 'Less than',
-    value: 'lt',
-  },
-  {
-    label: 'Is empty',
-    value: 'empty',
-  },
-  {
-    label: 'Is not empty',
-    value: 'notempty',
-  },
-]
 const fileDropdownOptions = computed(() => [
   {
     group: 'Export',
@@ -3149,146 +1486,39 @@ const compactMenuOptions = computed(() => [
 ])
 
 // ── AI Assist ─────────────────────────────────────────────────────────────────
-//
-// One primitive: select → ask in plain words → see it applied → Keep or Undo.
-// The backend returns a validated action plan; the model emits formulas, the
-// engine computes. Applying goes through the same pushOp + _queueOp path that
-// fill/paste use, so a single Undo reverts the whole batch and the change
-// joins the existing op-log / autosave / collab pipeline.
-
-const aiEnabled = ref(!!window.frappe?.boot?.ai_assist_enabled)
-const askOpen = ref(false)
-const askBusy = ref(false)
-const askError = ref('')
-const askAnswer = ref('')
-const aiPending = ref(null) // null | { count }
-const askSelectionLabel = ref('')
-
-// After saving AI settings, refresh the boot flag + reactive ref in-place so
-// the "Ask" entry point appears/disappears without a full reload.
-function onAiSettingsSaved(s) {
-  // The keyless "mock"/"demo" model counts as configured too.
-  const isMock = ['mock', 'demo'].includes(
-    String(s?.model || '')
-      .trim()
-      .toLowerCase(),
-  )
-  const on = !!(s?.enabled && (s?.keyIsSet || isMock))
-  if (window.frappe?.boot) window.frappe.boot.ai_assist_enabled = on
-  aiEnabled.value = on
-}
-function openAskBar() {
-  askError.value = ''
-  askAnswer.value = ''
-  aiPending.value = null
-  askSelectionLabel.value = grid?.getActiveCell?.() || ''
-  askOpen.value = true
-}
-function closeAskBar() {
-  // Closing with a pending change is an implicit Keep — it's already applied
-  // and queued.
-  askOpen.value = false
-  askError.value = ''
-  askAnswer.value = ''
-  aiPending.value = null
-}
-async function onAskSubmit(promptText) {
-  askError.value = ''
-  askAnswer.value = ''
-  aiPending.value = null
-  askBusy.value = true
-  try {
-    const sel = grid?.getSelection?.() || {
-      r0: 0,
-      c0: 0,
-      r1: 0,
-      c1: 0,
-    }
-    const selection = JSON.stringify({
-      sheet: currentSheet.value,
-      r0: sel.r0,
-      c0: sel.c0,
-      r1: sel.r1,
-      c1: sel.c1,
-      active: grid?.getActiveCell?.() || '',
-    })
-    const res = await client.query(api.sheets.assistant.ask, {
-      name: props.id,
-      prompt: promptText,
-      selection,
-    })
-    const actions = Array.isArray(res?.actions) ? res.actions : []
-    const answers = actions.filter((a) => a.type === 'answer')
-    if (answers.length) askAnswer.value = answers.map((a) => a.text).join('\n\n')
-    const applied = await _applyAiActions(actions)
-    if (applied > 0)
-      aiPending.value = {
-        count: applied,
-      }
-    else if (!answers.length) askAnswer.value = 'No changes suggested for that.'
-  } catch (e) {
-    askError.value = e && e.message ? String(e.message) : 'Something went wrong'
-  } finally {
-    askBusy.value = false
-  }
-}
-
-// Apply setCell actions as ONE undoable op (mirrors the fill/paste path).
-// Returns the number of cells written.
-async function _applyAiActions(actions) {
-  const sn = currentSheet.value
-  let setCells = actions.filter((a) => a.type === 'setCell')
-  // Drop writes that land on protected cells (rest still apply).
-  const allowed = setCells.filter((a) => !_cellSilentlyProtected(a.cell, sn))
-  if (allowed.length !== setCells.length) _flashProtected(sn)
-  setCells = allowed
-  if (!setCells.length) return 0
-  const before = {}
-  const after = {}
-  Object.assign(
-    before,
-    await _readIds(
-      setCells.map((a) => a.cell),
-      sn,
-    ),
-  )
-  for (const a of setCells) after[a.cell] = String(a.formula ?? '')
-  _writeInputs(sn, after)
-  const refs = setCells.map((a) => a.cell)
-
-  // Undo (op-based, like fill) + server sync (op-log on next save).
-  history.pushOp({
-    opType: 'ai_assist',
-    subSheet: sn,
-    cellRefs: refs,
-    before,
-    after,
-  })
-  _queueOp({
-    opType: 'ai_assist',
-    subSheet: sn,
-    cellRefs: refs,
-    before,
-    after,
-    summary: `AI: ${refs.length} cell${refs.length === 1 ? '' : 's'}`,
-  })
-  grid?.render()
-  refreshActiveFormat()
-  syncFlags()
-  isDirty.value = true
-  return refs.length
-}
-function onAskKeep() {
-  // Already applied + queued; just dismiss and close.
-  closeAskBar()
-}
-function onAskUndo() {
-  // Reverts the whole batch in one step (single op). Drop the still-queued
-  // op so a stale ai_assist entry isn't persisted on the next save.
-  undo()
-  _popLastOp('ai_assist')
-  aiPending.value = null
-}
+// The Ask bar and AI settings (see useAiAssist.js).
+const {
+  aiEnabled,
+  askOpen,
+  askBusy,
+  askError,
+  askAnswer,
+  aiPending,
+  askSelectionLabel,
+  aiSettingsOpen,
+  onAiSettingsSaved,
+  openAskBar,
+  closeAskBar,
+  onAskSubmit,
+  onAskKeep,
+  onAskUndo,
+} = useAiAssist({
+  getGrid: () => grid,
+  getDocName: () => props.id,
+  currentSheet,
+  history,
+  isDirty,
+  syncFlags,
+  undo,
+  // Defined further down (useToolbar, useProtection): resolved at call time.
+  refreshActiveFormat: () => refreshActiveFormat(),
+  readIds: _readIds,
+  writeInputs: _writeInputs,
+  queueOp: _queueOp,
+  popLastOp: _popLastOp,
+  cellSilentlyProtected: (id, sn) => _cellSilentlyProtected(id, sn),
+  flashProtected: (sn) => _flashProtected(sn),
+})
 
 // Remove the most recently queued op of a given type (used when an AI change
 // is undone before it has been flushed to the server).
@@ -3313,35 +1543,13 @@ const hAlignIcon = computed(() => {
 const { user: userEmail, fullName: userFullName, imageURL: userImage } = useCurrentUser()
 const userInitial = computed(() => userInitials(userFullName.value, userEmail.value))
 
-// Collaboration — presence
-const aiSettingsOpen = ref(false)
-const unregisterPaletteGroups = useRootStore().registerPaletteGroups(
-  'sheets-editor-settings',
-  () => {
-    if (!window.frappe?.boot?.ai_assist_can_configure) return []
-    return [
-      {
-        commands: [
-          {
-            id: 'sheets-settings',
-            label: 'AI settings',
-            icon: 'lucide-cpu',
-            keywords: ['AI', 'assist', 'configure'],
-            run: () => (aiSettingsOpen.value = true),
-          },
-        ],
-      },
-    ]
-  },
-)
-onScopeDispose(unregisterPaletteGroups)
 const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImport({
   cells: {
     readSheet: _readWholeSheet,
     write: _writeInputs,
     clear: _clearSheet,
-    addSheet: (name) => _engine?.client.dispatch(_command('addSheet', { name })),
-    idle: () => (_engine ? _engine.client.idle() : Promise.resolve()),
+    addSheet: (name) => _client()?.dispatch(_command('addSheet', { name })),
+    idle: () => (_client() ? _client().idle() : Promise.resolve()),
   },
   // Lazy: useSheetTabs defines sheetNames further down.
   sheetNames: () => sheetNames.value,
@@ -3357,74 +1565,6 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
   isDirty,
 })
 
-// Filter panel state.
-//   - mode: 'values' (Google-Sheets-style checklist) or 'condition' (operator
-//     + value). Default to 'values' since that's the more discoverable path.
-//   - valueSet: which distinct displayed values are currently checked. Stored
-//     as a real Set for O(1) toggles; serialised to an array when persisted
-//     via sortFilter.setFilter.
-//   - allValues: distinct displayed values in the column's data range, cached
-//     while the panel is open so we don't recompute on every keystroke.
-const filterPanel = reactive({
-  open: false,
-  col: 0,
-  mode: 'values',
-  operator: 'contains',
-  value: '',
-  valueSet: new Set(),
-  valueSearch: '',
-  allValues: [],
-})
-const filteredFilterValues = computed(() => {
-  const q = filterPanel.valueSearch.trim().toLowerCase()
-  if (!q) return filterPanel.allValues
-  return filterPanel.allValues.filter((v) => String(v).toLowerCase().includes(q))
-})
-
-// True while the value search box narrows the list — Select all / Clear then
-// act on the shown subset, so their labels change to say so.
-const valueSearchActive = computed(() => filterPanel.valueSearch.trim() !== '')
-function toggleFilterValue(v) {
-  if (filterPanel.valueSet.has(v)) filterPanel.valueSet.delete(v)
-  else filterPanel.valueSet.add(v)
-}
-function selectAllFilterValues() {
-  // Only the values currently visible under the search filter — matches
-  // Google Sheets behaviour where "Select all" respects the search box.
-  for (const v of filteredFilterValues.value) filterPanel.valueSet.add(v)
-}
-function clearAllFilterValues() {
-  for (const v of filteredFilterValues.value) filterPanel.valueSet.delete(v)
-}
-
-// Auto-close the filter popover on any click outside its body or the
-// chevron that opened it. Mirrors how Google Sheets handles this — users
-// shouldn't have to remember to hit "Close" before editing a cell.
-function _filterPanelOutsideClick(e) {
-  const t = e.target
-  if (!t || !(t instanceof Element)) return
-  if (t.closest('.sn-filter-panel')) return // click inside the popover itself
-  if (t.closest('.sn-filter-btn')) return // click on a chevron toggles its own panel
-  // Frappe UI's Select/Combobox/Dropdown render their dropdown into a portal
-  // (SelectPortal → body), so the listbox options live OUTSIDE the panel's
-  // DOM subtree. Without this exemption, clicking "Equals" / "Greater than"
-  // on the condition-mode operator picker fired the outside-click handler
-  // and slammed the whole panel shut. The portaled content is tagged with
-  // data-slot="content" on the wrapper, so an ancestor match catches every
-  // descendant click (items, scroll viewport, etc.).
-  if (t.closest('[data-slot="content"]')) return
-  filterPanel.open = false
-}
-watch(
-  () => filterPanel.open,
-  (open) => {
-    // `mousedown` (not click) so the close fires before any other component
-    // gets the focus/selection event — keeps the panel from leaving stale
-    // state behind when the user just clicks elsewhere in the sheet.
-    if (open) document.addEventListener('mousedown', _filterPanelOutsideClick, true)
-    else document.removeEventListener('mousedown', _filterPanelOutsideClick, true)
-  },
-)
 let grid = null
 let ro = null
 function syncFlags() {
@@ -3468,8 +1608,8 @@ async function _computeSelectionStatsAsync(token) {
     return
   }
   const sn = currentSheet.value
-  if (!_engine) return
-  const { count, numCount, sum } = await _engine.client.rangeStats({
+  if (!_client()) return
+  const { count, numCount, sum } = await _client().rangeStats({
     sheet: sn,
     r1: r0 + 1,
     c1: c0 + 1,
@@ -3485,9 +1625,6 @@ async function _computeSelectionStatsAsync(token) {
           sum: numCount > 0 ? sum : null,
           avg: numCount > 0 ? sum / numCount : null,
         }
-}
-function formatStat(n) {
-  return Number.isInteger(n) ? n.toLocaleString() : parseFloat(n.toFixed(4)).toLocaleString()
 }
 
 // ── Number format helpers ─────────────────────────────────────────────────────
@@ -3837,8 +1974,8 @@ if (props.embedded) {
   )
 }
 _sheetTabs = useSheetTabs({
-  names: () => _engine?.client.sheets ?? [currentSheet.value],
-  run: (type, payload) => _engine?.client.dispatch(_command(type, payload)),
+  names: () => _client()?.sheets ?? [currentSheet.value],
+  run: (type, payload) => _client()?.dispatch(_command(type, payload)),
   currentSheet,
   formats,
   extras: [merge, comments, validation, protection, condFormat, sortFilter, slicers],
@@ -3931,8 +2068,8 @@ const {
     readSheet: _readWholeSheet,
     write: _writeInputs,
     clear: _clearRect,
-    addSheet: (name) => _engine?.client.dispatch(_command('addSheet', { name })),
-    idle: () => (_engine ? _engine.client.idle() : Promise.resolve()),
+    addSheet: (name) => _client()?.dispatch(_command('addSheet', { name })),
+    idle: () => (_client() ? _client().idle() : Promise.resolve()),
   },
   sheetNames: () => sheetNames.value,
   formats,
@@ -3979,7 +2116,7 @@ const {
   getGrid: () => grid,
 })
 
-// Mirrors the `.sn-tool-extra` media query in this file's <style> block: below
+// Mirrors the `.sn-tool-extra` media query in SheetToolbar.vue's <style>: below
 // this width the inline tool groups are hidden and the "…" menu carries them.
 const toolbarCollapsed = useMediaQuery('(max-width: 1280px)')
 const moreToolbarOptions = computed(() =>
@@ -4042,21 +2179,6 @@ const {
   currentSheet,
   pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
   blockProtected: (rect, sn) => _rectBlocked(rect, sn),
-})
-
-// `showSortFilter` is the existing template/handler API; with ranged filters
-// it's now derived from "does this sheet have a filter range?".  Writing true
-// creates a filter on the current selection; writing false removes it.
-const showSortFilter = computed({
-  get() {
-    renderVersion.value
-    return sortFilter.hasFilter(currentSheet.value)
-  },
-  set(v) {
-    v
-      ? _createFilterOnSelection().catch((e) => console.error('[sheets] filter failed', e))
-      : _removeFilter()
-  },
 })
 
 // Adding a sheet used to push a full-workbook snapshot (history.push deep-clones
@@ -4180,87 +2302,37 @@ function doAddMoreRows() {
   isDirty.value = true
 }
 
-// ── Filter overlay geometry ───────────────────────────────────────────────────
-
-const filterConfig = computed(() => {
-  renderVersion.value // re-eval when canvas re-renders (e.g. filter apply)
-  return sortFilter.getFilterConfig(currentSheet.value)
-})
-const filterRange = computed(() => {
-  renderVersion.value
-  return sortFilter.getRange(currentSheet.value)
-})
-
-// Chevron buttons appear only on the header row of the active filter range —
-// at most one filter per sheet, scoped to its rectangle (Google-Sheets-style).
-const visibleFilterCols = computed(() => {
-  renderVersion.value
-  if (!grid || !filterRange.value) return []
-  const { r0, c0, c1 } = filterRange.value
-  const rowRect = grid.getRowRect(r0)
-  const rects = grid.getColumnHeaderRects().filter(({ c }) => c >= c0 && c <= c1)
-  const BTN = 16
-  return rects.map(({ c, x, width }) => ({
-    col: c,
-    style: {
-      left: x + width - BTN - 3 + 'px',
-      top: rowRect.y + (rowRect.height - BTN) / 2 + 'px',
-      width: BTN + 'px',
-      height: BTN + 'px',
-    },
-  }))
-})
-
-// Live position for the open filter panel. Recomputed on every canvas render
-// (renderVersion) so the panel tracks its column as the grid scrolls, anchored
-// to the column's chevron just like visibleFilterCols. Returns display:none when
-// the column scrolls out of the visible header range so the panel hides instead
-// of floating over unrelated columns; it reappears when scrolled back into view.
-const filterPanelStyle = computed(() => {
-  renderVersion.value
-  if (!filterPanel.open || !grid || !filterRange.value)
-    return {
-      display: 'none',
-    }
-  const { r0 } = filterRange.value
-  const colRect = grid.getColumnHeaderRects().find(({ c }) => c === filterPanel.col)
-  const rowRect = grid.getRowRect(r0)
-  if (!colRect || !rowRect)
-    return {
-      display: 'none',
-    }
-  const BTN = 16
-  const wrapW = gridWrapRef.value?.getBoundingClientRect().width ?? Infinity
-  return {
-    top: rowRect.y + rowRect.height + 2 + 'px',
-    left: clampFilterLeft(colRect.x + colRect.width - BTN - 3, wrapW) + 'px',
-  }
-})
-
-// Outline drawn around the active filter's rectangle so its extent is visible
-// (Google-Sheets-style). Mirrors the pivot highlight: bounding box from the
-// range's top-left / bottom-right cell rects, clamped to the header strips so
-// it never paints over the row-number gutter or column-header row when the
-// range is scrolled partly out of view.
-const filterHighlightStyle = computed(() => {
-  renderVersion.value
-  if (!showSortFilter.value || !grid || !filterRange.value) return null
-  const { r0, c0, r1, c1 } = filterRange.value
-  const tl = grid.getCellRect?.(r0, c0)
-  const br = grid.getCellRect?.(r1, c1)
-  if (!tl || !br) return null
-  const zoom = grid.getZoom?.() ?? 1
-  // `|| Infinity` treats a 0/undefined viewport (before the first layout) as
-  // "unclamped" — a 0 would otherwise collapse the overlay to nothing.
-  const vp = grid.getViewportSize?.()
-  const viewW = vp?.w || Infinity
-  const viewH = vp?.h || Infinity
-  return overlayRectStyle(tl, br, {
-    headerX: ROW_HEADER_W * zoom,
-    headerY: COL_HEADER_H * zoom,
-    viewW,
-    viewH,
-  })
+// ── Sort & Filter ─────────────────────────────────────────────────────────────
+// The filter, its overlay geometry and the filter panel (see useSortFilter.js).
+const {
+  filterPanel,
+  showSortFilter,
+  filterConfig,
+  visibleFilterCols,
+  filterPanelStyle,
+  filterHighlightStyle,
+  detectContiguousBlock: _detectContiguousBlock,
+  openFilterPanel,
+  openQuickFilterForActive,
+  applyFilter,
+  clearFilterCol,
+  doSort,
+} = useSortFilter({
+  sortFilter,
+  currentSheet,
+  activeCell,
+  renderVersion,
+  gridWrapRef,
+  history,
+  getGrid: () => grid,
+  readRect: _readRect,
+  rectBlocked: (rect, sn) => _rectBlocked(rect, sn),
+  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+  repopulateGrid: () => _repopulateGrid(),
+  applyHiddenRows: () => _applyHiddenRows(),
+  markDirty: () => {
+    isDirty.value = true
+  },
 })
 
 // Per-sub-sheet peer dots — small colored circles next to each tab label
@@ -4339,243 +2411,6 @@ const visibleRemoteCursors = computed(() => {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-// ── Fill handle helpers ───────────────────────────────────────────────────────
-// These close over module-level engine vars (sheet, formats, etc.) and the
-// module-level `grid` ref (set by _setupGridInstance before any fill fires).
-
-function _fillValidation(src, total, sn) {
-  const srcRows = src.r1 - src.r0 + 1,
-    srcCols = src.c1 - src.c0 + 1
-  for (let r = total.r0; r <= total.r1; r++) {
-    for (let c = total.c0; c <= total.c1; c++) {
-      if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-      const srcR = src.r0 + ((r - src.r0 + srcRows) % srcRows)
-      const srcC = src.c0 + ((c - src.c0 + srcCols) % srcCols)
-      const rule = validation.get(cellId(srcR, srcC), sn)
-      if (rule) validation.set(cellId(r, c), rule, sn)
-    }
-  }
-}
-
-// _runFill modes: 'auto' | 'series' | 'copy' | 'format-only' | 'without-format'
-async function _runFill(src, total, mode) {
-  const sheetName = currentSheet.value
-  // `total` includes `src`, so this one read is also the fill's source.
-  const fillBefore = await _readInputs(total, sheetName)
-  const beforeFmt = _captureFormatsRange(total, sheetName)
-  const beforeVal = _captureValidationRange(total, sheetName)
-  const beforeMergeSnap = merge.snapshot?.()
-  const cfBefore = condFormat?.getRules?.(sheetName)?.length ?? 0
-  let writes = {}
-  if (mode === 'format-only') {
-    _fillFormatsOnly(src, total, sheetName)
-  } else {
-    const valueMode = mode === 'without-format' ? 'auto' : mode
-    writes = planFill(src, total, (r, c) => fillBefore[cellId(r, c)] ?? '', valueMode)
-    _writeInputs(sheetName, writes)
-    if (mode === 'without-format') _clearFormats(src, total, sheetName)
-  }
-  if (mode !== 'format-only') {
-    _fillValidation(src, total, sheetName)
-    condFormat.extendRulesToRange(src, total, sheetName)
-  }
-  // Merges are a structural format — replicate them alongside cell formats
-  // (so a merged source tiles its merge into every dragged-over destination)
-  // EXCEPT when the user explicitly asked for values-only with `without-format`.
-  if (mode !== 'without-format') {
-    _fillMerges(src, total, sheetName)
-  }
-  const fillAfter = { ...fillBefore, ...writes }
-  const afterFmt = _captureFormatsRange(total, sheetName)
-  const afterVal = _captureValidationRange(total, sheetName)
-  const afterMergeSnap = merge.snapshot?.()
-  const cfAfter = condFormat?.getRules?.(sheetName)?.length ?? 0
-  const refs = _diffRefs(fillBefore, fillAfter)
-  // Server sync — queue the value diff regardless of how history records it.
-  if (refs.length) {
-    _queueOp({
-      opType: 'fill',
-      subSheet: sheetName,
-      cellRefs: refs,
-      before: fillBefore,
-      after: fillAfter,
-      summary: _fillSummary(mode, refs.length),
-    })
-  }
-  // History — the previous markEdited() path pushed a full snapshot, but
-  // history.undo() can't roll a snapshot back when its preceding entry is
-  // an op (no earlier snapshot to restore from), so undoing a fill that
-  // came after cell edits silently no-op'd the fill and started peeling
-  // off the prior cell edits instead — that's the "1, 2 drag-fill to 7,
-  // undo clears A2 first" report. The op-based path mirrors paste's
-  // shape, which the history's revertOp already round-trips correctly.
-  const mergeChanged = JSON.stringify(beforeMergeSnap) !== JSON.stringify(afterMergeSnap)
-  const cfChanged = cfBefore !== cfAfter
-  if (refs.length && !cfChanged) {
-    history.pushOp({
-      opType: 'fill',
-      subSheet: sheetName,
-      cellRefs: refs,
-      before: fillBefore,
-      after: fillAfter,
-      beforeFormats: beforeFmt,
-      afterFormats: afterFmt,
-      beforeValidation: beforeVal,
-      afterValidation: afterVal,
-      // Merge restore rides on the same op shape now — revertOp/applyOp
-      // call merge.restore when these are present.
-      ...(mergeChanged
-        ? {
-            beforeMerge: beforeMergeSnap,
-            afterMerge: afterMergeSnap,
-          }
-        : {}),
-    })
-    syncFlags()
-    isDirty.value = true
-  } else {
-    // Conditional-format rules changed — the op shape doesn't model
-    // rule restore yet, so fall back to a snapshot. Same snap-after-op
-    // edge case applies but only in this narrow path.
-    markEdited()
-  }
-}
-function _fillSummary(mode, n) {
-  if (mode === 'copy') return `Copied into ${n} cell${n === 1 ? '' : 's'}`
-  if (mode === 'format-only') return `Filled formats into ${n} cell${n === 1 ? '' : 's'}`
-  if (mode === 'without-format') return `Filled (no format) ${n} cell${n === 1 ? '' : 's'}`
-  return `Filled ${n} cell${n === 1 ? '' : 's'}`
-}
-
-// Replicate every merge whose master AND span lie entirely inside `src` into
-// each tile of the destination range. Without this, dragging the fill handle
-// from a merged source produced unmerged target cells — values copied but
-// the structural merge was lost. merge.merge() already unmerges any
-// overlapping merge on the target, so re-runs are idempotent.
-function _fillMerges(src, total, sn) {
-  const srcMerges = []
-  for (let r = src.r0; r <= src.r1; r++) {
-    for (let c = src.c0; c <= src.c1; c++) {
-      const info = merge.getMasterInfo(cellId(r, c), sn)
-      if (!info) continue
-      if (r + info.rowSpan - 1 > src.r1) continue
-      if (c + info.colSpan - 1 > src.c1) continue
-      srcMerges.push({
-        rOff: r - src.r0,
-        cOff: c - src.c0,
-        rowSpan: info.rowSpan,
-        colSpan: info.colSpan,
-      })
-    }
-  }
-  if (!srcMerges.length) return
-  const srcRows = src.r1 - src.r0 + 1,
-    srcCols = src.c1 - src.c0 + 1
-  const goDown = total.r1 > src.r1,
-    goUp = total.r0 < src.r0
-  const goRight = total.c1 > src.c1,
-    goLeft = total.c0 < src.c0
-
-  // Same 2-phase pattern as _fillValues: extend vertically first, then walk
-  // every column in the vertically-grown source across the horizontal range.
-  // For a diagonal drag, this tiles merges into the full 2D destination
-  // instead of just the on-axis strip.
-  let workR0 = src.r0,
-    workR1 = src.r1
-  if (goDown || goUp) {
-    const startR = goDown ? src.r1 + 1 : total.r0
-    const endR = goDown ? total.r1 : src.r0 - 1
-    for (let tileR0 = startR; tileR0 <= endR; tileR0 += srcRows) {
-      for (const m of srcMerges) {
-        const r0 = tileR0 + m.rOff
-        const c0 = src.c0 + m.cOff
-        const r1 = r0 + m.rowSpan - 1
-        const c1 = c0 + m.colSpan - 1
-        if (r1 > endR) continue // drop the partial tile at the far edge
-        merge.merge(r0, c0, r1, c1, sn)
-      }
-    }
-    workR0 = Math.min(workR0, total.r0)
-    workR1 = Math.max(workR1, total.r1)
-  }
-  if (goRight || goLeft) {
-    // Re-enumerate merges over the vertically-grown source so phase 2 also
-    // catches every merge tiled in by phase 1.
-    const grownMerges = []
-    for (let r = workR0; r <= workR1; r++) {
-      for (let c = src.c0; c <= src.c1; c++) {
-        const info = merge.getMasterInfo(cellId(r, c), sn)
-        if (!info) continue
-        if (r + info.rowSpan - 1 > workR1) continue
-        if (c + info.colSpan - 1 > src.c1) continue
-        grownMerges.push({
-          rOff: r - workR0,
-          cOff: c - src.c0,
-          rowSpan: info.rowSpan,
-          colSpan: info.colSpan,
-        })
-      }
-    }
-    const startC = goRight ? src.c1 + 1 : total.c0
-    const endC = goRight ? total.c1 : src.c0 - 1
-    for (let tileC0 = startC; tileC0 <= endC; tileC0 += srcCols) {
-      for (const m of grownMerges) {
-        const r0 = workR0 + m.rOff
-        const c0 = tileC0 + m.cOff
-        const r1 = r0 + m.rowSpan - 1
-        const c1 = c0 + m.colSpan - 1
-        if (c1 > endC) continue
-        merge.merge(r0, c0, r1, c1, sn)
-      }
-    }
-  }
-}
-function _fillFormatsOnly(src, total, sn) {
-  const srcRows = src.r1 - src.r0 + 1,
-    srcCols = src.c1 - src.c0 + 1
-  for (let r = total.r0; r <= total.r1; r++) {
-    for (let c = total.c0; c <= total.c1; c++) {
-      if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-      const srcR = src.r0 + ((r - src.r0 + srcRows) % srcRows)
-      const srcC = src.c0 + ((c - src.c0 + srcCols) % srcCols)
-      const fmt = formats.get(cellId(srcR, srcC), sn)
-      if (fmt && Object.keys(fmt).length) formats.set(cellId(r, c), fmt, sn)
-      else formats.clear(cellId(r, c), sn)
-    }
-  }
-}
-function _clearFormats(src, total, sn) {
-  for (let r = total.r0; r <= total.r1; r++) {
-    for (let c = total.c0; c <= total.c1; c++) {
-      if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-      formats.clear(cellId(r, c), sn)
-    }
-  }
-}
-// The series a fill from `src` would continue (null = plain copy).
-async function _previewSeriesKind(src) {
-  const sn = currentSheet.value
-  const sel = grid?.getSelection()
-  const goingDown = sel ? sel.r1 > src.r1 : false
-  const goingRight = sel ? sel.c1 > src.c1 : false
-  const sampleAlongCol = goingDown || !goingRight
-  const inputs = await _readInputs(src, sn)
-  const vals = []
-  if (sampleAlongCol) {
-    for (let r = src.r0; r <= src.r1; r++) vals.push(inputs[cellId(r, src.c0)])
-  } else {
-    for (let c = src.c0; c <= src.c1; c++) vals.push(inputs[cellId(src.r0, c)])
-  }
-  const series = detectSeries(vals.map((v) => (v == null ? '' : String(v))))
-  return series ? series.kind : null
-}
-
-// Cmd/Ctrl held inverts the auto-detected mode — Google Sheets behaviour.
-async function _fillFromHandle(src, total, withModifier) {
-  const mode = withModifier ? ((await _previewSeriesKind(src)) ? 'copy' : 'series') : 'auto'
-  await _runFill(src, total, mode)
-}
-
 // ── Mount phases ─────────────────────────────────────────────────────────────
 
 function _setupGridInstance() {
@@ -4595,7 +2430,7 @@ function _setupGridInstance() {
       // Non-empty cell ids for the current sheet — the lazy path's source for
       // cold-path scans (Cmd+A extent, autofit) that used to walk the grid's
       // own `data` keys.
-      getCellIds: () => _usedIds,
+      getCellIds: () => _usedCellIds(),
       getMergeInfo: (id) => merge.getMasterInfo(id, currentSheet.value),
       isSlave: (id) => merge.isSlave(id, currentSheet.value),
       getMasterId: (id) => merge.getMasterId(id, currentSheet.value),
@@ -5205,132 +3040,32 @@ function _cutSourceElsewhere(sn) {
   return { sheet: sheetName, rect: clipboard.getSourceSel() }
 }
 
-// ── Protection enforcement ────────────────────────────────────────────────────
-// The single gate every user-initiated write consults. Each helper returns true
-// — and flashes a transient notice — when the target is protected, so callers
-// bail with `if (…) return`. Programmatic paths (undo/restore/collab) never call
-// these, so they can still rewrite protected cells.
-//
-// A dedicated notice ref — NOT saveError — so a "protected" message renders as a
-// neutral badge and doesn't arm the save-error watchdog / retry affordance.
-const protectionNotice = ref('')
-function _flashProtected(sn) {
-  const msg = protection.isSheetLocked(sn)
-    ? 'This sheet is protected'
-    : 'This range is protected and can’t be edited'
-  protectionNotice.value = msg
-  setTimeout(() => {
-    if (protectionNotice.value === msg) protectionNotice.value = ''
-  }, 3500)
-}
-function _rectBlocked(rect, sn = currentSheet.value) {
-  if (!rect || !protection.isAnyProtected(rect, sn)) return false
-  _flashProtected(sn)
-  return true
-}
-function _cellBlocked(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  if (!p || !protection.isProtected(p.row, p.col, sn)) return false
-  _flashProtected(sn)
-  return true
-}
-function _cellsBlocked(ids, sn = currentSheet.value) {
-  const hit = ids.some((id) => _cellSilentlyProtected(id, sn))
-  if (hit) _flashProtected(sn)
-  return hit
-}
-function _cellSilentlyProtected(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return !!(p && protection.isProtected(p.row, p.col, sn))
-}
-// A fill writes only the destination — the strip(s) of `total` outside `src`.
-// Checking the whole extent would wrongly block a fill that merely *starts*
-// from a protected cell (reading a protected source is fine; only writes are
-// guarded). A fill extends in one direction, so at most one strip is non-empty.
-function _fillDestBlocked(src, total, sn = currentSheet.value) {
-  const strips = []
-  if (total.r1 > src.r1)
-    strips.push({
-      r0: src.r1 + 1,
-      r1: total.r1,
-      c0: total.c0,
-      c1: total.c1,
-    })
-  if (total.r0 < src.r0)
-    strips.push({
-      r0: total.r0,
-      r1: src.r0 - 1,
-      c0: total.c0,
-      c1: total.c1,
-    })
-  if (total.c1 > src.c1)
-    strips.push({
-      r0: total.r0,
-      r1: total.r1,
-      c0: src.c1 + 1,
-      c1: total.c1,
-    })
-  if (total.c0 < src.c0)
-    strips.push({
-      r0: total.r0,
-      r1: total.r1,
-      c0: total.c0,
-      c1: src.c0 - 1,
-    })
-  if (!strips.some((s) => protection.isAnyProtected(s, sn))) return false
-  _flashProtected(sn)
-  return true
-}
-
-// ── Protection UI actions ─────────────────────────────────────────────────────
-function protectSelection() {
-  contextMenu.open = false
-  const sel = grid?.getSelection?.()
-  if (!sel) return
-  protection.addRange(sel, '', currentSheet.value)
-  history.push()
-  isDirty.value = true
-  grid?.render?.()
-}
-function unprotectSelection() {
-  contextMenu.open = false
-  const sel = grid?.getSelection?.()
-  if (!sel) return
-  const sn = currentSheet.value
-  // Drop every protected range that overlaps the selection.
-  for (const r of [...protection.getRanges(sn)]) {
-    if (sel.r0 <= r.r1 && sel.r1 >= r.r0 && sel.c0 <= r.c1 && sel.c1 >= r.c0) {
-      protection.removeRange(r.id, sn)
-    }
-  }
-  history.push()
-  isDirty.value = true
-  grid?.render?.()
-}
-function toggleSheetProtection(name) {
-  tabMenu.open = false
-  protection.setSheetLocked(!protection.isSheetLocked(name), name)
-  history.push()
-  isDirty.value = true
-  grid?.render?.()
-}
-// Menu-label reads. These are plain functions (not computed) so the template
-// re-evaluates them against the live selection each time the menu re-renders —
-// a computed would cache a stale answer when neither dep happened to change.
-// selectionHasProtectedRange looks only at ranges: the whole-sheet lock is a
-// separate affordance in the tab menu, so "Remove protection" here never lies
-// about a lock it can't clear.
-function selectionHasProtectedRange() {
-  const sel = grid?.getSelection?.()
-  if (!sel) return false
-  const sn = currentSheet.value
-  return protection
-    .getRanges(sn)
-    .some((r) => sel.r0 <= r.r1 && sel.r1 >= r.r0 && sel.c0 <= r.c1 && sel.c1 >= r.c0)
-}
-function tabMenuSheetLocked() {
-  return !!tabMenu.name && protection.isSheetLocked(tabMenu.name)
-}
+// ── Protection ────────────────────────────────────────────────────────────────
+// Write guards and the protect/unprotect actions (see useProtection.js).
+const {
+  protectionNotice,
+  flashProtected: _flashProtected,
+  rectBlocked: _rectBlocked,
+  cellBlocked: _cellBlocked,
+  cellsBlocked: _cellsBlocked,
+  cellSilentlyProtected: _cellSilentlyProtected,
+  fillDestBlocked: _fillDestBlocked,
+  protectSelection,
+  unprotectSelection,
+  toggleSheetProtection,
+  selectionHasProtectedRange,
+  tabMenuSheetLocked,
+} = useProtection({
+  protection,
+  currentSheet,
+  contextMenu,
+  tabMenu,
+  history,
+  getGrid: () => grid,
+  markDirty: () => {
+    isDirty.value = true
+  },
+})
 
 // Diff two id→value maps, returning the ids whose value changed.  Used to
 // trim noisy before/after pairs down to the cells that actually moved.
@@ -5478,12 +3213,6 @@ watch(saveError, (msg) => {
 // Watch for any dirty change → schedule auto-save
 watch(isDirty, (dirty) => {
   if (dirty) _triggerAutoSave()
-})
-
-// Re-render the canvas when the filter row is toggled so row-0 cells reserve
-// (or release) right-padding for the chevron buttons.
-watch(showSortFilter, () => {
-  grid?.render?.()
 })
 
 // Title focus/blur — mark `isDirty` when the value changed during the focus
@@ -5636,35 +3365,33 @@ function _cancelFormulaBar() {
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 
-// Ctrl+D / Ctrl+R: copy the selection's first row down (or first column
-// right) across the rest of it.
-async function _fillFromEdge(down) {
-  if (!grid) return
-  const sel = grid.getSelection()
-  const { r0, c0, r1, c1 } = sel
-  if (down ? r1 <= r0 : c1 <= c0) return
-  const sn = currentSheet.value
-  const dest = down ? { r0: r0 + 1, c0, r1, c1 } : { r0, c0: c0 + 1, r1, c1 }
-  if (_rectBlocked(dest, sn)) return
-  const before = await _readInputs(sel, sn)
-  const after = {}
-  for (let r = dest.r0; r <= dest.r1; r++) {
-    for (let c = dest.c0; c <= dest.c1; c++) {
-      const srcVal = before[down ? cellId(r0, c) : cellId(r, c0)] ?? ''
-      after[cellId(r, c)] = srcVal.startsWith('=')
-        ? adjustFormula(srcVal, down ? r - r0 : 0, down ? 0 : c - c0)
-        : srcVal
-    }
-  }
-  _writeInputs(sn, after)
-  _pushEditOp(sn, before, after, down ? 'Fill down' : 'Fill right')
-}
-function fillDown() {
-  _fillFromEdge(true).catch((e) => console.error('[sheets] fill down failed', e))
-}
-function fillRight() {
-  _fillFromEdge(false).catch((e) => console.error('[sheets] fill right failed', e))
-}
+// ── Fill ──────────────────────────────────────────────────────────────────────
+// The drag fill handle and Ctrl+D / Ctrl+R (see useFill.js).
+const {
+  fillFromHandle: _fillFromHandle,
+  fillDown,
+  fillRight,
+} = useFill({
+  getGrid: () => grid,
+  currentSheet,
+  formats,
+  merge,
+  validation,
+  condFormat,
+  history,
+  isDirty,
+  syncFlags,
+  markEdited,
+  readInputs: _readInputs,
+  writeInputs: _writeInputs,
+  captureFormatsRange: _captureFormatsRange,
+  captureValidationRange: _captureValidationRange,
+  diffRefs: _diffRefs,
+  queueOp: _queueOp,
+  rectBlocked: _rectBlocked,
+  // useEditOps is set up further down.
+  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+})
 
 // Mirrors `clipboard.hasData()` reactively so the context menu can show /
 // hide its Paste-Special entries without polling.
@@ -5734,261 +3461,39 @@ const { onGlobalKey } = useShortcuts({
 })
 
 // ── Clipboard ─────────────────────────────────────────────────────────────────
-
-function _canvasActive() {
-  return isCanvasClipboardTarget({
-    activeEl: document.activeElement,
-    canvasEl: canvasRef.value,
-    formulaEl: formulaInputRef.value,
-    gridWrap: gridWrapRef.value,
-    editing: grid?.isEditing?.() ?? false,
-  })
-}
-
-// Returning to the tab or the sheet route leaves browser focus on <body>, not
-// the grid, so a Cmd+V fires a paste event the canvas never receives (onDocPaste
-// bails at the _canvasActive guard) — the "I have to click a cell first before
-// paste works" report. Pull focus back to the canvas, but ONLY when focus has
-// landed on nothing (body/null); never steal it from the formula bar, an inline
-// cell editor, or an open dialog.
-function _refocusGridIfIdle() {
-  if (document.visibilityState === 'hidden') return
-  const ae = document.activeElement
-  if (ae && ae !== document.body) return
-  canvasRef.value?.focus()
-}
-function onDocCopy(e) {
-  if (!_canvasActive()) return
-  e.preventDefault()
-  const src = grid.getSelection()
-  clipboard.copy(src).catch((err) => console.error('[sheets] copy failed', err))
-  clipboardHas.value = true
-  grid.setMarchingAnts(src)
-}
-function onDocCut(e) {
-  if (!_canvasActive()) return
-  if (readOnly.value) return // cut deletes cells — viewers may only copy
-
-  e.preventDefault()
-  const src = grid.getSelection()
-  const sn = currentSheet.value
-  // Cut moves content out of the source — block it when the source is protected.
-  if (_rectBlocked(src, sn)) return
-  // Nothing changes until the paste, which records the move for undo.
-  clipboard.cut(src).catch((err) => console.error('[sheets] cut failed', err))
-  clipboardHas.value = true
-  grid.setMarchingAnts(src)
-}
-async function onDocPaste(e) {
-  if (!_canvasActive()) return
-  if (readOnly.value) return // viewers can't write pasted cells
-  e.preventDefault()
-  const destSel = grid.getSelection()
-  const sn = currentSheet.value
-
-  // Pasting a copied pivot mints a new live pivot at the anchor rather than
-  // writing cells, so the op-based cell-diff undo below can't capture it (it
-  // would leave the rendered cells without their _pivots registry entry).
-  // Await the async render, then take one full history.push() snapshot, which
-  // captures both the pivot registry and the written cells atomically.
-  if (clipboard.hasData() && clipboard.getPivotBlob?.()) {
-    if (_rectBlocked(destSel, sn)) return // a pivot paste bypasses the cell-write guard
-    await clipboard.paste(activeCell.value, () => {}, 'all', destSel)
-    clipboardHas.value = clipboard.hasData()
-    grid.setMarchingAnts(null)
-    _showInputInFormulaBar(activeCell.value) // fx bar tracks the pasted anchor
-    history.push()
-    isDirty.value = true
-    return
-  }
-
-  // Prefer the HTML flavor when it carries a real table — external apps
-  // (Gameplan, Google Sheets, web pages) put a structured <table> there, while
-  // their text/plain flavor can lack tab delimiters and collapse into a single
-  // column. Read both flavors up front so we can also MEASURE the paste extent
-  // before writing (see below).
-  const html = clipboard.hasData() ? null : e.clipboardData?.getData('text/html')
-  const text = clipboard.hasData() ? null : e.clipboardData?.getData('text/plain')
-
-  // For an external paste there is no internal source selection, so
-  // _pasteAffectedRects only sees the clicked cell — the output block's real
-  // size lives in the clipboard payload. Measure it (side-effect free, same
-  // grid math the write uses) and fold it into the capture rect, or undo would
-  // record only the anchor cell and leave the rest of the block behind.
-  const externalRect = clipboard.hasData()
-    ? null
-    : (clipboard.measureHTMLPaste(html, activeCell.value, destSel) ??
-      clipboard.measureTextPaste(text, activeCell.value, destSel))
-
-  // Snapshot the pre-paste state for cells + formats + validation across
-  // the destination rect, plus cond-format rule count for the fallback
-  // decision. The cells+formats+validation diff drives op-based undo; if
-  // the paste also added a cond-format rule, the rule list isn't part of
-  // the op and we'd lose it on undo — fall back to a full snapshot in
-  // that rarer case.
-  // Capture across everything the paste can touch (dest, full output block,
-  // and — for a cut — the vacated source) so undo restores all of it.
-  const rects = _pasteAffectedRects(destSel)
-  if (externalRect) rects.push(externalRect)
-  const before = Object.assign({}, ...(await Promise.all(rects.map((r) => _readInputs(r, sn)))))
-  const cutSrc = _cutSourceElsewhere(sn)
-  const srcBefore = cutSrc && (await _readInputs(cutSrc.rect, cutSrc.sheet))
-  const beforeFmt = Object.assign({}, ...rects.map((r) => _captureFormatsRange(r, sn)))
-  const beforeVal = Object.assign({}, ...rects.map((r) => _captureValidationRange(r, sn)))
-  const cfBefore = condFormat?.getRules?.(sn)?.length ?? 0
-  let pasted = false
-  if (clipboard.hasData()) {
-    // Internal cut/copy — empty historyPush callback so we control the
-    // history entry from out here. clipboard still does its mutations.
-    // A protected destination returns { blocked } and writes nothing; leave
-    // the marching ants + cut buffer intact so the user can retry elsewhere.
-    if ((await clipboard.paste(activeCell.value, () => {}, 'all', destSel))?.blocked) {
-      _flashProtected(sn)
-      return
-    }
-    pasted = true
-  } else {
-    // Prefer a real HTML table; fall back to plain text. Either write into a
-    // protected cell returns { blocked } and we bail without recording it.
-    const htmlRes = html
-      ? clipboard.pasteFromHTML(html, activeCell.value, () => {}, destSel)
-      : false
-    if (htmlRes?.blocked) {
-      _flashProtected(sn)
-      return
-    }
-    if (htmlRes) {
-      pasted = true
-    } else if (text) {
-      if (clipboard.pasteFromText(text, activeCell.value, () => {}, destSel)?.blocked) {
-        _flashProtected(sn)
-        return
-      }
-      pasted = true
-    }
-  }
-  clipboardHas.value = clipboard.hasData()
-  grid.setMarchingAnts(null)
-  if (pasted) {
-    // Refresh display strings for every touched rect — the engine already
-    // notified for cell-value changes, but format changes happened AFTER
-    // batchSetCells so the canvas painted those cells with the old
-    // format, and a cut's vacated source needs to repaint as empty.
-    grid?.render?.() // pasted formats
-    // Reads wait for the paste's write, so `after` holds the pasted inputs.
-    const after = Object.assign({}, ...(await Promise.all(rects.map((r) => _readInputs(r, sn)))))
-    const source = cutSrc && {
-      sheet: cutSrc.sheet,
-      before: srcBefore,
-      after: await _readInputs(cutSrc.rect, cutSrc.sheet),
-    }
-    _showInputInFormulaBar(activeCell.value) // fx bar tracks the pasted anchor
-    const afterFmt = Object.assign({}, ...rects.map((r) => _captureFormatsRange(r, sn)))
-    const afterVal = Object.assign({}, ...rects.map((r) => _captureValidationRange(r, sn)))
-    const cfAfter = condFormat?.getRules?.(sn)?.length ?? 0
-    const refs = _diffRefs(before, after)
-    if (refs.length || cfBefore !== cfAfter) {
-      _queueOp({
-        opType: 'paste',
-        subSheet: sn,
-        cellRefs: refs,
-        before,
-        after,
-        summary: `Pasted into ${refs.length} cell${refs.length === 1 ? '' : 's'}`,
-        ...(source && { source }),
-      })
-      _pushPasteHistory({
-        opType: 'paste',
-        subSheet: sn,
-        cellRefs: refs,
-        before,
-        after,
-        beforeFormats: beforeFmt,
-        afterFormats: afterFmt,
-        beforeValidation: beforeVal,
-        afterValidation: afterVal,
-        cfChanged: cfBefore !== cfAfter,
-        ...(source && { source }),
-      })
-      syncFlags()
-    }
-    isDirty.value = true
-  }
-}
-
-// Right-click → Paste special. `kind` ∈ {'values', 'formats', 'formulas'}.
-async function doPasteSpecial(kind) {
-  contextMenu.open = false
-  if (!clipboard.hasData()) return
-  const destSel = grid.getSelection()
-  const sn = currentSheet.value
-  const rects = _pasteAffectedRects(destSel)
-  const before = Object.assign({}, ...(await Promise.all(rects.map((r) => _readInputs(r, sn)))))
-  const cutSrc = _cutSourceElsewhere(sn)
-  const srcBefore = cutSrc && (await _readInputs(cutSrc.rect, cutSrc.sheet))
-  const beforeFmt = Object.assign({}, ...rects.map((r) => _captureFormatsRange(r, sn)))
-  const beforeVal = Object.assign({}, ...rects.map((r) => _captureValidationRange(r, sn)))
-  const cfBefore = condFormat?.getRules?.(sn)?.length ?? 0
-  if ((await clipboard.paste(activeCell.value, () => {}, kind, destSel))?.blocked) {
-    _flashProtected(sn)
-    return // keep the pending cut/copy + its marching ants
-  }
-  grid?.render?.() // pasted formats
-  clipboardHas.value = clipboard.hasData()
-  grid?.setMarchingAnts(null)
-  // Reads wait for the paste's write, so `after` holds the pasted inputs.
-  const after = Object.assign({}, ...(await Promise.all(rects.map((r) => _readInputs(r, sn)))))
-  const source = cutSrc && {
-    sheet: cutSrc.sheet,
-    before: srcBefore,
-    after: await _readInputs(cutSrc.rect, cutSrc.sheet),
-  }
-  _showInputInFormulaBar(activeCell.value) // fx bar tracks the pasted anchor
-  const afterFmt = Object.assign({}, ...rects.map((r) => _captureFormatsRange(r, sn)))
-  const afterVal = Object.assign({}, ...rects.map((r) => _captureValidationRange(r, sn)))
-  const cfAfter = condFormat?.getRules?.(sn)?.length ?? 0
-  const refs = _diffRefs(before, after)
-  if (refs.length || cfBefore !== cfAfter) {
-    _queueOp({
-      opType: 'paste',
-      subSheet: sn,
-      cellRefs: refs,
-      before,
-      after,
-      summary: `Pasted ${kind} into ${refs.length} cell${refs.length === 1 ? '' : 's'}`,
-      ...(source && { source }),
-    })
-    _pushPasteHistory({
-      opType: 'paste',
-      subSheet: sn,
-      cellRefs: refs,
-      before,
-      after,
-      beforeFormats: beforeFmt,
-      afterFormats: afterFmt,
-      beforeValidation: beforeVal,
-      afterValidation: afterVal,
-      cfChanged: cfBefore !== cfAfter,
-      ...(source && { source }),
-    })
-    syncFlags()
-  }
-  isDirty.value = true
-  // Pivot recompute is handled centrally: the paste routed through
-  // batchSetCells, whose onCellsChanged callback recomputes affected pivots.
-}
-
-// Push the right history entry for a paste. Cell + format + validation
-// diffs round-trip through op-based undo (~10 µs); cond-format rule
-// additions aren't tracked in the op shape, so when the rule list
-// changed we fall back to a full engine snapshot for correctness.
-function _pushPasteHistory(op) {
-  if (op.cfChanged) {
-    history.push()
-    return
-  }
-  history.pushOp(op)
-}
+// Copy / cut / paste listeners and Paste special (see useClipboard.js).
+const {
+  refocusGridIfIdle: _refocusGridIfIdle,
+  onDocCopy,
+  onDocCut,
+  onDocPaste,
+  doPasteSpecial,
+} = useClipboard({
+  clipboard,
+  getGrid: () => grid,
+  canvasRef,
+  formulaInputRef,
+  gridWrapRef,
+  readOnly,
+  currentSheet,
+  activeCell,
+  clipboardHas,
+  contextMenu,
+  condFormat,
+  history,
+  isDirty,
+  syncFlags,
+  rectBlocked: _rectBlocked,
+  flashProtected: _flashProtected,
+  showInput: _showInputInFormulaBar,
+  readInputs: _readInputs,
+  queueOp: _queueOp,
+  pasteAffectedRects: _pasteAffectedRects,
+  cutSourceElsewhere: _cutSourceElsewhere,
+  captureFormatsRange: _captureFormatsRange,
+  captureValidationRange: _captureValidationRange,
+  diffRefs: _diffRefs,
+})
 
 // ── History ───────────────────────────────────────────────────────────────────
 
@@ -6024,14 +3529,6 @@ function _afterHistoryNavigate() {
   clipboardHas.value = false
   // An undo or redo changes the document like any edit, so it is saved.
   isDirty.value = true
-}
-function undo() {
-  if (!history.undo()) return
-  _afterHistoryNavigate()
-}
-function redo() {
-  if (!history.redo()) return
-  _afterHistoryNavigate()
 }
 
 // ── Number format ─────────────────────────────────────────────────────────────
@@ -6186,73 +3683,17 @@ function commentTime(ts) {
 }
 
 // ── Notes side panel ──────────────────────────────────────────────────────────
-
-// All notes across all sheets, ordered: current sheet first, then by row/col.
-// Re-runs when notesPanel.rev bumps (after save/delete) — the comments engine
-// itself isn't reactive.
-const allNotes = computed(() => {
-  notesPanel.rev // dep for re-run
-  const cur = currentSheet.value
-  const list = []
-  for (const name of sheetNames.value) {
-    const map = comments.getAll(name) || {}
-    const entries = Object.keys(map)
-      .map((id) => ({
-        id,
-        p: parseCellId(id),
-      }))
-      .filter((e) => e.p)
-      .sort((a, b) => a.p.row - b.p.row || a.p.col - b.p.col)
-      .map((e) => ({
-        sheet: name,
-        id: e.id,
-        text: comments.preview(e.id, name),
-        resolved: !!comments.getThread(e.id, name)?.resolved,
-      }))
-    list.push(...entries)
-  }
-  list.sort((a, b) => {
-    if (a.sheet === cur && b.sheet !== cur) return -1
-    if (b.sheet === cur && a.sheet !== cur) return 1
-    return a.sheet.localeCompare(b.sheet)
-  })
-  return list
+// The cross-sheet note list and its panel (see useNotesPanel.js).
+const { notesPanel, allNotes, notesGrouped, toggleNotesPanel, jumpToNote } = useNotesPanel({
+  comments,
+  sheetNames,
+  currentSheet,
+  activeCell,
+  getGrid: () => grid,
+  switchSheet: (n) => switchSheet(n),
+  openCommentPanel: () => openCommentPanel(),
+  onOpened: () => emit('notes-opened'),
 })
-const notesGrouped = computed(() => {
-  const out = []
-  let cur = null
-  for (const n of allNotes.value) {
-    if (!cur || cur.sheet !== n.sheet) {
-      cur = {
-        sheet: n.sheet,
-        items: [],
-      }
-      out.push(cur)
-    }
-    cur.items.push(n)
-  }
-  return out
-})
-function toggleNotesPanel() {
-  if (notesPanel.open) {
-    notesPanel.open = false
-    return
-  }
-  notesPanel.rev++ // force-refresh on open
-  notesPanel.open = true
-  emit('notes-opened')
-}
-function jumpToNote(n) {
-  if (!grid) return
-  const p = parseCellId(n.id)
-  if (!p) return
-  if (n.sheet !== currentSheet.value) switchSheet(n.sheet)
-  nextTick(() => {
-    grid.moveTo(p.row, p.col)
-    activeCell.value = n.id
-    openCommentPanel()
-  })
-}
 
 // The /d/ surface's handle on the editor: where the cursor is, how to reach
 // a commented cell, and the save state its leave guard and restore act on.
@@ -6311,131 +3752,17 @@ function fromContextMenu(action) {
 }
 
 // ── Data validation ───────────────────────────────────────────────────────────
+// The rule form is ValidationDialog.vue; it hands back a rule, and this
+// applies it to the selection.
 
+const validationDialogRef = ref(null)
 function openValidationDialog() {
-  const e = validation.get(activeCell.value, currentSheet.value)
-  validationDialog.type = e?.type || 'list'
-  validationDialog.operator = e?.operator || 'between'
-  validationDialog.val1 = String(e?.min ?? '')
-  validationDialog.val2 = String(e?.max ?? '')
-  const opts = e?.options || []
-  const colors = e?.colors || {}
-  validationDialog.listItems = opts.length
-    ? opts.map((o) => ({
-        label: o,
-        color: colors[o] || '',
-      }))
-    : [
-        {
-          label: '',
-          color: '',
-        },
-      ] // start with one empty row to type into
-  validationDialog.message = e?.message || ''
-  validationDialog.severity = e?.severity || 'reject'
-  validationDialog.open = true
+  validationDialogRef.value?.open(validation.get(activeCell.value, currentSheet.value))
 }
-
-// The auto (unset) chip colour for the item at position `i` — matches how the
-// painter slots colours by option order, so the dialog previews the real thing.
-function autoChipColor(i) {
-  return chipPaletteColor(i)
-}
-function addListItem(afterIdx) {
-  const row = {
-    label: '',
-    color: '',
-  }
-  if (afterIdx == null) validationDialog.listItems.push(row)
-  else validationDialog.listItems.splice(afterIdx + 1, 0, row)
-  focusListItem(afterIdx == null ? validationDialog.listItems.length - 1 : afterIdx + 1)
-}
-function removeListItem(i) {
-  validationDialog.listItems.splice(i, 1)
-  if (!validationDialog.listItems.length)
-    validationDialog.listItems.push({
-      label: '',
-      color: '',
-    })
-}
-
-// Paste a comma/newline-separated list into a row → split it across rows, so
-// bulk entry ("Yes, No, Maybe") still works alongside per-item editing.
-function onListPaste(ev, i) {
-  const text = ev.clipboardData?.getData('text') || ''
-  if (!/[,\n]/.test(text)) return // single value → let the default paste happen
-  ev.preventDefault()
-  const parts = text
-    .split(/[,\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-  if (!parts.length) return
-  validationDialog.listItems[i].label = parts[0]
-  validationDialog.listItems.splice(
-    i + 1,
-    0,
-    ...parts.slice(1).map((label) => ({
-      label,
-      color: '',
-    })),
-  )
-}
-async function focusListItem(i) {
-  await nextTick()
-  vdListEl.value?.querySelectorAll('.sn-vd-item-input')?.[i]?.focus()
-}
-async function confirmValidation() {
+async function _applyValidation(rule) {
   const ids = selectionIds()
   const sn = currentSheet.value
-  const msg = validationDialog.message.trim() || undefined
-  // 'warn' only differs from the default when the value fails, and a checkbox
-  // is TRUE/FALSE-only where "allow anyway" makes no sense — so scope it out.
-  const severity =
-    validationDialog.type === 'checkbox'
-      ? undefined
-      : validationDialog.severity === 'warn'
-        ? 'warn'
-        : undefined
-  let rule
-  if (validationDialog.type === 'checkbox') {
-    rule = {
-      type: 'checkbox',
-      message: msg,
-    }
-  } else if (validationDialog.type === 'list') {
-    // De-dupe by label (first wins), keeping only rows that have a colour set.
-    const options = []
-    const colors = {}
-    for (const it of validationDialog.listItems) {
-      const label = it.label.trim()
-      if (!label || options.includes(label)) continue
-      options.push(label)
-      if (it.color) colors[label] = it.color
-    }
-    rule = {
-      type: 'list',
-      options,
-      message: msg,
-      severity,
-    }
-    if (Object.keys(colors).length) rule.colors = colors
-  } else {
-    const op = validationDialog.operator
-    const v1 = parseFloat(validationDialog.val1)
-    const v2 = parseFloat(validationDialog.val2)
-    const min = isNaN(v1) ? undefined : v1
-    const max = ['between', 'not_between'].includes(op) && !isNaN(v2) ? v2 : undefined
-    rule = {
-      type: validationDialog.type,
-      operator: op,
-      min,
-      max,
-      message: msg,
-      severity,
-    }
-  }
-  validationDialog.open = false
-  if (validationDialog.type !== 'checkbox') {
+  if (rule.type !== 'checkbox') {
     for (const id of ids) validation.set(id, rule, sn)
     grid?.render()
     history.push()
@@ -6483,7 +3810,6 @@ function removeValidation() {
   const ids = selectionIds()
   const sn = currentSheet.value
   for (const id of ids) validation.clear(id, sn)
-  validationDialog.open = false
   grid?.render()
   history.push()
   isDirty.value = true
@@ -6523,286 +3849,19 @@ async function toggleCheckbox(id) {
 }
 
 // ── Conditional formatting ────────────────────────────────────────────────────
+// The dialog is ConditionalFormatDialog.vue; it brackets each rule change
+// with before-change / changed so undo gets a step on each side.
 
-const CF_COND_OPTIONS = [
-  {
-    label: 'Greater than',
-    value: 'gt',
-  },
-  {
-    label: 'Less than',
-    value: 'lt',
-  },
-  {
-    label: 'Greater or equal',
-    value: 'gte',
-  },
-  {
-    label: 'Less or equal',
-    value: 'lte',
-  },
-  {
-    label: 'Equal to',
-    value: 'eq',
-  },
-  {
-    label: 'Not equal to',
-    value: 'neq',
-  },
-  {
-    label: 'Between',
-    value: 'between',
-  },
-  {
-    label: 'Contains',
-    value: 'contains',
-  },
-  {
-    label: 'Does not contain',
-    value: 'notcontains',
-  },
-  {
-    label: 'Is empty',
-    value: 'empty',
-  },
-  {
-    label: 'Is not empty',
-    value: 'notempty',
-  },
-]
-const CF_KIND_OPTIONS = [
-  {
-    label: 'Single colour rule',
-    value: 'classic',
-  },
-  {
-    label: 'Colour scale',
-    value: 'color-scale',
-  },
-  {
-    label: 'Data bars',
-    value: 'data-bar',
-  },
-  {
-    label: 'Icon set',
-    value: 'icon-set',
-  },
-]
-const CF_SCALE_VARIANT_OPTIONS = [
-  {
-    label: '2-colour (low → high)',
-    value: '2color',
-  },
-  {
-    label: '3-colour (low → mid → high)',
-    value: '3color',
-  },
-]
-const CF_ICON_SET_OPTIONS = [
-  {
-    label: 'Arrows (red/grey/green)',
-    value: 'arrows3',
-  },
-  {
-    label: 'Traffic lights',
-    value: 'traffic3',
-  },
-  {
-    label: 'Circles (empty → full)',
-    value: 'circles3',
-  },
-]
-const cfRangeLabel = computed(() => {
-  const { r0, c0, r1, c1 } = cfDialog.range
-  return `${colLabel(c0)}${r0 + 1}:${colLabel(c1)}${r1 + 1}`
-})
-
-// `<input type="color">` rejects anything that isn't a literal #rrggbb.
-// Old rules may have been saved with CSS-var values back when the dialog
-// defaulted to `var(--surface-red-1)`; coerce those to '' so the input
-// falls back to its default rather than throwing a DOMException.
-function _coerceHex(v) {
-  if (typeof v !== 'string') return ''
-  return /^#[0-9a-fA-F]{6}$/.test(v) ? v : ''
-}
+const cfDialogRef = ref(null)
 function openCfDialog(existingId) {
-  const sel = grid?.getSelection() || {
-    r0: 0,
-    c0: 0,
-    r1: 0,
-    c1: 0,
-  }
-  cfDialog.range = {
-    ...sel,
-  }
-  cfDialog.editId = existingId
-  cfDialog.kind = 'classic'
-  cfDialog.condType = 'gt'
-  cfDialog.condValue = ''
-  cfDialog.condValue2 = ''
-  cfDialog.fmtColor = ''
-  // `<input type="color">` rejects CSS-var values — it requires a literal
-  // #rrggbb. Use the resolved hex for --surface-red-1 instead.
-  cfDialog.fmtBg = '#FEE2E2'
-  cfDialog.scaleVariant = '2color'
-  cfDialog.scaleMin = '#FFFFFF'
-  cfDialog.scaleMid = '#FFEB3B'
-  cfDialog.scaleMax = '#0E7490'
-  cfDialog.barColor = '#0E7490'
-  cfDialog.iconSet = 'arrows3'
-
-  // If we're editing an existing rule, hydrate the dialog state from it so
-  // the user sees their previous selections instead of the blank defaults.
-  if (existingId !== null) {
-    const existing = condFormat.getRules(currentSheet.value).find((r) => r.id === existingId)
-    if (existing) {
-      cfDialog.range = {
-        ...existing.range,
-      }
-      cfDialog.kind = existing.kind || 'classic'
-      if (existing.kind === 'color-scale') {
-        cfDialog.scaleVariant = existing.scale?.variant || '2color'
-        cfDialog.scaleMin = existing.scale?.minColor || cfDialog.scaleMin
-        cfDialog.scaleMid = existing.scale?.midColor || cfDialog.scaleMid
-        cfDialog.scaleMax = existing.scale?.maxColor || cfDialog.scaleMax
-      } else if (existing.kind === 'data-bar') {
-        cfDialog.barColor = existing.bar?.color || cfDialog.barColor
-      } else if (existing.kind === 'icon-set') {
-        cfDialog.iconSet = existing.icons?.set || cfDialog.iconSet
-      } else {
-        cfDialog.condType = existing.condition?.type || 'gt'
-        cfDialog.condValue = existing.condition?.value ?? ''
-        cfDialog.condValue2 = existing.condition?.value2 ?? ''
-        cfDialog.fmtColor = _coerceHex(existing.format?.color) || ''
-        cfDialog.fmtBg = _coerceHex(existing.format?.backgroundColor) || cfDialog.fmtBg
-      }
-    }
-  }
-  cfDialog.open = true
+  cfDialogRef.value?.open(existingId, grid?.getSelection())
 }
-function _buildCfRule() {
-  const range = {
-    ...cfDialog.range,
-  }
-  if (cfDialog.kind === 'color-scale') {
-    const scale =
-      cfDialog.scaleVariant === '3color'
-        ? {
-            variant: '3color',
-            minColor: cfDialog.scaleMin,
-            midColor: cfDialog.scaleMid,
-            maxColor: cfDialog.scaleMax,
-            midPercent: 0.5,
-          }
-        : {
-            variant: '2color',
-            minColor: cfDialog.scaleMin,
-            maxColor: cfDialog.scaleMax,
-          }
-    return {
-      range,
-      kind: 'color-scale',
-      scale,
-    }
-  }
-  if (cfDialog.kind === 'data-bar') {
-    return {
-      range,
-      kind: 'data-bar',
-      bar: {
-        color: cfDialog.barColor,
-      },
-    }
-  }
-  if (cfDialog.kind === 'icon-set') {
-    return {
-      range,
-      kind: 'icon-set',
-      icons: {
-        set: cfDialog.iconSet,
-        thresholds: [0.33, 0.66],
-      },
-    }
-  }
-  // Classic single-colour rule.
-  return {
-    range,
-    condition: {
-      type: cfDialog.condType,
-      value: cfDialog.condValue,
-      value2: cfDialog.condValue2,
-    },
-    format: {
-      ...(cfDialog.fmtColor
-        ? {
-            color: cfDialog.fmtColor,
-          }
-        : {}),
-      ...(cfDialog.fmtBg && cfDialog.fmtBg !== '#ffffff'
-        ? {
-            backgroundColor: cfDialog.fmtBg,
-          }
-        : {}),
-    },
-  }
-}
-function saveCfRule() {
-  const sn = currentSheet.value
-  const rule = _buildCfRule()
-  history.push()
-  if (cfDialog.editId !== null) condFormat.updateRule(cfDialog.editId, rule, sn)
-  else condFormat.addRule(rule, sn)
-  history.push()
-  syncFlags()
-  cfDialog.open = false
-  grid?.render()
-  isDirty.value = true
-}
-function deleteCfRule() {
-  history.push()
-  condFormat.removeRule(cfDialog.editId, currentSheet.value)
-  history.push()
-  syncFlags()
-  cfDialog.open = false
-  grid?.render()
-  isDirty.value = true
-}
-
-// Inline delete from the "existing rules" list — no need to open the dialog
-// in edit mode first. Same history bracketing as deleteCfRule.
-function deleteCfRuleById(id) {
-  history.push()
-  condFormat.removeRule(id, currentSheet.value)
+function _onCfChanged() {
   history.push()
   syncFlags()
   grid?.render()
   isDirty.value = true
 }
-
-// Pretty label for the rule list. Mirrors CF_KIND_OPTIONS / CF_COND_OPTIONS.
-function cfRuleLabel(rule) {
-  const r = rule.range
-  const range = `${colLabel(r.c0)}${r.r0 + 1}:${colLabel(r.c1)}${r.r1 + 1}`
-  if (rule.kind === 'color-scale') return `${range} · Colour scale`
-  if (rule.kind === 'data-bar') return `${range} · Data bars`
-  if (rule.kind === 'icon-set') return `${range} · Icon set`
-  const t = rule.condition?.type
-  const v = rule.condition?.value
-  const summary =
-    t === 'between'
-      ? `between ${v} and ${rule.condition?.value2}`
-      : t === 'empty' || t === 'notempty'
-        ? t
-        : `${t} ${v}`
-  return `${range} · ${summary}`
-}
-
-// Existing rules for the active sheet — exposed to the dialog template.
-const cfRulesForSheet = computed(() => {
-  // Touch renderVersion so the list re-evaluates when rules are mutated.
-  renderVersion.value
-  return condFormat.getRules(currentSheet.value)
-})
 
 // ── Cell edit history ─────────────────────────────────────────────────────────
 
@@ -6830,8 +3889,8 @@ async function openCellHistory() {
 
 // Cells on the open sheet whose input contains `query`, as [{ id, input }].
 async function _findCells(query) {
-  if (!_engine) return []
-  const { cells } = await _engine.client.findCells({ sheet: currentSheet.value, query })
+  if (!_client()) return []
+  const { cells } = await _client().findCells({ sheet: currentSheet.value, query })
   return cells.map(({ row, col, input }) => ({ id: cellId(row - 1, col - 1), input }))
 }
 // Replacements as one write and one undo step.
@@ -6851,439 +3910,34 @@ function onNavigateTo(id) {
   grid.moveTo(p.row, p.col)
 }
 
-// ── Sort & Filter ─────────────────────────────────────────────────────────────
-
-// Expand a single anchor cell to the contiguous non-empty data block around it
-// (Google-Sheets Ctrl+A behaviour). If the anchor itself is empty, pivot to
-// the adjacent cell down/right that has data — the empty anchor then becomes
-// the header row/col of the resulting block. Returns null only when nothing
-// adjacent has data either.
-// The contiguous block of non-empty cells around (r, c), as a rect, or null
-// when the anchor and its right/lower neighbours are empty. Reads a window
-// around the anchor in one go and widens it while the block reaches its edge.
-async function _detectContiguousBlock(r, c) {
-  const sn = currentSheet.value
-  for (let rows = 1000, cols = 26; ; rows *= 8, cols *= 8) {
-    const win = { r0: Math.max(0, r - rows), c0: Math.max(0, c - cols), r1: r + rows, c1: c + cols }
-    const { inputs } = await _readRect(sn, win)
-    const hasVal = (rr, cc) =>
-      rr >= win.r0 &&
-      cc >= win.c0 &&
-      rr <= win.r1 &&
-      cc <= win.c1 &&
-      (inputs[rr - win.r0]?.[cc - win.c0] ?? '') !== ''
-    const block = _blockAround(r, c, hasVal)
-    if (!block) return null
-    const atEdge =
-      (block.r0 === win.r0 && win.r0 > 0) ||
-      block.r1 === win.r1 ||
-      (block.c0 === win.c0 && win.c0 > 0) ||
-      block.c1 === win.c1
-    if (!atEdge || rows >= 1_000_000) return block
-  }
-}
-
-function _blockAround(r, c, hasVal) {
-  const anchorEmpty = !hasVal(r, c)
-  let ar = r,
-    ac = c
-  if (anchorEmpty) {
-    if (hasVal(r + 1, c)) ar = r + 1
-    else if (hasVal(r, c + 1)) ac = c + 1
-    else return null
-  }
-  let r0 = ar,
-    r1 = ar,
-    c0 = ac,
-    c1 = ac
-  while (r0 > 0 && hasVal(r0 - 1, ac)) r0--
-  while (hasVal(r1 + 1, ac)) r1++
-  while (c0 > 0 && hasVal(ar, c0 - 1)) c0--
-  while (hasVal(ar, c1 + 1)) c1++
-  // Walk again from the new top-row left/right edges in case the block widens
-  // below; this matches Google Sheets' "smart" expansion well enough for now.
-  for (let rr = r0; rr <= r1; rr++) {
-    while (c0 > 0 && hasVal(rr, c0 - 1)) c0--
-    while (hasVal(rr, c1 + 1)) c1++
-  }
-  // If the original anchor sits exactly one row above (or one col left of)
-  // the detected block, fold it in as the header row/col.
-  if (anchorEmpty && r === r0 - 1 && c >= c0 && c <= c1) r0 = r
-  if (anchorEmpty && c === c0 - 1 && r >= r0 && r <= r1) c0 = c
-  return {
-    r0,
-    c0,
-    r1,
-    c1,
-  }
-}
-
-// Create a filter on the user's current selection.  A selection that spans no
-// data rows — a single cell, or a lone header row like A1:E1 — auto-expands to
-// the contiguous data block around its top-left anchor (or refuses if that
-// anchor is empty). Without this, toggling the filter on just the header row
-// would produce a header-only range (r1 === r0): chevrons appear, but the
-// value list scans zero data rows and comes up empty. A genuine multi-row
-// block is taken verbatim.
-async function _createFilterOnSelection() {
-  if (!grid) return
-  const sel = grid.getSelection()
-  const noDataRows = sel.r0 === sel.r1
-  const range = noDataRows
-    ? (await _detectContiguousBlock(sel.r0, sel.c0)) || {
-        r0: sel.r0,
-        c0: sel.c0,
-        r1: sel.r0,
-        c1: sel.c0,
-      }
-    : {
-        r0: sel.r0,
-        c0: sel.c0,
-        r1: sel.r1,
-        c1: sel.c1,
-      }
-  sortFilter.setRange(range, currentSheet.value)
-  filterPanel.open = false
-  _applyHiddenRows()
-  grid?.render?.()
-  history.push()
-  isDirty.value = true
-}
-function _removeFilter() {
-  sortFilter.clearRange(currentSheet.value)
-  filterPanel.open = false
-  _applyHiddenRows()
-  grid?.render?.()
-  history.push()
-  isDirty.value = true
-}
-
 // ── Slicers ────────────────────────────────────────────────────────────────
-// A slicer is a floating value-filter control bound to a column of the filter
-// range. It reads/writes that column's `inSet` spec in sortFilter; the slicers
-// engine only tracks the column + float position. `slicerVersion` is bumped on
-// every slicer/filter change so the panels re-derive their checklists.
-const slicerVersion = ref(0)
-let _slicerDrag = null
-
-// One reactive snapshot per slicer: the column picker's options, the value list
-// with PLAIN boolean checked flags, and whether a filter is active — all derived
-// together on each slicerVersion bump. The template binds to these plain values
-// (not to function calls over the non-reactive sortFilter engine), so the panel
-// can never drift out of sync with the applied filter.
-const activeSlicers = computed(() => {
-  slicerVersion.value
-  const sn = currentSheet.value
-  const range = sortFilter.getRange(sn)
-  const options = range ? _slicerColumnOptions(range, sn) : []
-  return slicers.list(sn).map((sl) => {
-    const values = sortFilter.getColumnValues(sl.col, sn)
-    const spec = sortFilter.getFilterConfig(sn)[sl.col]
-    const set = spec?.operator === 'inSet' ? new Set(spec.values) : null // null → unfiltered
-    return {
-      id: sl.id,
-      col: sl.col,
-      x: sl.x,
-      y: sl.y,
-      label: slicerLabel(sl, sn),
-      options,
-      rows: values.map((v) => ({
-        v,
-        checked: !set || set.has(v),
-      })),
-    }
-  })
+// Floating value-filter controls (see useSlicers.js).
+const {
+  slicerVersion,
+  activeSlicers,
+  insertSlicer,
+  removeSlicer,
+  toggleSlicerValue,
+  selectAllSlicer,
+  clearSlicerValues,
+  changeSlicerColumn,
+  startSlicerDrag,
+} = useSlicers({
+  sortFilter,
+  slicers,
+  currentSheet,
+  activeCell,
+  contextMenu,
+  history,
+  getGrid: () => grid,
+  detectContiguousBlock: _detectContiguousBlock,
+  repopulateGrid: () => _repopulateGrid(),
+  applyHiddenRows: () => _applyHiddenRows(),
+  markDirty: () => {
+    isDirty.value = true
+  },
 })
 
-// Every column of the filter range, as { label: header, value: colIdx } — the
-// raw list the header dropdown is built from.
-function _slicerColumnOptions(range, sn) {
-  const opts = []
-  for (let c = range.c0; c <= range.c1; c++) {
-    const header = sortFilter.getHeader(c, sn)
-    opts.push({
-      label: header || colLabel(c),
-      value: c,
-    })
-  }
-  return opts
-}
-// frappe-ui Dropdown options for a slicer's column picker — a styled, teleported
-// popover (not a native <select>, which overflowed the floating panel). The
-// current column is marked so the menu reads like a real selector.
-function slicerColMenu(sl) {
-  return sl.options.map((o) => ({
-    label: o.label,
-    icon: o.value === sl.col ? 'check' : null,
-    onClick: () => changeSlicerColumn(sl, o.value),
-  }))
-}
-function slicerValues(sl) {
-  return sortFilter.getColumnValues(sl.col, currentSheet.value)
-}
-function slicerLabel(sl, sn = currentSheet.value) {
-  const range = sortFilter.getRange(sn)
-  const header = range ? sortFilter.getHeader(sl.col, sn) : ''
-  return header || colLabel(sl.col)
-}
-// The set of values currently kept visible, or null when the column is unfiltered.
-function _slicerCheckedSet(sl) {
-  const spec = sortFilter.getFilterConfig(currentSheet.value)[sl.col]
-  return spec?.operator === 'inSet' ? new Set(spec.values) : null
-}
-function toggleSlicerValue(sl, v) {
-  const all = slicerValues(sl)
-  const set = _slicerCheckedSet(sl) || new Set(all)
-  set.has(v) ? set.delete(v) : set.add(v)
-  _applySlicerFilter(sl, set, all)
-}
-// "Select all" always shows everything — it clears the column's filter outright
-// rather than toggling, so it can never surprise-hide the data.
-function selectAllSlicer(sl) {
-  const sn = currentSheet.value
-  sortFilter.clearFilter(sl.col, sn)
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-}
-// "Clear" empties the selection (an inSet with no values) so the user can then
-// pick just the values they want — the Google-Sheets filter idiom.
-function clearSlicerValues(sl) {
-  const sn = currentSheet.value
-  sortFilter.setFilter(
-    sl.col,
-    {
-      operator: 'inSet',
-      values: [],
-    },
-    sn,
-  )
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-}
-// Re-point a slicer at a different column of the filter range; the old column's
-// filter is released so it stops hiding rows with no visible control.
-function changeSlicerColumn(sl, value) {
-  const sn = currentSheet.value
-  const newCol = Number(value)
-  if (Number.isNaN(newCol) || newCol === sl.col) return
-  // Bail before touching anything if another slicer already owns the target —
-  // otherwise we'd clear this column's filter for a move that can't happen.
-  if (slicers.list(sn).some((s) => s.col === newCol && s.id !== sl.id)) return
-  sortFilter.clearFilter(sl.col, sn)
-  slicers.setCol(sl.id, newCol, sn)
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-}
-function _applySlicerFilter(sl, set, all) {
-  const sn = currentSheet.value
-  // All-checked is identical to no filter — clear the column instead of storing
-  // every value (mirrors applyFilter).
-  if (set.size === all.length) sortFilter.clearFilter(sl.col, sn)
-  else
-    sortFilter.setFilter(
-      sl.col,
-      {
-        operator: 'inSet',
-        values: [...set],
-      },
-      sn,
-    )
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-  slicerVersion.value++
-}
-async function insertSlicer() {
-  contextMenu.open = false
-  const sn = currentSheet.value
-  const p = parseCellId(activeCell.value)
-  const col = p ? p.col : 0
-  if (slicers.list(sn).some((s) => s.col === col)) return // column already has a slicer
-  // A slicer reads distinct values from the filter range — auto-create one over
-  // the surrounding data block if the sheet isn't filtered yet.
-  if (!sortFilter.getRange(sn)) {
-    const block = await _detectContiguousBlock(p?.row ?? 0, col)
-    if (!block) return // no data to slice
-    sortFilter.setRange(block, sn)
-  }
-  // A slicer filters one column OF the filter range. A column outside it has no
-  // values to show and can't appear in the column picker — refuse rather than
-  // strand a dead slicer. (Auto-created ranges are centred on col, so they pass.)
-  const range = sortFilter.getRange(sn)
-  if (!range || col < range.c0 || col > range.c1) return
-  slicers.add(col, 96 + slicers.list(sn).length * 28, 96, sn)
-  _applyHiddenRows() // paints the filter's chevrons/outline (and bumps slicerVersion)
-  grid?.render?.()
-  history.push()
-  isDirty.value = true
-}
-function removeSlicer(sl) {
-  const sn = currentSheet.value
-  slicers.remove(sl.id, sn)
-  // The slicer IS the filter control for its column — clear the filter it
-  // applied so removing it doesn't strand hidden rows with no visible control.
-  sortFilter.clearFilter(sl.col, sn)
-  _repopulateGrid()
-  _applyHiddenRows() // un-hides the rows + bumps slicerVersion
-  history.push()
-  isDirty.value = true
-}
-function startSlicerDrag(sl, e) {
-  _slicerDrag = {
-    id: sl.id,
-    sx: e.clientX,
-    sy: e.clientY,
-    ox: sl.x,
-    oy: sl.y,
-  }
-  window.addEventListener('mousemove', _onSlicerDrag)
-  window.addEventListener('mouseup', _endSlicerDrag)
-}
-function _onSlicerDrag(e) {
-  if (!_slicerDrag) return
-  const { id, sx, sy, ox, oy } = _slicerDrag
-  slicers.move(
-    id,
-    Math.max(0, ox + e.clientX - sx),
-    Math.max(0, oy + e.clientY - sy),
-    currentSheet.value,
-  )
-  slicerVersion.value++
-}
-function _endSlicerDrag() {
-  if (_slicerDrag) {
-    history.push()
-    isDirty.value = true
-  }
-  _slicerDrag = null
-  window.removeEventListener('mousemove', _onSlicerDrag)
-  window.removeEventListener('mouseup', _endSlicerDrag)
-}
-async function openFilterPanel(colIdx) {
-  const sn = currentSheet.value
-  await sortFilter.refresh(sn)
-  const cfg = sortFilter.getFilterConfig(sn)
-  const existing = cfg[colIdx]
-  const allValues = sortFilter.getColumnValues(colIdx, sn)
-  filterPanel.col = colIdx
-  filterPanel.allValues = allValues
-  filterPanel.valueSearch = ''
-  // Decide initial mode + state from the existing spec (if any). `inSet`
-  // → values mode with the saved selection; condition-style ops → condition
-  // mode; nothing saved → default values mode with every value checked.
-  if (existing?.operator === 'inSet') {
-    filterPanel.mode = 'values'
-    filterPanel.operator = 'contains'
-    filterPanel.value = ''
-    filterPanel.valueSet = new Set(existing.values || [])
-  } else if (existing) {
-    filterPanel.mode = 'condition'
-    filterPanel.operator = existing.operator || 'contains'
-    filterPanel.value = existing.value || ''
-    filterPanel.valueSet = new Set(allValues)
-  } else {
-    filterPanel.mode = 'values'
-    filterPanel.operator = 'contains'
-    filterPanel.value = ''
-    filterPanel.valueSet = new Set(allValues)
-  }
-  filterPanel.open = true
-}
-
-// The panel renders at FILTER_PANEL_W px outer width (260 content + 24 padding +
-// 2 border, content-box). clampFilterLeft keeps its full width inside the grid
-// wrap so chevrons on right-edge columns don't push the Apply/Close buttons
-// off-screen. Live positioning lives in the filterPanelStyle computed.
-const FILTER_PANEL_W = 286
-function clampFilterLeft(left, wrapWidth) {
-  const GAP = 6
-  const maxLeft = wrapWidth - FILTER_PANEL_W - GAP
-  return Math.max(GAP, Math.min(left, maxLeft))
-}
-
-// Alt+↓ on a canvas cell opens the filter panel for that cell's column. Forces
-// the filter row visible first (so chevrons exist) and anchors the popover at
-// the column's row-0 cell rather than at a click target.
-async function openQuickFilterForActive() {
-  const id = activeCell.value
-  const p = parseCellId(id)
-  if (!p) return
-  if (!sortFilter.hasFilter(currentSheet.value)) await _createFilterOnSelection()
-  nextTick(() => {
-    const range = sortFilter.getRange(currentSheet.value)
-    if (!range || p.col < range.c0 || p.col > range.c1) return
-    const rects = grid?.getColumnHeaderRects?.() || []
-    const colRect = rects.find((r) => r.c === p.col)
-    const rowRect = grid?.getRowRect?.(range.r0)
-    if (!colRect || !rowRect) return
-    const cfg = sortFilter.getFilterConfig(currentSheet.value)
-    filterPanel.open = true
-    filterPanel.col = p.col
-    filterPanel.operator = cfg[p.col]?.operator || 'contains'
-    filterPanel.value = cfg[p.col]?.value || ''
-    // Position is derived live by the filterPanelStyle computed; we only need
-    // the column visible here so the panel has a valid anchor on open.
-  })
-}
-function applyFilter() {
-  const sn = currentSheet.value
-  if (filterPanel.mode === 'values') {
-    // No-op safety: an all-checked selection is identical to no filter at
-    // all, so clear the column entry instead of saving every value.
-    if (filterPanel.valueSet.size === filterPanel.allValues.length) {
-      sortFilter.clearFilter(filterPanel.col, sn)
-    } else {
-      sortFilter.setFilter(
-        filterPanel.col,
-        {
-          operator: 'inSet',
-          values: [...filterPanel.valueSet],
-        },
-        sn,
-      )
-    }
-  } else {
-    sortFilter.setFilter(
-      filterPanel.col,
-      {
-        operator: filterPanel.operator,
-        value: filterPanel.value,
-      },
-      sn,
-    )
-  }
-  filterPanel.open = false
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-}
-function clearFilterCol() {
-  sortFilter.clearFilter(filterPanel.col, currentSheet.value)
-  filterPanel.open = false
-  _repopulateGrid()
-  _applyHiddenRows()
-  history.push()
-  isDirty.value = true
-}
-async function doSort(colIdx, dir) {
-  const sn = currentSheet.value
-  // Sorting permutes values across the filter range — refuse if it overlaps
-  // protection, matching Google Sheets (a protected range blocks the sort).
-  const range = sortFilter.getRange(sn)
-  if (range && _rectBlocked(range, sn)) return
-  filterPanel.open = false
-  const sorted = await sortFilter.sort(colIdx, dir, sn)
-  if (sorted) _pushEditOp(sn, sorted.before, sorted.after, 'Sort')
-  _applyHiddenRows()
-}
 // ── Context menu ──────────────────────────────────────────────────────────────
 
 const showRenameDialog = ref(false)
@@ -7371,99 +4025,13 @@ function _onDocMouseDown(e) {
 }
 
 // ── Row / column insert, delete, move ──────────────────────────────────────
-// IronCalc moves the cells and rewrites formulas pointing at them. Every
-// side engine remaps its own state with the same index map, as does the
-// grid's view metadata (sizes, hidden rows/cols). Insert and move undo with
-// their inverse command; a delete has none (its cells are gone and formulas
-// pointing at them now read #REF!), so its undo restores IronCalc's bytes
-// from just before it.
-//
-// `op.applied` says whether IronCalc holds the change now. Restoring a
-// snapshot step sets it from the op's place in history (the bytes hold the
-// ops before the step, not after), so a replay sends the command only when
-// IronCalc lacks it.
-async function _applyStructural(axis, map, forward, inverse = null) {
-  const sn = currentSheet.value
-  const sideBefore = _sideSnapshot()
-  // Taken in dispatch order, so it is the workbook just before this command.
-  const beforeBytes = inverse ? null : (_engine?.client.snapshot() ?? null)
-  const op = {
-    opType: 'structural',
-    subSheet: sn,
-    forward: { type: forward.type, payload: { sheet: sn, ...forward.payload } },
-    inverse: inverse && { type: inverse.type, payload: { sheet: sn, ...inverse.payload } },
-    beforeBytes,
-    sideBefore,
-    sideAfter: null,
-    applied: true,
-  }
-  _engine?.client.dispatch(_command(op.forward.type, op.forward.payload))
-  _remapSide(axis, map, sn)
-  op.sideAfter = _sideSnapshot()
-  history.pushOp(op)
-  syncFlags()
-  isDirty.value = true
-  _afterStructural(sn)
-}
-
-function _remapSide(axis, map, sn) {
-  const engines = [
-    formats,
-    merge,
-    comments,
-    validation,
-    protection,
-    condFormat,
-    sortFilter,
-    namedRanges,
-    charts,
-    pivot,
-  ]
-  if (axis === 'row') {
-    for (const e of engines) e.remapRows(map, sn)
-    _syncDefinedNames()
-    grid.remapRowsMeta(map)
-  } else {
-    // Slicers are column-bound only.
-    for (const e of [...engines, slicers]) e.remapCols(map, sn)
-    _syncDefinedNames()
-    grid.remapColsMeta(map)
-  }
-}
+// The op machinery (side-engine remap, undo, redo) is in useHistory.js.
 
 function _afterStructural(sn) {
   _repopulateGrid()
   _applyHiddenRows()
   grid?.render?.()
   recomputePivotsForSheet(sn)
-}
-
-function _revertStructural(op) {
-  if (op.applied) {
-    if (op.inverse) _engine?.client.dispatch(_command(op.inverse.type, op.inverse.payload))
-    else
-      _engine?.client
-        .restore(op.beforeBytes)
-        .catch((e) => console.error('[sheets] undo of delete failed', e))
-    op.applied = false
-  }
-  _restoreSide(op.sideBefore)
-  _afterStructural(op.subSheet)
-}
-
-function _redoStructural(op) {
-  if (!op.applied) {
-    _engine?.client.dispatch(_command(op.forward.type, op.forward.payload))
-    op.applied = true
-  }
-  _restoreSide(op.sideAfter)
-  _afterStructural(op.subSheet)
-}
-
-function _structural(axis, map, forward, inverse) {
-  _applyStructural(axis, map, forward, inverse).catch((e) =>
-    console.error('[sheets] row/column change failed', e),
-  )
 }
 
 function doInsertRow(below = false, count = 1) {
@@ -7630,28 +4198,21 @@ function _maybeAutoLink(cells, sn) {
   grid?.render()
   syncFlags()
 }
+// The form is HyperlinkDialog.vue; it hands back the text and the link, and
+// this applies them to the active cell.
+const hyperlinkDialogRef = ref(null)
 function openHyperlinkDialog() {
   const id = activeCell.value
   const fmt = formats.get(id, currentSheet.value)
-  hyperlinkText.value = _inputAt(id) ?? ''
-  hyperlinkUrl.value = fmt.hyperlink || ''
-  showHyperlinkDialog.value = true
+  hyperlinkDialogRef.value?.open(_inputAt(id) ?? '', fmt.hyperlink || '')
 }
-async function confirmHyperlink() {
-  const url = (hyperlinkUrl.value || '').trim()
-  if (!url) {
-    showHyperlinkDialog.value = false
-    return
-  }
+async function confirmHyperlink({ text, url: rawUrl }) {
+  const url = (rawUrl || '').trim()
+  if (!url) return
   const id = activeCell.value
   const sh = currentSheet.value
-  if (_cellBlocked(id, sh)) {
-    showHyperlinkDialog.value = false
-    return
-  }
-  showHyperlinkDialog.value = false
+  if (_cellBlocked(id, sh)) return
   // The text and the link are one undo step.
-  const text = hyperlinkText.value
   const before = { [id]: await _readInput(id, sh) }
   const after = { [id]: text }
   const fmtOf = () => {
@@ -7683,7 +4244,6 @@ async function confirmHyperlink() {
   grid?.render()
   syncFlags()
   isDirty.value = true
-  showHyperlinkDialog.value = false
 }
 function removeHyperlink() {
   const id = activeCell.value
@@ -7700,137 +4260,42 @@ function removeHyperlink() {
   grid?.render()
   syncFlags()
   isDirty.value = true
-  showHyperlinkDialog.value = false
 }
 
 // ── Link hover card ───────────────────────────────────────────────────────────
-// Google-style preview card over a linked cell: favicon/title/description from
-// the server (see suite/sheets/link_preview.py), plus copy / edit / unlink
-// actions and the "Replace URL with its title?" offer for auto-linked cells.
-
-const linkCard = reactive({
-  open: false,
-  id: null,
-  r: 0,
-  c: 0,
-  url: '',
-  anchor: null,
-  // { x, y } canvas-local px
-  preview: {},
-  // { loading, error, title, description, favicon, host }
-  offerReplace: false,
+// The preview card over a linked cell and its actions (see useLinkCard.js).
+const {
+  linkCard,
+  onLinkHover: _onLinkHover,
+  onLinkCardEnter,
+  onLinkCardLeave,
+  openLinkCardUrl,
+  editLinkCardCell,
+  unlinkLinkCardCell,
+  replaceLinkWithTitle,
+} = useLinkCard({
+  formats,
+  currentSheet,
+  activeCell,
+  formulaValue,
+  readOnly,
+  gridWrapRef,
+  getGrid: () => grid,
+  inputAt: _inputAt,
+  readInput: _readInput,
+  writeInputs: _writeInputs,
+  cellBlocked: (id, sn) => _cellBlocked(id, sn),
+  cellSilentlyProtected: (id, sn) => _cellSilentlyProtected(id, sn),
+  recordFormatOp: (ids, sn, mutate) => _recordFormatOp(ids, sn, mutate),
+  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+  refreshActiveFormat: () => refreshActiveFormat(),
+  syncFlags: () => syncFlags(),
+  markDirty: () => {
+    isDirty.value = true
+  },
+  openHyperlinkDialog: () => openHyperlinkDialog(),
 })
-let _linkShowTimer = null
-let _linkHideTimer = null
 
-// Canvas feed — fires once on entering/leaving a linked cell. Short delays on
-// both edges so the card neither flickers during a sweep across links nor
-// vanishes while the pointer travels from the cell into the card.
-function _onLinkHover(info) {
-  if (info) {
-    clearTimeout(_linkHideTimer)
-    if (linkCard.open && linkCard.id === info.id && linkCard.url === info.url) return
-    clearTimeout(_linkShowTimer)
-    _linkShowTimer = setTimeout(() => _openLinkCard(info), 300)
-  } else {
-    clearTimeout(_linkShowTimer)
-    _scheduleLinkCardHide()
-  }
-}
-function _scheduleLinkCardHide() {
-  clearTimeout(_linkHideTimer)
-  _linkHideTimer = setTimeout(() => {
-    linkCard.open = false
-  }, 250)
-}
-function onLinkCardEnter() {
-  clearTimeout(_linkHideTimer)
-}
-function onLinkCardLeave() {
-  _scheduleLinkCardHide()
-}
-function _openLinkCard(info) {
-  const rect = grid?.getCellRect?.(info.r, info.c)
-  if (!rect) return
-  const CARD_W = 340,
-    EST_H = 120
-  const wrapW = gridWrapRef.value?.offsetWidth ?? Infinity
-  const wrapH = gridWrapRef.value?.offsetHeight ?? Infinity
-  const x = Math.max(0, Math.min(rect.x, wrapW - CARD_W - 8))
-  const y =
-    rect.y + rect.height + EST_H > wrapH ? Math.max(0, rect.y - EST_H) : rect.y + rect.height + 2
-  const isHttp = /^https?:\/\//i.test(info.url)
-  Object.assign(linkCard, {
-    open: true,
-    id: info.id,
-    r: info.r,
-    c: info.c,
-    url: info.url,
-    anchor: {
-      x,
-      y,
-    },
-    preview: isHttp
-      ? {
-          loading: true,
-        }
-      : {},
-    offerReplace: false,
-  })
-  if (!isHttp) return
-  fetchLinkPreview(info.url).then((res) => {
-    // Pointer may have moved on — only fill the card still showing this URL.
-    if (!linkCard.open || linkCard.url !== info.url) return
-    linkCard.preview = {
-      ...res,
-      loading: false,
-    }
-    linkCard.offerReplace =
-      !readOnly.value &&
-      !!res.title &&
-      isAutoLinkText(_inputAt(linkCard.id) ?? '', linkCard.url) &&
-      !_cellSilentlyProtected(linkCard.id)
-  })
-}
-function openLinkCardUrl() {
-  window.open(linkCard.url, '_blank', 'noopener,noreferrer')
-}
-function editLinkCardCell() {
-  linkCard.open = false
-  grid?.moveTo?.(linkCard.r, linkCard.c) // onSelect syncs activeCell
-  openHyperlinkDialog()
-}
-function unlinkLinkCardCell() {
-  const sn = currentSheet.value
-  const id = linkCard.id
-  linkCard.open = false
-  if (!id || readOnly.value || _cellBlocked(id, sn)) return
-  _recordFormatOp([id], sn, () =>
-    formats.applyToRange(
-      [id],
-      {
-        hyperlink: null,
-      },
-      sn,
-    ),
-  )
-  refreshActiveFormat()
-  grid?.render()
-  syncFlags()
-  isDirty.value = true
-}
-async function replaceLinkWithTitle() {
-  const sn = currentSheet.value
-  const id = linkCard.id
-  const title = linkCard.preview?.title
-  linkCard.open = false
-  if (!id || !title || readOnly.value || _cellBlocked(id, sn)) return
-  const before = { [id]: await _readInput(id, sn) }
-  const after = { [id]: title }
-  _writeInputs(sn, after)
-  _pushEditOp(sn, before, after, 'Replace URL with title')
-  if (activeCell.value === id) formulaValue.value = title
-}
 function openInsertMany(kind, below = false) {
   contextMenu.open = false
   insertMany.kind = kind
@@ -8200,98 +4665,25 @@ function _cellDisplay(id) {
 }
 
 // ── IronCalc ─────────────────────────────────────────────────────────────────
-// IronCalc (core/: worker, client, display cache) holds every cell. The grid
-// reads display values and inputs through the cell provider; every write is a
-// command sent with client.dispatch. Features that still read the old engine
-// (sheet.*) move over one at a time.
+// The workbook itself is in useWorkbook.js. What follows reacts to it: the
+// formula bar, the grid's extent and sparklines.
 
-async function _startEngine(snapshotBytes = null) {
-  _stopEngine()
-  const cache = createDisplayCache()
-  const client = await createWorkbookClient({ echo: cache, snapshotBytes })
-  client.onCommandError((f) => console.error('[sheets] IronCalc rejected', f.command.type, f.error))
-  const provider = createCellProvider({ client, cache, requestRender: () => grid?.render?.() })
-  // Tabs follow the workbook: its sheets on load, and any later change.
-  const offSheets = client.onSheets(() => syncNames())
+// After every applied edit.
+function _onEngineVersion() {
+  // Range rules (colour scales, data bars) cache min/max, and charts
+  // cache their source matrix: both are stale after any edit.
+  condFormat?.invalidate()
+  chartDataVersion.value++
+  _refreshUsedCells()
+  computeSelectionStats() // the selected cells' values may have changed
+  _refreshFormulaBar() // an import, pivot or undo may have changed the active cell
   // Edits change the values a filter's lists show.
-  const offVersion = client.onVersion(() => {
-    // Range rules (colour scales, data bars) cache min/max, and charts
-    // cache their source matrix: both are stale after any edit.
-    condFormat?.invalidate()
-    chartDataVersion.value++
-    _refreshUsedCells()
-    computeSelectionStats() // the selected cells' values may have changed
-    _refreshFormulaBar() // an import, pivot or undo may have changed the active cell
-    const sn = currentSheet.value
-    if (!sortFilter.hasFilter(sn)) return
-    sortFilter
-      .refresh(sn)
-      .then(() => slicerVersion.value++)
-      .catch(() => {}) // the next filter action reads again
-  })
-  _engine = { client, provider, offSheets, offVersion }
-  // The saved bytes may predate names being sent to IronCalc: send them all.
-  _namesInEngine = new Map()
-  _syncDefinedNames()
-  syncNames()
-  _refreshUsedCells() // size the grid to the loaded data
-  grid?.render?.()
-}
-
-function _stopEngine() {
-  _engine?.offSheets()
-  _engine?.offVersion()
-  _engine?.provider.dispose()
-  _engine?.client.terminate()
-  _engine = null
-}
-
-function _engineBytes() {
-  if (!_engine) return Promise.reject(new Error('IronCalc is not running'))
-  return _engine.client.toBytes()
-}
-
-let _commandSeq = 0
-
-function _command(type, payload) {
-  return { id: `ui-${Date.now()}-${_commandSeq++}`, actor: 'local', ts: Date.now(), type, payload }
-}
-
-// One cell's write: setInput, or clearContents when the value is empty.
-function _inputCommand(sn, id, value) {
-  const p = parseCellId(id)
-  if (!p) return null
-  const row = p.row + 1
-  const col = p.col + 1
-  const input = value == null ? '' : String(value)
-  return input === ''
-    ? _command('clearContents', { sheet: sn, range: { r1: row, c1: col, r2: row, c2: col } })
-    : _command('setInput', { sheet: sn, row, col, input })
-}
-
-// Writes a {cellId: value} map as one command, so a multi-cell edit or an
-// undo recalculates once.
-function _writeInputs(sn, map) {
-  if (!_engine) return
-  const commands = Object.entries(map)
-    .map(([id, value]) => _inputCommand(sn, id, value))
-    .filter(Boolean)
-  if (commands.length === 1) _engine.client.dispatch(commands[0])
-  else if (commands.length > 1) _engine.client.dispatch(_command('batch', { commands }))
-}
-
-// The cell's input (a formula, not its result) when its area is on screen,
-// else undefined. Writes use it as the value they replace.
-function _inputAt(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return p && _engine ? _engine.provider.getInput(sn, p.row + 1, p.col + 1) : undefined
-}
-
-// The input a cell is painted with, kept through a refresh: lets the grid
-// keep drawing a sparkline while its value is re-read. Not for edits.
-function _paintedInput(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return p && _engine ? _engine.provider.peekInput(sn, p.row + 1, p.col + 1) : undefined
+  const sn = currentSheet.value
+  if (!sortFilter.hasFilter(sn)) return
+  sortFilter
+    .refresh(sn)
+    .then(() => slicerVersion.value++)
+    .catch(() => {}) // the next filter action reads again
 }
 
 // Shows a cell's input in the formula bar. A cell off screen (a jump to a far
@@ -8304,8 +4696,8 @@ function _showInputInFormulaBar(id, sn = currentSheet.value) {
   }
   formulaValue.value = ''
   const p = parseCellId(id)
-  if (!p || !_engine) return
-  _engine.client
+  if (!p || !_client()) return
+  _client()
     .readCells({ sheet: sn, cells: [{ row: p.row + 1, col: p.col + 1 }], what: ['input'] })
     .then(({ cells }) => {
       // Still the active cell, and nobody has started typing into it.
@@ -8315,7 +4707,7 @@ function _showInputInFormulaBar(id, sn = currentSheet.value) {
     })
     .catch((e) => {
       // Stopping the engine (leaving the page) rejects reads still in flight.
-      if (_engine) console.error('[sheets] readCells failed', e)
+      if (_client()) console.error('[sheets] readCells failed', e)
     })
 }
 
@@ -8326,8 +4718,8 @@ function _refreshFormulaBar() {
   const id = activeCell.value
   const sn = currentSheet.value
   const p = parseCellId(id)
-  if (!p || !_engine || _typedCell) return
-  _engine.client
+  if (!p || !_client() || _typedCell) return
+  _client()
     .readCells({ sheet: sn, cells: [{ row: p.row + 1, col: p.col + 1 }], what: ['input'] })
     .then(({ cells }) => {
       if (activeCell.value === id && currentSheet.value === sn && !_typedCell) {
@@ -8335,77 +4727,6 @@ function _refreshFormulaBar() {
       }
     })
     .catch(() => {}) // the next selection change shows it
-}
-
-// A rect's inputs and display strings (0-based rect), read from the worker in
-// chunks of rows that fit one readViewport.
-async function _readRect(sn, rect) {
-  const inputs = []
-  const displays = []
-  if (!_engine) return { inputs, displays }
-  const cols = rect.c1 - rect.c0 + 1
-  const step = Math.max(1, Math.floor(MAX_VIEWPORT_CELLS / cols))
-  for (let r = rect.r0; r <= rect.r1; r += step) {
-    const res = await _engine.client.readViewport({
-      sheet: sn,
-      r1: r + 1,
-      c1: rect.c0 + 1,
-      r2: Math.min(r + step - 1, rect.r1) + 1,
-      c2: rect.c1 + 1,
-      includeInputs: true,
-    })
-    inputs.push(...(res.inputs ?? []))
-    displays.push(...res.values)
-  }
-  // A sparkline shows a chart, not IronCalc's #NAME?, to every reader
-  // (charts, copied text, filter lists), as it does in the grid.
-  inputs.forEach((row, i) =>
-    row.forEach((input, j) => {
-      if (parseSparkline(input)) displays[i][j] = ''
-    }),
-  )
-  return { inputs, displays }
-}
-
-// {cellId: input} for a rect: an edit op's before or after.
-async function _readInputs(rect, sn = currentSheet.value) {
-  const out = {}
-  if (!rect) return out
-  const { inputs } = await _readRect(sn, rect)
-  for (let r = rect.r0; r <= rect.r1; r++)
-    for (let c = rect.c0; c <= rect.c1; c++)
-      out[cellId(r, c)] = inputs[r - rect.r0]?.[c - rect.c0] ?? ''
-  return out
-}
-
-// Inputs of scattered cells, {cellId: input}, in one round trip.
-async function _readIds(ids, sn = currentSheet.value) {
-  const out = {}
-  const cells = []
-  for (const id of ids) {
-    const p = parseCellId(id)
-    if (p) cells.push({ row: p.row + 1, col: p.col + 1 })
-  }
-  if (!_engine || !cells.length) return out
-  const res = await _engine.client.readCells({ sheet: sn, cells, what: ['input'] })
-  for (const c of res.cells) out[cellId(c.row - 1, c.col - 1)] = c.input ?? ''
-  return out
-}
-
-// One cell's input: from the cache when on screen, else from the worker.
-async function _readInput(id, sn = currentSheet.value) {
-  const known = _inputAt(id, sn)
-  if (known !== undefined) return known
-  const p = parseCellId(id)
-  if (!p) return ''
-  return (await _readInputs({ r0: p.row, c0: p.col, r1: p.row, c1: p.col }, sn))[id] ?? ''
-}
-
-// A cell's computed display string. Readers that run during a paint use this,
-// so values and conditional formats come from the same place.
-function _displayValue(id, sn = currentSheet.value) {
-  const p = parseCellId(id)
-  return p && _engine ? _engine.provider.getDisplay(sn, p.row + 1, p.col + 1) : ''
 }
 
 // Grow the grid's scrollable area to cover a sheet's used extent so the user
@@ -8417,112 +4738,6 @@ function _expandGridTo(maxCol, maxRow) {
     grid.expandCols(neededCols - grid.getTotalCols())
   if (grid.getTotalRows && grid.expandRows && neededRows > grid.getTotalRows())
     grid.expandRows(neededRows - grid.getTotalRows())
-}
-
-// The open sheet's non-empty cells, from the worker: the grid's scroll extent,
-// Ctrl+A's extent and column autofit read them. Refreshed after every edit
-// and on switch; one read at a time, re-run when more changed meanwhile.
-let _usedIds = []
-let _usedMax = null // { maxRow, maxCol } (0-based), null when the sheet is empty
-let _usedReading = false
-let _usedStale = false
-function _refreshUsedCells() {
-  if (!_engine) return
-  if (_usedReading) {
-    _usedStale = true
-    return
-  }
-  _usedReading = true
-  const sn = currentSheet.value
-  _engine.client
-    .usedCells({ sheet: sn })
-    .then(({ cells }) => {
-      if (currentSheet.value !== sn) return // a switch queued its own read
-      const ids = []
-      let maxRow = -1,
-        maxCol = -1
-      for (let i = 0; i < cells.length; i += 2) {
-        const r = cells[i] - 1,
-          c = cells[i + 1] - 1
-        ids.push(cellId(r, c))
-        if (r > maxRow) maxRow = r
-        if (c > maxCol) maxCol = c
-      }
-      _usedIds = ids
-      _usedMax = ids.length ? { maxRow, maxCol } : null
-      if (grid && _usedMax) _expandGridTo(_usedMax.maxCol, _usedMax.maxRow)
-    })
-    .catch((e) => {
-      if (_engine) console.error('[sheets] reading used cells failed', e) // see readCells
-    })
-    .finally(() => {
-      _usedReading = false
-      if (_usedStale) {
-        _usedStale = false
-        _refreshUsedCells()
-      }
-    })
-}
-
-// Any sheet's data extent (0-based), read from the worker; null when empty.
-async function _sheetExtent(sn) {
-  if (!_engine) return null
-  const { cells } = await _engine.client.usedCells({ sheet: sn })
-  let maxRow = -1,
-    maxCol = -1
-  for (let i = 0; i < cells.length; i += 2) {
-    if (cells[i] - 1 > maxRow) maxRow = cells[i] - 1
-    if (cells[i + 1] - 1 > maxCol) maxCol = cells[i + 1] - 1
-  }
-  return maxRow < 0 ? null : { maxRow, maxCol }
-}
-
-// A whole sheet's inputs and displays, A1 to its last used cell.
-async function _readWholeSheet(sn) {
-  const ext = await _sheetExtent(sn)
-  if (!ext) return { inputs: [], displays: [] }
-  return _readRect(sn, { r0: 0, c0: 0, r1: ext.maxRow, c1: ext.maxCol })
-}
-
-// A user-typed source range's shown values, cut to the sheet's data: a range
-// like A1:Z1048576 reads only the rows that hold something.
-async function _readSourceRange(sn, rect) {
-  const ext = await _sheetExtent(sn)
-  const r1 = Math.min(rect.r1, ext?.maxRow ?? rect.r0)
-  const c1 = Math.min(rect.c1, ext?.maxCol ?? rect.c0)
-  return _readDisplays(sn, { ...rect, r1: Math.max(r1, rect.r0), c1: Math.max(c1, rect.c0) })
-}
-
-// Empties a rect's cells (0-based; contents only, formats stay).
-function _clearRect(sn, rect) {
-  _engine?.client.dispatch(
-    _command('clearContents', {
-      sheet: sn,
-      range: { r1: rect.r0 + 1, c1: rect.c0 + 1, r2: rect.r1 + 1, c2: rect.c1 + 1 },
-    }),
-  )
-}
-
-// Empties a sheet's cells (contents only; formats stay).
-async function _clearSheet(sn) {
-  const ext = await _sheetExtent(sn)
-  if (!ext || !_engine) return
-  _engine.client.dispatch(
-    _command('clearContents', {
-      sheet: sn,
-      range: { r1: 1, c1: 1, r2: ext.maxRow + 1, c2: ext.maxCol + 1 },
-    }),
-  )
-}
-
-// The open sheet's data extent, or null when it is empty.
-function _usedExtent() {
-  return _usedMax
-}
-
-// A rect's shown values (charts read these).
-async function _readDisplays(sn, rect) {
-  return (await _readRect(sn, rect)).displays
 }
 
 // Repaints the grid and re-reads where the data is. The grid pulls each
@@ -8541,8 +4756,8 @@ function _sparklineAt(id) {
   const sn = currentSheet.value
   const input = _paintedInput(id, sn)
   const ref = parseSparkline(input)
-  if (!ref || !_engine) return null
-  const key = `${input}\0${_engine.client.getVersion()}`
+  if (!ref || !_client()) return null
+  const key = `${input}\0${_client().getVersion()}`
   const hit = _sparks.get(`${sn}\0${id}`)
   if (hit && (hit.key === key || hit.reading)) return hit.spec
   const entry = { key, spec: hit?.spec ?? null, reading: true }
@@ -8564,1797 +4779,7 @@ function toggleShowFormulas() {
 }
 </script>
 
-<style scoped>
-/* Espresso tokens — every color comes from frappe-ui's semantic palette
-   (--surface-*, --outline-*, --ink-*). No raw Tailwind hexes. */
+<style scoped src="./SheetEditor.css"></style>
 
-/* ── Root layout ─────────────────────────────────────────────────────────── */
-.sn-root {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-  background: var(--surface-base);
-  font-family: InterVar, ui-sans-serif, system-ui, sans-serif;
-  color: var(--ink-gray-9);
-}
-
-/* ── Canvas loading overlay ──────────────────────────────────────────────── */
-/* Sits inside .sn-grid-wrap. The canvas is mounted underneath (the grid
-   engine needs the canvas ref to wire up before loadSheet returns), so
-   this is a translucent veil that fades when isInitialLoad flips. */
-.sn-canvas-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-base);
-  z-index: 1;
-  pointer-events: none; /* don't intercept clicks if it lingers a frame */
-}
-.sn-canvas-loading-spinner {
-  color: var(--ink-gray-5);
-}
-.sn-pivot-building {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: var(--surface-base);
-  border: 1px solid var(--outline-gray-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  font-size: 13px;
-  color: var(--ink-gray-7);
-  z-index: 5;
-  pointer-events: none;
-}
-
-/* ── Load-time error state ───────────────────────────────────────────────── */
-.sn-load-error {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 24px;
-  text-align: center;
-}
-.sn-load-error-icon {
-  line-height: 0;
-  margin-bottom: 4px;
-}
-.sn-load-error-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--ink-gray-9);
-  margin: 0;
-}
-.sn-load-error-sub {
-  font-size: 13px;
-  color: var(--ink-gray-6);
-  margin: 0 0 8px;
-  max-width: 360px;
-}
-
-/* ── Bar 1 · Identity / topbar ───────────────────────────────────────────── */
-.sn-topbar {
-  container: sn-topbar / inline-size;
-  position: relative;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 48px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--outline-elevation-1);
-  background: var(--surface-elevation-1);
-  flex-shrink: 0;
-}
-/* Left cluster groups: brand+title tight (gap:4); status chips sit further away
-   (gap:12) so the title reads as the focal point, not crowded by badges. */
-.sn-topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.sn-topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.sn-identity {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.sn-app-icon {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  display: block;
-}
-.sn-app-menu-trigger {
-  display: flex;
-  width: fit-content;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-.sn-parent-breadcrumb :deep(a) {
-  color: var(--ink-gray-5);
-}
-
-/*
-   intrinsic ~20ch width is taken out of the layout — otherwise it, not the
-   text, would dictate the box. Result: the box hugs the text and grows smoothly
-   per keystroke, with no width animation lagging the caret and no canvas
-   measurement drifting from actual metrics. min/max-width keep the old
-   click-target floor and runaway-title ceiling. */
-/* Hairline between action buttons and avatar — groups the cluster without
-   relying on extra padding. */
-.sn-topbar-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--outline-gray-2);
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-.sn-save-error {
-  display: inline-flex;
-  min-width: 0;
-  max-width: 240px;
-}
-.sn-wide-only {
-  display: inline-flex;
-}
-.sn-compact-only {
-  display: none;
-}
-/* A narrow bar, down to a 320 px phone, keeps every action on one row: labels
-   and dividers go, and Ask AI, File and Keyboard shortcuts fold into one menu. */
-@container sn-topbar (max-width: 640px) {
-  .sn-wide-only,
-  .sn-topbar-divider,
-  .sn-save-label,
-  .sn-view-only-label {
-    display: none;
-  }
-  .sn-compact-only {
-    display: inline-flex;
-  }
-  .sn-save-error {
-    max-width: 96px;
-  }
-}
-/* Notes count badge — workbook-wide teal badge on the notes icon. */
-.sn-notes-btn-wrap {
-  position: relative;
-  display: inline-flex;
-}
-.sn-notes-badge {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  box-sizing: border-box;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1;
-  color: #fff;
-  background: #0d7490;
-  border-radius: 999px;
-  border: 1.5px solid var(--surface-base);
-  pointer-events: none;
-}
-
-/* Brand-coloured current-user avatar. Avatar's inner label uses
-   `bg-surface-gray-2 text-ink-gray-5` by default — we override both so the
-   chip reads as "you" against the otherwise-neutral topbar. Scoped styles
-   need `:deep()` to reach into frappe-ui's component internals. */
-.sn-user-avatar :deep(div) {
-  background: #0d7490 !important;
-  color: #ffffff !important;
-}
-
-/* Presence avatars — stacked/overlapping, each with a white ring so they
-   visually separate even when colors are similar. */
-.sn-presence {
-  display: inline-flex;
-  align-items: center;
-}
-.sn-presence-avatar {
-  margin-left: -6px;
-  border-radius: 50%;
-  /* Outer ring = surface bg so the stack reads as overlapping pebbles;
-     inner ring = the peer's cursor color so the avatar matches their
-     cursor outline at a glance. `box-shadow` stacks two rings without
-     pushing layout. */
-  box-shadow:
-    0 0 0 2px var(--surface-base),
-    0 0 0 4px var(--rc, var(--outline-gray-2));
-}
-.sn-presence-avatar:first-child {
-  margin-left: 0;
-}
-.sn-presence-more {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--surface-gray-3);
-  border: 2px solid var(--surface-base);
-  margin-left: -6px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--ink-gray-7);
-  flex-shrink: 0;
-  cursor: default;
-}
-
-/* Save status — small muted text, Espresso ink-gray-5.  Sits quietly next to
-   the title; never competes for attention. */
-.sn-save-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
-  color: var(--ink-gray-5);
-  white-space: nowrap;
-  user-select: none;
-}
-.sn-save-icon {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-}
-@keyframes sn-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.sn-save-spin {
-  animation: sn-spin 0.9s linear infinite;
-}
-
-/* ── Pivot FAB ── */
-.sn-pivot-fab {
-  position: absolute;
-  z-index: 20;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--surface-base);
-  border: 1px solid var(--outline-gray-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--ink-gray-6);
-  transition:
-    background 0.1s,
-    color 0.1s,
-    box-shadow 0.1s;
-}
-.sn-pivot-fab:hover,
-.sn-pivot-fab.open {
-  background: var(--surface-gray-1);
-  color: var(--ink-gray-9);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.16);
-}
-.sn-pivot-fab-icon {
-  width: 13px;
-  height: 13px;
-}
-
-/* Pivot highlight overlay — neutral outline drawn over the pivot output
-   range, matching the rest of the espresso chrome (ink-gray scale rather
-   than a saturated brand colour). pointer-events:none keeps clicks
-   reaching the canvas underneath. */
-.sn-pivot-highlight {
-  position: absolute;
-  z-index: 15;
-  pointer-events: none;
-  border: 1.5px solid var(--ink-gray-8);
-  border-radius: 2px;
-}
-
-/* Filter range outline — same neutral chrome as the pivot highlight, drawn
-   around the active filter's rectangle so its extent is visible. pointer-events
-   stays off so the chevron buttons and canvas underneath keep receiving clicks. */
-.sn-filter-range {
-  position: absolute;
-  z-index: 14;
-  pointer-events: none;
-  /* Thin green outline, Google-Sheets-style — a 1.5px near-black frame read
-     as far too heavy against the gridlines. */
-  border: 1px solid var(--ink-green-3, #15803d);
-  border-radius: 2px;
-}
-
-/* ── Bar 2 · Formula bar ─────────────────────────────────────────────────── */
-
-.sn-formula-bar {
-  display: flex;
-  align-items: center;
-  height: 48px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--outline-gray-2);
-  gap: 8px;
-  flex-shrink: 0;
-  background: var(--surface-base);
-}
-/* Cell address tag */
-.sn-cell-ref {
-  box-sizing: border-box;
-  min-width: 50px;
-  padding: 0 8px;
-  flex-shrink: 0;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink-gray-7);
-  background: var(--surface-base);
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 6px;
-  height: 30px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  cursor: default;
-  user-select: none;
-  transition:
-    border-color 0.12s,
-    background-color 0.12s;
-}
-.sn-cell-ref:hover {
-  border-color: var(--outline-gray-3);
-  background: var(--surface-gray-3);
-}
-/* "fx" delimiter */
-.sn-fx-label {
-  font-size: 14px;
-  font-style: italic;
-  font-weight: 500;
-  color: var(--ink-gray-4);
-  letter-spacing: 0.02em;
-  flex-shrink: 0;
-  padding: 0 6px 0 2px;
-  user-select: none;
-  font-family: ui-serif, Georgia, 'Times New Roman', serif;
-}
-.sn-formula-wrap {
-  position: relative;
-  flex: 1;
-  display: flex;
-}
-.sn-formula-wrap .sn-formula-input {
-  flex: 1;
-}
-.sn-formula-input {
-  box-sizing: border-box;
-  width: 100%;
-  height: 30px;
-  line-height: 1;
-  border-radius: 6px;
-  outline: none;
-  padding: 0 10px;
-  font-size: 13px;
-  color: var(--ink-gray-8);
-  background: var(--surface-base);
-  border: 1px solid var(--outline-gray-2);
-  font-family: 'Fira Code', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  letter-spacing: 0.005em;
-  transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-.sn-formula-input::placeholder {
-  color: var(--ink-gray-3);
-  font-style: italic;
-  font-family: inherit;
-}
-.sn-formula-input:hover {
-  background: var(--surface-gray-3);
-  border-color: var(--outline-gray-3);
-}
-.sn-formula-input:focus {
-  border-color: var(--outline-gray-4);
-  background: var(--surface-base);
-  box-shadow: 0 0 0 2px rgba(23, 23, 23, 0.08);
-}
-.sn-fbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  margin-left: 4px;
-}
-
-/* Formula autocomplete — Frappe UI Autocomplete is form-field oriented, so the inline popover is bespoke but uses Espresso surfaces. */
-.sn-ac-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  bottom: auto;
-  left: 0;
-  right: 0;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  box-shadow:
-    0 0 1px rgba(0, 0, 0, 0.35),
-    0 6px 8px -4px rgba(0, 0, 0, 0.1);
-  z-index: 300;
-  max-height: 240px;
-  overflow-y: auto;
-  padding: 4px;
-}
-.sn-ac-list--up {
-  top: auto;
-  bottom: calc(100% + 4px);
-}
-.sn-ac-item {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 6px 10px;
-  cursor: pointer;
-  white-space: nowrap;
-  border-radius: 4px;
-}
-.sn-ac-item:hover,
-.sn-ac-item.active {
-  background: var(--surface-gray-2);
-}
-.sn-ac-name {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--ink-gray-9);
-  min-width: 90px;
-  letter-spacing: 0.02em;
-}
-.sn-ac-sig {
-  font-size: 11px;
-  color: var(--ink-gray-5);
-  letter-spacing: 0.01em;
-}
-.sn-ac-badge {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ink-cyan-6, #0891b2);
-  background: var(--surface-cyan-1, #ecfeff);
-  border-radius: 3px;
-  padding: 1px 5px;
-}
-/* Validation dialog two-column value row */
-.sn-vd-vals {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-/* Validation "List of items" per-item editor: swatch · label · remove */
-.sn-vd-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.sn-vd-list-label {
-  font-size: 12px;
-  color: var(--ink-gray-5);
-}
-.sn-vd-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.sn-vd-swatch {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid var(--outline-gray-2);
-  cursor: pointer;
-  padding: 0;
-}
-.sn-vd-swatch:hover,
-.sn-vd-swatch.is-open {
-  box-shadow:
-    0 0 0 2px var(--surface-base),
-    0 0 0 3.5px var(--outline-gray-4);
-}
-.sn-vd-item-input {
-  flex: 1;
-  min-width: 0;
-  height: 28px;
-  padding: 0 10px;
-  font-size: 13px;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  color: var(--ink-gray-9);
-  background: var(--surface-base);
-  outline: none;
-}
-.sn-vd-item-input:focus {
-  border-color: var(--outline-gray-4);
-}
-.sn-vd-item-x {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--ink-gray-5);
-  cursor: pointer;
-}
-.sn-vd-item-x:hover {
-  background: var(--surface-gray-2);
-  color: var(--ink-gray-8);
-}
-.sn-vd-item-xg {
-  width: 15px;
-  height: 15px;
-}
-.sn-vd-add {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 2px;
-  padding: 4px 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink-gray-7);
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.sn-vd-add:hover {
-  background: var(--surface-gray-2);
-  color: var(--ink-gray-9);
-}
-.sn-vd-add-g {
-  width: 14px;
-  height: 14px;
-}
-
-/* ── Bar 3 · Formatting toolbar ──────────────────────────────────────────── */
-.sn-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 44px;
-  padding: 0 15px;
-  border-bottom: 1px solid var(--outline-gray-2);
-  background: var(--surface-base);
-  flex-shrink: 0;
-}
-/* A phone-width bar scrolls sideways instead of clipping the controls at
-   its end (including the "…" menu). Menus and tooltips are portalled, so
-   the scroll box does not clip them. */
-@media (max-width: 720px) {
-  .sn-toolbar {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .sn-toolbar::-webkit-scrollbar {
-    display: none;
-  }
-}
-/* Read-only: dim and make the whole formatting bar inert. pointer-events:none
-   swallows clicks on every control (buttons + dropdowns) without per-button
-   wiring; the reduced opacity is the visual "disabled" cue. */
-.sn-toolbar--readonly {
-  opacity: 0.45;
-  pointer-events: none;
-}
-.sn-toolbar :deep(.fui-form-control) {
-  width: auto;
-}
-.sn-toolbar :deep(select) {
-  min-width: 118px;
-}
-/* Font family dropdown — uses a Button trigger that hugs the short label. */
-.sn-font-family :deep(button) {
-  padding-left: 6px;
-  padding-right: 4px;
-  gap: 2px;
-}
-
-/* flex-shrink:0 — the input has no min-content width, so a narrow bar would
-   squeeze it until the size is hidden. */
-.sn-font-size {
-  width: 52px;
-  margin: 0 2px;
-  flex-shrink: 0;
-}
-.sn-font-size :deep(input) {
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  -moz-appearance: textfield;
-}
-.sn-font-size :deep(input::-webkit-outer-spin-button),
-.sn-font-size :deep(input::-webkit-inner-spin-button) {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.sn-vr {
-  width: 1px;
-  height: 18px;
-  background: var(--outline-gray-2);
-  margin: 0 6px;
-  flex-shrink: 0;
-}
-
-/* Active-format pip — toolbar buttons (Bold / Italic / Underline /
-   Strikethrough) flip from the default subtle gray to brand cyan-50 when
-   their format is applied on the selected cell. Same hex as the active
-   selection wash, so the eye learns "cyan = applied here". */
-.sn-fmt-active :deep(button) {
-  background: #ecf8fb !important;
-  color: #0d7490 !important;
-}
-.sn-fmt-active :deep(button:hover) {
-  background: #d8f1f6 !important;
-}
-
-/* Toolbar overflow — `.sn-tool-extra` groups stay inline at wide widths and
-   collapse below 1280px into the `.sn-tool-more` "…" dropdown. Using
-   `display:contents` on the wrappers means the buttons participate in the
-   parent flex layout when shown, with zero visual nesting.
-
-   The "…" button itself is shown at every width: it is the only mouse path to
-   the actions that have no toolbar button of their own (pivot table, named
-   ranges, zoom, Smart Fill). `buildMoreToolbarOptions` drops the options that
-   are already inline, so the menu never repeats a visible button — keep its
-   `collapsed` argument in sync with the breakpoint below. */
-.sn-tool-extra {
-  display: contents;
-}
-.sn-tool-more {
-  display: inline-flex;
-  margin-left: auto;
-}
-@media (max-width: 1280px) {
-  .sn-tool-extra {
-    display: none;
-  }
-}
-
-/* Color-picker trigger buttons (FeatherIcon glyph above a colored underline).
-   These open the ColorPicker popover; the swatch grid + hex + custom live there. */
-.sn-swatch-btn {
-  position: relative;
-  height: 28px;
-  width: 28px;
-  border-radius: 6px;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  border: 1px solid transparent;
-  gap: 1px;
-  transition: background-color 0.12s;
-  background: transparent;
-  padding: 0;
-}
-.sn-swatch-btn:hover,
-.sn-swatch-btn.is-open {
-  background: var(--surface-gray-3);
-}
-.sn-swatch-glyph {
-  width: 14px;
-  height: 14px;
-  color: var(--ink-gray-8);
-  pointer-events: none;
-}
-.sn-merge-glyph {
-  width: 16px;
-  height: 16px;
-  color: currentColor;
-  pointer-events: none;
-}
-.sn-swatch-underline {
-  width: 16px;
-  height: 3px;
-  border-radius: 1px;
-  pointer-events: none;
-}
-.sn-swatch-fill {
-  border: 1px solid var(--outline-gray-2);
-}
-
-/* ── Canvas grid ─────────────────────────────────────────────────────────── */
-.sn-grid-wrap {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  background: var(--surface-base);
-}
-.sn-grid-wrap canvas {
-  display: block;
-  outline: none;
-}
-
-.sn-painting-format canvas {
-  cursor: crosshair;
-}
-
-/* ── Filter overlay (chevrons sit on row 0 of data — the user's header row) ── */
-/* Covers the full canvas; button positions come from grid.colX() which already
-   includes ROW_HEADER_W. The clip-path masks the row-number gutter (left 50px). */
-/* clip-path keeps chevrons out of the row-header strip on the left (50px =
-   ROW_HEADER_W) AND the column-header strip on top (24px = COL_HEADER_H);
-   without the top inset, the chevrons follow row 0 up over A/B/C/D when
-   the user scrolls past the header row. */
-.sn-filter-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  clip-path: inset(24px 0 0 50px);
-}
-.sn-filter-btn {
-  position: absolute;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.92);
-  cursor: pointer;
-  pointer-events: all;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink-gray-7);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  transition:
-    background-color 0.12s,
-    border-color 0.12s,
-    color 0.12s;
-}
-.sn-filter-btn:hover {
-  background: var(--surface-base);
-  border-color: var(--outline-gray-4);
-  color: var(--ink-gray-9);
-}
-.sn-filter-btn.active {
-  background: var(--surface-gray-4);
-  border-color: var(--outline-gray-4);
-  color: var(--ink-gray-9);
-}
-.sn-filter-btn-icon {
-  width: 12px;
-  height: 12px;
-}
-
-/* Remote selection rectangle — solid 2px border in the peer's hashed
-   colour plus a soft fill so multi-cell ranges read as a region, not just
-   an outline. `color-mix` falls back to a transparent rect on browsers
-   that don't support it (all evergreen browsers do, and we use Chromium /
-   WebKit / Firefox latest). */
-.sn-remote-cursor {
-  position: absolute;
-  pointer-events: none;
-  box-sizing: border-box;
-  border: 2px solid var(--rc);
-  background: color-mix(in srgb, var(--rc) 10%, transparent);
-  /* Default: no animation. The class below opts in for one paint cycle
-     when the peer actually changes cells (vs. local scroll). */
-  transition: none;
-}
-.sn-remote-cursor--moved {
-  transition:
-    left 0.12s ease-out,
-    top 0.12s ease-out,
-    width 0.12s ease-out,
-    height 0.12s ease-out;
-}
-.sn-remote-cursor-label {
-  position: absolute;
-  top: -18px;
-  left: -1px;
-  background: var(--rc);
-  color: var(--surface-base);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px 3px 3px 0;
-  white-space: nowrap;
-  line-height: 16px;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sn-filter-panel {
-  position: absolute;
-  z-index: 100;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-elevation-2);
-  border-radius: 10px;
-  box-shadow:
-    0 0 1px rgba(0, 0, 0, 0.35),
-    0 6px 8px -4px rgba(0, 0, 0, 0.1);
-  padding: 12px;
-  width: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sn-fp-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--ink-gray-8);
-  padding-bottom: 2px;
-}
-.sn-fp-row {
-  display: flex;
-  gap: 4px;
-}
-.sn-fp-mode {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  background: var(--surface-base);
-}
-.sn-fp-actions {
-  display: flex;
-  gap: 4px;
-  padding-top: 2px;
-}
-.sn-fp-grow {
-  flex: 1;
-}
-
-/* "Filter by values" mode — every interactive element is a Frappe UI primitive
-   (Button, Checkbox, FormControl), so the per-class rules here only handle
-   layout and the value-list row chrome. */
-.sn-fp-vlinks {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.sn-fp-count {
-  margin-left: auto;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  color: var(--ink-gray-5);
-}
-.sn-fp-search-icon {
-  width: 13px;
-  height: 13px;
-  color: var(--ink-gray-5);
-}
-.sn-fp-values {
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  padding: 4px 0;
-  background: var(--surface-base);
-}
-.sn-fp-value-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  cursor: pointer;
-  font-size: 13px;
-  letter-spacing: 0.01em;
-  color: var(--ink-gray-8);
-}
-.sn-fp-value-row:hover {
-  background: var(--surface-gray-2);
-}
-.sn-fp-value-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sn-fp-empty {
-  padding: 12px 10px;
-  font-size: 12px;
-  color: var(--ink-gray-5);
-  text-align: center;
-}
-
-/* ── Bottom · tabs + stats ───────────────────────────────────────────────── */
-.sn-bottom {
-  display: flex;
-  align-items: stretch;
-  height: 36px;
-  border-top: 1px solid var(--outline-gray-2);
-  background: var(--surface-sidebar);
-  flex-shrink: 0;
-  overflow: hidden;
-}
-
-.sn-tabs-track {
-  display: flex;
-  align-items: stretch;
-  flex: 1;
-  gap: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  padding: 0 6px;
-}
-.sn-tabs-track::-webkit-scrollbar {
-  display: none;
-}
-
-.sn-tab {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  position: relative;
-  cursor: grab;
-  /* The tab itself owns the pill background so label + chevron merge
-     into a single visual unit — no inter-button seam, no double-pill
-     look. The inner Buttons are transparent and rely on this wrapper
-     for their background. */
-  border-radius: 6px;
-  transition: background-color 0.12s;
-}
-.sn-tab:active {
-  cursor: grabbing;
-}
-.sn-tab:hover {
-  background: var(--surface-gray-2);
-}
-.sn-tab--active,
-.sn-tab--active:hover {
-  background: var(--surface-gray-3);
-}
-
-/* Active indicator: 2px line at the bottom */
-.sn-tab--active::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 6px;
-  right: 6px;
-  height: 2px;
-  background: var(--ink-gray-9);
-  border-radius: 1px 1px 0 0;
-}
-.sn-tab--pivot.sn-tab--active::after {
-  background: var(--ink-cyan-7, #0e7490);
-}
-
-/* Main label Button — transparent so the wrapper's pill shows through, with
-   no internal hover/active background of its own; that lives on `.sn-tab`.
-   frappe-ui forwards our `class` onto the <button> root itself (there is no
-   inner button), so we style `.sn-tab-btn` directly — a `:deep(button)`
-   descendant selector matches nothing and leaves the native ghost hover pill
-   showing through, which is what made the label and chevron highlight as two
-   separate pills. `background` is forced so it beats the native
-   `hover:/active:` background utilities at equal specificity. */
-.sn-tab-btn {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--ink-gray-7);
-  /* Tight right padding so the label flows directly into the chevron and
-     the pair reads as one pill on every tab. */
-  padding: 0 2px 0 8px !important;
-  height: 28px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 148px;
-  border-radius: 0 !important;
-  background: transparent !important;
-}
-.sn-tab--active .sn-tab-btn {
-  font-weight: 600;
-  color: var(--ink-gray-9);
-}
-
-/* Pivot icon tint */
-.sn-tab--pivot .sn-tab-btn :deep(.icon) {
-  color: var(--ink-cyan-7, #0e7490);
-}
-
-/* ── Per-tab peer dots ──────────────────────────────────────────────────
-   One coloured circle per remote user currently looking at this tab.
-   Sits in the tab's right edge, before the chevron when the tab is
-   active. Capped to 3 visible + "+N" overflow so a popular tab can't
-   blow out the tabs track. */
-.sn-tab-peers {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-right: 6px;
-  pointer-events: auto;
-}
-.sn-tab-peer-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--rc);
-  box-shadow: 0 0 0 1px var(--surface-base);
-}
-.sn-tab-peer-more {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--ink-gray-7);
-  margin-left: 2px;
-  line-height: 1;
-}
-
-/* Chevron — sits flush against the label inside the same pill so the two read
-   as one button. Styled directly on the <button> (same reason as `.sn-tab-btn`
-   above), transparent so it shares the wrapper's pill instead of drawing its
-   own. `width:auto` overrides frappe-ui's fixed-square `w-7` so the chevron
-   hugs the label rather than reserving a full 28px cell. Slightly muted on
-   inactive tabs, full ink on the active one (matches the label's color). */
-.sn-tab-chevron {
-  padding: 0 6px 0 0 !important;
-  width: auto !important;
-  height: 28px;
-  border-radius: 0 !important;
-  background: transparent !important;
-  color: var(--ink-gray-5);
-}
-.sn-tab-chevron:hover {
-  color: var(--ink-gray-9);
-}
-.sn-tab--active .sn-tab-chevron {
-  color: var(--ink-gray-8);
-}
-
-/* Add-sheet button — the wrapper carries the divider + margins so the Button
-   itself stays a clean square pill with its own contained hover box (any
-   border/padding set on `.sn-tab-add` would land on the <button> root and
-   distend its hover fill). Full-height flex box keeps the 28px button
-   optically centered against the tab labels. */
-.sn-tab-add-wrap {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  align-self: center;
-  margin: 0 8px 0 12px;
-  padding-right: 8px;
-  border-right: 1px solid var(--outline-gray-2);
-}
-/* Feather `plus` sits ~1px high inside its box; pull the glyph down so it
-   lands on the same optical row as the tab labels' text. */
-.sn-tab-add :deep(svg) {
-  display: block;
-  position: relative;
-  top: 1px;
-}
-
-.sn-tab-drag-over::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 6px;
-  bottom: 6px;
-  width: 2px;
-  background: var(--ink-gray-9);
-  border-radius: 1px;
-}
-
-.sn-stats {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 14px;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  color: var(--ink-gray-6);
-  flex-shrink: 0;
-  white-space: nowrap;
-  border-left: 1px solid var(--outline-gray-2);
-  height: 100%;
-}
-
-/* ── Right-click context menu (positioned at cursor; uses Frappe UI Buttons inside) ── */
-.sn-ctx-menu {
-  position: fixed;
-  z-index: 9000;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-elevation-2);
-  border-radius: 10px;
-  box-shadow:
-    0 0 1px rgba(0, 0, 0, 0.35),
-    0 6px 8px -4px rgba(0, 0, 0, 0.1);
-  padding: 4px;
-  min-width: 208px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  overflow-y: auto;
-}
-/* Frappe UI Button defaults to `justify-content:center`. Override inside
-   context menus so every row's icon sits at the same left padding and the
-   labels line up regardless of length. */
-.sn-ctx-menu :deep(button) {
-  width: 100%;
-  justify-content: flex-start;
-  padding-left: 10px;
-  padding-right: 10px;
-}
-.sn-ctx-sep {
-  height: 1px;
-  background: var(--outline-gray-1);
-  margin: 4px 0;
-  border: none;
-}
-.sn-rename-err {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--ink-red-6);
-  letter-spacing: 0.02em;
-}
-
-/* Sheet-tab drag visual — Espresso ink-gray-9 left edge on the drop target. */
-.sn-tab {
-  cursor: grab;
-}
-.sn-tab:active {
-  cursor: grabbing;
-}
-
-/* Viewer tabs — no chevron, no drag. The `.sn-tab-btn` right padding is only
-   2px because it normally butts against the chevron; with the chevron gone the
-   label needs its own symmetric breathing room. And a grab cursor lies about a
-   tab that can't be dragged — clicking still switches sheets, so use pointer.
-   Placed after the base `.sn-tab` cursor rules to win on equal specificity. */
-.sn-tab--static,
-.sn-tab--static:active {
-  cursor: pointer;
-}
-.sn-tab--static .sn-tab-btn {
-  padding-right: 8px !important;
-}
-
-.sn-tab-drag-over::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  background: var(--ink-gray-9);
-  border-radius: 1px;
-}
-
-/* Add-more-rows strip — sits between the canvas and the bottom bar. */
-.sn-addrows {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 12px;
-  border-top: 1px solid var(--outline-gray-2);
-  background: var(--surface-sidebar);
-  flex-shrink: 0;
-}
-.sn-addrows-label {
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  color: var(--ink-gray-6);
-}
-.sn-addrows-input {
-  width: 72px;
-  height: 24px;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 6px;
-  padding: 0 8px;
-  font-size: 12px;
-  color: var(--ink-gray-9);
-  background: var(--surface-base);
-  font-family: inherit;
-  outline: none;
-}
-.sn-addrows-input:focus {
-  border-color: var(--outline-gray-4);
-  box-shadow: 0 0 0 2px rgba(23, 23, 23, 0.1);
-}
-
-/* Comment panel */
-.sn-comment-panel {
-  position: fixed;
-  z-index: 8500;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-elevation-2);
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
-  padding: 12px;
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* Slicers — floating value-filter controls */
-.sn-slicer {
-  position: fixed;
-  z-index: 8400;
-  width: 220px;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-elevation-2);
-  border-radius: 10px;
-  box-shadow:
-    0 0 1px rgba(0, 0, 0, 0.35),
-    0 6px 8px -4px rgba(0, 0, 0, 0.1);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sn-slicer-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: move;
-  user-select: none;
-}
-.sn-slicer-colsel {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.sn-slicer-colsel :deep(button) {
-  width: 100%;
-  justify-content: space-between;
-  font-weight: 600;
-}
-.sn-slicer-colsel :deep(button > span) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sn-slicer-actions {
-  margin: -2px 0;
-}
-.sn-slicer-values {
-  max-height: 220px;
-  overflow-y: auto;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 8px;
-  padding: 4px 0;
-  background: var(--surface-base);
-}
-.sn-comment-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.sn-comment-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink-gray-7);
-  text-transform: uppercase;
-}
-.sn-comment-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--ink-gray-5);
-  font-size: 14px;
-  line-height: 1;
-  padding: 2px 4px;
-}
-.sn-comment-ta {
-  resize: vertical;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--ink-gray-9);
-  background: var(--surface-gray-1);
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 6px;
-  padding: 6px 8px;
-  min-height: 64px;
-  outline: none;
-}
-.sn-comment-ta:focus {
-  border-color: var(--outline-gray-4);
-}
-.sn-comment-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-.sn-comment-hactions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.sn-comment-resolved {
-  margin-left: 6px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: none;
-  color: var(--ink-green-3, #15803d);
-  background: var(--surface-green-2, #e4f3e9);
-  border-radius: 999px;
-  padding: 1px 7px;
-}
-.sn-comment-thread {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.sn-comment-reply {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.sn-comment-reply-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sn-comment-author {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ink-gray-9);
-}
-.sn-comment-time {
-  font-size: 11px;
-  color: var(--ink-gray-5);
-}
-.sn-comment-del {
-  margin-left: auto;
-  opacity: 0;
-}
-.sn-comment-reply:hover .sn-comment-del {
-  opacity: 1;
-}
-.sn-comment-text {
-  font-size: 13px;
-  color: var(--ink-gray-8);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* Notes side panel — docks the right edge of sn-grid-wrap, same dock as
-   Version History (only one of the two is open at a time). */
-.sn-notes-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 300px;
-  background: var(--surface-base);
-  border-left: 1px solid var(--outline-gray-2);
-  display: flex;
-  flex-direction: column;
-  z-index: 30;
-  box-shadow: -4px 0 12px -8px rgba(0, 0, 0, 0.08);
-  animation: sn-notes-slide-in 160ms cubic-bezier(0.2, 0.8, 0.25, 1);
-}
-@keyframes sn-notes-slide-in {
-  from {
-    transform: translateX(16px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-.sn-notes-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--outline-gray-2);
-}
-.sn-notes-title {
-  font-weight: 600;
-  color: var(--ink-gray-8);
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sn-notes-count {
-  font-weight: 400;
-  color: var(--ink-gray-5);
-  font-size: 12px;
-}
-.sn-notes-toolbar {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--outline-gray-2);
-}
-.sn-notes-empty {
-  padding: 24px 16px;
-  text-align: center;
-  color: var(--ink-gray-5);
-}
-.sn-notes-empty-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink-gray-7);
-  margin-bottom: 6px;
-}
-.sn-notes-empty-hint {
-  font-size: 12px;
-  line-height: 1.5;
-}
-.sn-notes-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0 12px;
-}
-.sn-notes-group {
-  padding: 4px 0;
-}
-.sn-notes-group-h {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--ink-gray-5);
-  padding: 8px 16px 4px;
-  text-transform: uppercase;
-}
-.sn-notes-row {
-  padding: 8px 12px;
-  margin: 1px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.12s;
-}
-.sn-notes-row:hover {
-  background: var(--surface-gray-2);
-}
-.sn-notes-row-active {
-  background: var(--surface-gray-2);
-  box-shadow: inset 2px 0 0 var(--ink-gray-7);
-}
-.sn-notes-row-ref {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink-gray-8);
-  font-variant-numeric: tabular-nums;
-}
-.sn-notes-row-text {
-  font-size: 12px;
-  color: var(--ink-gray-6);
-  margin-top: 2px;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  word-break: break-word;
-}
-
-/* Validation dropdown panel */
-.sn-dropdown-panel {
-  position: fixed;
-  z-index: 8500;
-  padding: 4px;
-  background: var(--surface-elevation-2);
-  border: 1px solid var(--outline-elevation-2);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  min-width: 140px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.sn-dropdown-opt {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--ink-gray-9);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.sn-dropdown-opt:hover {
-  background: var(--surface-gray-2);
-}
-.sn-dropdown-opt.is-active {
-  font-weight: 500;
-}
-.sn-dropdown-check {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  color: var(--ink-gray-7);
-}
-.sn-dropdown-chip {
-  max-width: 200px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  color: var(--ink-gray-9);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sn-dropdown-clear .sn-dropdown-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sn-dropdown-clear {
-  color: var(--ink-gray-6);
-  border-top: 1px solid var(--outline-gray-1);
-  border-radius: 0 0 6px 6px;
-  margin-top: 2px;
-  padding-top: 8px;
-}
-
-/* Conditional format dialog rows */
-.sn-form-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.sn-cf-fmt {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-}
-.sn-cf-fmt-label {
-  font-size: 12px;
-  color: var(--ink-gray-6);
-  flex: 1;
-}
-.sn-cf-hint {
-  font-size: 11px;
-  color: var(--ink-gray-5);
-  margin: 0;
-  line-height: 1.4;
-}
-
-/* Colour-scale stop pickers + gradient preview strip */
-.sn-cf-scale {
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-}
-.sn-cf-stop {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--ink-gray-6);
-}
-.sn-cf-stop input {
-  width: 32px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.sn-cf-scale-preview {
-  height: 18px;
-  width: 100%;
-  border-radius: 4px;
-  border: 1px solid var(--outline-gray-2);
-}
-
-/* Data-bar preview rows — three bars at sample widths so users can sanity-check the colour. */
-.sn-cf-bar-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  background: var(--surface-gray-1);
-  border-radius: 6px;
-  border: 1px solid var(--outline-gray-2);
-}
-.sn-cf-bar-row {
-  height: 14px;
-  background: var(--surface-base);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.sn-cf-bar-fill {
-  height: 100%;
-  opacity: 0.55;
-}
-
-/* Existing-rules list at the top of the CF dialog. */
-.sn-cf-rule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  background: var(--surface-gray-1);
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 6px;
-}
-.sn-cf-rule-list-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--ink-gray-6);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 4px 4px;
-}
-.sn-cf-rule-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.sn-cf-rule-pick {
-  flex: 1;
-  text-align: left;
-  font-size: 12px;
-  color: var(--ink-gray-8);
-  background: var(--surface-base);
-  border: 1px solid var(--outline-gray-2);
-  border-radius: 5px;
-  padding: 6px 8px;
-  cursor: pointer;
-}
-.sn-cf-rule-pick:hover {
-  background: var(--surface-gray-2);
-}
-.sn-cf-rule-row--active .sn-cf-rule-pick {
-  border-color: var(--ink-gray-9);
-}
-</style>
-
-<!-- Unscoped: frappe-ui's Dropdown teleports its menu to document.body, so
-     a scoped rule never reaches it. This caps the menu height (and the
-     inner content body Reka renders inside it) so long lists like the
-     number-format picker stay scrollable instead of falling off-screen.
-     frappe-ui beta.3 named the teleported menu `.dropdown-content`; beta.25
-     (the version Suite ships) renamed it to `.menu-content` /
-     `[data-reka-menu-content]`, so target every marker or the cap silently
-     stops matching after a frappe-ui bump and the menu clips off-screen. -->
-<style>
-.dropdown-content,
-.dropdown-content [data-slot='content-body'],
-.menu-content,
-[data-reka-menu-content] {
-  max-height: min(60vh, 480px);
-  overflow-y: auto;
-}
-/* reka-ui teleports the popover to <body> (frappe-ui default z-index:50) with
-   no marker we can target, so the slicer's column menu rendered behind the
-   floating slicer (8400) / context menu (9000). Gate the bump on
-   `body:has(.sn-slicer)` — only while a Sheets slicer is floating — so
-   dropdowns everywhere else in the app (and other Suite products) keep their
-   normal stacking. The doubled class still outranks the single-class default. */
-body:has(.sn-slicer) .dropdown-content.dropdown-content,
-body:has(.sn-slicer) .menu-content.menu-content {
-  z-index: 9500;
-}
-
-/* A Frappe UI Dialog draws a translucent (~12% black) scrim over the grid.
-   The filter-range outline, pivot-output highlight, floating charts, and
-   other canvas overlays sit above canvas content. Hide/suppress those
-   decorations whenever a dialog is up. `.dialog-overlay` portals to
-   <body>, so `:has` from body catches every open dialog modal. */
-body:has(.dialog-overlay) .sn-filter-range,
-body:has(.dialog-overlay) .sn-pivot-highlight,
-body:has(.dialog-overlay) .sn-pivot-fab,
-body:has(.dialog-overlay) .sn-remote-cursor,
-body:has(.dialog-overlay) .sn-filter-overlay {
-  display: none;
-}
-
-body:has(.dialog-overlay) .co-layer {
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
-/* Overlay scrollbars for the canvas grid. The elements are created imperatively
-   in canvas/scrollbars.ts (appended to .sn-grid-wrap), so they carry no scoped
-   data-attr — these rules must live in the UNSCOPED block to reach them.
-   z-index sits above the filter (14) / pivot (15) range outlines so the opaque
-   track paints over any outline border that reaches the scrollbar gutter, but
-   below the notes drawer (30) and popovers. */
-.sn-sb {
-  position: absolute;
-  z-index: 16;
-  background: var(--surface-gray-2, var(--surface-base));
-  border: 0 solid var(--outline-gray-2);
-  opacity: 1;
-  transition: opacity 0.2s ease;
-}
-/* --sn-sb-thick is published by canvas/scrollbars.ts from SCROLLBAR_THICK, the
-   single source of truth; the 12px fallback only covers the pre-mount frame. */
-.sn-sb-v {
-  top: 0;
-  right: 0;
-  width: var(--sn-sb-thick, 12px);
-  border-left-width: 1px;
-}
-.sn-sb-h {
-  left: 0;
-  bottom: 0;
-  height: var(--sn-sb-thick, 12px);
-  border-top-width: 1px;
-}
-.sn-sb-corner {
-  position: absolute;
-  z-index: 16;
-  right: 0;
-  bottom: 0;
-  width: var(--sn-sb-thick, 12px);
-  height: var(--sn-sb-thick, 12px);
-  background: var(--surface-gray-2, var(--surface-base));
-  border-left: 1px solid var(--outline-gray-2);
-  border-top: 1px solid var(--outline-gray-2);
-  opacity: 1;
-  transition: opacity 0.2s ease;
-}
-/* Auto-hidden state — faded out and click-through so cells under the gutter
-   stay reachable. JS (canvas/scrollbars.ts) toggles this on inactivity. */
-.sn-sb--hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-.sn-sb-thumb {
-  position: absolute;
-  border-radius: 6px;
-  background: var(--ink-gray-4);
-  transition: background 0.12s ease;
-  cursor: grab;
-  touch-action: none;
-}
-.sn-sb-v .sn-sb-thumb {
-  top: 0;
-  left: 2px;
-  right: 2px;
-}
-.sn-sb-h .sn-sb-thumb {
-  left: 0;
-  top: 2px;
-  bottom: 2px;
-}
-.sn-sb-thumb:hover {
-  background: var(--ink-gray-5);
-}
-.sn-sb-dragging .sn-sb-thumb {
-  background: var(--ink-gray-6);
-  cursor: grabbing;
-}
-.sn-sb-dragging {
-  cursor: grabbing;
-  user-select: none;
-}
-</style>
+<!-- Unscoped rules for menus and popovers frappe-ui teleports to <body>. -->
+<style src="./SheetEditor.global.css"></style>
