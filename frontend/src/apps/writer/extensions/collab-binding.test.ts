@@ -16,8 +16,9 @@ const VENDORED_DIR = path.resolve(__dirname, '../../../../packages/collab-prosem
 const SHA256: Record<string, string> = {
   // published 606fedd1...; then every new textblock gets its text node eagerly; then content the editor
   // can't hold freezes the binding, and leftovers holding nothing are hidden and skipped, never deleted;
-  // then a tab that can edit folds its own side-by-side texts on every render, remote ones included
-  'dist/y-tiptap.js': 'f5f6cd52a2f5003f134049c322a9e658d3dde895140ee2656f5844a6d53944d8',
+  // then a tab that can edit folds its own side-by-side texts on every render, remote ones included;
+  // then formatting the editor can't show where it sits is kept on a keptFormatting mark
+  'dist/y-tiptap.js': '2cf25bf5fb1f5a0aea20ff0834ee6839835ff2ebfe457d6fa4a9736c2335b4a2',
   // published 788e88fe...; then positions skip hidden leftovers
   'dist/src/lib.d.ts': '7e43ada60eb3ffaf60754b08f4d5268a4cd261e54c2b774a362760f0f41749ef',
   'dist/src/plugins/cursor-plugin.d.ts':

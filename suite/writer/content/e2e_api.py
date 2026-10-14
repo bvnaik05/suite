@@ -198,6 +198,39 @@ def paragraph_change(node: str, client_id: int, length: int) -> dict:
     }
 
 
+@whitelist_for_tests(methods=["POST"])
+def start_code_and_bold(node: str) -> dict:
+    """Start `node`'s log from a paragraph ending in text both code and bold, which the editor can't show at once."""
+    start: pycrdt.Doc = pycrdt.Doc()
+    fragment = start.get("default", type=pycrdt.XmlFragment)
+    paragraph = fragment.children.append(pycrdt.XmlElement("paragraph"))
+    text = paragraph.children.append(pycrdt.XmlText())
+    text.insert(0, "plain ")
+    text.insert(len("plain "), "both", {"code": {}, "bold": {}})
+    log_row = find_log(node)
+    content.replace_start(
+        writer_content.ADAPTER, log_row["id"], start.get_update(), writer_content.DECLARED["schema"]
+    )
+    frappe.db.commit()
+    return state(node)
+
+
+@whitelist_for_tests(methods=["GET", "POST"])
+def block_runs(node: str) -> list[list]:
+    """Read each of `node`'s top-level blocks as runs of text and formatting, as the server holds them."""
+    fragment = stored_fragment(node)
+    return [text_runs(block) for block in fragment.children]
+
+
+def text_runs(block: pycrdt.XmlElement) -> list:
+    """Join the runs of every text in `block`."""
+    runs: list = []
+    for text in block.children:
+        runs.extend([chunk, attributes or {}] for chunk, attributes in text.diff())
+
+    return runs
+
+
 @whitelist_for_tests(methods=["GET", "POST"])
 def state_bytes(node: str) -> int:
     """How big `node`'s compacted state is counted."""
@@ -242,6 +275,12 @@ def log_rows(log: str) -> dict:
 @whitelist_for_tests(methods=["GET", "POST"])
 def server_text(node: str) -> list[str]:
     """The text of each top-level block of `node`, read from the body and the rows after it."""
+    fragment = stored_fragment(node)
+    return [block_text(block) for block in fragment.children]
+
+
+def stored_fragment(node: str) -> pycrdt.XmlFragment:
+    """Load `node`'s body and the rows after it, and answer its editor fragment."""
     doc_id = find_log(node)["id"]
     stored = content.read(writer_content.ADAPTER, doc_id)
     if stored is None:
@@ -251,8 +290,7 @@ def server_text(node: str) -> list[str]:
     rows = stored.payloads()
     parts = checkpoints + rows
     loaded_doc = compaction.load_doc(parts)
-    fragment = loaded_doc.get("default", type=pycrdt.XmlFragment)
-    return [block_text(block) for block in fragment.children]
+    return loaded_doc.get("default", type=pycrdt.XmlFragment)
 
 
 def block_text(node) -> str:

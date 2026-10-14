@@ -1,13 +1,7 @@
 import type { AnyExtension } from '@tiptap/core'
 import { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 import { CharacterCount, Selection } from '@tiptap/extensions'
-import {
-  Heading,
-  ImageGroup,
-  ImageViewer,
-  RichTextKit,
-  type MentionSuggestionItem,
-} from 'frappe-ui/editor'
+import { Heading, ImageGroup, ImageViewer, type MentionSuggestionItem } from 'frappe-ui/editor'
 import type { Ref } from 'vue'
 
 import CleanStyles from '@/apps/writer/extensions/clean-styles'
@@ -29,7 +23,12 @@ import { PageBreakExtension } from '@/apps/writer/extensions/page-break'
 import { ReceivedContentGuard } from '@/apps/writer/extensions/received-content-guard'
 import TabTrailingNode from '@/apps/writer/extensions/tab-trailing-node'
 import { TabsExtension } from '@/apps/writer/extensions/tabs'
-import { HiddenWhenEmpty, WRITER_STARTER_KIT } from '@/apps/writer/schema'
+import {
+  HiddenWhenEmpty,
+  KeptFormatting,
+  WRITER_STARTER_KIT,
+  WriterKit,
+} from '@/apps/writer/schema'
 
 export type WriterEditorOptions = {
   collaborative: boolean
@@ -49,7 +48,7 @@ export type WriterEditorOptions = {
 }
 
 export const writerEditorExtensions = (options: WriterEditorOptions): AnyExtension[] => [
-  RichTextKit.configure({
+  WriterKit.configure({
     starterKit: {
       ...WRITER_STARTER_KIT,
       trailingNode: { node: 'paragraph', notAfter: 'tab' },
@@ -91,6 +90,7 @@ export const writerEditorExtensions = (options: WriterEditorOptions): AnyExtensi
   HiddenWhenEmpty,
   JoinAdjacentLists,
   OldCommentExtension.configure({ onCommentActivated: options.onCommentActivated }),
+  KeptFormatting,
   HeadingAnchors.configure({
     onUpdate: options.onAnchors,
     getIndex: getHierarchicalIndexes,

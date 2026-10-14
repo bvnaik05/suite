@@ -147,7 +147,8 @@ describe('content the editor cannot hold', () => {
 
     type(tab, 'X')
 
-    expect(tab.freezes).toEqual([['open', null]])
+    expect(tab.freezes).toEqual([])
+    expect(tab.editor.state.doc.textContent).toContain('marked')
     expect(body(tab)).toContain('<oldMark>marked</oldMark>')
   })
 

@@ -18,10 +18,14 @@ const featuresPath = resolve(__dirname, '../../../../../suite/writer/content/fea
 const featuresText = readFileSync(featuresPath, 'utf8')
 const declared = JSON.parse(featuresText) as Features
 
+// The binding writes kept formatting back as the keys it was read from
+const KEPT_FORMATTING = 'keptFormatting'
+
 const editorNames = () => {
   const schema = getSchema(writerSchema())
   const names = new Set<string>()
-  const types = [...Object.values(schema.nodes), ...Object.values(schema.marks)]
+  const marks = Object.values(schema.marks).filter((mark) => mark.name !== KEPT_FORMATTING)
+  const types = [...Object.values(schema.nodes), ...marks]
   for (const type of types) {
     names.add(type.name)
     for (const attribute of Object.keys(type.spec.attrs ?? {})) {
@@ -42,7 +46,8 @@ describe('writer collab features', () => {
     // The binding makes no element for the document or for text
     const nodes = Object.keys(schema.nodes).filter((name) => name !== 'doc' && name !== 'text')
     expect(declared.nodes).toEqual(nodes.sort())
-    expect(declared.marks).toEqual(Object.keys(schema.marks).sort())
+    const marks = Object.keys(schema.marks).filter((name) => name !== KEPT_FORMATTING)
+    expect(declared.marks).toEqual(marks.sort())
   })
 
   it('has no mark that overlaps itself, so every mark key is a plain mark name', () => {

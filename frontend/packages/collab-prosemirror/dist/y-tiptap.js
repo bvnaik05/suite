@@ -974,7 +974,7 @@ const placeChildren = (parent, nodeType, schema, meta) => {
   let match = nodeType.contentMatch;
   parent.toArray().forEach((ychild) => {
     const built = ychild instanceof Y.XmlText
-      ? createTextNodesFromYText(ychild, schema, meta)
+      ? createTextNodesFromYText(ychild, nodeType, schema, meta)
       : createNodeIfNotExists(/** @type {Y.XmlElement} */ (ychild), schema, meta);
     if (built === null) return
     const pieces = built instanceof Array ? built : [built];
@@ -1076,6 +1076,7 @@ const createSnapshotNodeFromYElement = (
     } else {
       const ns = createTextNodesFromYText(
         type,
+        schema.nodes[el.nodeName] ?? schema.topNodeType,
         schema,
         meta,
         snapshot,
@@ -1117,6 +1118,7 @@ const createSnapshotNodeFromYElement = (
 /**
  * @private
  * @param {Y.XmlText} text
+ * @param {PModel.NodeType} parentType
  * @param {import('prosemirror-model').Schema} schema
  * @param {BindingMetadata} meta
  * @param {Y.Snapshot} [snapshot]
@@ -1126,6 +1128,7 @@ const createSnapshotNodeFromYElement = (
  */
 const createTextNodesFromYText = (
   text,
+  parentType,
   schema,
   meta,
   snapshot,
@@ -1137,7 +1140,7 @@ const createTextNodesFromYText = (
   try {
     for (let i = 0; i < deltas.length; i++) {
       const delta = deltas[i];
-      nodes.push(schema.text(delta.insert, attributesToMarks(delta.attributes, schema)));
+      nodes.push(schema.text(delta.insert, textMarks(delta.attributes ?? {}, parentType, schema)));
     }
   } catch (e) {
     return snapshot === undefined ? setAside(text, schema, meta) : null
@@ -1260,23 +1263,40 @@ const equalYTextPText = (ytext, ptexts) => {
   return delta.length === ptexts.length &&
     delta.every(/** @type {(d:any,i:number) => boolean} */ (d, i) =>
       d.insert === /** @type {any} */ (ptexts[i]).text &&
-      object.keys(d.attributes || {}).length === ptexts[i].marks.length &&
-      object.every(d.attributes, (attr, /** @type {string} */ yattrname) => {
-        const markname = yattr2markname(yattrname);
-        const pmarks = ptexts[i].marks;
-
-        const pmark = pmarks.find(/** @param {any} mark */ mark => mark.type.name === markname);
-
-        // Ensure the pmark is present in the ptexts before checking equality. When replacing a mark with another mark
-        // the pmark will be missing from the ptexts and the equalAttrs will throw an error.
-        if (!pmark) {
-          return false
-        }
-
-        return equalAttrs(attr, pmarks.find(/** @param {any} mark */ mark => mark.type.name === markname)?.attrs)
-      })
+      equalRunAttributes(d.attributes || {}, ptexts[i].marks)
     )
 };
+
+/**
+ * Whether a run's Yjs attributes are what its marks write, kept formatting's keys included
+ *
+ * @param {Object<string, any>} yattrs
+ * @param {Array<any>} pmarks
+ * @return {boolean}
+ */
+const equalRunAttributes = (yattrs, pmarks) => {
+  const kept = pmarks.find((mark) => mark.type.name === KEPT_FORMATTING)?.attrs.attributes ?? {};
+  const shown = pmarks.filter((mark) => mark.type.name !== KEPT_FORMATTING);
+  return object.keys(yattrs).length === shown.length + object.keys(kept).length &&
+    object.every(yattrs, (attr, /** @type {string} */ yattrname) => {
+      if (object.hasProperty(kept, yattrname)) {
+        return equalValue(attr, kept[yattrname])
+      }
+      const markname = yattr2markname(yattrname);
+      const pmark = shown.find(/** @param {any} mark */ mark => mark.type.name === markname);
+
+      // Ensure the pmark is present in the ptexts before checking equality. When replacing a mark with another mark
+      // the pmark will be missing from the ptexts and the equalAttrs will throw an error.
+      return pmark !== undefined && equalAttrs(attr, pmark.attrs)
+    })
+};
+
+/**
+ * @param {any} left
+ * @param {any} right
+ * @return {boolean}
+ */
+const equalValue = (left, right) => left === right || (isObject(left) && isObject(right) && equalAttrs(left, right));
 
 /**
  * The children of a Yjs parent the editor shows, leaving out hidden ones
@@ -1434,6 +1454,58 @@ const attributesToMarks = (attrs, schema) => {
   return marks
 };
 
+// The mark that carries Yjs attributes the editor can't show where they sit, so an edit writes them back
+const KEPT_FORMATTING = 'keptFormatting';
+
+/**
+ * The marks for a run's Yjs attributes: a key that can be a real mark on these characters becomes one, and
+ * the rest ride a keptFormatting mark verbatim; with no such mark in the schema every key must be real
+ *
+ * @param {Object<string, any>} attrs
+ * @param {PModel.NodeType} parentType
+ * @param {import('prosemirror-model').Schema} schema
+ * @return {ReadonlyArray<import('prosemirror-model').Mark>}
+ */
+const textMarks = (attrs, parentType, schema) => {
+  const keptType = schema.marks[KEPT_FORMATTING];
+  if (keptType === undefined) return attributesToMarks(attrs, schema)
+  const named = object.keys(attrs).map((key) => ({ key, type: schema.marks[yattr2markname(key)] }));
+  named.sort((left, right) => (left.type?.rank ?? -1) - (right.type?.rank ?? -1));
+  /** @type {ReadonlyArray<import('prosemirror-model').Mark>} */
+  let marks = PModel.Mark.none;
+  /** @type {Object<string, any>} */
+  const kept = {};
+  named.forEach(({ key, type }) => {
+    const mark = realMark(type, attrs[key], parentType, marks, keptType);
+    if (mark === null) {
+      kept[key] = attrs[key];
+    } else {
+      marks = mark.addToSet(marks);
+    }
+  });
+  return object.isEmpty(kept) ? marks : keptType.create({ attributes: kept }).addToSet(marks)
+};
+
+/**
+ * The real mark a Yjs attribute makes on characters already holding `marks`, or null when it can't be one there
+ *
+ * @param {PModel.MarkType|undefined} type
+ * @param {any} value
+ * @param {PModel.NodeType} parentType
+ * @param {ReadonlyArray<import('prosemirror-model').Mark>} marks
+ * @param {PModel.MarkType} keptType
+ * @return {import('prosemirror-model').Mark|null}
+ */
+const realMark = (type, value, parentType, marks, keptType) => {
+  if (type === undefined || type === keptType || !parentType.allowsMarkType(type)) return null
+  if (marks.some((mark) => mark.type.excludes(type) || type.excludes(mark.type))) return null
+  try {
+    return type.create(value)
+  } catch (e) {
+    return null
+  }
+};
+
 /**
  * @param {Array<import('prosemirror-model').Mark>} marks
  * @param {BindingMetadata} meta
@@ -1441,7 +1513,9 @@ const attributesToMarks = (attrs, schema) => {
 const marksToAttributes = (marks, meta) => {
   const pattrs = {};
   marks.forEach((mark) => {
-    if (mark.type.name !== 'ychange') {
+    if (mark.type.name === KEPT_FORMATTING) {
+      Object.assign(pattrs, mark.attrs.attributes);
+    } else if (mark.type.name !== 'ychange') {
       const isOverlapping = map.setIfUndefined(meta.isOMark, mark.type, () => !mark.type.excludes(mark.type));
       pattrs[isOverlapping ? `${mark.type.name}--${hashOfJSON(mark.toJSON())}` : mark.type.name] = mark.attrs;
     }

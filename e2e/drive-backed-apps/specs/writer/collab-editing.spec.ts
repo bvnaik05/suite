@@ -1,6 +1,7 @@
 import type { Page, Request, Route, WebSocket } from "@playwright/test";
 import { expect, test } from "../../fixtures/test";
 import {
+	blockRuns,
 	collabState,
 	compactNow,
 	editorBlocks,
@@ -8,6 +9,7 @@ import {
 	expectSaved,
 	openForCollab,
 	serverBlocks,
+	startCodeAndBold,
 	trimmedRev,
 	trimNow,
 	typeParagraph,
@@ -54,6 +56,22 @@ test.describe("Writer collaboration", () => {
 			[owner.page, collaborator.page],
 			["Owner wrote this line", "Collaborator wrote this line"],
 		);
+	});
+
+	test("text that is both code and bold keeps both through an edit", async ({ owner, testApi }) => {
+		await startCodeAndBold(testApi, node);
+		await openWriterDocument(owner.page, node);
+
+		await writerEditor(owner.page).focus();
+		await owner.page.keyboard.type("Typed ");
+		await expectSaved(owner.page);
+
+		await expectConverged(testApi, node, [owner.page], ["Typed plain both"]);
+		const [edited] = await blockRuns(testApi, node);
+		expect(edited).toEqual([
+			["Typed plain ", {}],
+			["both", { code: {}, bold: {} }],
+		]);
 	});
 
 	test("reloading a tab keeps every edit", async ({ owner, collaborator, testApi }) => {

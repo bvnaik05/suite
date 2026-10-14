@@ -24,6 +24,9 @@ type VersionReply = { data: { seq: string } };
 /** A paragraph's change as `e2e_api.paragraph_change` makes it. */
 type ParagraphChange = { change: string; lineage: string; head_rev: number };
 
+/** A run of text and the formatting keys it carries, as `e2e_api.block_runs` reads it. */
+type TextRun = [string, Record<string, unknown>];
+
 /** What `pushInPieces` saw: how many pieces it staged, the push's status, and its refusal if any. */
 type PushOutcome = { pieces: number; status: number; collab?: string };
 
@@ -137,6 +140,16 @@ export async function logRowCounts(
 		form: { log },
 	});
 	return frappeData(response);
+}
+
+/** Start `node`'s log from a paragraph ending in text both code and bold. Call before the document opens. */
+export function startCodeAndBold(testApi: APIRequestContext, node: string): Promise<CollabState> {
+	return callTestHook<CollabState>(testApi, "start_code_and_bold", node);
+}
+
+/** Each top-level block's runs of text with their formatting, as the server holds them. */
+export function blockRuns(testApi: APIRequestContext, node: string): Promise<TextRun[][]> {
+	return callTestHook<TextRun[][]>(testApi, "block_runs", node);
 }
 
 /** The text of each top-level block, as the server would serve it. */
