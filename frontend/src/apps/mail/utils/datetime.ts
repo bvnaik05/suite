@@ -1,3 +1,5 @@
+import { createSharedComposable, useNow } from '@vueuse/core'
+
 import { userStore } from '@/apps/mail/stores/user'
 import dayjs from '@/apps/mail/utils/dayjs'
 
@@ -29,12 +31,18 @@ export const formatDateTime = (value?: string | null, format = 'MMM D YYYY, h:mm
   value ? inUserTimeZone(value).format(format) : ''
 
 /**
+ * The time to the minute, one clock for every component that asks: what a stamp relative to
+ * today reads against, so "today" moves on at midnight in a page left open.
+ */
+export const useMinuteClock = createSharedComposable(() => useNow({ interval: 60_000 }))
+
+/**
  * A message's time in a thread, where each row carries its own date: the clock alone for today,
  * then "Yesterday, 4:15 PM", "9 Oct, 1:20 PM", and the year once it is not this one.
  */
-export const formatMessageTime = (value: string, now = dayjs()): string => {
+export const formatMessageTime = (value: string, now: Date = new Date()): string => {
   const at = inUserTimeZone(value)
-  const today = now.tz(userTimeZone())
+  const today = dayjs(now).tz(userTimeZone())
   const time = at.format('h:mm A')
   if (at.isSame(today, 'day')) return time
   if (at.isSame(today.subtract(1, 'day'), 'day')) return __('Yesterday, {0}', [time])

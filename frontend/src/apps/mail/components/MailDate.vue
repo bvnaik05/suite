@@ -10,7 +10,7 @@ import { useTimeAgo } from '@vueuse/core'
 import { Tooltip } from 'frappe-ui'
 import { computed, inject } from 'vue'
 
-import { formatMessageTime } from '@/apps/mail/utils/datetime'
+import { formatMessageTime, useMinuteClock } from '@/apps/mail/utils/datetime'
 
 const {
   datetime,
@@ -20,13 +20,14 @@ const {
 } = defineProps<{ datetime: string; inList?: boolean; inThread?: boolean; clock?: boolean }>()
 
 const dayjs = inject('$dayjs')
+const now = useMinuteClock()
 
 const formattedDate = computed(() => {
   // Under a header that already names the day, the clock is all a row needs to add.
   if (clock) return dayjs(datetime).format('h:mm A')
   // A thread's rows carry the clock as well as the day: the sequence and the gaps between
   // replies, which a relative stamp hides.
-  if (inThread) return formatMessageTime(datetime)
+  if (inThread) return formatMessageTime(datetime, now.value)
   if (!inList) {
     const timeAgo = useTimeAgo(datetime).value
     return __(timeAgo.charAt(0).toUpperCase() + timeAgo.slice(1))

@@ -72,7 +72,7 @@ describe('formatMessageTime', () => {
     args ? text.replace(/\{(\d+)\}/g, (_, i) => args[Number(i)]) : text,
   )
   // 14 Oct 2026, 3 PM in Kolkata.
-  const now = dayjs.utc('2026-10-14T09:30:00Z')
+  const now = new Date('2026-10-14T09:30:00Z')
 
   it('gives only the clock for a message from today', async () => {
     const { formatMessageTime } = await load()
