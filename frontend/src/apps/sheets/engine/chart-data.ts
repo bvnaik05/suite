@@ -8,18 +8,21 @@
 // and returns a fully-populated ECharts option suitable for `<v-chart :option="…" />`.
 // No Vue, no DOM, no sheet engine — easy to unit-test.
 
-import { ESPRESSO_PALETTE } from './charts.js'
+import { ESPRESSO_PALETTE, type ChartEncoding, type ChartSpec } from './charts.js'
 
 const ESPRESSO_FONT = 'InterVar, Inter, ui-sans-serif, system-ui, sans-serif'
 
+type Row = unknown[]
+type CartesianKind = 'bar' | 'line' | 'area' | 'scatter'
+
 /**
  * Build the ECharts option object.
- * @param {object} config  — ChartConfig from createChartEngine
- * @param {Array[]} matrix — 2D source values from getRangeValues
- * @param {boolean} [isDark=false] — whether dark mode is active
+ * @param config  — ChartConfig from createChartEngine
+ * @param matrix — 2D source values from getRangeValues
+ * @param isDark — whether dark mode is active
  * @returns ECharts option object
  */
-export function buildOption(config, matrix, isDark = false) {
+export function buildOption(config: ChartSpec, matrix: Row[] | null | undefined, isDark = false) {
   if (!matrix?.length) return _emptyOption(config, isDark)
   const { headerRow, dataRows } = _splitHeader(matrix, config.hasHeader !== false)
   const encoding = _normaliseEncoding(config.encoding, matrix[0]?.length || 0)
@@ -51,9 +54,9 @@ export function buildOption(config, matrix, isDark = false) {
 // series column. Returns synthetic rows keyed only at the X and Y indices the
 // encoding uses — enough for the option builders, which read nothing else.
 // Group order follows first appearance so the axis stays in data order.
-function _aggregate(dataRows, encoding, aggFn) {
+function _aggregate(dataRows: Row[], encoding: ChartEncoding, aggFn: string | undefined): Row[] {
   if (!aggFn || aggFn === 'none') return dataRows
-  const groups = new Map() // label → { keyVal, rows: [] }
+  const groups = new Map<string, { keyVal: unknown; rows: Row[] }>() // label → { keyVal, rows: [] }
   for (const r of dataRows) {
     const keyVal = r[encoding.x]
     const key = _toLabel(keyVal)
@@ -65,9 +68,9 @@ function _aggregate(dataRows, encoding, aggFn) {
     g.rows.push(r)
   }
   const width = Math.max(encoding.x, ...encoding.y, 0) + 1
-  const out = []
+  const out: Row[] = []
   for (const g of groups.values()) {
-    const row = new Array(width).fill('')
+    const row: Row = new Array(width).fill('')
     row[encoding.x] = g.keyVal
     for (const col of encoding.y) row[col] = _applyAgg(aggFn, g.rows, col)
     out.push(row)
@@ -78,8 +81,8 @@ function _aggregate(dataRows, encoding, aggFn) {
 // Apply one aggregation function over a group's values in column `col`.
 // `count` counts non-empty cells; the numeric functions ignore non-numeric
 // cells and fall back to 0 for an all-empty group.
-function _applyAgg(fn, rows, col) {
-  const nums = []
+function _applyAgg(fn: string, rows: Row[], col: number) {
+  const nums: number[] = []
   let nonEmpty = 0
   for (const r of rows) {
     const v = r[col]
@@ -105,7 +108,14 @@ function _applyAgg(fn, rows, col) {
 
 // ── Cartesian (line / bar / area / scatter) ──────────────────────────────────
 
-function _cartesianOption(config, headerRow, dataRows, encoding, kind, isDark) {
+function _cartesianOption(
+  config: ChartSpec,
+  headerRow: Row | null,
+  dataRows: Row[],
+  encoding: ChartEncoding,
+  kind: CartesianKind,
+  isDark: boolean,
+) {
   const xs = dataRows.map((r) => r[encoding.x])
   const seriesIx = encoding.y
   const stacked = !!config.options?.stacked
@@ -118,7 +128,7 @@ function _cartesianOption(config, headerRow, dataRows, encoding, kind, isDark) {
   // as distinct series ("Sales", "Sales (2)") or ECharts may merge them when
   // stacked, leaving one bar where the user expects two segments.
   const rawNames = seriesIx.map((colIdx, i) => headerRow?.[colIdx] || `Series ${i + 1}`)
-  const nameCounts = new Map()
+  const nameCounts = new Map<unknown, number>()
   const uniqueNames = rawNames.map((n) => {
     const seen = nameCounts.get(n) || 0
     nameCounts.set(n, seen + 1)
@@ -204,13 +214,22 @@ function _cartesianOption(config, headerRow, dataRows, encoding, kind, isDark) {
 
 // ── Pie ──────────────────────────────────────────────────────────────────────
 
-function _pieOption(config, headerRow, dataRows, encoding, isDark) {
+function _pieOption(
+  config: ChartSpec,
+  headerRow: Row | null,
+  dataRows: Row[],
+  encoding: ChartEncoding,
+  isDark: boolean,
+) {
   const labelCol = encoding.x
-  const valueCol = encoding.y[0] // pies always use just the first y series
+  // Pies always use just the first y series. `y` is empty when the range has
+  // a single column (it is the label column), so there is no value column:
+  // every slice reads 0 and is filtered out, and the pie shows nothing.
+  const valueCol = encoding.y[0]
   const data = dataRows
     .map((r) => ({
       name: _toLabel(r[labelCol]),
-      value: _toNum(r[valueCol]),
+      value: _toNum(valueCol === undefined ? undefined : r[valueCol]),
     }))
     .filter((d) => d.value !== 0)
 
@@ -234,7 +253,7 @@ function _pieOption(config, headerRow, dataRows, encoding, isDark) {
     },
     series: [
       {
-        name: headerRow?.[valueCol] || 'Value',
+        name: (valueCol !== undefined && headerRow?.[valueCol]) || 'Value',
         type: 'pie',
         radius: ['40%', '70%'], // donut chart — easier to label, identical math
         avoidLabelOverlap: true,
@@ -258,7 +277,7 @@ function _pieOption(config, headerRow, dataRows, encoding, isDark) {
 
 // ── Shared ──────────────────────────────────────────────────────────────────
 
-function _baseOption(config, isDark = false) {
+function _baseOption(config: ChartSpec, isDark = false) {
   const title = config.title?.trim()
   const titleColor = isDark ? '#f5f5f5' : '#171717'
   const legendColor = isDark ? '#e5e5e5' : '#525252'
@@ -294,16 +313,19 @@ function _baseOption(config, isDark = false) {
   }
 }
 
-function _splitHeader(matrix, hasHeader) {
+function _splitHeader(
+  matrix: Row[],
+  hasHeader: boolean,
+): { headerRow: Row | null; dataRows: Row[] } {
   if (hasHeader && matrix.length > 1) {
-    return { headerRow: matrix[0], dataRows: matrix.slice(1) }
+    return { headerRow: matrix[0] as Row, dataRows: matrix.slice(1) }
   }
   return { headerRow: null, dataRows: matrix }
 }
 
 // Coerce a possibly-missing encoding into a usable one.
 // Defaults: x = column 0, y = all remaining columns.
-function _normaliseEncoding(enc, ncols) {
+function _normaliseEncoding(enc: ChartEncoding | undefined, ncols: number): ChartEncoding {
   const x = enc && Number.isInteger(enc.x) ? enc.x : 0
   let y = enc?.y
   if (!Array.isArray(y) || !y.length) {
@@ -313,18 +335,18 @@ function _normaliseEncoding(enc, ncols) {
   return { x, y }
 }
 
-function _toNum(v) {
+function _toNum(v: unknown) {
   if (v === '' || v == null) return 0
   const n = Number(v)
   return isNaN(n) ? 0 : n
 }
 
-function _toLabel(v) {
+function _toLabel(v: unknown) {
   if (v == null) return ''
   return typeof v === 'string' ? v : String(v)
 }
 
-function _emptyOption(config, isDark = false) {
+function _emptyOption(config: ChartSpec, isDark = false) {
   const emptyColor = isDark ? '#a3a3a3' : '#a3a3a3'
   return {
     ..._baseOption(config, isDark),
