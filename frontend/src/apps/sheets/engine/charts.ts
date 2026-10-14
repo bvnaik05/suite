@@ -1,6 +1,6 @@
 // Chart engine — pure store, no Vue / DOM / ECharts here.
 //
-// Same shape as `engine/pivot.js`: an in-memory map of chart configs with
+// Same shape as `engine/pivot.ts`: an in-memory map of chart configs with
 // `add/update/remove/list/snapshot/restore` and an `onChange` callback the
 // Vue layer subscribes to so reactive computeds re-evaluate when configs
 // mutate. The mutation set is what lands in sheets_data, persisted by
@@ -24,11 +24,69 @@
 
 import { deepClone } from '../utils/deep-clone.js'
 import { parseA1Range, remapRangeString } from './ref-remap.js'
+import type { IndexMap } from './types.js'
+
+/** One of CHART_TYPES; anything else renders as a bar chart. */
+export type ChartType = 'line' | 'bar' | 'pie' | 'area' | 'scatter'
+
+/** Column indices into the chart's source range, 0-based. */
+export interface ChartEncoding {
+  x: number
+  y: number[]
+}
+
+/** Where the chart floats on the canvas overlay, px. */
+export interface ChartPosition {
+  sheet: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ChartOptions {
+  stacked?: boolean
+  smooth?: boolean
+  showLegend?: boolean
+  dataLabels?: boolean
+  gridLines?: boolean
+  /** A CHART_AGGREGATIONS value; absent or 'none' plots each row. */
+  aggregate?: string
+  /** Overrides ESPRESSO_PALETTE when non-empty. */
+  colorScheme?: string[]
+}
+
+/**
+ * What a chart is drawn from. Every field is optional: saved charts and
+ * callers fill in only some of them, and the readers default the rest.
+ * `chartType` is a string because buildOption treats unknown types as bar.
+ */
+export interface ChartSpec {
+  sourceSheet?: string
+  sourceRange?: string | undefined
+  chartType?: string
+  title?: string
+  hasHeader?: boolean
+  encoding?: ChartEncoding
+  position?: ChartPosition
+  options?: ChartOptions
+}
+
+export interface ChartConfig extends ChartSpec {
+  id: string
+}
+
+export interface ChartSnapshot {
+  charts: Record<string, ChartConfig>
+  nextId: number
+}
+
+export type ChartEngine = ReturnType<typeof createChartEngine>
 
 export function createChartEngine() {
-  let _charts = {} // id → ChartConfig
+  let _charts: Record<string, ChartConfig> = {} // id → ChartConfig
   let _nextId = 1
-  let _onChange = null
+  let _onChange: (() => void) | null = null
 
   function _newId() {
     return `chart_${_nextId++}`
@@ -37,52 +95,52 @@ export function createChartEngine() {
     _onChange?.()
   }
 
-  function setOnChange(cb) {
+  function setOnChange(cb: (() => void) | null) {
     _onChange = cb
   }
 
-  function add(config) {
+  function add(config: ChartSpec & { id?: string }) {
     const id = config.id || _newId()
     _charts[id] = { ...config, id }
     _notify()
     return id
   }
 
-  function update(id, patch) {
+  function update(id: string, patch: Partial<ChartConfig>) {
     if (!_charts[id]) return
     _charts[id] = { ..._charts[id], ...patch, id }
     _notify()
   }
 
-  function remove(id) {
+  function remove(id: string) {
     if (id in _charts) {
       delete _charts[id]
       _notify()
     }
   }
 
-  function get(id) {
+  function get(id: string) {
     return _charts[id]
   }
   function list() {
     return Object.values(_charts)
   }
 
-  function listForSheet(sheetName) {
+  function listForSheet(sheetName: string) {
     return Object.values(_charts).filter((c) => c.position?.sheet === sheetName)
   }
 
   // True when `sheetName` is the source for any chart — drives "should I
   // recompute" decisions when cells change.
-  function affectsChart(sheetName) {
+  function affectsChart(sheetName: string) {
     return Object.values(_charts).some((c) => c.sourceSheet === sheetName)
   }
 
-  function snapshot() {
+  function snapshot(): ChartSnapshot {
     return { charts: deepClone(_charts), nextId: _nextId }
   }
 
-  function restore(data) {
+  function restore(data: ChartSnapshot | null | undefined) {
     if (!data) return
     _charts = deepClone(data.charts || {})
     _nextId = data.nextId || 1
@@ -91,7 +149,7 @@ export function createChartEngine() {
     for (const id of Object.keys(_charts)) {
       const m = /^chart_(\d+)$/.exec(id)
       if (m) {
-        const n = parseInt(m[1], 10)
+        const n = parseInt(m[1] ?? '', 10)
         if (n >= _nextId) _nextId = n + 1
       }
     }
@@ -102,11 +160,10 @@ export function createChartEngine() {
   // encoding x/y are column indices *into that range* — remap those through the
   // induced local permutation so a reorder inside the range keeps series bound
   // to the same data. Charts whose source column vanished drop that series.
-  function _remap(sheet, mapCol, mapRow) {
+  function _remap(sheet: string, mapCol: IndexMap | null, mapRow: IndexMap | null) {
     const lc = String(sheet || '').toLowerCase()
     let changed = false
-    for (const id of Object.keys(_charts)) {
-      const ch = _charts[id]
+    for (const ch of Object.values(_charts)) {
       if (String(ch.sourceSheet || '').toLowerCase() !== lc) continue
       const before = parseA1Range(ch.sourceRange)
       const nextRange = remapRangeString(ch.sourceRange, {
@@ -117,8 +174,9 @@ export function createChartEngine() {
       ch.sourceRange = nextRange
       changed = true
       if (mapCol && before && nextRange !== '#REF!' && ch.encoding) {
-        const after = parseA1Range(nextRange)
-        const local = (li) => {
+        // A remapped range that isn't #REF! is still a valid A1 range.
+        const after = parseA1Range(nextRange) as { c0: number }
+        const local = (li: number) => {
           const g = mapCol(before.c0 + li)
           return g == null || g < 0 ? null : g - after.c0
         }
@@ -127,15 +185,15 @@ export function createChartEngine() {
           ch.encoding.x = nx == null ? 0 : nx
         }
         if (Array.isArray(ch.encoding.y))
-          ch.encoding.y = ch.encoding.y.map(local).filter((v) => v != null && v >= 0)
+          ch.encoding.y = ch.encoding.y.map(local).filter((v): v is number => v != null && v >= 0)
       }
     }
     if (changed) _notify()
   }
-  function remapCols(mapCol, sheet) {
+  function remapCols(mapCol: IndexMap, sheet: string) {
     _remap(sheet, mapCol, null)
   }
-  function remapRows(mapRow, sheet) {
+  function remapRows(mapRow: IndexMap, sheet: string) {
     _remap(sheet, null, mapRow)
   }
 
@@ -163,11 +221,11 @@ export const DEFAULT_CHART_SIZE = { width: 480, height: 320 }
 
 // Stable list of supported chart types — keep in sync with what ChartView
 // knows how to render.
-export const CHART_TYPES = ['line', 'bar', 'pie', 'area', 'scatter']
+export const CHART_TYPES: ChartType[] = ['line', 'bar', 'pie', 'area', 'scatter']
 
 // Aggregation functions offered in the chart dialog. `none` (the default)
 // plots each source row as-is; the rest group rows by the X-axis value and
-// summarise each series column — see `_aggregate` in chart-data.js. Values are
+// summarise each series column — see `_aggregate` in chart-data.ts. Values are
 // the authoritative keys stored in a chart's `options.aggregate`.
 export const CHART_AGGREGATIONS = [
   { value: 'none', label: 'None (plot each row)' },
@@ -194,7 +252,7 @@ export const ESPRESSO_PALETTE = [
 
 // Curated categorical palettes offered in the chart dialog. Each is 8 stops so
 // it lines up with the default series cap. `colorScheme` in a chart's options,
-// when set, overrides the default (read in chart-data.js `_baseOption`); the
+// when set, overrides the default (read in chart-data.ts `_baseOption`); the
 // first entry here IS the default palette, so a chart with no colorScheme and
 // one explicitly set to Espresso render identically.
 export const CHART_PALETTES = [
