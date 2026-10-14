@@ -6,8 +6,42 @@
 // A copy reads the source once; the paste then works from that capture.
 
 import { colLabel, parseCellId } from '../utils/cells.js'
+import type { CondFormatEngine } from './cond-format.js'
+import type { Format, FormatsEngine } from './formats.js'
 import { adjustFormula } from './formula-adjust.js'
 import { detectHyperlink } from './links.js'
+import type { ProtectionEngine } from './protection.js'
+import type { CellPort, CellPos, Rect } from './types.js'
+import type { ValidationEngine, ValidationRule } from './validation.js'
+
+/** 'all' = values + formulas + formats; see paste(). */
+export type PasteKind = 'all' | 'values' | 'formulas' | 'formats'
+
+/** Called after a paste has written everything, to record the undo step. */
+type HistoryPush = (() => void) | null | undefined
+
+export interface ClipboardDeps {
+  cells: CellPort
+  getCurrentSheet: () => string
+  formats?: Pick<FormatsEngine, 'get' | 'set' | 'clear'> | null
+  condFormat?: Pick<CondFormatEngine, 'addRulesForRange'> | null
+  validation?: Pick<ValidationEngine, 'get' | 'set' | 'clear'> | null
+  /** The pivot config under `sel`, when the copied range overlaps a pivot. */
+  getPivotAt?: ((sel: Rect, sheet: string) => unknown) | null
+  /** Mints a new live pivot from a copied config; returns its render promise. */
+  createPivotFromPaste?: ((pivot: unknown, anchorId: string, sheet: string) => unknown) | null
+  protection?: Pick<ProtectionEngine, 'isProtected'> | null
+}
+
+/** A destination cell and the source buffer offset it takes its value from. */
+interface Target {
+  r: number
+  c: number
+  dr: number
+  dc: number
+}
+
+export type Clipboard = ReturnType<typeof createClipboard>
 
 export function createClipboard({
   cells,
@@ -18,25 +52,27 @@ export function createClipboard({
   getPivotAt = null,
   createPivotFromPaste = null,
   protection = null,
-}) {
-  let _data = null // { 'dr,dc': input }, filled once the source read returns
-  let _shown = null // { 'dr,dc': display value } at copy time
-  let _fmts = null // { 'dr,dc': formatObj }
-  let _vals = null // { 'dr,dc': validationRule | null }
-  let _mode = null // 'copy' | 'cut'; set at once, so hasData() is true while reading
-  let _srcSel = null // { r0, c0, r1, c1 } of the source
-  let _srcSheet = null // the sheet the source is on
-  let _pivot = null // portable pivot config when the source overlaps a pivot
-  let _ready = null // the source read; paste waits for it
+}: ClipboardDeps) {
+  let _data: Record<string, string> | null = null // { 'dr,dc': input }, filled once the source read returns
+  let _shown: Record<string, string> | null = null // { 'dr,dc': display value } at copy time
+  let _fmts: Record<string, Format> | null = null // { 'dr,dc': formatObj }
+  let _vals: Record<string, ValidationRule | null> | null = null // { 'dr,dc': validationRule | null }
+  let _mode: 'copy' | 'cut' | null = null // set at once, so hasData() is true while reading
+  let _srcSel: Rect | null = null // { r0, c0, r1, c1 } of the source
+  let _srcSheet: string | null = null // the sheet the source is on
+  let _pivot: unknown = null // portable pivot config when the source overlaps a pivot
+  let _ready: Promise<void> | null = null // the source read; paste waits for it
 
   // ── Capture ───────────────────────────────────────────────────────────────
 
-  function _capture(sel, mode) {
+  function _capture(sel: Rect, mode: 'copy' | 'cut') {
     const { r0, c0, r1, c1 } = sel
     const sn = getCurrentSheet()
     _data = _shown = null
-    _fmts = {}
-    _vals = {}
+    const fmts: Record<string, Format> = {}
+    const vals: Record<string, ValidationRule | null> = {}
+    _fmts = fmts
+    _vals = vals
     _mode = mode
     _srcSel = sel
     _srcSheet = sn
@@ -47,25 +83,27 @@ export function createClipboard({
       for (let c = c0; c <= c1; c++) {
         const key = `${r - r0},${c - c0}`
         const id = colLabel(c) + (r + 1)
-        _fmts[key] = formats ? { ...formats.get(id, sn) } : {}
-        _vals[key] = validation ? validation.get(id, sn) : null
+        fmts[key] = formats ? { ...formats.get(id, sn) } : {}
+        vals[key] = validation ? validation.get(id, sn) : null
       }
     }
-    const ready = cells.read(sn, sel).then(
+    const ready: Promise<void> = cells.read(sn, sel).then(
       ({ inputs, displays }) => {
         // A newer copy or a clear() replaced this one while it was reading.
         if (_ready !== ready) return
-        _data = {}
-        _shown = {}
+        const data: Record<string, string> = {}
+        const shown: Record<string, string> = {}
+        _data = data
+        _shown = shown
         for (let r = r0; r <= r1; r++) {
           for (let c = c0; c <= c1; c++) {
             const key = `${r - r0},${c - c0}`
-            _data[key] = inputs[r - r0]?.[c - c0] ?? ''
-            _shown[key] = displays[r - r0]?.[c - c0] ?? ''
+            data[key] = inputs[r - r0]?.[c - c0] ?? ''
+            shown[key] = displays[r - r0]?.[c - c0] ?? ''
           }
         }
       },
-      (e) => {
+      (e: unknown) => {
         // Nothing was captured, so there is nothing to paste.
         if (_ready === ready) clear()
         throw e
@@ -76,13 +114,14 @@ export function createClipboard({
   }
 
   // Write TSV to system clipboard (display values, tab-separated)
-  function _writeSystem(sel) {
-    if (!_shown) return
+  function _writeSystem(sel: Rect) {
+    const shown = _shown
+    if (!shown) return
     const rows = []
     for (let dr = 0; dr <= sel.r1 - sel.r0; dr++) {
       const row = []
       for (let dc = 0; dc <= sel.c1 - sel.c0; dc++)
-        row.push(String(_shown[`${dr},${dc}`]).replace(/\t|\n/g, ' '))
+        row.push(String(shown[`${dr},${dc}`]).replace(/\t|\n/g, ' '))
       rows.push(row.join('\t'))
     }
     // Guard `navigator` at the global level — Node < 21 (CI runs Node 20)
@@ -95,12 +134,12 @@ export function createClipboard({
 
   // ── Public ────────────────────────────────────────────────────────────────
 
-  async function copy(sel) {
+  async function copy(sel: Rect) {
     await _capture(sel, 'copy')
     if (_srcSel === sel) _writeSystem(sel)
   }
 
-  async function cut(sel) {
+  async function cut(sel: Rect) {
     await _capture(sel, 'cut')
     if (_srcSel === sel) _writeSystem(sel)
   }
@@ -113,15 +152,17 @@ export function createClipboard({
   //      every dest cell.  This is the "copy A1, paste B1:D1" UX.
   //   3. destSel is N×M and source is a divisor (k·rows, l·cols) → tile the
   //      source block across the destination (matches Google Sheets).
-  function _resolveTargets(anch, destSel) {
-    const targets = []
-    const keys = Object.keys(_data)
+  function _resolveTargets(anch: CellPos, destSel: Rect | null): Target[] {
+    const targets: Target[] = []
+    // paste() only calls this once the source read has filled _data.
+    const keys = Object.keys(_data as Record<string, string>)
     const srcRows = _srcSel ? _srcSel.r1 - _srcSel.r0 + 1 : 1
     const srcCols = _srcSel ? _srcSel.c1 - _srcSel.c0 + 1 : 1
 
     if (!destSel || (destSel.r0 === destSel.r1 && destSel.c0 === destSel.c1)) {
       for (const key of keys) {
-        const [dr, dc] = key.split(',').map(Number)
+        // Keys are always 'dr,dc'.
+        const [dr = 0, dc = 0] = key.split(',').map(Number)
         targets.push({ r: anch.row + dr, c: anch.col + dc, dr, dc })
       }
       return targets
@@ -133,7 +174,7 @@ export function createClipboard({
     if (!tileable) {
       // fall back to anchor paste
       for (const key of keys) {
-        const [dr, dc] = key.split(',').map(Number)
+        const [dr = 0, dc = 0] = key.split(',').map(Number)
         targets.push({ r: anch.row + dr, c: anch.col + dc, dr, dc })
       }
       return targets
@@ -156,13 +197,23 @@ export function createClipboard({
   //   destSel = { r0, c0, r1, c1 } (optional) — when provided and the source is
   //             a single cell, the source is tiled across the entire dest range
   //             (Google-Sheets behaviour: copy A1, select B1:D1, paste → B/C/D).
-  async function paste(anchorId, historyPush, kind = 'all', destSel = null) {
+  async function paste(
+    anchorId: string,
+    historyPush?: HistoryPush,
+    kind: PasteKind = 'all',
+    destSel: Rect | null = null,
+  ) {
     if (!_mode) return
     await _ready?.catch(() => {}) // a failed read leaves _data empty
-    if (!_data) return
+    const data = _data
+    if (!data) return
     const anch = parseCellId(anchorId)
     if (!anch) return
     const sh = getCurrentSheet()
+    // A filled buffer always comes with its source rect, display values and
+    // formats (set together in _capture).
+    const srcSel = _srcSel as Rect
+    const shown = _shown as Record<string, string>
 
     // A full paste of a copied pivot mints a new live pivot at the anchor
     // instead of writing static cells — the pivot renders its own output, so
@@ -191,22 +242,23 @@ export function createClipboard({
     // transaction). For a 5k-cell paste this cuts the value-write phase
     // from hundreds of ms to ~50 ms. Formats / validation stay per-cell
     // because those engines don't have a batch API yet.
-    const writes = {}
+    const writes: Record<string, string> = {}
     const wantValues = kind === 'all' || kind === 'formulas' || kind === 'values'
     if (wantValues) {
       for (const { r, c, dr, dc } of targets) {
         const id = colLabel(c) + (r + 1)
         const key = `${dr},${dc}`
-        const raw = _data[key]
+        // Every target's (dr, dc) lies inside the captured source.
+        const raw = data[key] as string
         if (kind === 'all' || kind === 'formulas') {
           writes[id] =
             typeof raw === 'string' && raw.startsWith('=')
-              ? adjustFormula(raw, r - (_srcSel.r0 + dr), c - (_srcSel.c0 + dc))
+              ? adjustFormula(raw, r - (srcSel.r0 + dr), c - (srcSel.c0 + dc))
               : raw
         } else {
           // 'values' — formulas paste as the value they showed when copied.
           const isFormula = typeof raw === 'string' && raw.startsWith('=')
-          writes[id] = isFormula ? _shown[key] : raw
+          writes[id] = isFormula ? (shown[key] as string) : raw
         }
       }
       cells.write(sh, writes)
@@ -215,10 +267,11 @@ export function createClipboard({
     // Formats / validation pass — still per-cell, but skipped entirely when
     // the user picked Values or Formulas mode.
     if ((kind === 'all' || kind === 'formats') && (formats || validation)) {
+      const fmts = _fmts as Record<string, Format>
       for (const { r, c, dr, dc } of targets) {
         const id = colLabel(c) + (r + 1)
         const key = `${dr},${dc}`
-        if (formats && _fmts[key]) formats.set(id, _fmts[key], sh)
+        if (formats && fmts[key]) formats.set(id, fmts[key], sh)
         if (validation && _vals) {
           const rule = _vals[key]
           if (rule) validation.set(id, rule, sh)
@@ -240,14 +293,15 @@ export function createClipboard({
       (kind === 'all' || kind === 'values' || kind === 'formulas')
     ) {
       const { r0, c0, r1, c1 } = _srcSel
-      const src = _srcSheet
+      // Set with the source rect in _capture.
+      const src = _srcSheet as string
       // Cells that just received the paste — when source and destination
       // overlap (e.g. cut C2:C7, paste at C3:C8) the clear pass must NOT
       // touch these or it wipes the content we just wrote. Only the source
       // cells outside the destination should be vacated.
       const destIds =
         src === sh ? new Set(targets.map(({ r, c }) => colLabel(c) + (r + 1))) : new Set()
-      const clears = {}
+      const clears: Record<string, string> = {}
       for (let r = r0; r <= r1; r++)
         for (let c = c0; c <= c1; c++) {
           const id = colLabel(c) + (r + 1)
@@ -262,6 +316,7 @@ export function createClipboard({
     // Post-mutate snapshot — history.push() must run after the data has
     // settled so undo restores the correct state.
     historyPush?.()
+    return undefined
   }
 
   // Parse an HTML fragment's first <table> into a 2D grid of cell strings, or
@@ -271,7 +326,7 @@ export function createClipboard({
   // without tab delimiters (so it collapses into a single column). colspan is
   // honored by padding blanks; rowspan is left as-is (rare, and its cell text
   // simply lands in the top row of the span).
-  function parseHTMLTable(html) {
+  function parseHTMLTable(html: string | null | undefined) {
     return _parseHTMLGrid(html)?.grid ?? null
   }
 
@@ -279,13 +334,15 @@ export function createClipboard({
   // 'dr,dc'. A cell whose content carries an <a href> (Google Sheets, Excel
   // Online, web pages) keeps that target so the paste can restore linkness —
   // textContent alone would flatten "Frappe" → dead text.
-  function _parseHTMLGrid(html) {
+  function _parseHTMLGrid(
+    html: string | null | undefined,
+  ): { grid: string[][]; links: Record<string, string> } | null {
     if (!html || typeof DOMParser === 'undefined') return null
     const doc = new DOMParser().parseFromString(html, 'text/html')
     const table = doc.querySelector('table')
     if (!table) return null
-    const grid = []
-    const links = {}
+    const grid: string[][] = []
+    const links: Record<string, string> = {}
     // Only the outer table's own rows/cells — a bare querySelectorAll('tr')
     // descends into any nested <table> inside a cell (common in web-page
     // clipboard HTML) and bleeds its rows into the outer grid. A nested
@@ -295,7 +352,7 @@ export function createClipboard({
       ':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr',
     )
     for (const tr of rows) {
-      const row = []
+      const row: string[] = []
       for (const cell of tr.querySelectorAll(':scope > th, :scope > td')) {
         const text = (cell.textContent ?? '').replace(/\s+/g, ' ').trim()
         const href = cell.querySelector('a[href]')?.getAttribute('href')
@@ -309,13 +366,18 @@ export function createClipboard({
       grid.push(row)
     }
     // Drop trailing all-empty rows some editors append.
-    while (grid.length && grid[grid.length - 1].every((c) => c === '')) grid.pop()
+    while (grid.length && (grid[grid.length - 1] as string[]).every((c) => c === '')) grid.pop()
     return grid.length ? { grid, links } : null
   }
 
   // Paste an HTML-table grid (from an external app's `text/html` flavor).
   // Shares the placement/tiling/bulk-write path with pasteFromText.
-  function pasteFromHTML(html, anchorId, historyPush, destSel = null) {
+  function pasteFromHTML(
+    html: string | null | undefined,
+    anchorId: string,
+    historyPush?: HistoryPush,
+    destSel: Rect | null = null,
+  ) {
     const parsed = _parseHTMLGrid(html)
     if (!parsed) return false
     return _pasteGrid(parsed.grid, anchorId, historyPush, destSel, parsed.links)
@@ -323,7 +385,12 @@ export function createClipboard({
 
   // Paste raw text (from system clipboard / external app).  Honors destSel so
   // pasting a single token into a multi-cell selection fills the whole range.
-  function pasteFromText(text, anchorId, historyPush, destSel = null) {
+  function pasteFromText(
+    text: string | null | undefined,
+    anchorId: string,
+    historyPush?: HistoryPush,
+    destSel: Rect | null = null,
+  ) {
     if (!text?.trim()) return
     return _pasteGrid(_textToGrid(text), anchorId, historyPush, destSel)
   }
@@ -331,7 +398,7 @@ export function createClipboard({
   // Split raw clipboard text into a 2D grid (tab = column, newline = row).
   // Shared by pasteFromText and measureTextPaste so the write and the undo
   // capture agree on exactly what a text paste covers.
-  function _textToGrid(text) {
+  function _textToGrid(text: string) {
     const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd().split('\n')
     return lines.map((l) => l.split('\t'))
   }
@@ -340,7 +407,8 @@ export function createClipboard({
   // the destination. Single source of truth for both the write (_pasteGrid) and
   // the undo-capture bounds (_gridRect) — an external paste's extent must never
   // be computed two different ways, or undo silently under-covers the write.
-  function _gridGeometry(grid, anch, destSel) {
+  // (`_anch` is unused; kept so the call sites stay as they are.)
+  function _gridGeometry(grid: readonly string[][], _anch: CellPos, destSel: Rect | null) {
     const srcRows = grid.length
     const srcCols = grid.reduce((m, r) => Math.max(m, r.length), 0)
     const tileable =
@@ -353,11 +421,15 @@ export function createClipboard({
 
   // The destination rect a grid paste will actually write. A tiled paste fills
   // exactly destSel; otherwise it's the anchor plus the grid's own dimensions.
-  function _gridRect(grid, anchorId, destSel = null) {
+  function _gridRect(grid: readonly string[][], anchorId: string, destSel: Rect | null = null) {
     const anch = parseCellId(anchorId)
     if (!anch) return null
     const { srcRows, srcCols, tileable } = _gridGeometry(grid, anch, destSel)
-    if (tileable) return { r0: destSel.r0, c0: destSel.c0, r1: destSel.r1, c1: destSel.c1 }
+    // tileable implies destSel.
+    if (tileable) {
+      const d = destSel as Rect
+      return { r0: d.r0, c0: d.c0, r1: d.r1, c1: d.c1 }
+    }
     return { r0: anch.row, c0: anch.col, r1: anch.row + srcRows - 1, c1: anch.col + srcCols - 1 }
   }
 
@@ -365,13 +437,21 @@ export function createClipboard({
   // the editor size its undo capture to the full pasted block instead of just
   // the clicked cell (the internal copy/paste path gets this from
   // getSourceSel(); an external paste has no source selection to read).
-  function measureTextPaste(text, anchorId, destSel = null) {
+  function measureTextPaste(
+    text: string | null | undefined,
+    anchorId: string,
+    destSel: Rect | null = null,
+  ) {
     if (!text?.trim()) return null
     return _gridRect(_textToGrid(text), anchorId, destSel)
   }
 
   // Extent an external HTML-table paste would cover, WITHOUT writing anything.
-  function measureHTMLPaste(html, anchorId, destSel = null) {
+  function measureHTMLPaste(
+    html: string | null | undefined,
+    anchorId: string,
+    destSel: Rect | null = null,
+  ) {
     const grid = parseHTMLTable(html)
     if (!grid) return null
     return _gridRect(grid, anchorId, destSel)
@@ -381,7 +461,13 @@ export function createClipboard({
   // then ship one bulk write. Shared by pasteFromText and pasteFromHTML.
   // `links` maps 'dr,dc' → href for cells that arrived as HTML anchors; cells
   // without one still auto-link when their pasted text IS a URL (Google UX).
-  function _pasteGrid(grid, anchorId, historyPush, destSel = null, links = null) {
+  function _pasteGrid(
+    grid: readonly string[][],
+    anchorId: string,
+    historyPush: HistoryPush,
+    destSel: Rect | null = null,
+    links: Record<string, string> | null = null,
+  ) {
     const anch = parseCellId(anchorId)
     if (!anch) return false
     const { srcRows, srcCols, tileable } = _gridGeometry(grid, anch, destSel)
@@ -390,22 +476,24 @@ export function createClipboard({
     // Build the cell map first, then ship one bulk write — same reason as
     // paste() above. Big external pastes (Excel/CSV via system clipboard)
     // were the worst case here.
-    const writes = {}
-    const linkAt = {} // destination id → hyperlink url (null = clear)
-    const place = (id, val, dr, dc) => {
+    const writes: Record<string, string> = {}
+    const linkAt: Record<string, string | null> = {} // destination id → hyperlink url (null = clear)
+    const place = (id: string, val: string, dr: number, dc: number) => {
       writes[id] = val
       const url = links?.[`${dr},${dc}`] ?? detectHyperlink(val)
       // A URL links the cell; otherwise clear any link the destination
       // already carried so pasted plain text can't inherit a stale target.
       if (url) linkAt[id] = url
-      else if (formats?.get(id, sn)?.hyperlink) linkAt[id] = null
+      else if (formats?.get(id, sn)?.['hyperlink']) linkAt[id] = null
     }
     if (tileable) {
-      for (let r = destSel.r0; r <= destSel.r1; r++) {
-        for (let c = destSel.c0; c <= destSel.c1; c++) {
-          const dr = (r - destSel.r0) % srcRows
-          const dc = (c - destSel.c0) % srcCols
-          place(colLabel(c) + (r + 1), grid[dr][dc] ?? '', dr, dc)
+      // tileable implies destSel; (dr, dc) stay inside the grid.
+      const d = destSel as Rect
+      for (let r = d.r0; r <= d.r1; r++) {
+        for (let c = d.c0; c <= d.c1; c++) {
+          const dr = (r - d.r0) % srcRows
+          const dc = (c - d.c0) % srcCols
+          place(colLabel(c) + (r + 1), (grid[dr] as string[])[dc] ?? '', dr, dc)
         }
       }
     } else {
