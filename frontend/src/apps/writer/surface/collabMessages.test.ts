@@ -204,15 +204,46 @@ describe('collab stop copy', () => {
       bannerText({ ...frozen, failed: true }),
       bannerText({ ...frozen, failed: true, stopped: 'browser' }),
       bannerText({ ...frozen, blocked: 'locked' }),
+      bannerText({ ...frozen, newerSchema: true }),
       bannerText({ ...frozen, held: 'change' }),
       bannerText({ ...frozen, polling: true }),
     ]).toEqual([
-      'Saving stopped in this tab. Reload to keep editing.',
-      "This document can't be edited in this browser version.",
+      "Saving stopped in this tab. Part of this document can't be shown here, so editing stays paused. Reload to try saving again.",
+      "This document can't be edited in this browser version. Part of this document can't be shown here, so editing stays paused.",
       "This document was locked, so changes aren't saved. Unlock it to save them.",
+      'This document was edited in a newer version of Writer. Reload to edit it.',
       frozenText,
       frozenText,
     ])
+  })
+
+  it('offers Reload on a stop over a frozen tab only when the text asks for one', () => {
+    const frozen = { isFrozen: true, failed: true }
+
+    expect([
+      bannerFor({ ...defaultState, ...frozen })?.canReload,
+      bannerFor({ ...defaultState, ...frozen, stopped: 'browser' })?.canReload,
+    ]).toEqual([true, false])
+  })
+
+  it('asks a frozen tab to stay open, with no Reload, while unsent work waits only in it', () => {
+    const frozen = { ...defaultState, isFrozen: true, onDevice: false }
+    const keepOpen = {
+      text: "Part of this document can't be shown here, so editing is paused to keep it safe. Keep this tab open.",
+    }
+    const reload = {
+      text: "Part of this document can't be shown here, so editing is paused to keep it safe.",
+      canReload: true,
+    }
+
+    expect([
+      bannerFor({ ...frozen, held: 'change' }),
+      bannerFor({ ...frozen, paused: 'upload_refused' }),
+      bannerFor({ ...frozen, held: 'change', onDevice: true }),
+      bannerFor({ ...frozen, held: 'change', recoveryKept: true }),
+      bannerFor({ ...frozen, held: 'change', unsent: 0 }),
+      bannerFor({ ...frozen, polling: true }),
+    ]).toEqual([keepOpen, keepOpen, reload, reload, reload, reload])
   })
 
   it('does not offer a reload for a stop a reload would only repeat', () => {

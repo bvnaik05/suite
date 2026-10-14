@@ -1,7 +1,9 @@
 import type { Editor as TiptapEditor } from '@tiptap/core'
+import { fromUint8Array } from 'js-base64'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, reactive, ref } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
@@ -22,6 +24,8 @@ vi.mock('frappe-ui', async () => {
   return {
     Avatar: emptyComponent,
     Badge: emptyComponent,
+    // The real old editor's autosave runs at once
+    debounce: (run: () => void) => run,
     Dropdown: define({
       props: { options: Array as () => { label: string; onClick: () => void }[] },
       setup: (props) => () =>
@@ -81,9 +85,47 @@ vi.mock('@/apps/drive', async () => {
 
 const rooms = vi.hoisted(() => ({ next: null as object | null }))
 // The body the server holds for a document edited without collaboration
-const stored = vi.hoisted(() => ({ html: '', collab: 0, isRefusingSaves: false }))
+const stored = vi.hoisted(() => ({ html: '', content: '', collab: 0, isRefusingSaves: false }))
 // The old editor's hold on its device store, which it gives up once a refused save is kept
 const oldEditor = vi.hoisted(() => ({ forgetStoredEdits: vi.fn(async () => {}), isFrozen: false }))
+// Mounts the real editors, over a stand-in for CoreEditor, in place of the fakes below
+const realEditors = vi.hoisted(() => ({ isOn: false }))
+
+vi.mock('y-webrtc', async () => {
+  const { Awareness: MockAwareness } = await import('y-protocols/awareness')
+  class WebrtcProvider {
+    awareness: InstanceType<typeof MockAwareness>
+    room = null
+    disconnect = vi.fn()
+    destroy = vi.fn()
+
+    constructor(_room: string, doc: Y.Doc) {
+      this.awareness = new MockAwareness(doc)
+    }
+  }
+
+  return { WebrtcProvider }
+})
+vi.mock('@/apps/writer/components/CoreEditor.vue', async () => {
+  const { defineComponent: define, h: render, onBeforeUnmount, shallowRef } = await import('vue')
+  const { Editor, EditorContent } = await import('@tiptap/vue-3')
+  const { default: Document } = await import('@tiptap/extension-document')
+  const { default: Paragraph } = await import('@tiptap/extension-paragraph')
+  const { default: Text } = await import('@tiptap/extension-text')
+  return {
+    default: define({
+      props: { extensions: Array },
+      setup(props, { expose }) {
+        const extensions = [Document, Paragraph, Text, ...(props.extensions as [])]
+        const editor = shallowRef(new Editor({ extensions }))
+        expose({ editor })
+        onBeforeUnmount(() => editor.value.destroy())
+        return () =>
+          render('div', { 'data-editor': '' }, [render(EditorContent, { editor: editor.value })])
+      },
+    }),
+  }
+})
 
 vi.mock('@/apps/writer/collab', () => ({
   BODY_FIELD: 'default',
@@ -129,7 +171,8 @@ vi.mock('./writerDocument', async (importOriginal) => {
   })
   const writerDocument = () => {
     function read() {
-      return { name: 'content-1', collab: stored.collab, settings: {}, html: stored.html }
+      const { collab, html, content } = stored
+      return { name: 'content-1', collab, settings: {}, html, content }
     }
 
     const resources = reactive({
@@ -150,7 +193,9 @@ vi.mock('./writerDocument', async (importOriginal) => {
   }
 })
 
-vi.mock('@/apps/writer/components/CollabTextEditor.vue', async () => {
+vi.mock('@/apps/writer/components/CollabTextEditor.vue', async (importOriginal) => {
+  const real =
+    await importOriginal<typeof import('@/apps/writer/components/CollabTextEditor.vue')>()
   const {
     defineComponent: define,
     h: render,
@@ -163,55 +208,71 @@ vi.mock('@/apps/writer/components/CollabTextEditor.vue', async () => {
   const { default: Paragraph } = await import('@tiptap/extension-paragraph')
   const { default: Text } = await import('@tiptap/extension-text')
   const { default: Collaboration } = await import('@tiptap/extension-collaboration')
+  const fake = define({
+    props: { room: Object },
+    setup(props, { expose, slots }) {
+      const room = props.room as { doc: Y.Doc }
+      const isFrozen = mockRef(false)
+      function onFrozen() {
+        isFrozen.value = true
+      }
+
+      const ySyncOptions = { onUnplaceable: onFrozen }
+      const collaboration = Collaboration.configure({ document: room.doc, ySyncOptions })
+      const extensions = [Document, Paragraph, Text, collaboration]
+      const editor = shallowRef(new Editor({ extensions }))
+      expose({ editor, isFrozen })
+      onBeforeUnmount(() => editor.value.destroy())
+
+      return () => {
+        const toolbar = slots.toolbar?.()
+        const editorBox = {
+          'data-editor': '',
+          style: slots.cover && { display: 'none' },
+        }
+        const content = render(EditorContent, { editor: editor.value })
+        return [toolbar, render('div', editorBox, [content]), slots.cover?.(), slots.aside?.()]
+      }
+    },
+  })
+  // Read where the surface renders it, so each test picks the real editor or the fake
   return {
-    default: define({
-      props: { room: Object },
-      setup(props, { expose, slots }) {
-        const room = props.room as { doc: Y.Doc }
-        const isFrozen = mockRef(false)
-        function onFrozen() {
-          isFrozen.value = true
-        }
+    get default() {
+      if (realEditors.isOn) {
+        return real.default
+      }
 
-        const ySyncOptions = { onUnplaceable: onFrozen }
-        const collaboration = Collaboration.configure({ document: room.doc, ySyncOptions })
-        const extensions = [Document, Paragraph, Text, collaboration]
-        const editor = shallowRef(new Editor({ extensions }))
-        expose({ editor, isFrozen })
-        onBeforeUnmount(() => editor.value.destroy())
-
-        return () => {
-          const toolbar = slots.toolbar?.()
-          const editorBox = {
-            'data-editor': '',
-            style: slots.cover && { display: 'none' },
-          }
-          const content = render(EditorContent, { editor: editor.value })
-          return [toolbar, render('div', editorBox, [content]), slots.cover?.(), slots.aside?.()]
-        }
-      },
-    }),
+      return fake
+    },
   }
 })
-vi.mock('@/apps/writer/components/TextEditor.vue', async () => {
+vi.mock('@/apps/writer/components/TextEditor.vue', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/apps/writer/components/TextEditor.vue')>()
   const { defineComponent: define, h: render, onMounted, ref: mockRef } = await import('vue')
+  const fake = define({
+    props: { document: Object },
+    setup(props, { expose }) {
+      const editor = { getHTML: () => '<p>Old editor line</p>', setEditable: () => {} }
+      const isFrozen = mockRef(oldEditor.isFrozen)
+      expose({ editor, forgetStoredEdits: oldEditor.forgetStoredEdits, isFrozen })
+      // Its first autosave, which the server refuses for a logged document
+      onMounted(() => {
+        const document = props.document as {
+          saveDoc: { run: (input: object) => Promise<unknown> }
+        }
+        void document.saveDoc.run({}).catch(() => {})
+      })
+      return () => render('div', { 'data-editor': '' })
+    },
+  })
   return {
-    default: define({
-      props: { document: Object },
-      setup(props, { expose }) {
-        const editor = { getHTML: () => '<p>Old editor line</p>', setEditable: () => {} }
-        const isFrozen = mockRef(oldEditor.isFrozen)
-        expose({ editor, forgetStoredEdits: oldEditor.forgetStoredEdits, isFrozen })
-        // Its first autosave, which the server refuses for a logged document
-        onMounted(() => {
-          const document = props.document as {
-            saveDoc: { run: (input: object) => Promise<unknown> }
-          }
-          void document.saveDoc.run({}).catch(() => {})
-        })
-        return () => render('div', { 'data-editor': '' })
-      },
-    }),
+    get default() {
+      if (realEditors.isOn) {
+        return real.default
+      }
+
+      return fake
+    },
   }
 })
 vi.mock('@/apps/writer/components/UsersBar.vue', () => ({ default: { render: () => null } }))
@@ -299,6 +360,8 @@ afterEach(() => {
   stored.isRefusingSaves = false
   oldEditor.forgetStoredEdits.mockClear()
   oldEditor.isFrozen = false
+  realEditors.isOn = false
+  stored.content = ''
   vi.restoreAllMocks()
 })
 
@@ -372,10 +435,15 @@ const FROZEN = "Part of this document can't be shown here, so editing is paused 
 // A live room whose body holds text this editor can't show, so the editor freezes on open
 function frozenRoom() {
   const room = liveRoom()
-  const unknown = new Y.XmlElement('mystery')
-  unknown.insert(0, [new Y.XmlText('Kept')])
-  room.doc.getXmlFragment('default').insert(0, [unknown])
+  room.doc.getXmlFragment('default').insert(0, [unknownBlock()])
   return room
+}
+
+// A block of a kind Writer doesn't have, holding text
+function unknownBlock() {
+  const block = new Y.XmlElement('mystery')
+  block.insert(0, [new Y.XmlText('Kept')])
+  return block
 }
 
 // Each shown strip's message, without its buttons
@@ -719,12 +787,37 @@ describe('Writer surface', () => {
     expect(reload).toHaveBeenCalledOnce()
   })
 
-  it('shows the stop strip, not the freeze, when saving also stopped', async () => {
+  it('shows the stop strip, naming the freeze, when saving also stopped', async () => {
     Object.assign(frozenRoom(), { saveState: 'failed', unsent: 1 })
     const root = await openedSurface()
 
-    await vi.waitFor(() => expect(stripTexts(root)).toEqual([STOPPED]))
-    expect(buttonLabelled(root, 'Reload')).toBeUndefined()
+    await vi.waitFor(() =>
+      expect(stripTexts(root)).toEqual([
+        "Saving stopped in this tab. Part of this document can't be shown here, so editing stays paused. Reload to try saving again.",
+      ]),
+    )
+    expect(buttonLabelled(root, 'Reload')).toBeDefined()
+  })
+
+  it("freezes the real collab editor over text it can't show", async () => {
+    realEditors.isOn = true
+    const room = frozenRoom()
+    const presence = { awareness: new Awareness(room.doc), peers: [], onChange: () => () => {} }
+    Object.assign(room, { presence, restoreRev: 0 })
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
+  })
+
+  it("freezes the real old editor over text it can't show", async () => {
+    realEditors.isOn = true
+    stored.collab = 1
+    const body = new Y.Doc()
+    body.getXmlFragment('default').insert(0, [unknownBlock()])
+    stored.content = fromUint8Array(Y.encodeStateAsUpdate(body))
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
   })
 
   it('shows the freeze strip over the polling notice', async () => {

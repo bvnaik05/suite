@@ -573,7 +573,7 @@ function setOffline() {
   void room.value?.pull()
 }
 
-// The unload guard still asks first while changes are unsent
+// In a live room the unload guard still asks first while changes are unsent
 function reloadPage() {
   location.reload()
 }

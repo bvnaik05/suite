@@ -202,20 +202,45 @@ const BLOCKED_BANNERS: Record<Blocked, (state: BannerState) => Banner> = {
   lost_read: lostReadBanner,
 }
 
+// A frozen tab freezes again after a reload, so its stop offers the reload for saving only
+function frozenStopBanner(state: BannerState, reason: string, isLasting: boolean): Banner {
+  const recovery = recoveryNote(state)
+  const reloadHint = isLasting ? '' : ' Reload to try saving again.'
+  const text = `${reason}${recovery} Part of this document can't be shown here, so editing stays paused.${reloadHint}`
+  return { text, canReload: !isLasting }
+}
+
 function stoppedBanner(state: BannerState): Banner {
   const reason = messageFor(STOP_MESSAGES, state.stopped) ?? 'Saving stopped in this tab.'
   const isLasting = state.stopped !== null && LASTING_STOPS.has(state.stopped)
+  if (state.isFrozen) {
+    return frozenStopBanner(state, reason, isLasting)
+  }
+
   const reloadHint = isLasting ? '' : ' Reload to keep editing.'
   const recovery = recoveryNote(state)
   return { text: `${reason}${recovery}${reloadHint}` }
 }
 
-// A reload shows the same content until someone changes it, so the text doesn't promise a fix
+// A reload can only help once a newer Writer is live, which the newer-schema banner covers, so the
+// text promises nothing
 export const FROZEN_MESSAGE =
   "Part of this document can't be shown here, so editing is paused to keep it safe."
 
-export function frozenBanner(): Banner {
+// `hasUnsentOnlyHere`: unsent work waits in this tab alone, so a reload would lose it
+export function frozenBanner(hasUnsentOnlyHere = false): Banner {
+  if (hasUnsentOnlyHere) {
+    return { text: `${FROZEN_MESSAGE} Keep this tab open.` }
+  }
+
   return { text: FROZEN_MESSAGE, canReload: true }
+}
+
+// Held or refused uploads keep unsent work from saving, and without a device store or a copy only
+// this tab has it
+function isUnsentOnlyHere(state: BannerState) {
+  const isWaiting = state.held || state.paused === 'upload_refused'
+  return isWaiting && state.unsent > 0 && !state.onDevice && !state.recoveryKept
 }
 
 // The old editor's whole-body save, refused once the document saves as it is edited
@@ -235,12 +260,12 @@ export function bannerFor(state: BannerState): Banner | null {
     return stoppedBanner(state)
   }
 
-  if (state.isFrozen) {
-    return frozenBanner()
-  }
-
   if (state.newerSchema) {
     return newerSchemaBanner(state)
+  }
+
+  if (state.isFrozen) {
+    return frozenBanner(isUnsentOnlyHere(state))
   }
 
   if (state.held) {
