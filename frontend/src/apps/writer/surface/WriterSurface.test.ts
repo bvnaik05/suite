@@ -618,6 +618,30 @@ describe('Writer surface', () => {
     await discardCopies()
   })
 
+  it('shows the stop strip on Back to current when the stop came during a preview', async () => {
+    const room = liveRoom()
+    const changes: (() => void)[] = []
+    room.onChange = (listener: () => void) => {
+      changes.push(listener)
+      return () => {}
+    }
+
+    const root = await openedSurface(oneVersion)
+
+    let during: string[] = []
+    await previewAndReturn(root, async () => {
+      Object.assign(room, { saveState: 'failed', unsent: 1 })
+      for (const change of changes) {
+        change()
+      }
+
+      await nextTick()
+      during = stripTexts(root)
+    })
+
+    expect([during, stripTexts(root)]).toEqual([['Viewing Before review'], [STOPPED]])
+  })
+
   it('shows only the recovery bar while a copy is viewed over a stop', async () => {
     stoppedRoom()
     keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
