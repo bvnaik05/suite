@@ -25,6 +25,8 @@ function settlesToOneValue(step: Step, doc: Node) {
   return replacesOnlyWrapper && keepsNodeType
 }
 
+// Mark and attribute steps move no positions, so they pass anywhere on purpose: Yjs keeps the last
+// formatting written, which can't duplicate content, and no normalizer formats outside the change
 function staysInside(map: StepMap, ranges: Range[]) {
   let isInside = true
   function checkRange(from: number, to: number) {
