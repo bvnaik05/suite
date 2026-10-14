@@ -6,7 +6,9 @@
 // Treated as a base-26 integer (A=1) so wrap-around past Z works.  Step >1
 // supported ("A, C" → "E").  Case preserved per source.
 
-function _alphaIndex(s) {
+import type { Detector } from './types.js'
+
+function _alphaIndex(s: string): number | null {
   if (!/^[A-Za-z]+$/.test(s)) return null
   let n = 0
   const upper = s.toUpperCase()
@@ -17,7 +19,7 @@ function _alphaIndex(s) {
   return n
 }
 
-function _indexToAlpha(n) {
+function _indexToAlpha(n: number): string {
   // Inverse of _alphaIndex — spreadsheet-style A=1 base-26 (no zero).
   if (n <= 0) return ''
   let s = ''
@@ -29,28 +31,28 @@ function _indexToAlpha(n) {
   return s
 }
 
-function _matchCase(template, value) {
+function _matchCase(template: string, value: string): string {
   if (template === template.toLowerCase()) return value.toLowerCase()
   if (template === template.toUpperCase()) return value.toUpperCase()
   return value // mixed or title-case → leave the canonical upper-case form
 }
 
-function _stepFor(indices) {
+function _stepFor(indices: readonly number[]): number | null {
   if (indices.length === 1) return 1
-  const step = indices[1] - indices[0]
+  const step = (indices[1] ?? 0) - (indices[0] ?? 0)
   for (let i = 2; i < indices.length; i++) {
-    if (indices[i] - indices[i - 1] !== step) return null
+    if ((indices[i] ?? 0) - (indices[i - 1] ?? 0) !== step) return null
   }
   return step
 }
 
-export const alphabeticDetector = {
+export const alphabeticDetector: Detector = {
   detect(values) {
     // Only fire for short letter tokens (column-label / quarter-letter
     // style).  3+ characters is almost always a word — "foo, bar" should
     // fall through to copy, not produce nonsense like "wcr".
     if (values.some((v) => String(v).length > 2)) return null
-    const idx = []
+    const idx: number[] = []
     for (const v of values) {
       const i = _alphaIndex(String(v))
       if (i === null || i === 0) return null
@@ -61,8 +63,8 @@ export const alphabeticDetector = {
     if (step === null) return null
     // All-zero step means identical letters — copy mode is the right fallback.
     if (step === 0) return null
-    const anchorFwd = { i: idx[idx.length - 1], src: String(values[values.length - 1]) }
-    const anchorBack = { i: idx[0], src: String(values[0]) }
+    const anchorFwd = { i: idx[idx.length - 1] ?? 0, src: String(values[values.length - 1]) }
+    const anchorBack = { i: idx[0] ?? 0, src: String(values[0]) }
     return {
       kind: 'alphabetic',
       confidence: 0.85,

@@ -4,17 +4,28 @@
 // (seconds / minutes / hours), and stamps the source's shape back on the
 // output so "9:00 AM, 10:00 AM" produces "11:00 AM" rather than "11:00".
 
-const _PAD2 = (n) => String(n).padStart(2, '0')
+import type { Detector } from './types.js'
+
+/** A parsed source time plus the shape to print it back in. */
+interface ParsedTime {
+  seconds: number
+  hasSec: boolean
+  suffix: string | null
+  suffixLower: boolean
+  padHour: boolean
+}
+
+const _PAD2 = (n: number) => String(n).padStart(2, '0')
 
 // Captures groups: 1=hour, 2=min, 3=sec (optional), 4=suffix (am/pm, optional).
 const RX = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*([AaPp][Mm]))?$/
 
-function _parse(s) {
+function _parse(s: string): ParsedTime | null {
   const m = String(s).match(RX)
   if (!m) return null
-  let h = +m[1]
-  const min = +m[2]
-  const sec = m[3] !== undefined ? +m[3] : null
+  let h = Number(m[1])
+  const min = Number(m[2])
+  const sec = m[3] !== undefined ? Number(m[3]) : null
   const sufRaw = m[4] || null
   const suf = sufRaw ? sufRaw.toUpperCase() : null
   if (suf === 'PM' && h < 12) h += 12
@@ -25,15 +36,15 @@ function _parse(s) {
     suffix: suf,
     // Track whether the source AM/PM marker was lowercase so we can
     // echo it back.  "pm" stays "pm", "PM" stays "PM".
-    suffixLower: sufRaw ? sufRaw[0] === sufRaw[0].toLowerCase() : false,
+    suffixLower: sufRaw ? sufRaw.charAt(0) === sufRaw.charAt(0).toLowerCase() : false,
     // 24-hour padding: source had 2 digits → pad (so "09:00" → "10:00",
     // "23:00" → "00:00" on wrap).  12-hour mode never pads — the hour
     // renders naturally (1-12).
-    padHour: m[1].length === 2,
+    padHour: (m[1] ?? '').length === 2,
   }
 }
 
-function _format(seconds, ctx) {
+function _format(seconds: number, ctx: ParsedTime): string {
   // Normalise to a 24h day so day-overflow wraps naturally.
   seconds = ((seconds % 86400) + 86400) % 86400
   let h = Math.floor(seconds / 3600)
@@ -53,25 +64,29 @@ function _format(seconds, ctx) {
   return out + suffix
 }
 
-function _classifyStep(times) {
+function _classifyStep(times: readonly ParsedTime[]): { step: number } | null {
   if (times.length === 1) return { step: 60 } // single → +1 minute (Google default)
-  const diffs = []
+  const diffs: number[] = []
   for (let i = 1; i < times.length; i++) {
-    diffs.push(times[i].seconds - times[i - 1].seconds)
+    diffs.push((times[i] as ParsedTime).seconds - (times[i - 1] as ParsedTime).seconds)
   }
-  if (!diffs.every((d) => d === diffs[0])) return null
-  if (diffs[0] === 0) return null
-  return { step: diffs[0] }
+  const step = diffs[0]
+  if (!diffs.every((d) => d === step)) return null
+  if (step === 0) return null
+  // `step` is undefined only for an empty source; kept as-is (no behaviour
+  // change), see ISSUES / the PR notes.
+  return { step: step as number }
 }
 
-export const timeDetector = {
+export const timeDetector: Detector = {
   detect(values) {
-    const times = values.map(_parse)
-    if (times.some((t) => t === null)) return null
+    const parsed = values.map(_parse)
+    if (parsed.some((t) => t === null)) return null
+    const times = parsed as ParsedTime[]
     const cls = _classifyStep(times)
     if (!cls) return null
-    const anchorFwd = times[times.length - 1]
-    const anchorBack = times[0]
+    const anchorFwd = times[times.length - 1] as ParsedTime
+    const anchorBack = times[0] as ParsedTime
     return {
       kind: 'time',
       confidence: 0.92,

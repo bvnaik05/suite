@@ -32,6 +32,7 @@
     "src/env.d.ts",
     "src/apps/sheets/core/**/*.ts",
     "src/apps/sheets/utils/*.ts",
+    "src/apps/sheets/engine/patterns/*.ts",
     // Not services/: it imports @/api, which would pull the platform layer
     // (not written for these flags) into this check.
     "src/apps/sheets/canvas/*.ts",
