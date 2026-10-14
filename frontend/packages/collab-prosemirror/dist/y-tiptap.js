@@ -799,10 +799,6 @@ class ProsemirrorBinding {
       );
       transaction.changed.forEach(delType);
       transaction.changedParentTypes.forEach(delType);
-      // Only a tab that can write folds its texts; a read-only, gated or frozen one isn't editable
-      if (this.prosemirrorView.editable) {
-        this._mergeOwnTexts(transaction);
-      }
       const fragmentContent = this._place();
       this._freezeOnLoss(transactionReason(transaction), transaction);
       // @ts-ignore
@@ -819,34 +815,6 @@ class ProsemirrorBinding {
         tr.scrollIntoView();
       }
       this.prosemirrorView.dispatch(tr);
-    });
-  }
-
-  /**
-   * Fold a Y.Text this client made into the Y.Text before it, so two never sit side by side.
-   * This is a fix for #160 -- duplication of characters when two Y.Text exist next to each other
-   *
-   * @param {Y.Transaction} transaction
-   */
-  _mergeOwnTexts (transaction) {
-    const parents = new Set([...transaction.changed.keys(), ...transaction.changedParentTypes.keys()]);
-    parents.forEach((parent) => {
-      if (!(parent instanceof Y.XmlFragment) || (parent !== this.type && !Y.isParentOf(this.type, parent._item))) {
-        return
-      }
-      parent.toArray().forEach((type) => {
-        if (!(type instanceof Y.XmlText)) return
-        const nextytext = /** @type {Y.ContentType} */ (type._item.right?.content)?.type;
-        if (nextytext instanceof Y.Text && !nextytext._item.deleted && nextytext._item.id.client === nextytext.doc.clientID) {
-          type.applyDelta([
-            { retain: type.length },
-            ...nextytext.toDelta()
-          ]);
-          nextytext.doc.transact(tr => {
-            nextytext._item.delete(tr);
-          });
-        }
-      });
     });
   }
 
@@ -1255,17 +1223,54 @@ const normalizePNodeContent = (pnode) => {
 };
 
 /**
- * @param {Y.XmlText} ytext
+ * Where two splits of one string overlap, in order: the piece of each and the overlap's length
+ *
+ * @param {Array<number>} left
+ * @param {Array<number>} right
+ * @return {Array<{ i: number, j: number, length: number }>}
+ */
+const overlaps = (left, right) => {
+  const found = [];
+  let i = 0;
+  let j = 0;
+  let endI = left[0];
+  let endJ = right[0];
+  let at = 0;
+  while (i < left.length && j < right.length) {
+    const next = math.min(endI, endJ);
+    found.push({ i, j, length: next - at });
+    at = next;
+    if (endI === next) endI += left[++i];
+    if (endJ === next) endJ += right[++j];
+  }
+  return found
+};
+
+/**
+ * Whether neighbouring texts read as the editor's one run of text, each with the marks it shows
+ *
+ * @param {Array<Y.XmlText>} texts
  * @param {Array<any>} ptexts
  */
-const equalYTextPText = (ytext, ptexts) => {
-  const delta = ytext.toDelta();
-  return delta.length === ptexts.length &&
-    delta.every(/** @type {(d:any,i:number) => boolean} */ (d, i) =>
-      d.insert === /** @type {any} */ (ptexts[i]).text &&
-      equalRunAttributes(d.attributes || {}, ptexts[i].marks)
-    )
+const equalYTextRunPText = (texts, ptexts) => {
+  // a typed or deleted character changes the length, so most checks end here without reading any delta
+  if (texts.reduce((sum, text) => sum + text.length, 0) !== ptexts.reduce((sum, p) => sum + p.text.length, 0)) return false
+  const ops = texts.flatMap((text) => text.toDelta());
+  if (!ops.every((op) => typeof op.insert === 'string')) return false
+  if (ops.map((op) => op.insert).join('') !== ptexts.map((p) => p.text).join('')) return false
+  return equalOpsMarks(ops, ptexts.map((p) => ({ length: p.text.length, marks: p.marks })))
 };
+
+/**
+ * Whether delta ops carry, slice by slice, the attributes these marks write
+ *
+ * @param {Array<any>} ops
+ * @param {Array<{ length: number, marks: Array<any> }>} slices
+ */
+const equalOpsMarks = (ops, slices) =>
+  overlaps(ops.map((op) => op.insert.length), slices.map((slice) => slice.length)).every(({ i, j }) =>
+    equalRunAttributes(ops[i].attributes || {}, slices[j].marks)
+  );
 
 /**
  * Whether a run's Yjs attributes are what its marks write, kept formatting's keys included
@@ -1308,7 +1313,72 @@ const equalValue = (left, right) => left === right || (isObject(left) && isObjec
 const visibleChildren = (parent, meta) => parent.toArray().filter((child) => !meta.hidden.has(child));
 
 /**
- * @param {Y.XmlElement|Y.XmlText|Y.XmlHook} ytype
+ * @typedef {Y.XmlElement|Y.XmlHook|Array<Y.XmlText>} YGroup
+ */
+
+/**
+ * The visible children of a Yjs parent as the editor shows them: neighbouring texts as one run, as it joins them
+ *
+ * @param {Y.XmlFragment} parent
+ * @param {BindingMetadata} meta
+ * @return {Array<YGroup>}
+ */
+const visibleGroups = (parent, meta) => {
+  /** @type {Array<YGroup>} */
+  const groups = [];
+  visibleChildren(parent, meta).forEach((child) => {
+    const last = groups[groups.length - 1];
+    if (child instanceof Y.XmlText && last instanceof Array) {
+      last.push(child);
+      return
+    }
+    groups.push(child instanceof Y.XmlText ? [child] : child);
+  });
+  return groups
+};
+
+/**
+ * @param {YGroup} group
+ * @param {BindingMetadata} meta
+ */
+const mappedOf = (group, meta) =>
+  group instanceof Array ? group.flatMap((text) => meta.mapping.get(text) ?? [null]) : meta.mapping.get(group);
+
+/**
+ * @param {YGroup} group
+ * @param {any} pcontent
+ * @param {BindingMetadata} meta
+ */
+const mapGroup = (group, pcontent, meta) => {
+  if (group instanceof Array) {
+    group.forEach((text, k) => meta.mapping.set(text, k === 0 ? pcontent : []));
+    return
+  }
+  meta.mapping.set(group, pcontent);
+};
+
+/**
+ * The index in `parent` just after a group, after a run's last text
+ *
+ * @param {Y.XmlFragment} parent
+ * @param {YGroup} group
+ */
+const rawIndexAfter = (parent, group) =>
+  parent.toArray().indexOf(group instanceof Array ? group[group.length - 1] : group) + 1;
+
+/**
+ * Delete a run's characters and keep its texts, so another tab's typing into any of them still lands
+ *
+ * @param {Array<Y.XmlText>} texts
+ * @param {BindingMetadata} meta
+ */
+const emptyRun = (texts, meta) => texts.forEach((text) => {
+  meta.mapping.delete(text);
+  if (text.length > 0) text.delete(0, text.length);
+});
+
+/**
+ * @param {YGroup} ytype
  * @param {any|Array<any>} pnode
  * @param {BindingMetadata} meta
  */
@@ -1318,15 +1388,15 @@ const equalYTypePNode = (ytype, pnode, meta) => {
     matchNodeName(ytype, pnode)
   ) {
     const normalizedContent = normalizePNodeContent(pnode);
-    const yChildren = visibleChildren(ytype, meta);
+    const yChildren = visibleGroups(ytype, meta);
     return yChildren.length === normalizedContent.length &&
       equalAttrs(ytype.getAttributes(), pnode.attrs) &&
       yChildren.every((ychild, i) =>
         equalYTypePNode(ychild, normalizedContent[i], meta)
       )
   }
-  return ytype instanceof Y.XmlText && pnode instanceof Array &&
-    equalYTextPText(ytype, pnode)
+  return ytype instanceof Array && pnode instanceof Array &&
+    equalYTextRunPText(ytype, pnode)
 };
 
 /**
@@ -1347,7 +1417,7 @@ const mappedIdentity = (mapped, pcontent) =>
  * @return {{ foundMappedChild: boolean, equalityFactor: number }}
  */
 const computeChildEqualityFactor = (ytype, pnode, meta) => {
-  const yChildren = visibleChildren(ytype, meta);
+  const yChildren = visibleGroups(ytype, meta);
   const pChildren = normalizePNodeContent(pnode);
   const pChildCnt = pChildren.length;
   const yChildCnt = yChildren.length;
@@ -1358,7 +1428,7 @@ const computeChildEqualityFactor = (ytype, pnode, meta) => {
   for (; left < minCnt; left++) {
     const leftY = yChildren[left];
     const leftP = pChildren[left];
-    if (mappedIdentity(meta.mapping.get(leftY), leftP)) {
+    if (mappedIdentity(mappedOf(leftY, meta), leftP)) {
       foundMappedChild = true; // definite (good) match!
     } else if (!equalYTypePNode(leftY, leftP, meta)) {
       break
@@ -1367,7 +1437,7 @@ const computeChildEqualityFactor = (ytype, pnode, meta) => {
   for (; left + right < minCnt; right++) {
     const rightY = yChildren[yChildCnt - right - 1];
     const rightP = pChildren[pChildCnt - right - 1];
-    if (mappedIdentity(meta.mapping.get(rightY), rightP)) {
+    if (mappedIdentity(mappedOf(rightY, meta), rightP)) {
       foundMappedChild = true;
     } else if (!equalYTypePNode(rightY, rightP, meta)) {
       break
@@ -1406,28 +1476,74 @@ const ytextTrans = (ytext) => {
 };
 
 /**
- * @todo test this more
+ * Write the editor's run of text into neighbouring texts without folding them into one.
+ * This is a fix for #160 -- duplication of characters when two Y.Text exist next to each other.
+ * Folding deleted a text another tab could still be typing into, and its typing went with it
  *
- * @param {Y.Text} ytext
+ * @param {Array<Y.XmlText>} texts
  * @param {Array<any>} ptexts
  * @param {BindingMetadata} meta
  */
-const updateYText = (ytext, ptexts, meta) => {
-  meta.mapping.set(ytext, ptexts);
-  const { nAttrs, str } = ytextTrans(ytext);
-  const content = ptexts.map((p) => ({
-    insert: /** @type {any} */ (p).text,
-    attributes: Object.assign({}, nAttrs, marksToAttributes(p.marks, meta))
-  }));
+const updateYTextRun = (texts, ptexts, meta) => {
+  mapGroup(texts, ptexts, meta);
+  const before = texts.map(ytextTrans);
   const { insert, remove, index } = simpleDiff(
-    str,
-    content.map((c) => c.insert).join('')
+    before.map((t) => t.str).join(''),
+    ptexts.map((p) => p.text).join('')
   );
-  ytext.delete(index, remove);
-  ytext.insert(index, insert);
-  ytext.applyDelta(
-    content.map((c) => ({ retain: c.insert.length, attributes: c.attributes }))
-  );
+  deleteFromRun(texts, index, remove);
+  insertIntoRun(texts, index, insert);
+  const filled = texts.map((text, k) => ({ text, nAttrs: before[k].nAttrs })).filter(({ text }) => text.length > 0);
+  /** @type {Array<Array<{ length: number, marks: Array<any> }>>} */
+  const slices = filled.map(() => []);
+  overlaps(filled.map(({ text }) => text.length), ptexts.map((p) => p.text.length)).forEach(({ i, j, length }) => {
+    slices[i].push({ length, marks: ptexts[j].marks });
+  });
+  filled.forEach(({ text, nAttrs }, i) => {
+    // formatting every text again makes a keystroke in a run of many texts cost several times more
+    const plain = Object.keys(nAttrs).length === 0 && slices[i].every(({ marks }) => marks.length === 0);
+    if (plain || equalOpsMarks(text.toDelta(), slices[i])) return
+    text.applyDelta(slices[i].map(({ length, marks }) => ({
+      retain: length,
+      attributes: Object.assign({}, nAttrs, marksToAttributes(marks, meta))
+    })));
+  });
+};
+
+/**
+ * Delete characters from a run's texts, each text keeping its place
+ *
+ * @param {Array<Y.XmlText>} texts
+ * @param {number} index
+ * @param {number} remove
+ */
+const deleteFromRun = (texts, index, remove) => {
+  let start = 0;
+  texts.forEach((text) => {
+    const length = text.length;
+    const from = math.max(index, start);
+    const to = math.min(index + remove, start + length);
+    if (to > from) text.delete(from - start, to - from);
+    start += length;
+  });
+};
+
+/**
+ * Insert into the leftmost text that holds the index, so typing at a boundary lands in the text before it
+ *
+ * @param {Array<Y.XmlText>} texts
+ * @param {number} index
+ * @param {string} insert
+ */
+const insertIntoRun = (texts, index, insert) => {
+  if (insert.length === 0) return
+  let start = 0;
+  const into = texts.find((text) => {
+    if (index <= start + text.length) return true
+    start += text.length;
+    return false
+  });
+  into?.insert(index - start, insert);
 };
 
 const hashedMarkNameRegex = /(.*)(--[a-zA-Z0-9+/=]{8})$/;
@@ -1584,10 +1700,10 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
   // update children
   const pChildren = normalizePNodeContent(pNode);
   const pChildCnt = pChildren.length;
-  const yChildren = visibleChildren(yDomFragment, meta);
+  const yChildren = visibleGroups(yDomFragment, meta);
   const yChildCnt = yChildren.length;
-  // hidden children stay where they are, so writes find their place by reference
-  const hasHidden = yChildCnt !== yDomFragment.length;
+  // hidden children and runs of texts don't line up with the editor's, so writes find their place by reference
+  let aligned = yChildCnt === yDomFragment.length;
   const minCnt = math.min(pChildCnt, yChildCnt);
   let left = 0;
   let right = 0;
@@ -1595,10 +1711,10 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
   for (; left < minCnt; left++) {
     const leftY = yChildren[left];
     const leftP = pChildren[left];
-    if (!mappedIdentity(meta.mapping.get(leftY), leftP)) {
+    if (!mappedIdentity(mappedOf(leftY, meta), leftP)) {
       if (equalYTypePNode(leftY, leftP, meta)) {
         // update mapping
-        meta.mapping.set(leftY, leftP);
+        mapGroup(leftY, leftP, meta);
       } else {
         break
       }
@@ -1608,10 +1724,10 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
   for (; right + left + 1 < minCnt; right++) {
     const rightY = yChildren[yChildCnt - right - 1];
     const rightP = pChildren[pChildCnt - right - 1];
-    if (!mappedIdentity(meta.mapping.get(rightY), rightP)) {
+    if (!mappedIdentity(mappedOf(rightY, meta), rightP)) {
       if (equalYTypePNode(rightY, rightP, meta)) {
         // update mapping
-        meta.mapping.set(rightY, rightP);
+        mapGroup(rightY, rightP, meta);
       } else {
         break
       }
@@ -1624,9 +1740,9 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
       const leftP = pChildren[left];
       const rightY = yChildren[yChildCnt - right - 1];
       const rightP = pChildren[pChildCnt - right - 1];
-      if (leftY instanceof Y.XmlText && leftP instanceof Array) {
-        if (!equalYTextPText(leftY, leftP)) {
-          updateYText(leftY, leftP, meta);
+      if (leftY instanceof Array && leftP instanceof Array) {
+        if (!equalYTextRunPText(leftY, leftP)) {
+          updateYTextRun(leftY, leftP, meta);
         }
         left += 1;
       } else {
@@ -1634,7 +1750,8 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
           matchNodeName(leftY, leftP);
         let updateRight = rightY instanceof Y.XmlElement &&
           matchNodeName(rightY, rightP);
-        if (updateLeft && updateRight) {
+        // one pair on both sides needs no choosing, and weighing it twice reads every child twice
+        if (updateLeft && updateRight && (leftY !== rightY || leftP !== rightP)) {
           // decide which which element to update
           const equalityLeft = computeChildEqualityFactor(
             /** @type {Y.XmlElement} */ (leftY),
@@ -1678,8 +1795,16 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
             meta
           );
           right += 1;
+        } else if (leftY instanceof Array) {
+          // A run's texts stay, emptied, so typing another tab sends into them still lands
+          const replacement = createTypeFromTextOrElementNode(leftP, meta);
+          emptyRun(leftY, meta);
+          yDomFragment.insert(rawIndexAfter(yDomFragment, leftY), [replacement]);
+          aligned = false;
+          yChildren[left] = replacement;
+          left += 1;
         } else {
-          const index = hasHidden ? yDomFragment.toArray().indexOf(leftY) : left;
+          const index = aligned ? left : yDomFragment.toArray().indexOf(leftY);
           const replacement = createTypeFromTextOrElementNode(leftP, meta);
           meta.mapping.delete(leftY);
           yDomFragment.delete(index, 1);
@@ -1690,27 +1815,26 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
       }
     }
     const yDelLen = yChildCnt - left - right;
-    if (
-      yChildCnt === 1 && pChildCnt === 0 && yChildren[0] instanceof Y.XmlText
-    ) {
-      meta.mapping.delete(yChildren[0]);
-      // Edge case handling https://github.com/yjs/y-prosemirror/issues/108
-      // Only delete the content of the Y.Text to retain remote changes on the same Y.Text object
-      yChildren[0].delete(0, yChildren[0].length);
-    } else if (yDelLen > 0 && hasHidden) {
-      const doomed = yChildren.slice(left, left + yDelLen);
-      doomed.forEach(type => meta.mapping.delete(type));
-      deleteChildren(yDomFragment, doomed);
-    } else if (yDelLen > 0) {
-      yDomFragment.slice(left, left + yDelLen).forEach(type => meta.mapping.delete(type));
+    // Edge case handling https://github.com/yjs/y-prosemirror/issues/108
+    // Only delete the content of a Y.Text to retain remote changes on the same Y.Text object
+    const doomed = yChildren.slice(left, left + yDelLen);
+    doomed.forEach((group) => {
+      if (group instanceof Array) emptyRun(group, meta);
+      else meta.mapping.delete(group);
+    });
+    const doomedTypes = doomed.filter((group) => !(group instanceof Array));
+    if (aligned && doomedTypes.length === yDelLen && yDelLen > 0) {
       yDomFragment.delete(left, yDelLen);
+    } else if (doomedTypes.length > 0) {
+      deleteChildren(yDomFragment, doomedTypes);
+      aligned = false;
     }
     if (left + right < pChildCnt) {
       const ins = [];
       for (let i = left; i < pChildCnt - right; i++) {
         ins.push(createTypeFromTextOrElementNode(pChildren[i], meta));
       }
-      const index = !hasHidden || left === 0 ? left : yDomFragment.toArray().indexOf(yChildren[left - 1]) + 1;
+      const index = aligned || left === 0 ? left : rawIndexAfter(yDomFragment, yChildren[left - 1]);
       yDomFragment.insert(index, ins);
     }
   }, ySyncPluginKey);

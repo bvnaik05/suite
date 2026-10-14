@@ -699,17 +699,18 @@ describe('building a document from Yjs', () => {
     expect([node.textContent, [...hidden], lost]).toEqual(['a', [empty], [misplaced]])
   })
 
-  it('folds a text this tab makes into the text before it, as the live editor', () => {
+  it('keeps a text this tab makes beside another apart from it, as the live editor', () => {
     const tab = open(stored(paragraph('hello')))
     const block = tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement
 
     block.insert(1, [new Y.XmlText(' there')])
 
-    expect([block.length, block.toString()]).toEqual([1, '<paragraph>hello there</paragraph>'])
+    expect([block.length, block.toString()]).toEqual([2, '<paragraph>hello there</paragraph>'])
+    expect(tab.editor.state.doc.textContent).toBe('hello there')
   })
 })
 
-// Two tabs typing into one empty block at once each make a text in it; the tab whose text lands second folds it into the first
+// Two tabs typing into one empty block at once each make a text in it, and every tab keeps both
 describe('two texts side by side in one block', () => {
   const base = stored(element('paragraph'))
 
@@ -728,12 +729,13 @@ describe('two texts side by side in one block', () => {
     return tabs.map((tab) => Y.getState(tab.ydoc.store, tab.ydoc.clientID))
   }
 
-  it('folds them into one once the tabs sync, and later typing at once is not doubled', () => {
+  it('keeps them apart once the tabs sync, writes nothing for it, and later typing at once is not doubled', () => {
     const [mine, other] = typeAtOnce()
+    const clocks = ownClocks(mine, other)
     exchange(mine, other)
     exchange(mine, other)
 
-    expect([texts(mine), texts(other)]).toEqual([1, 1])
+    expect([texts(mine), texts(other), ownClocks(mine, other)]).toEqual([2, 2, clocks])
 
     type(mine, 'X', 3)
     type(other, 'Y')

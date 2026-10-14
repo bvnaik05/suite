@@ -16,10 +16,10 @@ const VENDORED_DIR = path.resolve(__dirname, '../../../../packages/collab-prosem
 const SHA256: Record<string, string> = {
   // published 606fedd1...; then every new textblock gets its text node eagerly; then content the editor
   // can't hold freezes the binding, and leftovers holding nothing are hidden and skipped, never deleted;
-  // then a tab that can edit folds its own side-by-side texts on every render, remote ones included;
+  // then side-by-side texts are written as one run in place, never folded into one;
   // then formatting the editor can't show where it sits is kept on a keptFormatting mark;
   // then the kept mark's shownFirst marks win, and builtMarks gives the marks a build would
-  'dist/y-tiptap.js': '185c6c7017d8ff51ac3c5f5eadc3ff785a4f20ff52c3c698daac70addf71df99',
+  'dist/y-tiptap.js': '1411d0fe317718d39a90061dc4afd00ab066dba1d35f8b69f66490f04ba273bb',
   // published 788e88fe...; then positions skip hidden leftovers
   'dist/src/lib.d.ts': '7e43ada60eb3ffaf60754b08f4d5268a4cd261e54c2b774a362760f0f41749ef',
   'dist/src/plugins/cursor-plugin.d.ts':
