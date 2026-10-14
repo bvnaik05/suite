@@ -400,7 +400,7 @@ export const useComposeMail = (options: ComposeMailOptions) => {
       onSent: requestListReload,
       restore: () => {
         if (draft.id) releaseDraft(draft.id)
-        requestCompose(draft)
+        requestCompose({ ...draft, account })
       },
       // Reopening a draft needs no particular list on screen, so its Cmd/Ctrl+Z outlives the view.
       undoSlot: {

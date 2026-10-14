@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const calls: { reference: string; input: unknown }[] = []
 vi.mock('@/api', () => ({
@@ -14,34 +14,64 @@ vi.mock('@/api', () => ({
 }))
 
 const load = () => import('./pendingRemovals')
+const settle = () => vi.advanceTimersByTimeAsync(0)
 
 describe('pending removals', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     calls.length = 0
     localStorage.clear()
   })
+  afterEach(() => vi.useRealTimers())
 
-  it('sends on the next start what a closed page left, once', async () => {
+  it('sends what a closed page left once its Undo window is over, and only once', async () => {
     const { rememberRemoval, resumeRemovals } = await load()
     rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
     rememberRemoval({ kind: 'messages', names: ['n1', 'n2'] })
+    vi.advanceTimersByTime(60_000)
 
-    expect(await resumeRemovals()).toBe(true)
+    const onSent = vi.fn()
+    await resumeRemovals(onSent)
     expect(calls).toEqual([
       { reference: 'deleteDraft', input: { account: 'a', id: 'd1' } },
       { reference: 'delete', input: { names: ['n1', 'n2'] } },
     ])
+    expect(onSent).toHaveBeenCalledOnce()
 
     calls.length = 0
-    expect(await resumeRemovals()).toBe(false)
+    await resumeRemovals()
     expect(calls).toEqual([])
   })
 
-  it('leaves nothing to resume for a removal already settled', async () => {
-    const { forgetRemoval, rememberRemoval, resumeRemovals } = await load()
-    forgetRemoval(rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' }))
-    expect(await resumeRemovals()).toBe(false)
+  it('leaves a removal another tab may still undo, and sends it once it is abandoned', async () => {
+    const { rememberRemoval, resumeRemovals } = await load()
+    rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+
+    await resumeRemovals()
     expect(calls).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(calls).toEqual([{ reference: 'deleteDraft', input: { account: 'a', id: 'd1' } }])
+  })
+
+  it('sends nothing for a removal the other tab settled in its window', async () => {
+    const { forgetRemoval, rememberRemoval, resumeRemovals } = await load()
+    const key = rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+    await resumeRemovals()
+    forgetRemoval(key)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(calls).toEqual([])
+  })
+
+  it('sends a removal written before removals carried a due time', async () => {
+    const { resumeRemovals } = await load()
+    localStorage.setItem(
+      'suite.mail.pendingRemovals',
+      JSON.stringify({ old: { kind: 'draft', account: 'a', id: 'd1' } }),
+    )
+    await resumeRemovals()
+    expect(calls).toEqual([{ reference: 'deleteDraft', input: { account: 'a', id: 'd1' } }])
   })
 
   it('sends nothing for a draft that was never saved', async () => {

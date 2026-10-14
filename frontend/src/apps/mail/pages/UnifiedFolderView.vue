@@ -457,14 +457,14 @@ const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
   filter_by: filter.value,
   category: inboxTab.value,
 }))
-// Drafts discarded but still inside their Undo window: off the list, not yet off the server.
-const discarding = ref(new Set<string>())
-const { isDiscarding: isDiscardingDraft } = useDiscardingDrafts()
+// Drafts discarded but still inside their Undo window are off the list, not yet off the server.
+// Held by message id, so only a row made of those drafts goes: the conversation a reply draft
+// belongs to keeps its row in every other folder.
+const { isDiscarding: isDiscardingDraft, holdDraft, releaseDraft } = useDiscardingDrafts()
 const threadRows = computed(() =>
   threads.rows
     .map((row) => threadRow(row, store.accountId))
-    .filter((row) => !isDiscardingDraft(row))
-    .filter((row) => !discarding.value.has(threadKey(row))),
+    .filter((row) => !isDiscardingDraft(row)),
 )
 const isLoading = computed(
   () =>
@@ -1428,9 +1428,9 @@ const discardDrafts = (rows: Thread[]) => {
   const keys = rows.map(threadKey)
   goToNextThreadOrClose(keys)
   closeComposeWindowFor(rows.flatMap(messageIds))
-  discarding.value = new Set([...discarding.value, ...keys])
-  const show = () =>
-    (discarding.value = new Set([...discarding.value].filter((k) => !keys.includes(k))))
+  const held = rows.flatMap((row) => row.messages.map((m) => m.id))
+  held.forEach(holdDraft)
+  const show = () => held.forEach(releaseDraft)
   commitAfterUndo({
     message: rows.length === 1 ? __('Draft discarded.') : __('Drafts discarded.'),
     removal: { kind: 'messages', names },

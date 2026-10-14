@@ -43,6 +43,7 @@
         :key="composeKey"
         v-model="showCompose"
         :mail-details="composeDetails"
+        :account="composeDetails?.account"
         @reload-mails="requestListReload()"
       />
     </div>
@@ -95,7 +96,7 @@ const { userResource } = store
 const { isMobile } = useScreenSize()
 const { requestListReload } = useListReload()
 // Removals a closed page left inside their Undo window: the window is over, so they go now.
-void resumeRemovals().then((sent) => sent && requestListReload())
+void resumeRemovals(requestListReload)
 
 const router = useRouter()
 const route = useRoute()
@@ -154,7 +155,7 @@ const openCompose = (details: ComposeMailData) => {
   // Mobile has no composer window to open — compose is a page there, and the draft
   // travels to it through the handoff.
   if (isMobile.value) {
-    openComposePage(router, store.accountId, details)
+    openComposePage(router, details.account ?? store.accountId, details)
     return
   }
   composeDetails.value = details

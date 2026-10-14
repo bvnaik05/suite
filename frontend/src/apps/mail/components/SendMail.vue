@@ -127,15 +127,24 @@ import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vu
 import ComposeMailEditor from '@/apps/mail/components/ComposeMailEditor.vue'
 import { claimComposeWindow } from '@/apps/mail/composables/useComposeWindow'
 import type { ComposeMailData } from '@/apps/mail/types'
+import { provideAccountScope } from '@/apps/mail/utils/accountScope'
 
 const show = defineModel<boolean>()
 
 // `startExpanded`: open over the page rather than docked — a draft popped out of a thread was
 // already being written, and leaving the thread for it asks for room.
-const { mailDetails, startExpanded = false } = defineProps<{
+const {
+  mailDetails,
+  startExpanded = false,
+  account,
+} = defineProps<{
   mailDetails?: ComposeMailData
   startExpanded?: boolean
+  // The account to write in, when not the one around the window: the layout's window otherwise
+  // writes in the active account, and a draft from another one would save against the wrong one.
+  account?: string
 }>()
+if (account) provideAccountScope(() => account)
 
 const emit = defineEmits(['reloadMails', 'discardMail', 'discardStarted'])
 
