@@ -621,10 +621,12 @@ describe('Writer surface', () => {
   it('shows the stop strip on Back to current when the stop came during a preview', async () => {
     const room = liveRoom()
     const changes: (() => void)[] = []
-    room.onChange = (listener: () => void) => {
+    function onChange(listener: () => void) {
       changes.push(listener)
       return () => {}
     }
+
+    Object.assign(room, { onChange })
 
     const root = await openedSurface(oneVersion)
 
