@@ -3,7 +3,7 @@
 	     address, or find the rest of their mail. Opened from the sender in an open message. -->
   <div class="w-72" @click.stop>
     <div class="flex items-center gap-2.5 p-3 pb-2.5">
-      <Avatar :label="initial" :image="image" size="xl" />
+      <Avatar :label="initial" :image="image" size="2xl" />
       <div class="min-w-0">
         <p class="text-ink-gray-8 truncate text-base font-semibold">{{ name }}</p>
         <p class="text-ink-gray-5 truncate text-sm">{{ email }}</p>

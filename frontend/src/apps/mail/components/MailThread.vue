@@ -238,7 +238,7 @@
                         <Avatar
                           :label="getSenderInitial(mail)"
                           :image="mail.user_image"
-                          :size="isCollapsed(mail) ? (isMobile ? 'lg' : 'md') : 'xl'"
+                          :size="isCollapsed(mail) ? (isMobile ? 'lg' : 'md') : '2xl'"
                           :class="{ 'cursor-pointer': !isCollapsed(mail) && !isMobile }"
                           @pointerdown="noteSenderCardPress(mail)"
                           @click="toggleSenderCard(mail, $event)"
