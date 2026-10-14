@@ -80,6 +80,15 @@ const handleMessage = (event: MessageEvent) => {
     if (draft) requestCompose(draft)
     return
   }
+  // A press inside the message, replayed from the frame element so the page's outside-press
+  // handlers (reka's dismissable layers) see it land outside whatever popover is open. As a mouse
+  // press: reka waits for a touch's click, and that click stays in the frame.
+  if (event.data?.type === 'pointerdown') {
+    const iframe = frame.value?.$el as HTMLIFrameElement | undefined
+    if (!iframe || event.source !== iframe.contentWindow) return
+    iframe.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }))
+    return
+  }
   if (event.data?.type !== 'keyboard') return
 
   // Create a synthetic keyboard event in the parent
@@ -394,6 +403,12 @@ const srcdoc = computed(() => {
 							metaKey: e.metaKey,
 						}, '*');
 					});
+				});
+
+				// Presses never leave the frame, so a popover open over the page (a message's
+				// details, an invite's event) could not hear the one that should close it.
+				document.addEventListener('pointerdown', () => {
+					window.parent.postMessage({ type: 'pointerdown' }, '*');
 				});
 
 				// Forward link clicks to parent
