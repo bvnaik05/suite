@@ -3459,7 +3459,7 @@ onBeforeUnmount(() => {
           <Tooltip
             v-for="color in solidColors"
             :key="color.color"
-            :text="`${color.label} color`"
+            :text="color.label"
             side="top"
           >
             <Button
@@ -3467,7 +3467,7 @@ onBeforeUnmount(() => {
               size="xs"
               variant="ghost"
               theme="gray"
-              :label="`${color.label} color`"
+              :label="color.label"
               :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color"
               :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color }"
               :style="{ '--property-color': color.color }"
