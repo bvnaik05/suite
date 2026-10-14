@@ -9,7 +9,21 @@
 //
 // This module has no canvas/DOM dependency so the geometry is unit-testable.
 
-const SPARK_TYPES = new Set(['line', 'column'])
+export type SparkType = 'line' | 'column'
+
+/** What `=SPARKLINE(...)` evaluates to; the cell paints a chart from it. */
+export interface SparkSpec {
+  __spark: true
+  type: SparkType
+  data: number[]
+  color: string | null
+}
+
+export type SparkGeometry =
+  | { kind: 'line'; points: { x: number; y: number }[] }
+  | { kind: 'bars'; bars: { x: number; y: number; w: number; h: number; neg: boolean }[] }
+
+const SPARK_TYPES = new Set<string>(['line', 'column'])
 
 // A colour is a hex literal (#rgb…#rrggbbaa) or a real CSS colour keyword. We
 // validate against the actual keyword set — a bare /[a-z]+/ would admit a typo
@@ -39,20 +53,24 @@ const CSS_COLORS = new Set(
   ).split(' '),
 )
 
-function _isColor(c) {
+function _isColor(c: string): boolean {
   return HEX_RE.test(c) || CSS_COLORS.has(c.toLowerCase())
 }
 
 // Normalise a type argument to a supported chart type (default 'line').
-export function sparkType(v) {
+export function sparkType(v: unknown): SparkType {
   const t = String(v ?? '').toLowerCase()
-  return SPARK_TYPES.has(t) ? t : 'line'
+  return SPARK_TYPES.has(t) ? (t as SparkType) : 'line'
 }
 
 // Build a spec from a (possibly mixed) data array plus options. Empty cells and
 // non-numeric values are dropped (treated as gaps, like Google Sheets) so a
 // blank or a stray label in the range doesn't read as a spurious 0.
-export function sparkSpec(data, type, color) {
+export function sparkSpec(
+  data: readonly unknown[] | null | undefined,
+  type: unknown,
+  color: unknown,
+): SparkSpec {
   const nums = (data || [])
     .filter((v) => !(v == null || (typeof v === 'string' && v.trim() === '')))
     .map((v) => Number(v))
@@ -66,8 +84,8 @@ export function sparkSpec(data, type, color) {
   }
 }
 
-export function isSparkSpec(v) {
-  return !!(v && typeof v === 'object' && v.__spark === true)
+export function isSparkSpec(v: unknown): v is SparkSpec {
+  return !!(v && typeof v === 'object' && (v as { __spark?: unknown }).__spark === true)
 }
 
 // Given a spec and the cell's pixel box, return the primitives to draw:
@@ -75,7 +93,12 @@ export function isSparkSpec(v) {
 //   { kind:'bars', bars:[{x,y,w,h,neg},…] }   (column/bar)
 // or null when there's nothing to draw (no numeric data, or a box too small).
 // Coordinates are relative to the cell's top-left, inset by `pad`.
-export function sparkGeometry(spec, w, h, pad = 3) {
+export function sparkGeometry(
+  spec: SparkSpec | null | undefined,
+  w: number,
+  h: number,
+  pad = 3,
+): SparkGeometry | null {
   const data = spec?.data || []
   const pw = w - pad * 2
   const ph = h - pad * 2
@@ -85,9 +108,9 @@ export function sparkGeometry(spec, w, h, pad = 3) {
   const max = Math.max(...data)
   const span = max - min || 1
   // Map a value to a y inside the padded box, higher value = higher (smaller y).
-  const yOf = (v) => pad + (ph - ((v - min) / span) * ph)
+  const yOf = (v: number) => pad + (ph - ((v - min) / span) * ph)
 
-  if (spec.type === 'column') {
+  if (spec?.type === 'column') {
     const n = data.length
     const gap = n > 20 ? 0 : 1 // drop gaps when very dense
     const bw = Math.max(1, (pw - gap * (n - 1)) / n)
@@ -121,16 +144,28 @@ export function sparkGeometry(spec, w, h, pad = 3) {
 const SPARK_RE =
   /^=\s*SPARKLINE\s*\(\s*(?:('(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!)?\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?\s*(?:,\s*"([^"]*)"\s*)?(?:,\s*"([^"]*)"\s*)?\)\s*$/i
 
-function _colIndex(letters) {
+function _colIndex(letters: string): number {
   let n = 0
   for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64)
   return n - 1
 }
 
-export function parseSparkline(input) {
+export interface SparklineRef {
+  /** null: the sparkline cell's own sheet. */
+  sheet: string | null
+  r0: number
+  c0: number
+  r1: number
+  c1: number
+  type: string | null
+  color: string | null
+}
+
+export function parseSparkline(input: unknown): SparklineRef | null {
   const m = typeof input === 'string' ? SPARK_RE.exec(input) : null
   if (!m) return null
-  const [, rawSheet, ca, ra, cb = ca, rb = ra, type, color] = m
+  // The column and row of the first ref are required groups, so always set.
+  const [, rawSheet, ca = '', ra = '', cb = ca, rb = ra, type, color] = m
   const sheet = rawSheet
     ? rawSheet.startsWith("'")
       ? rawSheet.slice(1, -1).replace(/''/g, "'")
@@ -138,8 +173,8 @@ export function parseSparkline(input) {
     : null
   const c0 = _colIndex(ca),
     c1 = _colIndex(cb)
-  const r0 = +ra - 1,
-    r1 = +rb - 1
+  const r0 = Number(ra) - 1,
+    r1 = Number(rb) - 1
   return {
     sheet,
     r0: Math.min(r0, r1),

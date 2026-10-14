@@ -49,7 +49,7 @@ const DOMAIN_RE = /^([a-z0-9-]+\.)+([a-z]{2,24})(\/[^\s]*|\?[^\s]*|#[^\s]*)?$/i
 // Returns the normalized target URL when `value` is a whole-cell URL, else
 // null. Formulas, multi-token text, and bare emails never match (Sheets
 // auto-links emails only in Docs, not in cells).
-export function detectHyperlink(value) {
+export function detectHyperlink(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const v = value.trim()
   if (!v || /\s/.test(v) || v.startsWith('=')) return null
@@ -59,14 +59,14 @@ export function detectHyperlink(value) {
   if (v.includes('@')) return null
   if (WWW_RE.test(v)) return 'https://' + v
   const m = v.match(DOMAIN_RE)
-  if (m && BARE_TLDS.has(m[2].toLowerCase())) return 'https://' + v
+  if (m && BARE_TLDS.has((m[2] ?? '').toLowerCase())) return 'https://' + v
   return null
 }
 
 // True when the cell's text is just its own URL (an auto-linked cell, not a
 // custom display text set via the hyperlink dialog). Editing such a cell to a
 // non-URL should drop the stale link; custom display text keeps it.
-export function isAutoLinkText(text, url) {
+export function isAutoLinkText(text: unknown, url: string | null | undefined): boolean {
   if (!url) return false
   const detected = detectHyperlink(String(text ?? ''))
   return detected === url
