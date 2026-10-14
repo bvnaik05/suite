@@ -32,14 +32,17 @@
     @drop.prevent="handleDrop"
   >
     <template #top>
-      <!-- The composer window: one row per field, each led by its name in a column of its own, so
-           the values line up down the page; the window pads nothing, so every row carries its own
-           inset. -->
-      <template v-if="windowed">
+      <!-- Desktop, in the composer window and in a thread alike: one row per field, each led by its
+           name in a column of its own, so the values line up down the page; neither host pads the
+           composer, so every row carries its own inset. A reply in a thread leaves From and
+           Subject out — the conversation around it says both — and switches between reply, reply
+           all and forward from the To row. -->
+      <template v-if="!isMobile">
         <!-- Scrolls rather than pushing the window's header off screen when enough recipients
              wrap that the fields outgrow a capped window. -->
         <div class="max-h-[40vh] min-h-0 shrink-0 overflow-y-auto">
           <div
+            v-if="showsFromAndSubject"
             class="flex items-center gap-2 border-b px-4 py-2"
             :class="{ 'border-transparent': isDragging }"
           >
@@ -57,11 +60,29 @@
               variant="ghost"
               class="-ml-[9px] min-w-0 max-w-full !text-ink-gray-8"
             />
+            <!-- Unsaved text is no reason to withhold this: the draft is handed to the window as
+                 it stands, in memory, rather than fetched back from the server. Only a save
+                 actually in flight holds it up — see popOut. -->
+            <Button
+              v-if="isInThread"
+              variant="ghost"
+              class="ml-auto shrink-0"
+              :tooltip="__('Open in a window')"
+              :disabled="isLoading"
+              @click="popOut()"
+            >
+              <template #icon>
+                <component :is="ExternalLink" class="text-ink-gray-5 h-4 w-4" />
+              </template>
+            </Button>
           </div>
           <div
             class="flex items-start gap-2 border-b px-4 py-2"
             :class="{ 'border-transparent': isDragging }"
           >
+            <Dropdown v-if="isInThread && mailDetails?.type" :options="localDraftActions">
+              <Button variant="ghost" class="-ml-1.5" :icon="TYPE_ICON_MAP[mailDetails.type]" />
+            </Dropdown>
             <Tooltip :text="__('Select from contacts')">
               <button
                 type="button"
@@ -127,6 +148,7 @@
           </template>
         </div>
         <input
+          v-if="showsFromAndSubject"
           ref="subjectInput"
           v-model="mail.subject"
           :placeholder="__('Subject')"
@@ -137,7 +159,7 @@
       </template>
       <div
         v-else
-        class="flex flex-col gap-2.5 border-b px-3 py-2.5 sm:px-4 sm:py-2"
+        class="flex flex-col gap-2.5 border-b px-3 py-2.5"
         :class="{ 'border-transparent': isDragging }"
       >
         <!-- A reply inside a thread leaves From and Subject out: the conversation around it
@@ -419,6 +441,8 @@ const emit = defineEmits([
 const { isMobile } = useScreenSize()
 // In the desktop composer window (SendMail) rather than a thread or the phone's page.
 const windowed = computed(() => !isInThread && !isMobile.value)
+// A reply in a thread has the conversation around it to say who it is from and what it is about.
+const showsFromAndSubject = computed(() => !isInThread || !mailDetails?.type)
 const textEditor = useTemplateRef('textEditor')
 const toInput = useTemplateRef('toInput')
 const ccInput = useTemplateRef('ccInput')
