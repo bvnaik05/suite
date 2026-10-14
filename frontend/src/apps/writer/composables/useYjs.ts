@@ -146,12 +146,17 @@ export function useYjs(
       return
     }
 
+    // Another old tab of this document on this device builds on the stored rows, so they stay
+    // unless this tab knows it is the only one
+    const isOnlyTab = provider.room?.bcconnected === true && provider.room.bcConns.size === 0
     provider.disconnect()
     await db.whenSynced
-    try {
-      db.db?.transaction('updates', 'readwrite').objectStore('updates').clear()
-    } catch {
-      // A failed clear leaves the store replaying into later opens, as before
+    if (isOnlyTab) {
+      try {
+        db.db?.transaction('updates', 'readwrite').objectStore('updates').clear()
+      } catch {
+        // A failed clear leaves the store replaying into later opens, as before
+      }
     }
 
     await db.destroy()

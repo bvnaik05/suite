@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref, type Ref } from 'vue'
 import { IndexeddbPersistence } from 'y-indexeddb'
+import type { Room } from 'y-webrtc'
 import * as Y from 'yjs'
 
 import { useYjs } from './useYjs'
@@ -9,6 +10,7 @@ vi.mock('y-webrtc', async () => {
   const { Awareness } = await import('y-protocols/awareness')
   class WebrtcProvider {
     awareness: InstanceType<typeof Awareness>
+    room = { bcconnected: true, bcConns: new Set() } as Pick<Room, 'bcconnected' | 'bcConns'> | null
     disconnect = vi.fn()
     destroy = vi.fn()
 
@@ -27,6 +29,8 @@ afterEach(() => {
   for (const tab of tabs.splice(0)) {
     tab.cleanup()
   }
+
+  vi.restoreAllMocks()
 })
 
 // An old editor's tab on document `id`, as TextEditor opens it
@@ -99,6 +103,30 @@ describe("the old editor's device store once a refused save is kept", () => {
     type(tab, ' and more')
 
     expect(await storedText('doc-failed-clear')).toBe('Kept line')
+  })
+
+  it('keeps the store while another old tab of the document is open on this device', async () => {
+    const tab = await loadedTab('doc-open-sibling')
+    type(tab, 'Old editor line')
+    tab.provider.room?.bcConns.add('sibling-tab')
+
+    await tab.forgetStoredEdits()
+
+    expect(await storedText('doc-open-sibling')).toBe('Old editor line')
+    expect(tab.provider.disconnect).toHaveBeenCalled()
+  })
+
+  it.each([
+    ["hasn't opened its room yet", 'doc-no-room', null],
+    ['has its room closed', 'doc-closed-room', { bcconnected: false, bcConns: new Set() }],
+  ])("keeps the store when the tab %s, so it can't see other tabs", async (_, id, room) => {
+    const tab = await loadedTab(id)
+    type(tab, 'Old editor line')
+    Object.assign(tab.provider, { room })
+
+    await tab.forgetStoredEdits()
+
+    expect(await storedText(id)).toBe('Old editor line')
   })
 
   it('keeps the store when the copy was taken before the store loaded', async () => {
