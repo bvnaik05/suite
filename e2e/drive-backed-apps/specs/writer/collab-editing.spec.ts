@@ -315,8 +315,33 @@ test.describe("Writer collaboration", () => {
 		const stored = await serverBlocks(testApi, node);
 		expect(stored.join("\n")).toContain("Typed just before the last tab closed");
 
+		const writes: string[] = [];
+		const openedAt = Date.now();
+		function recordWrite(request: Request) {
+			const url = request.url();
+			const method = request.method();
+			const isWrite = /\/api\/suite\/content\/[^/]+\/(updates|stage)/.test(url);
+			if (!isWrite || method === "GET") return;
+
+			const elapsedMs = Date.now() - openedAt;
+			writes.push(`${elapsedMs}ms ${method} ${url}`);
+		}
+
+		collaborator.page.on("request", recordWrite);
 		await openWriterDocument(collaborator.page, node);
-		await expect.poll(() => editorBlocks(collaborator.page)).toEqual(stored);
+		try {
+			await expect.poll(() => editorBlocks(collaborator.page)).toEqual(stored);
+		} catch (error) {
+			// Whether the reopened tab wrote anything tells a delete on its first render from a display miss
+			const reopened = {
+				server: await serverBlocks(testApi, node),
+				editor: await collaborator.page.evaluate(editorJson),
+				writes,
+			};
+			const report = JSON.stringify(reopened);
+			console.log(`R162 reopen: ${report}`);
+			throw error;
+		}
 	});
 
 	test("a second tab counts the first tab's unsent edit and shows Saved once it is sent", async ({
@@ -370,6 +395,12 @@ function dropPushes(route: Route) {
 	}
 
 	return route.fallback();
+}
+
+// Runs in the page, so it reads nothing from this module
+function editorJson() {
+	const root = document.querySelector(".ProseMirror") as { editor?: { getJSON: () => object } } | null;
+	return root?.editor?.getJSON() ?? null;
 }
 
 // The header's "<n> unsent", once the tab holds unsent work
