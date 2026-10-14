@@ -5,15 +5,25 @@
 // the one query that has no Drive equivalent — the edits one cell has seen.
 
 import { api, client } from '@/api'
+import type { RequestContext } from '@/platform/transport'
+
+/** One edit to a cell, in CellHistoryPopover.vue's field names. */
+export interface CellHistoryEntry {
+  version: string
+  timestamp: string | null
+  user: string | null
+  before: unknown
+  after: unknown
+}
 
 // `fetch` is the Drive session's, so a share link's holder is answered for
 // the link they opened the sheet with.
 export async function cellHistory(
-  sheet,
-  cellRef,
+  sheet: string,
+  cellRef: string,
   sheetName = 'Sheet1',
-  { limit = 50, context } = {},
-) {
+  { limit = 50, context }: { limit?: number; context?: RequestContext | undefined } = {},
+): Promise<CellHistoryEntry[]> {
   const ops = await client.query(
     api.sheets.history.cell,
     {

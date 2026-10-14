@@ -17,7 +17,15 @@
 // new `type:variant` by checking whether the second token is digits-only.
 // `type:variant:decimals` keeps both pieces explicit.
 
-export function parseNumberFmt(fmt) {
+export interface NumberFmt {
+  type: string
+  variant: string
+  decimals: number | null
+  /** Only for `custom:`: the raw Excel-style pattern. */
+  pattern?: string
+}
+
+export function parseNumberFmt(fmt: unknown): NumberFmt {
   if (!fmt) return { type: '', variant: '', decimals: null }
   // Custom patterns carry a raw Excel-style string that may itself contain ':'
   // (e.g. a time mask), so they're kept whole rather than split on ':'.
@@ -25,22 +33,25 @@ export function parseNumberFmt(fmt) {
   if (s.startsWith('custom:'))
     return { type: 'custom', pattern: s.slice(7), variant: '', decimals: null }
   const parts = s.split(':')
-  const type = parts[0]
+  const [type = '', second = '', third = ''] = parts
   let variant = ''
-  let decimals = null
+  let decimals: number | null = null
   if (parts.length >= 3) {
-    variant = parts[1]
-    decimals = parts[2] !== '' ? parseInt(parts[2], 10) : null
+    variant = second
+    decimals = third !== '' ? parseInt(third, 10) : null
   } else if (parts.length === 2) {
-    const p = parts[1]
-    if (/^-?\d+$/.test(p)) decimals = parseInt(p, 10)
-    else variant = p
+    if (/^-?\d+$/.test(second)) decimals = parseInt(second, 10)
+    else variant = second
   }
   if (Number.isNaN(decimals)) decimals = null
   return { type, variant, decimals }
 }
 
-export function buildNumberFmt(type, variant, decimals) {
+export function buildNumberFmt(
+  type: string,
+  variant?: string | null,
+  decimals?: number | null,
+): string {
   if (!type) return ''
   const hasV = !!variant
   const hasD = decimals != null
@@ -50,12 +61,20 @@ export function buildNumberFmt(type, variant, decimals) {
   return type
 }
 
+export interface Currency {
+  symbol: string
+  locale: string
+  defaultDecimals: number
+}
+
+const USD: Currency = { symbol: '$', locale: 'en-US', defaultDecimals: 2 }
+
 // Supported currencies. `locale` drives symbol placement, thousand grouping,
 // and decimal separator. `defaultDecimals` matters for JPY (whole yen) — the
 // rest are 2 by default. Keep this list short on purpose; "More currencies"
 // can be a follow-up.
-export const CURRENCIES = {
-  USD: { symbol: '$', locale: 'en-US', defaultDecimals: 2 },
+export const CURRENCIES: Record<string, Currency> = {
+  USD,
   EUR: { symbol: '€', locale: 'de-DE', defaultDecimals: 2 },
   GBP: { symbol: '£', locale: 'en-GB', defaultDecimals: 2 },
   INR: { symbol: '₹', locale: 'en-IN', defaultDecimals: 2 },
@@ -67,17 +86,19 @@ export const CURRENCIES = {
 
 // Number variant → locale used by Intl.NumberFormat. 'in' gives the Indian
 // lakhs/crores grouping (12,34,56,789). '' means user-default locale.
-const NUMBER_LOCALES = {
+const NUMBER_LOCALES: Record<string, string | undefined> = {
   '': undefined,
   us: 'en-US',
   in: 'en-IN',
 }
 
+type DateTimeFormatters = Record<string, [locale: string, opts: Intl.DateTimeFormatOptions]>
+
 // Date variants. Each maps to a (locale, Intl.DateTimeFormat options) pair.
 // '' is the legacy behaviour — defer to the user's locale's toLocaleDateString.
 // Locales are pinned so the *shape* is stable across machines; users who want
 // browser-locale output can stay on the default.
-const DATE_FORMATTERS = {
+const DATE_FORMATTERS: DateTimeFormatters = {
   dmy: ['en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }], // 15/01/2025
   mdy: ['en-US', { day: '2-digit', month: '2-digit', year: 'numeric' }], // 01/15/2025
   ymd: ['en-CA', { day: '2-digit', month: '2-digit', year: 'numeric' }], // 2025-01-15
@@ -86,7 +107,7 @@ const DATE_FORMATTERS = {
 }
 
 // Time variants. `12` suffix flips to 12-hour clock with AM/PM.
-const TIME_FORMATTERS = {
+const TIME_FORMATTERS: DateTimeFormatters = {
   hm: ['en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }], // 15:30
   hms: ['en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }], // 15:30:45
   hm12: ['en-US', { hour: 'numeric', minute: '2-digit', hour12: true }], // 3:30 PM
@@ -97,11 +118,11 @@ const TIME_FORMATTERS = {
 // sheet typically uses only a handful of unique format configurations
 // across thousands of cells. Cache instances by a string key so we build
 // each formatter once and reuse it on every cell.
-const _intlCache = new Map()
+const _intlCache = new Map<string, Intl.NumberFormat | Intl.DateTimeFormat>()
 
-function _numFmt(locale, decimals) {
+function _numFmt(locale: string | undefined, decimals: number | null): Intl.NumberFormat {
   const key = `n|${locale ?? '_'}|${decimals ?? '_'}`
-  let f = _intlCache.get(key)
+  let f = _intlCache.get(key) as Intl.NumberFormat | undefined
   if (!f) {
     const opts =
       decimals == null
@@ -113,9 +134,9 @@ function _numFmt(locale, decimals) {
   return f
 }
 
-function _curFmt(locale, currency, decimals) {
+function _curFmt(locale: string, currency: string, decimals: number): Intl.NumberFormat {
   const key = `c|${locale}|${currency}|${decimals}`
-  let f = _intlCache.get(key)
+  let f = _intlCache.get(key) as Intl.NumberFormat | undefined
   if (!f) {
     f = new Intl.NumberFormat(locale, {
       style: 'currency',
@@ -128,11 +149,11 @@ function _curFmt(locale, currency, decimals) {
   return f
 }
 
-function _dtFmt(locale, opts) {
+function _dtFmt(locale: string, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
   // Options are small objects with a stable key set — JSON.stringify is fine
   // (and the cost is paid once per unique format string).
   const key = `d|${locale}|${JSON.stringify(opts)}`
-  let f = _intlCache.get(key)
+  let f = _intlCache.get(key) as Intl.DateTimeFormat | undefined
   if (!f) {
     f = new Intl.DateTimeFormat(locale, opts)
     _intlCache.set(key, f)
@@ -140,8 +161,8 @@ function _dtFmt(locale, opts) {
   return f
 }
 
-function _formatWith(map, variant, d) {
-  const cfg = map[variant]
+function _formatWith(map: DateTimeFormatters, variant: string | undefined, d: Date): string | null {
+  const cfg = variant == null ? undefined : map[variant]
   if (!cfg) return null
   return _dtFmt(cfg[0], cfg[1]).format(d)
 }
@@ -154,7 +175,7 @@ function _formatWith(map, variant, d) {
 // For strings we normalise "YYYY-MM-DD HH:mm:ss.ffffff": space→T and trim
 // sub-millisecond digits (JS Date only takes 3), and pin a bare date to local
 // midnight so an ISO date-only value isn't parsed as UTC and shifted a day.
-function _toDate(value) {
+function _toDate(value: unknown): Date | null {
   if (value instanceof Date) return isNaN(value.getTime()) ? null : value
   if (typeof value === 'number') return isNaN(value) ? null : new Date(value)
   const s = String(value).trim()
@@ -170,7 +191,10 @@ function _toDate(value) {
 // Types whose value is a date, not a plain number to round/group.
 const DATE_LIKE = new Set(['date', 'time', 'datetime'])
 
-export function applyNumberFmt(value, format) {
+// Returns the formatted string, or the value untouched when the format
+// doesn't apply to it. (`parseFloat` coerces its argument to a string itself,
+// so cell values of any type go straight in.)
+export function applyNumberFmt<T>(value: T, format: unknown): T | string {
   if (!format) return value
   if (String(format).startsWith('custom:')) return applyCustomFmt(value, String(format).slice(7))
   const { type, variant, decimals } = parseNumberFmt(format)
@@ -178,15 +202,16 @@ export function applyNumberFmt(value, format) {
   // Cells flagged 'text' should also be treated as text in formulas; that's
   // handled by the engine's strict-arithmetic — see toNumStrict.
   if (type === 'text') return value == null ? '' : String(value)
-  const n = parseFloat(value)
+  const n = parseFloat(value as string)
   if (isNaN(n) && !DATE_LIKE.has(type)) return value
   if (type === 'number') {
     const loc = NUMBER_LOCALES[variant] !== undefined ? NUMBER_LOCALES[variant] : undefined
     return _numFmt(loc, decimals).format(n)
   }
   if (type === 'currency') {
-    const code = CURRENCIES[variant] ? variant : 'USD'
-    const cfg = CURRENCIES[code]
+    const known = CURRENCIES[variant]
+    const code = known ? variant : 'USD'
+    const cfg = known ?? USD
     const d = decimals ?? cfg.defaultDecimals
     return _curFmt(cfg.locale, code, d).format(n)
   }
@@ -224,8 +249,8 @@ export function applyNumberFmt(value, format) {
 // A pattern has one numeric run; anything before/after it is emitted verbatim,
 // so `"$"#,##0.00`, `0.0%`, `#,##0 "kg"` all work. Negatives get a leading '-'
 // (Excel's `positive;negative` sections are a later follow-up).
-function applyCustomFmt(value, pattern) {
-  const n = parseFloat(value)
+function applyCustomFmt<T>(value: T, pattern: string): T | string {
+  const n = parseFloat(value as string)
   if (isNaN(n)) return value == null ? '' : String(value)
   const { prefix, numSpec, suffix, percent } = _parseCustomPattern(pattern)
   if (!numSpec) return prefix + suffix
@@ -240,19 +265,24 @@ function applyCustomFmt(value, pattern) {
 // Split a pattern into its literal prefix/suffix and the single numeric run,
 // counting '%' signs (each scales the value by 100). Quotes and `\` escape
 // literals so a stray '0' or '#' inside text isn't treated as a placeholder.
-function _parseCustomPattern(pattern) {
+function _parseCustomPattern(pattern: string): {
+  prefix: string
+  numSpec: string
+  suffix: string
+  percent: number
+} {
   let prefix = '',
     numSpec = '',
     suffix = '',
     percent = 0
   let state = 'pre' // pre → num → post
   for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]
+    const ch = pattern.charAt(i)
     let lit
     if (ch === '"') {
       let s = ''
       i++
-      while (i < pattern.length && pattern[i] !== '"') s += pattern[i++]
+      while (i < pattern.length && pattern[i] !== '"') s += pattern.charAt(i++)
       lit = s
     } else if (ch === '\\') {
       lit = pattern[i + 1] ?? ''
@@ -276,7 +306,7 @@ function _parseCustomPattern(pattern) {
 
 // Render a number against a numeric run like `#,##0.00`: honour min integer
 // digits ('0'), optional digits ('#'), thousands grouping, and min/max decimals.
-function _renderNumSpec(n, spec) {
+function _renderNumSpec(n: number, spec: string): string {
   n = Math.abs(n)
   const dot = spec.indexOf('.')
   const intSpec = dot === -1 ? spec : spec.slice(0, dot)
@@ -286,7 +316,7 @@ function _renderNumSpec(n, spec) {
   const minFrac = (fracSpec.match(/0/g) || []).length
   const maxFrac = (fracSpec.match(/[0#]/g) || []).length
 
-  let [ip, fp = ''] = n.toFixed(maxFrac).split('.')
+  let [ip = '', fp = ''] = n.toFixed(maxFrac).split('.')
   while (fp.length > minFrac && fp.endsWith('0')) fp = fp.slice(0, -1) // drop optional trailing zeros
   if (fp.length < minFrac) fp = fp.padEnd(minFrac, '0')
   if (ip.length < minInt) ip = ip.padStart(minInt, '0')

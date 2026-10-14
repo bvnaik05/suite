@@ -9,16 +9,30 @@
 // `true` → 'wrap', `false`/missing → 'overflow'. New writes always
 // use `textWrap`; old cells keep working until they're re-saved.
 
-export const WRAP_MODES = ['overflow', 'clip', 'wrap']
+export type WrapMode = 'overflow' | 'clip' | 'wrap'
 
-export function getTextWrap(fmt) {
+/** The format fields wrapping reads. */
+interface WrapFormat {
+  textWrap?: string | undefined
+  wrapText?: boolean | undefined
+  fontSize?: number | undefined
+}
+
+export const WRAP_MODES: readonly WrapMode[] = ['overflow', 'clip', 'wrap']
+
+function _isWrapMode(v: unknown): v is WrapMode {
+  return (WRAP_MODES as readonly unknown[]).includes(v)
+}
+
+/** The cell's wrap mode; the legacy `wrapText: true` reads as 'wrap'. */
+export function getTextWrap(fmt: WrapFormat | null | undefined): WrapMode {
   if (!fmt) return 'overflow'
-  if (WRAP_MODES.includes(fmt.textWrap)) return fmt.textWrap
+  if (_isWrapMode(fmt.textWrap)) return fmt.textWrap
   if (fmt.wrapText === true) return 'wrap'
   return 'overflow'
 }
 
-export function isWrapText(fmt) {
+export function isWrapText(fmt: WrapFormat | null | undefined): boolean {
   return getTextWrap(fmt) === 'wrap'
 }
 
@@ -26,7 +40,7 @@ export function isWrapText(fmt) {
 // row auto-fit, and the wrapped-text painter all share this so a grown row
 // fits exactly what's drawn — at any font size. The 1.25 factor keeps the
 // default 13px font at the historical 16px line pitch.
-export function lineHeightFor(fmt) {
+export function lineHeightFor(fmt: WrapFormat | null | undefined): number {
   return Math.round((fmt?.fontSize || 13) * 1.25)
 }
 
@@ -36,15 +50,15 @@ export function lineHeightFor(fmt) {
 // its measuring context first. A blank paragraph keeps one empty line so
 // `\n\n` renders a gap. Single source of truth for both the painter (what it
 // draws) and the row sizer (how tall it must be).
-export function wrapLines(val, maxW, measure) {
+export function wrapLines(val: unknown, maxW: number, measure: (text: string) => number): string[] {
   return String(val)
     .split('\n')
     .flatMap((par) => _wrapParagraph(par, maxW, measure))
 }
 
-function _wrapParagraph(par, maxW, measure) {
+function _wrapParagraph(par: string, maxW: number, measure: (text: string) => number): string[] {
   const tokens = par.split(/(\s+)/)
-  const lines = []
+  const lines: string[] = []
   let line = ''
   for (const tok of tokens) {
     if (!tok) continue

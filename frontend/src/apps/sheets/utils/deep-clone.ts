@@ -16,6 +16,6 @@
 
 const _hasStructured = typeof structuredClone === 'function'
 
-export function deepClone(x) {
+export function deepClone<T>(x: T): T {
   return _hasStructured ? structuredClone(x) : JSON.parse(JSON.stringify(x))
 }
