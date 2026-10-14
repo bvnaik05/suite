@@ -144,6 +144,9 @@ export interface ComposeMailData {
   in_reply_to_id?: string
   forwarded_from_id?: string
   type?: 'reply' | 'replyAll' | 'forward'
+  // The draft has been in a composer already — a reply popped out of its thread, handed over as
+  // it stood — so its body is what was written there, signature and all.
+  composed?: boolean
 }
 export interface Thread {
   name: string

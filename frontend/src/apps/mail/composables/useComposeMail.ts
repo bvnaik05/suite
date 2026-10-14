@@ -137,6 +137,7 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     in_reply_to: mailDetails?.in_reply_to || '',
     in_reply_to_id: mailDetails?.in_reply_to_id || '',
     forwarded_from_id: mailDetails?.forwarded_from_id || '',
+    composed: true,
   })
   const originalMail = ref<ComposeMailData>()
   const updateOriginalMail = () => (originalMail.value = JSON.parse(JSON.stringify(mail)))
@@ -197,8 +198,10 @@ export const useComposeMail = (options: ComposeMailOptions) => {
   // time a draft is opened), and not when the identity changes later.
   //
   // A composition that has never been saved is the other case entirely: its empty body is merely
-  // empty, and is where a signature belongs.
-  const isSavedDraft = !!mailDetails?.id
+  // empty, and is where a signature belongs. Unless it was written in another composer first — a
+  // reply popped out of its thread before its first save. Its body is the one written there,
+  // signature included; read as a fresh one's prefill, it got a second signature above the first.
+  const isSavedDraft = !!mailDetails?.id || !!mailDetails?.composed
 
   // A fresh composition can open with prefilled content — a forward's header block. It rides
   // along untouched: the signature is inserted above it, and the pristine-body comparison
