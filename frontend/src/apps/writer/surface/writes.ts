@@ -86,8 +86,10 @@ export function createWriteGate(
         } catch (error) {
           if (isRefusal(error)) refuse()
 
+          // The stop strip says why, so the refusal reaches the editor as a cancel it doesn't report
           if (isLoggedRefusal(error)) {
             refusedForGood.value = true
+            throw new DOMException('Saving stopped', 'AbortError')
           }
 
           throw error
