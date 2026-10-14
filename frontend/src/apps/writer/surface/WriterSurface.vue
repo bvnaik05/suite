@@ -46,7 +46,7 @@ import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
 
-import { refusedSaveBanner } from './collabMessages'
+import { frozenBanner, refusedSaveBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import { downloadHTML } from './exports'
 import {
@@ -85,6 +85,8 @@ interface EditorSurface {
   places?: ThreadPlaces
   /** Clears the old editor's device store, which would replay a refused save into later opens. */
   forgetStoredEdits?: () => Promise<void>
+  /** The document holds content the editor can't show, so it takes no edits. */
+  isFrozen?: boolean
 }
 
 const props = defineProps<{ session: DocumentSession }>()
@@ -134,7 +136,13 @@ const {
   openFailure,
   open: openCollab,
   close: closeCollab,
-} = useWriterCollab(props.session, retainRecovery, () => writes.writable.value, refreshThreads)
+} = useWriterCollab(
+  props.session,
+  retainRecovery,
+  () => writes.writable.value,
+  refreshThreads,
+  () => !!editorSurface.value?.isFrozen,
+)
 
 const writes = createWriteGate(props.session, () => {
   const roomUnsaved = collabLive.value && saveState.value !== 'clean'
@@ -156,9 +164,14 @@ const writes = createWriteGate(props.session, () => {
 const writerDocument = createWriterDocument(props.session)
 
 const refusedSaveKept = ref(false)
+// The old editor has no room, so a freeze there shows here rather than in the room's banner
 const stopBanner = computed(() => {
   if (writes.refusedForGood.value) {
     return refusedSaveBanner(refusedSaveKept.value)
+  }
+
+  if (!banner.value && editorSurface.value?.isFrozen) {
+    return frozenBanner()
   }
 
   return banner.value
@@ -560,6 +573,11 @@ function setOffline() {
   void room.value?.pull()
 }
 
+// The unload guard still asks first while changes are unsent
+function reloadPage() {
+  location.reload()
+}
+
 onMounted(() => {
   window.addEventListener('online', setOnline)
   window.addEventListener('offline', setOffline)
@@ -633,6 +651,13 @@ onBeforeUnmount(() => {
           >{{ shownBanner.link.label }}</a
         >{{ shownBanner.after }}
       </p>
+      <Button
+        v-if="shownBanner.canReload"
+        size="sm"
+        variant="ghost"
+        label="Reload"
+        @click="reloadPage"
+      />
     </DocumentStrip>
 
     <div class="relative flex min-h-0 flex-1 flex-col">

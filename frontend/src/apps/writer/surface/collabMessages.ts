@@ -8,6 +8,8 @@ export interface Banner {
   // Read in the middle of the sentence: `text`, then the link, then `after`
   link?: { label: string; href: string }
   after?: string
+  // Offers Reload beside the text
+  canReload?: boolean
 }
 
 export type BannerState = Pick<
@@ -35,6 +37,8 @@ export type BannerState = Pick<
   polling: boolean
   // The newer-schema banner showed before this tab's last reload too
   isNewerAfterReload: boolean
+  // The editor met content it can't show and takes no edits
+  isFrozen: boolean
 }
 
 const STOP_MESSAGES: Record<string, string> = {
@@ -206,6 +210,14 @@ function stoppedBanner(state: BannerState): Banner {
   return { text: `${reason}${recovery}${reloadHint}` }
 }
 
+// A reload shows the same content until someone changes it, so the text doesn't promise a fix
+export const FROZEN_MESSAGE =
+  "Part of this document can't be shown here, so editing is paused to keep it safe."
+
+export function frozenBanner(): Banner {
+  return { text: FROZEN_MESSAGE, canReload: true }
+}
+
 // The old editor's whole-body save, refused once the document saves as it is edited
 export function refusedSaveBanner(isRecoveryKept: boolean): Banner {
   const recovery = isRecoveryKept ? ' Unsent changes were kept as a recovery copy.' : ''
@@ -219,8 +231,12 @@ export function bannerFor(state: BannerState): Banner | null {
     return BLOCKED_BANNERS[state.blocked](state)
   }
 
-  if (state.stopped) {
+  if (state.stopped || (state.isFrozen && state.failed)) {
     return stoppedBanner(state)
+  }
+
+  if (state.isFrozen) {
+    return frozenBanner()
   }
 
   if (state.newerSchema) {

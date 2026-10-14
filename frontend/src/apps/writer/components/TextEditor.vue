@@ -65,7 +65,13 @@ provide('editor', editor)
 const { doc, save, forgetStoredEdits, cleanup, provider, loaded, peers, ...commentsDetail } =
   useYjs(props.file.doc.name, props.document, editor, edited)
 
-defineExpose({ editor, peers, forgetStoredEdits })
+const isFrozen = ref(false)
+defineExpose({ editor, peers, forgetStoredEdits, isFrozen })
+
+function onFrozen() {
+  isFrozen.value = true
+}
+
 useAutoversion(editor, edited, props.document)
 watch(loaded, () => rebuild(editor.value))
 
@@ -73,6 +79,7 @@ const extensions = [
   Collaboration.configure({
     document: doc,
     field: 'default',
+    ySyncOptions: { onUnplaceable: onFrozen },
   }),
   CollaborationCaret.configure({
     provider,

@@ -33,6 +33,7 @@ const defaultState = {
   isNewerAfterReload: false,
   unsent: 1,
   polling: false,
+  isFrozen: false,
 } as const
 
 // What the banner reads for a room that differs from the default state in `changes`
@@ -183,6 +184,35 @@ describe('collab stop copy', () => {
     expect(bannerText({ paused: 'upload_refused', onDevice: false })).toBe(
       "Your network is refusing uploads, so your latest changes aren't saved. Keep this tab open.",
     )
+  })
+
+  it('says editing is paused to keep a document safe that this tab cannot show, and offers Reload', () => {
+    const banner = bannerFor({ ...defaultState, isFrozen: true })
+
+    expect([banner?.text, banner?.canReload]).toEqual([
+      "Part of this document can't be shown here, so editing is paused to keep it safe.",
+      true,
+    ])
+  })
+
+  it('shows a stop over a tab that cannot show the document, and the freeze over a wait', () => {
+    const frozen = { isFrozen: true }
+    const frozenText =
+      "Part of this document can't be shown here, so editing is paused to keep it safe."
+
+    expect([
+      bannerText({ ...frozen, failed: true }),
+      bannerText({ ...frozen, failed: true, stopped: 'browser' }),
+      bannerText({ ...frozen, blocked: 'locked' }),
+      bannerText({ ...frozen, held: 'change' }),
+      bannerText({ ...frozen, polling: true }),
+    ]).toEqual([
+      'Saving stopped in this tab. Reload to keep editing.',
+      "This document can't be edited in this browser version.",
+      "This document was locked, so changes aren't saved. Unlock it to save them.",
+      frozenText,
+      frozenText,
+    ])
   })
 
   it('does not offer a reload for a stop a reload would only repeat', () => {

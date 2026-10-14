@@ -46,7 +46,7 @@ function openEditor(room: ReturnType<typeof fakeRoom>) {
     Document,
     Paragraph,
     Text,
-    ...writerAdapter.bind(room as unknown as CollabRoom),
+    ...writerAdapter.bind(room as unknown as CollabRoom, () => {}),
   ]
   const editor = new Editor({ element, extensions })
   editors.push(editor)

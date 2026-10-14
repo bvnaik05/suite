@@ -83,7 +83,7 @@ const rooms = vi.hoisted(() => ({ next: null as object | null }))
 // The body the server holds for a document edited without collaboration
 const stored = vi.hoisted(() => ({ html: '', collab: 0, isRefusingSaves: false }))
 // The old editor's hold on its device store, which it gives up once a refused save is kept
-const oldEditor = vi.hoisted(() => ({ forgetStoredEdits: vi.fn(async () => {}) }))
+const oldEditor = vi.hoisted(() => ({ forgetStoredEdits: vi.fn(async () => {}), isFrozen: false }))
 
 vi.mock('@/apps/writer/collab', () => ({
   BODY_FIELD: 'default',
@@ -151,7 +151,13 @@ vi.mock('./writerDocument', async (importOriginal) => {
 })
 
 vi.mock('@/apps/writer/components/CollabTextEditor.vue', async () => {
-  const { defineComponent: define, h: render, onBeforeUnmount, shallowRef } = await import('vue')
+  const {
+    defineComponent: define,
+    h: render,
+    onBeforeUnmount,
+    ref: mockRef,
+    shallowRef,
+  } = await import('vue')
   const { Editor, EditorContent } = await import('@tiptap/vue-3')
   const { default: Document } = await import('@tiptap/extension-document')
   const { default: Paragraph } = await import('@tiptap/extension-paragraph')
@@ -162,10 +168,16 @@ vi.mock('@/apps/writer/components/CollabTextEditor.vue', async () => {
       props: { room: Object },
       setup(props, { expose, slots }) {
         const room = props.room as { doc: Y.Doc }
-        const collaboration = Collaboration.configure({ document: room.doc })
+        const isFrozen = mockRef(false)
+        function onFrozen() {
+          isFrozen.value = true
+        }
+
+        const ySyncOptions = { onUnplaceable: onFrozen }
+        const collaboration = Collaboration.configure({ document: room.doc, ySyncOptions })
         const extensions = [Document, Paragraph, Text, collaboration]
         const editor = shallowRef(new Editor({ extensions }))
-        expose({ editor })
+        expose({ editor, isFrozen })
         onBeforeUnmount(() => editor.value.destroy())
 
         return () => {
@@ -182,13 +194,14 @@ vi.mock('@/apps/writer/components/CollabTextEditor.vue', async () => {
   }
 })
 vi.mock('@/apps/writer/components/TextEditor.vue', async () => {
-  const { defineComponent: define, h: render, onMounted } = await import('vue')
+  const { defineComponent: define, h: render, onMounted, ref: mockRef } = await import('vue')
   return {
     default: define({
       props: { document: Object },
       setup(props, { expose }) {
         const editor = { getHTML: () => '<p>Old editor line</p>', setEditable: () => {} }
-        expose({ editor, forgetStoredEdits: oldEditor.forgetStoredEdits })
+        const isFrozen = mockRef(oldEditor.isFrozen)
+        expose({ editor, forgetStoredEdits: oldEditor.forgetStoredEdits, isFrozen })
         // Its first autosave, which the server refuses for a logged document
         onMounted(() => {
           const document = props.document as {
@@ -285,6 +298,7 @@ afterEach(() => {
   stored.collab = 0
   stored.isRefusingSaves = false
   oldEditor.forgetStoredEdits.mockClear()
+  oldEditor.isFrozen = false
   vi.restoreAllMocks()
 })
 
@@ -350,6 +364,17 @@ function stoppedRoom() {
   const room = liveRoom()
   room.saveState = 'failed'
   room.unsent = 1
+  return room
+}
+
+const FROZEN = "Part of this document can't be shown here, so editing is paused to keep it safe."
+
+// A live room whose body holds text this editor can't show, so the editor freezes on open
+function frozenRoom() {
+  const room = liveRoom()
+  const unknown = new Y.XmlElement('mystery')
+  unknown.insert(0, [new Y.XmlText('Kept')])
+  room.doc.getXmlFragment('default').insert(0, [unknown])
   return room
 }
 
@@ -679,6 +704,73 @@ describe('Writer surface', () => {
     await vi.waitFor(() => expect(stripTexts(root)).toEqual([REFUSED]))
     await settled()
     expect(oldEditor.forgetStoredEdits).not.toHaveBeenCalled()
+  })
+
+  it("shows the freeze strip with Reload when the document holds text the editor can't show", async () => {
+    frozenRoom()
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
+    const [page, reload] = [location, vi.fn()]
+    vi.stubGlobal('location', { ...page, reload })
+    buttonLabelled(root, 'Reload')!.click()
+    vi.stubGlobal('location', page)
+
+    expect(reload).toHaveBeenCalledOnce()
+  })
+
+  it('shows the stop strip, not the freeze, when saving also stopped', async () => {
+    Object.assign(frozenRoom(), { saveState: 'failed', unsent: 1 })
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([STOPPED]))
+    expect(buttonLabelled(root, 'Reload')).toBeUndefined()
+  })
+
+  it('shows the freeze strip over the polling notice', async () => {
+    Object.assign(frozenRoom(), { live: 'polling' })
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
+  })
+
+  it('shows only the version bar while a version is previewed over a freeze', async () => {
+    frozenRoom()
+    const root = await openedSurface(oneVersion)
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
+
+    let during: string[] = []
+    await previewAndReturn(root, () => {
+      during = stripTexts(root)
+    })
+
+    expect([during, stripTexts(root)]).toEqual([['Viewing Before review'], [FROZEN]])
+  })
+
+  it('neither reports a frozen tab nor stops its room', async () => {
+    const room = Object.assign(frozenRoom(), {
+      stopForGood: vi.fn(async () => {}),
+      suspect: { mark: vi.fn(), isJudging: false },
+    })
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
+    await settled()
+
+    expect([room.stopForGood.mock.calls, room.suspect.mark.mock.calls]).toEqual([[], []])
+  })
+
+  it('shows the freeze strip over the old editor, and its refused save over the freeze', async () => {
+    oldEditor.isFrozen = true
+    stored.collab = 1
+    const frozen = await openedSurface()
+    await vi.waitFor(() => expect(stripTexts(frozen)).toEqual([FROZEN]))
+    document.body.innerHTML = ''
+
+    stored.isRefusingSaves = true
+    const refused = await openedSurface()
+
+    await vi.waitFor(() => expect(stripTexts(refused)).toEqual([REFUSED_KEPT]))
+    await discardCopies()
   })
 
   it('opens the recovery copy a link names, in place of the editor', async () => {

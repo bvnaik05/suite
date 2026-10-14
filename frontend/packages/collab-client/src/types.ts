@@ -44,8 +44,9 @@ export interface ContentAdapter<Binding = unknown> {
   position(raw: unknown): object | null
   // The readable copy search, export, preview and publishing use
   render(doc: Y.Doc): { html: string; text: string }
-  // What ties the app's editor to a room's document and draws its peers
-  bind(room: CollabRoom): Binding
+  // What ties the app's editor to a room's document and draws its peers. `onFrozen` hears when the
+  // document holds content the editor can't show, after which the editor takes no edits
+  bind(room: CollabRoom, onFrozen: () => void): Binding
 }
 
 // A device store and the name this document has in it

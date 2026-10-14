@@ -13,8 +13,12 @@ export const writerAdapter: ContentAdapter<AnyExtension[]> = {
   features,
   position: caretPosition,
   render: writerRender,
-  bind: (room) => [
-    Collaboration.configure({ document: room.doc, field: BODY_FIELD }),
+  bind: (room, onFrozen) => [
+    Collaboration.configure({
+      document: room.doc,
+      field: BODY_FIELD,
+      ySyncOptions: { onUnplaceable: onFrozen },
+    }),
     Carets.configure({ presence: room.presence }),
     UndoAfterRestore.configure({ room }),
   ],

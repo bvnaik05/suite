@@ -65,13 +65,18 @@ onBeforeUnmount(() => stopListening?.())
 
 const peers = computed(() => peopleOf(roster.value))
 const places = shallowRef<ThreadPlaces>(new Map())
-defineExpose({ editor, peers, places })
+const isFrozen = ref(false)
+defineExpose({ editor, peers, places, isFrozen })
+
+function onFrozen() {
+  isFrozen.value = true
+}
 
 // Collaborative documents carry no comments yet
 const comments = new Y.Doc().getMap('comments')
 
 const extensions = [
-  ...writerAdapter.bind(props.room),
+  ...writerAdapter.bind(props.room, onFrozen),
   PasteSizeGuard.configure({
     limits: () => props.room.limits,
     atLimit: () => props.room.atLimit,
