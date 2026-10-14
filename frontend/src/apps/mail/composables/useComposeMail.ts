@@ -205,18 +205,20 @@ export const useComposeMail = (options: ComposeMailOptions) => {
   // below includes it.
   const prefilledBody = isSavedDraft ? '' : mailDetails?.html_body || ''
 
-  // Swap the signature when the From identity changes — but only while the body is still the
+  // Swap the signature when it changes — a different From identity, or the identities arriving
+  // after the composer opened (a fresh compose can open before they have loaded, and then starts
+  // from the account's address with no signature to put in) — but only while the body is still the
   // auto-inserted signature (or empty/prefilled), so a message the user has written isn't
   // overwritten. Compared by text so the editor's HTML normalization doesn't defeat the match.
   watch(
-    () => mail.from_email,
-    (val, oldVal) => {
+    () => buildSignature(mail.from_email),
+    (signature, previous) => {
       if (isBodyEmpty.value && isSavedDraft) return
       if (
         isBodyEmpty.value ||
-        bodyText(mail.html_body) === bodyText(buildSignature(oldVal) + prefilledBody)
+        bodyText(mail.html_body) === bodyText((previous ?? '') + prefilledBody)
       )
-        mail.html_body = buildSignature(val) + prefilledBody
+        mail.html_body = signature + prefilledBody
     },
     {
       immediate: true,
