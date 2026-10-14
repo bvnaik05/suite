@@ -1459,7 +1459,8 @@ const KEPT_FORMATTING = 'keptFormatting';
 
 /**
  * The marks for a run's Yjs attributes: a key that can be a real mark on these characters becomes one, and
- * the rest ride a keptFormatting mark verbatim; with no such mark in the schema every key must be real
+ * the rest ride a keptFormatting mark verbatim; with no such mark in the schema every key must be real.
+ * Keys are tried in the kept mark's `shownFirst` order, then schema order, so the first of two exclusive marks shows
  *
  * @param {Object<string, any>} attrs
  * @param {PModel.NodeType} parentType
@@ -1469,8 +1470,13 @@ const KEPT_FORMATTING = 'keptFormatting';
 const textMarks = (attrs, parentType, schema) => {
   const keptType = schema.marks[KEPT_FORMATTING];
   if (keptType === undefined) return attributesToMarks(attrs, schema)
-  const named = object.keys(attrs).map((key) => ({ key, type: schema.marks[yattr2markname(key)] }));
-  named.sort((left, right) => (left.type?.rank ?? -1) - (right.type?.rank ?? -1));
+  const shownFirst = keptType.spec.shownFirst ?? [];
+  const named = object.keys(attrs).map((key) => {
+    const type = schema.marks[yattr2markname(key)];
+    const first = shownFirst.indexOf(type?.name);
+    return { key, type, order: first >= 0 ? first : shownFirst.length + (type?.rank ?? 0) }
+  });
+  named.sort((left, right) => left.order - right.order);
   /** @type {ReadonlyArray<import('prosemirror-model').Mark>} */
   let marks = PModel.Mark.none;
   /** @type {Object<string, any>} */
@@ -1505,6 +1511,17 @@ const realMark = (type, value, parentType, marks, keptType) => {
     return null
   }
 };
+
+/**
+ * The marks text holding `marks` gets when built from Yjs inside `parentType`, so kept formatting that can show there does
+ *
+ * @param {ReadonlyArray<import('prosemirror-model').Mark>} marks
+ * @param {PModel.NodeType} parentType
+ * @param {import('prosemirror-model').Schema} schema
+ * @return {ReadonlyArray<import('prosemirror-model').Mark>}
+ */
+const builtMarks = (marks, parentType, schema) =>
+  textMarks(marksToAttributes(marks, { isOMark: new Map() }), parentType, schema);
 
 /**
  * @param {Array<import('prosemirror-model').Mark>} marks
@@ -2650,4 +2667,4 @@ const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOrigins = 
   }
 });
 
-export { ProsemirrorBinding, absolutePositionToRelativePosition, createDecorations, defaultAwarenessStateFilter, defaultCursorBuilder, defaultDeleteFilter, defaultProtectedNodes, defaultSelectionBuilder, getRelativeSelection, initProseMirrorDoc, isVisible, placeFragment, prosemirrorJSONToYDoc, prosemirrorJSONToYXmlFragment, prosemirrorToYDoc, prosemirrorToYXmlFragment, redo, relativePositionToAbsolutePosition, setMeta, undo, updateYFragment, yCursorPlugin, yCursorPluginKey, yDocToProsemirror, yDocToProsemirrorJSON, ySyncPlugin, ySyncPluginKey, yUndoPlugin, yUndoPluginKey, yXmlFragmentToProseMirrorFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProsemirror, yXmlFragmentToProsemirrorJSON };
+export { ProsemirrorBinding, absolutePositionToRelativePosition, builtMarks, createDecorations, defaultAwarenessStateFilter, defaultCursorBuilder, defaultDeleteFilter, defaultProtectedNodes, defaultSelectionBuilder, getRelativeSelection, initProseMirrorDoc, isVisible, placeFragment, prosemirrorJSONToYDoc, prosemirrorJSONToYXmlFragment, prosemirrorToYDoc, prosemirrorToYXmlFragment, redo, relativePositionToAbsolutePosition, setMeta, undo, updateYFragment, yCursorPlugin, yCursorPluginKey, yDocToProsemirror, yDocToProsemirrorJSON, ySyncPlugin, ySyncPluginKey, yUndoPlugin, yUndoPluginKey, yXmlFragmentToProseMirrorFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProsemirror, yXmlFragmentToProsemirrorJSON };

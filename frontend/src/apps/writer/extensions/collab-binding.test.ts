@@ -17,21 +17,22 @@ const SHA256: Record<string, string> = {
   // published 606fedd1...; then every new textblock gets its text node eagerly; then content the editor
   // can't hold freezes the binding, and leftovers holding nothing are hidden and skipped, never deleted;
   // then a tab that can edit folds its own side-by-side texts on every render, remote ones included;
-  // then formatting the editor can't show where it sits is kept on a keptFormatting mark
-  'dist/y-tiptap.js': '2cf25bf5fb1f5a0aea20ff0834ee6839835ff2ebfe457d6fa4a9736c2335b4a2',
+  // then formatting the editor can't show where it sits is kept on a keptFormatting mark;
+  // then the kept mark's shownFirst marks win, and builtMarks gives the marks a build would
+  'dist/y-tiptap.js': '185c6c7017d8ff51ac3c5f5eadc3ff785a4f20ff52c3c698daac70addf71df99',
   // published 788e88fe...; then positions skip hidden leftovers
   'dist/src/lib.d.ts': '7e43ada60eb3ffaf60754b08f4d5268a4cd261e54c2b774a362760f0f41749ef',
   'dist/src/plugins/cursor-plugin.d.ts':
     '14df8f3b1fd5b5cdc11bea5eadee07b107719aefd705a97c699465a31488f11a',
   'dist/src/plugins/keys.d.ts': '9596550a6e87582af85039f4c83300bbd6b3e69af1aef98caf2e4d8f632b96f2',
-  // published 7e5dc45b...; then onUnplaceable, the freeze and placeFragment
+  // published 7e5dc45b...; then onUnplaceable, the freeze and placeFragment; then builtMarks
   'dist/src/plugins/sync-plugin.d.ts':
-    'f2c3846a8b37108d7ca93549f93856cdd1cfb4f064f68d44fb1bb07af7b4035e',
+    '0fe8aafcaf430befde31f341fe8f56aea46681ada5adc6d1c4a8ec93755d0f67',
   'dist/src/plugins/undo-plugin.d.ts':
     '55375f35812f70dc78b932632264ef10864d39e804197deab1b9d3c7369813e2',
   'dist/src/utils.d.ts': 'c02eb8e03bba34945bf316eaf825c8c31c49e00bea3e5b5b81c8627b47b788f7',
-  // published 456adef9...; then placeFragment and UnplaceableReason
-  'dist/src/y-tiptap.d.ts': 'a0578082fc4e96c52dfe7e26ea2d2d1dee3254b3f2968e8e5d64738c3839faa6',
+  // published 456adef9...; then placeFragment and UnplaceableReason; then builtMarks
+  'dist/src/y-tiptap.d.ts': '2bda19fccd0a36eece450691d43f68a2de377a5658aac1798641e6afd9af54e6',
   LICENSE: 'fd69bd7c93b6c32f43c8244c3182029c1af6cc14bb259a0195750f1661e9e304',
 }
 

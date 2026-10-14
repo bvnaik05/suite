@@ -1,7 +1,8 @@
 import { Extension, Mark, Node, type AnyExtension } from '@tiptap/core'
-import type { Mark as PMMark } from '@tiptap/pm/model'
+import { Mark as PMMark, type Node as PMNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { AddMarkStep, ReplaceAroundStep, ReplaceStep, type Step } from '@tiptap/pm/transform'
+import { builtMarks } from '@tiptap/y-tiptap'
 import { Code, CodeBlock, Heading, Image, ImageGroup, RichTextKit, Video } from 'frappe-ui/editor'
 
 import ExtendedParagraph from '@/apps/writer/extensions/extended-paragraph'
@@ -108,7 +109,11 @@ export const WriterKit = RichTextKit.extend({
 
 // A kept mark this transaction brought in that the document didn't hold before
 function isNewKept(mark: PMMark, before: PMMark[]) {
-  return mark.type.name === KEPT_FORMATTING && !before.some((old) => mark.eq(old))
+  return isKept(mark) && !before.some((old) => mark.eq(old))
+}
+
+function isKept(mark: PMMark) {
+  return mark.type.name === KEPT_FORMATTING
 }
 
 function keptMarks(state: EditorState) {
@@ -141,26 +146,74 @@ function isOwnKeptWrite(tr: Transaction) {
 }
 
 // Remove kept formatting a local change brought in, so only the collab binding makes it
-function stripNewKept(
-  transactions: readonly Transaction[],
-  before: EditorState,
-  after: EditorState,
-) {
-  if (!transactions.some(isOwnKeptWrite)) {
-    return null
-  }
-
+function stripNewKept(tr: Transaction, before: EditorState) {
   const old = keptMarks(before)
-  const tr = after.tr
-  after.doc.descendants((node, position) => {
+  tr.doc.descendants((node, position) => {
     for (const mark of node.marks) {
       if (isNewKept(mark, old)) {
         tr.removeMark(position, position + node.nodeSize, mark)
       }
     }
   })
+}
+
+// The part of `after` that differs from `before`
+function changedRange(before: PMNode, after: PMNode) {
+  const from = before.content.findDiffStart(after.content)
+  const end = before.content.findDiffEnd(after.content)
+  if (from === null || end === null) {
+    return null
+  }
+
+  return { from, to: Math.max(from, end.b) }
+}
+
+// Give changed text the marks a build from Yjs would, so kept formatting that can now show does
+function showKept(tr: Transaction, before: EditorState) {
+  const range = changedRange(before.doc, tr.doc)
+  if (!range) {
+    return
+  }
+
+  const { doc } = tr
+  doc.nodesBetween(range.from, range.to, (node, position, parent) => {
+    if (!node.isText || !parent || !node.marks.some(isKept)) {
+      return
+    }
+
+    const marks = builtMarks(node.marks, parent.type, doc.type.schema)
+    if (!PMMark.sameSet(marks, node.marks)) {
+      const end = position + node.nodeSize
+      tr.removeMark(position, end)
+      for (const mark of marks) {
+        tr.addMark(position, end, mark)
+      }
+    }
+  })
+}
+
+function isOwnChange(tr: Transaction) {
+  return tr.docChanged && !isReceived(tr)
+}
+
+const keptKey = new PluginKey('keptFormatting')
+
+// Strip kept formatting a local change brought in, and show what a local change made showable
+function settleKept(transactions: readonly Transaction[], before: EditorState, after: EditorState) {
+  const tr = after.tr
+  if (transactions.some(isOwnKeptWrite)) {
+    stripNewKept(tr, before)
+  }
+
+  if (transactions.some(isOwnChange)) {
+    showKept(tr, before)
+  }
+
   return tr.docChanged ? tr : null
 }
+
+// Exclusive marks a build from Yjs shows ahead of the rest: a link, then code
+const KEPT_SPEC = { shownFirst: ['link', 'code'] }
 
 // Formatting a collaborator's text holds that Writer can't show where it sits; the collab binding
 // builds it from Yjs and writes its keys back as they were
@@ -177,7 +230,15 @@ export const KeptFormatting = Mark.create({
   },
 
   addProseMirrorPlugins() {
-    return [new Plugin({ key: new PluginKey('keptFormatting'), appendTransaction: stripNewKept })]
+    return [new Plugin({ key: keptKey, appendTransaction: settleKept })]
+  },
+
+  extendMarkSchema(extension) {
+    if (extension.name === KEPT_FORMATTING) {
+      return KEPT_SPEC
+    }
+
+    return {}
   },
 })
 

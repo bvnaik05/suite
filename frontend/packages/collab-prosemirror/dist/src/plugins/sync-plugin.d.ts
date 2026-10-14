@@ -109,6 +109,7 @@ export function placeFragment(yXmlFragment: Y.XmlFragment, schema: PModel.Schema
 };
 export function createNodeFromYElement(el: Y.XmlElement, schema: any, meta: BindingMetadata, snapshot?: Y.Snapshot, prevSnapshot?: Y.Snapshot, computeYChange?: (arg0: 'removed' | 'added', arg1: Y.ID) => any): PModel.Node | null;
 export function yattr2markname(attrName: string): string;
+export function builtMarks(marks: ReadonlyArray<PModel.Mark>, parentType: PModel.NodeType, schema: PModel.Schema): ReadonlyArray<PModel.Mark>;
 export function attributesToMarks(attrs: {
     [x: string]: any;
 }, schema: import('prosemirror-model').Schema): PModel.Mark[];
