@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { defineComponent, h } from 'vue'
+import { computed, defineComponent, h } from 'vue'
 import { Button } from 'frappe-ui'
 import { Dropdown } from 'frappe-ui'
 
 import { Tooltip } from 'frappe-ui'
 import { TooltipProvider } from 'frappe-ui'
-import { ArrowRight, Circle, Diamond, Eraser, ImagePlus, Minus, MousePointer2, Pencil, Square, Type } from 'lucide-vue-next'
+import { ArrowRight, Circle, Diamond, Eraser, ImagePlus, LassoSelect, Minus, MousePointer2, Pencil, Square, Type } from 'lucide-vue-next'
 import laserPointerIcon from '../assets/laser-pointer.svg?no-inline'
 import type { DrawingTool } from '../canvas/tools'
 
@@ -21,7 +21,7 @@ const tools: ReadonlyArray<{ label: string; icon?: typeof Square; value: Drawing
   { label: 'Text', icon: Type, value: 'text', shortcut: 'T' },
 ]
 
-defineProps<{ activeTool: DrawingTool | null }>()
+const props = defineProps<{ activeTool: DrawingTool | null }>()
 
 const emit = defineEmits<{ select: [tool: DrawingTool] }>()
 
@@ -29,17 +29,18 @@ const LaserPointerIcon = defineComponent(() => () => h('svg', { viewBox: '0 0 20
   h('use', { href: `${laserPointerIcon}#laser-pointer` }),
 ]))
 
-const overflowTools = [
+const overflowTools = computed(() => [
   { label: 'Insert image', icon: ImagePlus, onClick: () => emit('select', 'image') },
   { label: 'Laser pointer', icon: LaserPointerIcon, onClick: () => emit('select', 'laser') },
-]
+  { label: 'Lasso Select', icon: LassoSelect, selected: props.activeTool === 'lasso', onClick: () => emit('select', 'lasso') },
+])
 </script>
 
 <template>
   <nav class="drawing-toolbar" aria-label="Drawing tools">
     <TooltipProvider>
       <div class="drawing-toolbar__surface" role="toolbar" aria-label="Drawing tools">
-        <Tooltip v-for="tool in tools" :key="tool.label" :text="tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label" placement="top">
+        <Tooltip v-for="tool in tools" :key="tool.label" :text="tool.value === 'select' ? 'Pointer (Esc)' : tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label" placement="top">
           <Button
             class="drawing-tool"
             size="sm"

@@ -182,17 +182,6 @@ export function linePath(line: LineShape): string {
   return `M ${line.start.x} ${line.start.y} Q ${control.x} ${control.y} ${line.end.x} ${line.end.y}`
 }
 
-export function lineArrowHeadPath(line: LineShape, size = 8): string {
-  const control = lineControlPoint(line)
-  const direction = { x: line.end.x - control.x, y: line.end.y - control.y }
-  const length = Math.hypot(direction.x, direction.y)
-  if (!length) return ''
-  const unit = { x: direction.x / length, y: direction.y / length }
-  const base = { x: line.end.x - unit.x * size, y: line.end.y - unit.y * size }
-  const wing = { x: -unit.y * size * 0.55, y: unit.x * size * 0.55 }
-  return `M ${line.end.x} ${line.end.y} L ${base.x + wing.x} ${base.y + wing.y} L ${base.x - wing.x} ${base.y - wing.y} Z`
-}
-
 export function linePointAt(line: LineShape, t: number): Point {
   const control = lineControlPoint(line)
   const inverse = 1 - t

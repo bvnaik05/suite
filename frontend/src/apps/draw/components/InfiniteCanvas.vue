@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { loadDrawing, queueSave, drawingTitle, warnUnsaved, saveDrawing, drawingLoading } from '../canvas/persistence'
 import { bounds, transformShape, isFreeDraw, isLine, parseScene, type Shape } from '../canvas/selection'
+import { applyLassoSelection, shapesIntersectingLasso, type LassoOperation } from '../canvas/lasso-selection'
 import { Button, Icon, Select, Tooltip, TooltipProvider } from 'frappe-ui'
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, ChevronUp, Italic, Minus, Plus, Redo2, Underline, Undo2 } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import ArrowShape from './ArrowShape.vue'
 import {
   MAX_SCALE,
   MIN_SCALE,
@@ -26,7 +28,6 @@ import {
   isClosedFreeDraw,
   lineFromPoints,
   lineControlPoint,
-  lineArrowHeadPath,
   linePointAt,
   linePath,
   type ImageShape,
@@ -173,6 +174,8 @@ let lastSelectPointerDown: { time: number; point: Point } | undefined
 const modifiers = reactive({ alt: false, bypass: false })
 const marquee = ref<RectangleShape>()
 let marqueeGesture: { pointerId: number; start: Point; previous: string[] } | undefined
+const lassoOutline = ref<Point[]>([])
+let lassoGesture: { pointerId: number; points: Point[]; operation: LassoOperation } | undefined
 const enteredGroup = ref<string>()
 const armedTextStyle = reactive<Pick<TextShape, 'fill' | 'backgroundColor' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'fontStyle' | 'textDecoration' | 'textAlign'>>({
   fill: '#171717', backgroundColor: undefined, fontFamily: 'shantell', fontSize: 16, fontWeight: 400, fontStyle: 'normal', textDecoration: 'none', textAlign: 'left',
@@ -207,6 +210,7 @@ const activePropertyBorderColor = computed(() => {
   const text = selectedTextShapes.value.at(-1)
   if (text) return text.backgroundColor
   if (textEditor.value?.kind === 'text') return textEditor.value.backgroundColor
+  if (selectedLabel.value) return selectedLabel.value.fill ?? '#e6f4ff'
   if (!selectedShapes.value.length && textPropertyControlsEnabled.value) return armedTextStyle.backgroundColor
   return selectedShapes.value.at(-1)?.stroke ?? '#171717'
 })
@@ -327,6 +331,7 @@ const cursorClass = computed(() => ({
   'is-pan-ready': isSpacePressed.value && !isPanning.value,
   'is-panning': isPanning.value,
   'is-drawing-shape': ['rectangle', 'diamond', 'ellipse', 'line', 'arrow', 'draw', 'image'].includes(props.activeTool ?? ''),
+  'is-lasso-ready': props.activeTool === 'lasso' && !isSpacePressed.value && !isPanning.value,
   'is-erasing': props.activeTool === 'eraser',
   'is-text-ready': props.activeTool === 'text',
   'is-laser-ready': props.activeTool === 'laser' && !isSpacePressed.value && !isPanning.value,
@@ -834,6 +839,7 @@ async function insertImages(files: Iterable<File>, point = center()) {
   if (props.activeTool === 'image') emit('cancelTool')
 }
 function openImagePicker(point = center()) { imageInsertPoint = point; fileInput.value?.click() }
+defineExpose({ openImagePicker })
 function onImageInput(event: Event) {
   const input = event.target as HTMLInputElement
   if (input.files) void insertImages(input.files, imageInsertPoint)
@@ -924,6 +930,105 @@ function moveSelectedShapes(scene: SceneSnapshot, delta: Point) {
 function localPoint(event: MouseEvent | WheelEvent | DragEvent): Point {
   const bounds = root.value?.getBoundingClientRect()
   return { x: event.clientX - (bounds?.left ?? 0), y: event.clientY - (bounds?.top ?? 0) }
+}
+
+function addLassoPoint(point: Point, scale = latestViewport().scale) {
+  if (!lassoGesture) return
+  const previous = lassoGesture.points.at(-1)
+  if (previous && distance(previous, point) * scale < 1.5) return
+  lassoGesture.points.push(point)
+  lassoOutline.value = [...lassoGesture.points]
+}
+
+function updateLassoOperation(event: PointerEvent) {
+  if (!lassoGesture) return
+  if (event.altKey) lassoGesture.operation = 'subtract'
+  else if (event.shiftKey) lassoGesture.operation = 'add'
+}
+
+function beginLasso(event: PointerEvent, point: Point) {
+  const worldPoint = screenToWorld(point, latestViewport())
+  lassoGesture = {
+    pointerId: event.pointerId,
+    points: [worldPoint],
+    operation: event.altKey ? 'subtract' : event.shiftKey ? 'add' : 'replace',
+  }
+  lassoOutline.value = [worldPoint]
+  root.value?.setPointerCapture(event.pointerId)
+  event.preventDefault()
+}
+
+function updateLasso(event: PointerEvent) {
+  if (!lassoGesture || lassoGesture.pointerId !== event.pointerId) return
+  updateLassoOperation(event)
+  const point = localPoint(event)
+  const sampleViewport = latestViewport()
+  const samples = event.getCoalescedEvents?.()
+  for (const sample of samples?.length ? samples : [event]) {
+    addLassoPoint(screenToWorld(localPoint(sample), sampleViewport), sampleViewport.scale)
+  }
+  autoPan(point)
+  const pannedViewport = latestViewport()
+  if (pannedViewport.translationX !== sampleViewport.translationX || pannedViewport.translationY !== sampleViewport.translationY) {
+    addLassoPoint(screenToWorld(point, pannedViewport), pannedViewport.scale)
+  }
+  event.preventDefault()
+}
+
+function finishLasso(event: PointerEvent): boolean {
+  if (!lassoGesture || lassoGesture.pointerId !== event.pointerId) return false
+  const gesture = lassoGesture
+  let selectionCompleted = false
+  if (event.type === 'pointerup') {
+    updateLassoOperation(event)
+    addLassoPoint(screenToWorld(localPoint(event), latestViewport()))
+    if (gesture.points.length >= 3 && Math.abs(polygonArea(gesture.points)) > 1 / latestViewport().scale ** 2) {
+      const hits = shapesIntersectingLasso(allShapes.value, gesture.points)
+      const hitIds = new Set(hits.map(shape => shape.id))
+      const groups = new Set(hits.map(shape => shape.groupId).filter((id): id is string => Boolean(id && id !== enteredGroup.value)))
+      const selectedIds = allShapes.value
+        .filter(shape => hitIds.has(shape.id) || Boolean(shape.groupId && groups.has(shape.groupId)))
+        .map(shape => shape.id)
+      setSelection(applyLassoSelection(selectedShapeIds.value, selectedIds, gesture.operation))
+      selectionCompleted = true
+    }
+  }
+  lassoGesture = undefined
+  lassoOutline.value = []
+  pointers.delete(event.pointerId)
+  releasePointer(event.pointerId)
+  if (selectionCompleted) {
+    emit('cancelTool')
+    updateSelectionHover(localPoint(event))
+    if (selectedShapeIds.value.length) isMoveReady.value = true
+  }
+  return true
+}
+
+function cancelLasso() {
+  const pointerId = lassoGesture?.pointerId
+  lassoGesture = undefined
+  lassoOutline.value = []
+  if (pointerId === undefined) return
+  pointers.delete(pointerId)
+  releasePointer(pointerId)
+}
+
+function polygonArea(points: Point[]): number {
+  const origin = points[0]!
+  let area = 0
+  for (let index = 1; index < points.length - 1; index++) {
+    const point = points[index]!
+    const next = points[index + 1]!
+    area += (point.x - origin.x) * (next.y - origin.y) - (next.x - origin.x) * (point.y - origin.y)
+  }
+  return area / 2
+}
+
+function lassoPathData(points: Point[]): string {
+  const [first, ...rest] = points
+  if (!first) return ''
+  return `M ${first.x} ${first.y} ${rest.map(point => `L ${point.x} ${point.y}`).join(' ')}`
 }
 
 function autoPan(point: Point) {
@@ -1115,6 +1220,7 @@ function updatePropertyTextStyle(patch: TextStylePatch) {
         if (candidate.id !== shape.id) return candidate
         const styled = {
           ...candidate,
+          ...('backgroundColor' in patch ? { fill: patch.backgroundColor } : {}),
           ...('fill' in patch ? { labelFill: patch.fill } : {}),
           ...(patch.fontFamily !== undefined ? { labelFontFamily: patch.fontFamily } : {}),
           ...(patch.fontSize !== undefined ? { labelFontSize: patch.fontSize } : {}),
@@ -1135,7 +1241,8 @@ function updatePropertyTextStyle(patch: TextStylePatch) {
   if (editor.kind === 'label' && editor.shapeId) {
     const shape = rectangles.value.find((candidate) => candidate.id === editor.shapeId)
     if (!shape || isText(shape)) return
-    const fitted = fitLabel(shape, editor.text, editor.fontSize, editor.fontFamily, editor)
+    const styledShape = { ...shape, ...('backgroundColor' in patch ? { fill: patch.backgroundColor } : {}) }
+    const fitted = fitLabel(styledShape, editor.text, editor.fontSize, editor.fontFamily, editor)
     replaceRectangle({ ...fitted.shape, label: editor.text || undefined, labelFontSize: editor.fontSize, labelFontFamily: editor.fontFamily, labelFill: editor.fill, labelFontWeight: editor.fontWeight, labelFontStyle: editor.fontStyle, labelTextDecoration: editor.textDecoration, labelTextAlign: editor.textAlign })
     editor.x = labelTextX(fitted.shape)
     editor.y = fitted.shape.y + (fitted.shape.height - fitted.layout.height) / 2
@@ -1606,6 +1713,7 @@ function finishSelection(event: PointerEvent, restore = false): boolean {
 }
 
 function selectionHandleAt(point: Point): SelectionHandle | undefined {
+  if (selectedLine.value && !hasMultipleSelection.value) return undefined
   if (!selectionCorners.value) return undefined
   const frame = selectionFrame.value
   const cornerRadius = isTextSelected.value && frame
@@ -1942,9 +2050,10 @@ function distanceToSegment(point: Point, start: Point, end: Point): number {
 
 function containsLine(line: LineShape, point: Point): boolean {
   const samples = 20
+  const hitRadius = Math.max(LINE_HIT_RADIUS, line.kind === 'arrow' ? (line.strokeWidth ?? 2) * 2.2 : 0)
   for (let index = 1, previous = worldToScreen(linePointAt(line, 0), latestViewport()); index <= samples; index++) {
     const current = worldToScreen(linePointAt(line, index / samples), latestViewport())
-    if (distanceToSegment(point, previous, current) <= LINE_HIT_RADIUS) return true
+    if (distanceToSegment(point, previous, current) <= hitRadius) return true
     previous = current
   }
   return false
@@ -2181,7 +2290,10 @@ function updateErase(event: PointerEvent) {
 }
 
 function eraseHit(shape: Shape, start: Point, end: Point): boolean {
-  const radius = (shape.strokeWidth ?? 2) / 2 + 6 / viewport.scale
+  const radius = Math.max(
+    (shape.strokeWidth ?? 2) / 2 + 6 / viewport.scale,
+    isLine(shape) && shape.kind === 'arrow' ? (shape.strokeWidth ?? 2) * 2.2 / viewport.scale : 0,
+  )
   if (isFreeDraw(shape) && shape.points.length === 1) {
     return distanceToSegment(shape.points[0]!, start, end) <= radius
   }
@@ -2295,6 +2407,10 @@ function onPointerDown(event: PointerEvent) {
     }
     pointers.set(event.pointerId, { ...point, pointerType: 'touch' })
   }
+  if (props.activeTool === 'lasso' && event.button === 0 && !isSpacePressed.value) {
+    beginLasso(event, point)
+    return
+  }
   if (['rectangle', 'diamond', 'ellipse'].includes(props.activeTool ?? '') && event.button === 0 && !isSpacePressed.value) {
     beginRectangle(event, point)
     return
@@ -2360,6 +2476,7 @@ function onPointerMove(event: PointerEvent) {
   if (drawPointerId === event.pointerId) { updateDraw(event); event.preventDefault(); return }
   if (eraserPointerId === event.pointerId) { updateErase(event); event.preventDefault(); return }
   if (pointers.has(event.pointerId)) pointers.set(event.pointerId, { ...localPoint(event), pointerType: event.pointerType })
+  if (lassoGesture?.pointerId === event.pointerId) { updateLasso(event); return }
   if (cropGesture?.pointerId === event.pointerId) {
     updateCropSelection(localPoint(event))
     event.preventDefault()
@@ -2466,6 +2583,7 @@ function onPointerMove(event: PointerEvent) {
 }
 
 function finishPointer(event: PointerEvent) {
+  if (finishLasso(event)) return
   if (finishDraw(event)) return
   if (finishErase(event)) return
   if (finishCrop(event)) return
@@ -2497,6 +2615,7 @@ function finishPointer(event: PointerEvent) {
 
 function cancelPointer(event: PointerEvent) {
   if (cancellingGesture) return
+  if (lassoGesture?.pointerId === event.pointerId) { cancelLasso(); return }
   if (drawPointerId === event.pointerId || eraserPointerId === event.pointerId) { cancelGesture(); return }
   if (cropGesture?.pointerId === event.pointerId) { cancelCrop(); return }
   if (!pinchStart && (marqueeGesture || rectangleGesture || lineGesture || textGesture || selectionGesture || lineSelectionGesture)) pointers.delete(event.pointerId)
@@ -2534,6 +2653,7 @@ function restoreGestureScene(scene: SceneSnapshot, frame?: RectangleShape) {
 function cancelGesture() {
   if (cancellingGesture) return
   cancellingGesture = true
+  cancelLasso()
   cancelCrop()
   if (marqueeGesture) { setSelection(marqueeGesture.previous); releasePointer(marqueeGesture.pointerId) }
   marqueeGesture = undefined; marquee.value = undefined
@@ -2626,6 +2746,11 @@ function onKeyDown(event: KeyboardEvent) {
   }
   isShiftPressed.value = event.shiftKey
   const key = event.key.toLowerCase()
+  if (event.key === 'Escape' && lassoGesture) {
+    cancelLasso()
+    event.preventDefault()
+    return
+  }
   if (event.key === 'Escape' && croppingImage.value) {
     cancelCrop()
     event.preventDefault()
@@ -2692,6 +2817,9 @@ function onKeyDown(event: KeyboardEvent) {
     event.preventDefault()
   } else if (event.key === '0') {
     resetZoom()
+    event.preventDefault()
+  } else if (key === 'f' && !event.ctrlKey && !event.metaKey && !event.altKey && propertyToolbarVisible.value) {
+    updatePropertyPopupOpen('color', true)
     event.preventDefault()
   } else if (event.key.toLowerCase() === 'r') {
     emit('activateRectangle')
@@ -2783,6 +2911,7 @@ function onVisibilityChange() {
 watch(() => props.activeTool, (tool, previous) => {
   if (tool !== 'select') linkHover.value = undefined
   if (tool !== previous && (drawPointerId !== undefined || eraserPointerId !== undefined)) cancelGesture()
+  if (tool !== previous && lassoGesture) cancelLasso()
   if (tool !== 'laser' && previous !== 'laser') return
   cancelGesture()
   if (tool === 'laser') {
@@ -2907,18 +3036,18 @@ onBeforeUnmount(() => {
           class="free-draw"
           :style="shapeStyle(draw)"
         />
-        <path
-          v-for="line in isLine(object) ? [object] : []"
-          :key="line.id"
-          :d="linePath(line)"
-          class="drawn-line"
-          :style="shapeStyle(line)"
+        <ArrowShape
+          v-if="isLine(object) && object.kind === 'arrow'"
+          :shape="object"
+          :gradient-id="`canvas-arrow-${object.id}`"
+          :scale="viewport.scale"
+          :opacity="object.opacity ?? 1"
         />
         <path
-          v-if="isLine(object) && object.kind === 'arrow'"
-          :d="lineArrowHeadPath(object, 8 / viewport.scale)"
-          class="drawn-arrowhead"
-          :style="{ fill: object.arrowHeadFill ?? shapeStyle(object).stroke, opacity: object.opacity ?? 1 }"
+          v-else-if="isLine(object)"
+          :d="linePath(object)"
+          class="drawn-line"
+          :style="shapeStyle(object)"
         />
         <g
           v-for="image in !isLine(object) && isImage(object) ? [object] : []"
@@ -3090,18 +3219,19 @@ onBeforeUnmount(() => {
           :ry="pendingRectangle.height / 2"
           class="drawn-ellipse is-pending"
         />
+        <ArrowShape
+          v-if="pendingLine?.kind === 'arrow'"
+          :shape="pendingLine"
+          :gradient-id="`canvas-arrow-${pendingLine.id}`"
+          :scale="viewport.scale"
+          :opacity="pendingLine.opacity ?? 1"
+        />
         <path
-          v-if="pendingLine"
+          v-else-if="pendingLine"
           :d="linePath(pendingLine)"
           class="drawn-line is-pending"
         />
         <path v-if="pendingDraw" :d="freeDrawPath(pendingDraw)" class="free-draw" :style="shapeStyle(pendingDraw)" />
-        <path
-          v-if="pendingLine?.kind === 'arrow'"
-          :d="lineArrowHeadPath(pendingLine, 8 / viewport.scale)"
-          class="drawn-arrowhead is-pending"
-          :style="{ fill: pendingLine.stroke ?? '#171717', opacity: pendingLine.opacity ?? 1 }"
-        />
         <rect
           v-if="pendingText"
           :x="pendingText.x"
@@ -3170,6 +3300,7 @@ onBeforeUnmount(() => {
             class="selection-outline"
           />
           <circle
+            v-if="!selectedLine || hasMultipleSelection"
             v-for="(corner, name) in selectionCorners"
             :key="name"
             :cx="corner.x"
@@ -3178,7 +3309,7 @@ onBeforeUnmount(() => {
             class="selection-handle"
             :class="{ 'is-highlighted': hoveredSelectionHandle === name }"
           />
-          <template v-if="isTextSelected">
+          <template v-if="(!selectedLine || hasMultipleSelection) && isTextSelected">
             <rect
               v-for="edge in [selectionEdges.east, selectionEdges.west]"
               :key="`${edge.x}-${edge.y}`"
@@ -3191,7 +3322,7 @@ onBeforeUnmount(() => {
               class="selection-handle"
             />
           </template>
-          <template v-else>
+          <template v-else-if="!selectedLine || hasMultipleSelection">
             <circle
               v-for="(edge, name) in selectionEdges"
               :key="name"
@@ -3203,7 +3334,7 @@ onBeforeUnmount(() => {
             />
           </template>
           <circle
-            v-if="showCurveControls"
+            v-if="(!selectedLine || hasMultipleSelection) && showCurveControls"
             v-for="(curve, name) in visibleCurveHandles"
             :key="`curve-${name}`"
             :cx="curve.x"
@@ -3213,6 +3344,10 @@ onBeforeUnmount(() => {
           />
         </g>
         <rect v-if="marquee" :x="marquee.x" :y="marquee.y" :width="marquee.width" :height="marquee.height" fill="#4285f422" stroke="#4285f4" vector-effect="non-scaling-stroke" />
+        <template v-if="lassoOutline.length > 1">
+          <path :d="lassoPathData(lassoOutline)" class="lasso-outline lasso-outline--background" aria-hidden="true" />
+          <path :d="lassoPathData(lassoOutline)" class="lasso-outline lasso-outline--foreground" aria-hidden="true" />
+        </template>
         <LaserTrail ref="laserTrail" :scale="viewport.scale" />
         <LaserTrail ref="eraserTrail" :scale="viewport.scale" color="rgb(23 23 23 / 22%)" :radius="2.5" :duration="200" />
       </g>
@@ -3254,8 +3389,9 @@ onBeforeUnmount(() => {
             :stroke-width="activePropertyStrokeWidth"
             :stroke-style="activePropertyStrokeStyle"
             :show-border-options="props.activeTool === 'draw' || (!selectedLabel && Boolean(selectedShapes.length && !selectedTextShapes.length))"
+            :show-stroke-style-options="props.activeTool === 'draw' || !selectedShapes.some(shape => isLine(shape) && shape.kind === 'arrow')"
             :target="propertyColorTarget"
-            :mode="selectedLabel ? 'property-solid' : 'property-object'"
+            mode="property-object"
             :property-kind="props.activeTool === 'draw' ? 'shape' : propertyColorKind"
             :open="propertyPopupOpen === 'color'"
             label="Custom color"
@@ -3264,36 +3400,44 @@ onBeforeUnmount(() => {
             @update:open="updatePropertyPopupOpen('color', $event)"
         />
         <template v-if="usesSolidColorPalette">
-          <Button
+          <Tooltip
             v-for="color in solidColors"
             :key="color.color"
-            class="property-color property-color--solid"
-            size="xs"
-            variant="ghost"
-            theme="gray"
-            :label="`${color.label} color`"
-            :title="`${color.label} color`"
-            :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color"
-            :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color }"
-            :style="{ '--property-color': color.color }"
-            @click="applySolidColor(color.color)"
-          />
+            :text="`${color.label} color`"
+            side="top"
+          >
+            <Button
+              class="property-color property-color--solid"
+              size="xs"
+              variant="ghost"
+              theme="gray"
+              :label="`${color.label} color`"
+              :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color"
+              :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color }"
+              :style="{ '--property-color': color.color }"
+              @click="applySolidColor(color.color)"
+            />
+          </Tooltip>
         </template>
         <template v-else>
-          <Button
+          <Tooltip
             v-for="color in objectColors"
             :key="color.label"
-            class="property-color property-color--object"
-            size="xs"
-            variant="ghost"
-            theme="gray"
-            :label="`${color.label} fill and border`"
-            :title="`${color.label} fill and border`"
-            :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.border && drawStyle.fill === color.fill : activePropertyColor === color.fill"
-            :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.border && drawStyle.fill === color.fill : activePropertyColor === color.fill }"
-            :style="{ '--property-fill': color.fill, '--property-border': color.border }"
-            @click="applyObjectColor(color)"
-          />
+            :text="color.label"
+            side="top"
+          >
+            <Button
+              class="property-color property-color--object"
+              size="xs"
+              variant="ghost"
+              theme="gray"
+              :label="`${color.label} fill and border`"
+              :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.border && drawStyle.fill === color.fill : activePropertyColor === color.fill"
+              :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.border && drawStyle.fill === color.fill : activePropertyColor === color.fill }"
+              :style="{ '--property-fill': color.fill, '--property-border': color.border }"
+              @click="applyObjectColor(color)"
+            />
+          </Tooltip>
         </template>
       </div>
       <Select
@@ -3328,12 +3472,16 @@ onBeforeUnmount(() => {
       <Tooltip text="Send backward" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Send backward" :disabled="!selectedShapes.length || !layerActions.backward" @click="reorderSelectedShapes('backward')"><Icon :name="ChevronDown" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
     </div>
     <div class="history-controls" role="group" aria-label="History controls" @pointerdown.stop @dblclick.stop>
-      <Button size="md" variant="ghost" theme="gray" label="Undo" title="Undo (Ctrl/⌘ Z)" :disabled="!canUndo" @click="undoScene">
-        <Undo2 class="history-control-icon" aria-hidden="true" />
-      </Button>
-      <Button size="md" variant="ghost" theme="gray" label="Redo" title="Redo (Ctrl/⌘ Shift Z)" :disabled="!canRedo" @click="redoScene">
-        <Redo2 class="history-control-icon" aria-hidden="true" />
-      </Button>
+      <Tooltip text="Undo" side="top">
+        <Button size="md" variant="ghost" theme="gray" label="Undo" :disabled="!canUndo" @click="undoScene">
+          <Undo2 class="history-control-icon" aria-hidden="true" />
+        </Button>
+      </Tooltip>
+      <Tooltip text="Redo" side="top">
+        <Button size="md" variant="ghost" theme="gray" label="Redo" :disabled="!canRedo" @click="redoScene">
+          <Redo2 class="history-control-icon" aria-hidden="true" />
+        </Button>
+      </Tooltip>
     </div>
     <div class="viewport-panel" @pointerdown.stop @pointermove.stop @pointerup.stop @pointercancel.stop @dblclick.stop>
     <CanvasMinimap :shapes="allShapes" :viewport="viewport" :canvas-size="size" @pan-to="navigateFromMinimap" />
@@ -3390,15 +3538,15 @@ onBeforeUnmount(() => {
   position: fixed;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   right: auto;
   bottom: 16px;
   left: 50%;
   z-index: 1;
   width: max-content;
   max-width: calc(100vw - 32px);
-  height: 36px;
-  padding: 3px;
+  height: 38px;
+  padding: 4px;
   overflow-x: auto;
   scrollbar-width: none;
   white-space: nowrap;
@@ -3411,7 +3559,7 @@ onBeforeUnmount(() => {
 }
 .property-toolbar::-webkit-scrollbar { display: none; }
 .property-toolbar :deep(button) { pointer-events: auto; }
-.property-color-group { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.property-color-group { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .property-color { width: 28px !important; height: 28px !important; padding: 0 6px; border-radius: 6px !important; }
 .property-color :deep(.truncate) { display: none; }
 .property-color--object { border: 2px solid var(--property-border) !important; background: var(--property-fill) !important; }
@@ -3420,16 +3568,16 @@ onBeforeUnmount(() => {
 .property-toolbar :deep(.property-tool-icon) { width: 16px; height: 16px; flex: 0 0 auto; }
 .property-toolbar :deep(.property-tool.is-active) { color: var(--ink-gray-8); background: var(--surface-gray-3); }
 .property-toolbar :deep(.property-text-control) { flex: 0 0 auto; min-width: 0; }
-.property-toolbar :deep(.property-text-control--font) { width: 124px; }
-.property-toolbar :deep(.property-text-control--size) { width: 64px; }
+.property-toolbar :deep(.property-text-control--font) { width: 116px; }
+.property-toolbar :deep(.property-text-control--size) { width: 60px; }
 .property-text-control :deep(button) { height: 28px; min-height: 28px; padding: 0 8px; }
 /* Select and Tooltip both use data-slot="content"; these rules are for Select's listbox only. */
 :global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))),
-:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox'])) { width: 124px !important; min-width: 0 !important; }
+:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox'])) { width: 116px !important; min-width: 0 !important; }
 :global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']),
-:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox']) [data-slot='content'][role='listbox']) { width: 124px !important; min-width: 124px; max-width: 124px; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))) { width: 64px !important; min-width: 0 !important; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']) { width: 64px !important; min-width: 64px; max-width: 64px; }
+:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox']) [data-slot='content'][role='listbox']) { width: 116px !important; min-width: 116px; max-width: 116px; }
+:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))) { width: 60px !important; min-width: 0 !important; }
+:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']) { width: 60px !important; min-width: 60px; max-width: 60px; }
 :global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])),
 :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])) { bottom: 50px !important; height: auto !important; min-height: 0 !important; max-height: calc(100vh - 72px) !important; }
 :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox'] .lucide-check) { display: none; }
@@ -3540,6 +3688,10 @@ onBeforeUnmount(() => {
 
 .infinite-canvas.is-laser-ready {
   cursor: url('../assets/laser-pointer.svg') 2 2, crosshair;
+}
+
+.infinite-canvas.is-lasso-ready {
+  cursor: crosshair;
 }
 
 .canvas-surface {
@@ -3656,6 +3808,22 @@ onBeforeUnmount(() => {
   stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+}
+
+.lasso-outline {
+  fill: none;
+  stroke-dasharray: 4 4;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  animation: lasso-marching-ants 700ms linear infinite;
+}
+
+.lasso-outline--background { stroke: var(--surface-white, #fff); }
+.lasso-outline--foreground { stroke: var(--selection-blue); stroke-dashoffset: 4; }
+
+@keyframes lasso-marching-ants {
+  to { stroke-dashoffset: -8; }
 }
 
 .selection-outline,
@@ -3780,6 +3948,8 @@ onBeforeUnmount(() => {
   .viewport-controls {
     height: 52px;
   }
+
+  .property-toolbar { padding: 3px; }
 
   .property-toolbar :deep(.property-color),
   .property-toolbar :deep(.property-tool),

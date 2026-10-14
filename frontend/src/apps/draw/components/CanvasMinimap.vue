@@ -2,11 +2,11 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { bounds, isFreeDraw, isLine, type Shape } from '../canvas/selection'
 import { screenToWorld, type Point, type Viewport } from '../canvas/geometry'
+import ArrowShape from './ArrowShape.vue'
 import {
   diamondPath,
   freeDrawPath,
   isClosedFreeDraw,
-  lineArrowHeadPath,
   linePath,
   type ImageShape,
   type RectangleShape,
@@ -145,8 +145,13 @@ function textX(shape: TextShape): number {
   >
     <g v-for="shape in shapes" :key="shape.id" :opacity="shape.opacity ?? 1" pointer-events="none">
       <template v-if="isLine(shape)">
-        <path class="minimap-stroke" :d="linePath(shape)" fill="none" :stroke="stroke(shape)" />
-        <path v-if="shape.kind === 'arrow'" :d="lineArrowHeadPath(shape, Math.max(8, worldPerPixel * 5))" :fill="shape.arrowHeadFill ?? stroke(shape)" />
+        <ArrowShape
+          v-if="shape.kind === 'arrow'"
+          :shape="shape"
+          :gradient-id="`minimap-arrow-${shape.id}`"
+          :scale="1 / worldPerPixel"
+        />
+        <path v-else class="minimap-stroke" :d="linePath(shape)" fill="none" :stroke="stroke(shape)" />
       </template>
       <path
         v-else-if="isFreeDraw(shape)"

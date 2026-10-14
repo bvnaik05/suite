@@ -12,6 +12,7 @@ const title = drawingTitle
 const titleDraft = ref(title.value)
 const editingTitle = ref(false)
 const titleInput = ref<{ el: HTMLInputElement | null } | null>(null)
+const canvas = ref<InstanceType<typeof InfiniteCanvas> | null>(null)
 const activeTool = ref<DrawingTool | null>('select')
 let lastTool: DrawingTool = 'select'
 
@@ -35,6 +36,7 @@ function cancelRenaming() { titleDraft.value = title.value; finishRenaming() }
 function selectTool(tool: DrawingTool) {
   if (tool === 'eraser' && activeTool.value !== 'eraser') lastTool = activeTool.value ?? 'select'
   activeTool.value = tool
+  if (tool === 'image') canvas.value?.openImagePicker()
 }
 
 function finishTool() {
@@ -142,6 +144,7 @@ onBeforeUnmount(() => {
       />
     </header>
     <InfiniteCanvas
+      ref="canvas"
       :active-tool="activeTool"
       @activate-rectangle="activeTool = 'rectangle'"
       @activate-diamond="activeTool = 'diamond'"
@@ -149,7 +152,7 @@ onBeforeUnmount(() => {
       @activate-line="activeTool = 'line'"
       @activate-arrow="activeTool = 'arrow'"
       @activate-text="activeTool = 'text'"
-      @activate-image="activeTool = 'image'"
+      @activate-image="selectTool('image')"
       @activate-draw="activeTool = 'draw'"
       @activate-eraser="selectTool('eraser')"
 

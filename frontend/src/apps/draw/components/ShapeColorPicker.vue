@@ -17,6 +17,7 @@ const props = defineProps<{
   strokeWidth?: number
   strokeStyle?: StrokeStyle
   showBorderOptions?: boolean
+  showStrokeStyleOptions?: boolean
   open?: boolean
   label: string
   target: ColorTarget
@@ -52,11 +53,13 @@ const palette = computed(() => families.map(family => ({ family, color: family.s
 const propertyPalette = computed(() => families.slice(0, 10).map(family => ({ family, color: family.shades[props.target === 'fill' ? 1 : 3] })))
 const propertyFillPalette = computed(() => families.slice(0, 11).map(family => ({ family, color: family.shades[0] })))
 const propertyBorderPalette = computed(() => families.slice(0, 11).map(family => ({ family, color: family.base })))
-const shadeLabel = computed(() => `${family.value.name} shades`)
+const shadeLabel = computed(() => `${family.value.name} ${selectionTarget.value === 'fill' ? 'Fill' : 'Border'} Shades`)
+const hexLabel = computed(() => `${selectionTarget.value === 'fill' ? 'Fill' : 'Border'} Hex Code`)
 const isProperty = computed(() => props.mode !== undefined && props.mode !== 'sidebar')
 const isPropertyObject = computed(() => props.mode === 'property-object')
 const showBorderOptions = computed(() => Boolean(props.showBorderOptions))
 const propertyKind = computed(() => props.propertyKind ?? (showBorderOptions.value ? 'shape' : 'text'))
+const showStrokeStyleOptions = computed(() => propertyKind.value !== 'text' && (props.showStrokeStyleOptions ?? showBorderOptions.value))
 const primaryLabel = computed(() => ({ shape: 'Fill Color', text: 'Background Color', draw: 'Background Color', arrow: 'Arrow Head Color', line: 'Light Colors' })[propertyKind.value])
 const secondaryLabel = computed(() => ({ shape: 'Border Color', text: 'Text Color', draw: 'Pen Color', arrow: 'Body Color', line: 'Dark Colors' })[propertyKind.value])
 const primaryTarget = computed<ColorTarget>(() => propertyKind.value === 'text' ? 'border' : 'fill')
@@ -116,7 +119,7 @@ async function pickScreenColor() {
   <span :class="['color-trigger-anchor', { 'property-color-control': isProperty }]">
     <Popover :open="isProperty ? open : undefined" :side="isProperty ? 'top' : 'left'" :align="isProperty ? 'center' : 'start'" :offset="isProperty ? 11 : 20" :collision-padding="16" arrow @update:open="emit('update:open', $event)">
       <template #trigger>
-        <Button :class="['color-trigger', { 'color-trigger--property': isProperty }]" size="xs" variant="ghost" theme="gray" :style="{ '--color': color }" :label="label" :tooltip="label" />
+        <Button :class="['color-trigger', { 'color-trigger--property': isProperty }]" size="xs" variant="ghost" theme="gray" :style="{ '--color': color }" :label="label" :tooltip="isProperty ? 'Custom' : label" />
       </template>
       <div :class="['color-picker', { 'color-picker--property': isProperty, 'color-picker--property-object': isPropertyObject }]">
         <section v-if="!isProperty">
@@ -148,6 +151,21 @@ async function pickScreenColor() {
             <button v-for="option in (isProperty ? propertyPalette : palette)" :key="option.family.name" :class="{ selected: family.name === option.family.name }" :style="{ background: option.color }" :aria-label="option.family.name" @click="selectColor(option.color, option.family)" />
           </div>
         </section>
+        <section>
+          <h3>{{ shadeLabel }}</h3>
+          <div class="color-row">
+            <button v-for="color in shades" :key="color" :class="{ selected: color === hex }" :style="{ background: color }" :aria-label="color" @click="selectColor(color)" />
+          </div>
+        </section>
+        <section class="hex-section">
+          <h3>{{ hexLabel }}</h3>
+          <TextInput class="hex-field" :model-value="hex.slice(1)" size="sm" variant="outline" :aria-label="hexLabel" maxlength="6" @update:model-value="updateHex(`#${$event.replace(/^#/, '')}`)">
+            <template #prefix><span class="hex-prefix">#</span></template>
+            <template #suffix>
+              <Button size="xs" variant="ghost" theme="gray" icon="lucide-pipette" label="Color Picker" tooltip="Color Picker" @click="pickScreenColor" />
+            </template>
+          </TextInput>
+        </section>
         <section v-if="showBorderOptions">
           <h3>Border thickness</h3>
           <div class="border-options">
@@ -156,7 +174,7 @@ async function pickScreenColor() {
             </button>
           </div>
         </section>
-        <section v-if="showBorderOptions">
+        <section v-if="showStrokeStyleOptions">
           <h3>Border style</h3>
           <div class="border-options">
             <button v-for="option in borderStyles" :key="option.value" :class="['stroke-option', { selected: props.strokeStyle === option.value }]" :aria-label="option.label" @click="emit('style', { strokeStyle: option.value })">
@@ -164,18 +182,6 @@ async function pickScreenColor() {
             </button>
           </div>
         </section>
-        <section>
-          <h3>{{ shadeLabel }}</h3>
-          <div class="color-row">
-            <button v-for="color in shades" :key="color" :class="{ selected: color === hex }" :style="{ background: color }" :aria-label="color" @click="selectColor(color)" />
-          </div>
-        </section>
-        <TextInput class="hex-field" :model-value="hex.slice(1)" size="sm" variant="outline" aria-label="Custom hex color" maxlength="6" @update:model-value="updateHex(`#${$event.replace(/^#/, '')}`)">
-          <template #prefix><span class="hex-prefix">#</span></template>
-          <template #suffix>
-            <Button size="xs" variant="ghost" theme="gray" icon="lucide-pipette" label="Color Picker" tooltip="Color Picker" @click="pickScreenColor" />
-          </template>
-        </TextInput>
       </div>
     </Popover>
   </span>
@@ -205,9 +211,9 @@ h3 { margin: 0 0 8px; color: var(--ink-gray-7); font-size: 13px; font-weight: 40
 .none-color:hover { color: var(--ink-gray-9); }
 .color-row button:hover, .color-grid button:hover { outline: 1px solid var(--outline-gray-4); outline-offset: 1px; }
 .color-row button:focus-visible, .color-grid button:focus-visible, .color-row button.selected, .color-grid button.selected { outline: 2px solid var(--surface-blue-2); outline-offset: 2px; }
-.color-picker :deep(.hex-field) { margin-top: 16px; }
-.color-picker--property :deep(.hex-field) { margin-top: 12px; }
-.color-picker--property-object :deep(.hex-field) { width: 100%; margin-top: 0; align-self: end; }
+.color-picker :deep(.hex-field) { margin-top: 0; }
+.color-picker--property-object .hex-section { align-self: end; }
+.color-picker--property-object :deep(.hex-field) { width: 100%; }
 .border-options { display: flex; gap: 5px; }
 .stroke-option { display: flex; width: 30px; height: 26px; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 5px; background: var(--surface-gray-2); color: var(--ink-gray-7); cursor: pointer; }
 .stroke-option.selected, .stroke-option:hover { border-color: var(--outline-blue-2); background: var(--surface-blue-1); }

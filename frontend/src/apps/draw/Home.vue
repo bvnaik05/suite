@@ -8,9 +8,10 @@ import { useAppSwitcher } from '@/composables/useAppSwitcher'
 import { useSettingsMenuOption } from '@/composables/useSettingsMenuOption'
 import { useThemeMenuOption } from '@/composables/useThemeMenuOption'
 import { useSessionStore } from '@/boot/session'
+import ArrowShape from './components/ArrowShape.vue'
 import type { Scene, Shape } from './canvas/selection'
 import { bounds, isLine } from './canvas/selection'
-import { freeDrawPath } from './canvas/scene'
+import { freeDrawPath, linePath } from './canvas/scene'
 import { drawRequest } from './canvas/request'
 
 type Drawing = { name: string; title: string; content: string; creation: string; modified: string }
@@ -158,7 +159,8 @@ onMounted(refresh)
           <a class="drawing-thumbnail" :href="editorUrl(drawing.name)" :aria-label="`Open ${drawing.title}`">
             <svg v-if="shapes(drawing).length" class="drawing-art" :viewBox="viewBox(drawing)" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
               <g v-for="shape in shapes(drawing)" :key="shape.id" :opacity="shape.opacity ?? 1">
-                <path v-if="isLine(shape)" :d="`M ${shape.start.x} ${shape.start.y} L ${shape.end.x} ${shape.end.y}`" fill="none" :stroke="shape.stroke || '#222'" :stroke-width="shape.strokeWidth ?? 2" />
+                <ArrowShape v-if="isLine(shape) && shape.kind === 'arrow'" :shape="shape" :gradient-id="`thumbnail-arrow-${shape.id}`" />
+                <path v-else-if="isLine(shape)" :d="linePath(shape)" fill="none" :stroke="shape.stroke || '#222'" :stroke-width="shape.strokeWidth ?? 2" />
                 <path v-else-if="kind(shape) === 'freedraw'" :d="freePath(shape)" fill="none" :stroke="shape.stroke || '#222'" :stroke-width="shape.strokeWidth ?? 2" />
                 <polygon v-else-if="kind(shape) === 'diamond'" :points="points(shape)" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" :stroke-width="shape.strokeWidth ?? 2" />
                 <ellipse v-else-if="kind(shape) === 'ellipse'" :cx="shape.x + shape.width / 2" :cy="shape.y + shape.height / 2" :rx="shape.width / 2" :ry="shape.height / 2" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" :stroke-width="shape.strokeWidth ?? 2" />
@@ -182,7 +184,7 @@ onMounted(refresh)
       <div v-else-if="search" class="home-empty">No drawings found</div>
       <div v-else class="home-empty"><PanelsTopLeft class="size-8 text-ink-gray-4" /><strong>No drawings yet.</strong><span>Add a new drawing to get started!</span><Button label="New Drawing" :disabled="creating" @click="createDrawing" /></div>
     </main>
-    <div v-if="preview" class="preview-overlay" @click="preview = null"><div class="preview-dialog" @click.stop><button class="preview-close" @click="preview = null">Close</button><div class="preview-art"><svg :viewBox="viewBox(preview)"><g v-for="shape in shapes(preview)" :key="shape.id"><path v-if="isLine(shape)" :d="`M ${shape.start.x} ${shape.start.y} L ${shape.end.x} ${shape.end.y}`" fill="none" :stroke="shape.stroke || '#222'" :stroke-width="shape.strokeWidth ?? 2" /><path v-else-if="kind(shape) === 'freedraw'" :d="freePath(shape)" fill="none" :stroke="shape.stroke || '#222'" /><polygon v-else-if="kind(shape) === 'diamond'" :points="points(shape)" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" /><ellipse v-else-if="kind(shape) === 'ellipse'" :cx="shape.x + shape.width / 2" :cy="shape.y + shape.height / 2" :rx="shape.width / 2" :ry="shape.height / 2" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" /><image v-else-if="kind(shape) === 'image'" :href="imageSource(shape)" :x="shape.x" :y="shape.y" :width="shape.width" :height="shape.height" /><text v-else-if="kind(shape) === 'text'" :x="shape.x" :y="shape.y + (textShape(shape)?.fontSize ?? 16)" :font-size="textShape(shape)?.fontSize">{{ textShape(shape)?.text }}</text><rect v-else :x="shape.x" :y="shape.y" :width="shape.width" :height="shape.height" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" /></g></svg></div><h2>{{ preview.title }}</h2><a :href="editorUrl(preview.name)">Open drawing</a></div></div>
+    <div v-if="preview" class="preview-overlay" @click="preview = null"><div class="preview-dialog" @click.stop><button class="preview-close" @click="preview = null">Close</button><div class="preview-art"><svg :viewBox="viewBox(preview)"><g v-for="shape in shapes(preview)" :key="shape.id"><ArrowShape v-if="isLine(shape) && shape.kind === 'arrow'" :shape="shape" :gradient-id="`preview-arrow-${shape.id}`" :opacity="shape.opacity ?? 1" /><path v-else-if="isLine(shape)" :d="linePath(shape)" fill="none" :stroke="shape.stroke || '#222'" :stroke-width="shape.strokeWidth ?? 2" /><path v-else-if="kind(shape) === 'freedraw'" :d="freePath(shape)" fill="none" :stroke="shape.stroke || '#222'" /><polygon v-else-if="kind(shape) === 'diamond'" :points="points(shape)" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" /><ellipse v-else-if="kind(shape) === 'ellipse'" :cx="shape.x + shape.width / 2" :cy="shape.y + shape.height / 2" :rx="shape.width / 2" :ry="shape.height / 2" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" /><image v-else-if="kind(shape) === 'image'" :href="imageSource(shape)" :x="shape.x" :y="shape.y" :width="shape.width" :height="shape.height" /><text v-else-if="kind(shape) === 'text'" :x="shape.x" :y="shape.y + (textShape(shape)?.fontSize ?? 16)" :font-size="textShape(shape)?.fontSize">{{ textShape(shape)?.text }}</text><rect v-else :x="shape.x" :y="shape.y" :width="shape.width" :height="shape.height" :fill="shape.fill || 'none'" :stroke="shape.stroke || '#222'" /></g></svg></div><h2>{{ preview.title }}</h2><a :href="editorUrl(preview.name)">Open drawing</a></div></div>
   </div>
   </FrappeUIProvider>
 </template>
