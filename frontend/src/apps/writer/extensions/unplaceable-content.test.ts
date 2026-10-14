@@ -17,6 +17,7 @@ import * as Y from 'yjs'
 import { BODY_FIELD } from '../collab/field'
 import { writerEditorExtensions } from '../editor-extensions'
 import { writerSchema } from '../schema'
+import { getEditorPos } from './comments'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
@@ -55,7 +56,6 @@ function stored(...blocks: Y.XmlElement[]) {
 function open(state: Uint8Array): Tab {
   const ydoc = new Y.Doc()
   Y.applyUpdate(ydoc, state, REMOTE)
-  const commentsDoc = new Y.Doc()
   const extensions = writerEditorExtensions({
     collaborative: true,
     mentionItems: () => [],
@@ -64,8 +64,8 @@ function open(state: Uint8Array): Tab {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    comments: commentsDoc.getMap('comments'),
-    ydoc: commentsDoc,
+    comments: ydoc.getMap('comments'),
+    ydoc,
     activeComment: ref(null),
     showComments: ref(false),
     showResolved: ref(false),
@@ -89,8 +89,8 @@ function body(tab: Tab) {
   return tab.ydoc.getXmlFragment(BODY_FIELD).toString()
 }
 
-function type(tab: Tab, text: string) {
-  tab.editor.view.dispatch(tab.editor.state.tr.insertText(text, 1))
+function type(tab: Tab, text: string, at = 1) {
+  tab.editor.view.dispatch(tab.editor.state.tr.insertText(text, at))
 }
 
 function cell(name: string) {
@@ -596,6 +596,22 @@ describe('positions around hidden leftovers', () => {
   })
 })
 
+describe('a comment after a hidden leftover', () => {
+  it('highlights the text it was made on, and places its card there', () => {
+    const tab = open(stored(paragraph('ab'), leftover(), paragraph('cdef')))
+    const text = (tab.ydoc.getXmlFragment(BODY_FIELD).get(2) as Y.XmlElement).get(0) as Y.XmlText
+    const [from, to] = [1, 3].map((index) =>
+      Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, index)),
+    )
+
+    tab.ydoc.getMap('comments').set('c1', { id: 'c1', anchor: { from, to }, resolved: false })
+
+    const highlight = tab.editor.view.dom.querySelector('[data-comment-name="c1"]')
+    expect(highlight?.textContent).toBe('de')
+    expect(getEditorPos(from, tab.editor)).toBe(6)
+  })
+})
+
 describe('a frozen tab', () => {
   it('drops its undo history and takes no undo or redo', () => {
     const source = new Y.Doc()
@@ -689,6 +705,74 @@ describe('building a document from Yjs', () => {
     block.insert(1, [new Y.XmlText(' there')])
 
     expect([block.length, block.toString()]).toEqual([1, '<paragraph>hello there</paragraph>'])
+  })
+})
+
+// Two tabs typing into one empty block at once each make a text in it; the tab whose text lands second folds it into the first
+describe('two texts side by side in one block', () => {
+  const base = stored(element('paragraph'))
+
+  function typeAtOnce() {
+    const tabs = [open(base), open(base)]
+    type(tabs[0], 'a')
+    type(tabs[1], 'b')
+    return tabs
+  }
+
+  function texts(tab: Tab) {
+    return (tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement).length
+  }
+
+  function ownClocks(...tabs: Tab[]) {
+    return tabs.map((tab) => Y.getState(tab.ydoc.store, tab.ydoc.clientID))
+  }
+
+  it('folds them into one once the tabs sync, and later typing at once is not doubled', () => {
+    const [mine, other] = typeAtOnce()
+    exchange(mine, other)
+    exchange(mine, other)
+
+    expect([texts(mine), texts(other)]).toEqual([1, 1])
+
+    type(mine, 'X', 3)
+    type(other, 'Y')
+    exchange(mine, other)
+    exchange(mine, other)
+
+    const [typed] = blockTexts(mine)
+    expect(blockTexts(mine)).toEqual(blockTexts(other))
+    expect([...typed].sort()).toEqual(['X', 'Y', 'a', 'b'])
+  })
+
+  it('leaves them apart in tabs that cannot edit, and writes nothing', () => {
+    const [mine, other] = typeAtOnce()
+    mine.editor.setEditable(false)
+    other.editor.setEditable(false)
+    const clocks = ownClocks(mine, other)
+
+    exchange(mine, other)
+    exchange(mine, other)
+
+    expect([texts(mine), texts(other), ownClocks(mine, other)]).toEqual([2, 2, clocks])
+    expect(blockTexts(mine)).toEqual(blockTexts(other))
+  })
+
+  it('leaves them apart in frozen tabs, and writes nothing', () => {
+    const [mine, other] = typeAtOnce()
+    const source = new Y.Doc()
+    Y.applyUpdate(source, base)
+    source.getXmlFragment(BODY_FIELD).insert(1, [cellInBody()])
+    for (const tab of [mine, other]) {
+      Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(source), REMOTE)
+    }
+
+    const clocks = ownClocks(mine, other)
+
+    exchange(mine, other)
+    exchange(mine, other)
+
+    expect([mine.freezes, other.freezes].flat().map(([reason]) => reason)).toEqual(['row', 'row'])
+    expect([texts(mine), texts(other), ownClocks(mine, other)]).toEqual([2, 2, clocks])
   })
 })
 

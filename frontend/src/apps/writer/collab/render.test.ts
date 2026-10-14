@@ -36,4 +36,16 @@ describe('writerRender', () => {
 
     expect(writerRender(doc).text).toBe('First\nSecond')
   })
+
+  it('writes nothing to the document, even over two texts it made side by side', () => {
+    const doc = new Y.Doc()
+    const block = new Y.XmlElement('paragraph')
+    block.insert(0, [new Y.XmlText('a'), new Y.XmlText('b')])
+    doc.getXmlFragment(BODY_FIELD).insert(0, [block])
+    const before = Y.encodeStateAsUpdate(doc)
+
+    writerRender(doc)
+
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+  })
 })

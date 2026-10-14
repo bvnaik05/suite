@@ -799,7 +799,8 @@ class ProsemirrorBinding {
       );
       transaction.changed.forEach(delType);
       transaction.changedParentTypes.forEach(delType);
-      if (!this.isFrozen && transaction.local) {
+      // Only a tab that can write folds its texts; a read-only, gated or frozen one isn't editable
+      if (this.prosemirrorView.editable) {
         this._mergeOwnTexts(transaction);
       }
       const fragmentContent = this._place();

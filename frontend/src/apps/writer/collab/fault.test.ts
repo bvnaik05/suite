@@ -48,4 +48,16 @@ describe('writerFault', () => {
     const empty = Y.encodeStateAsUpdate(new Y.Doc())
     expect(judge(checkpoint, [empty, empty], writerFault)).toEqual({ verdict: 'clean' })
   })
+
+  it('writes nothing to the document, even over two texts it made side by side', () => {
+    const doc = new Y.Doc()
+    const block = new Y.XmlElement('paragraph')
+    block.insert(0, [new Y.XmlText('a'), new Y.XmlText('b')])
+    doc.getXmlFragment(BODY_FIELD).insert(0, [block])
+    const before = Y.encodeStateAsUpdate(doc)
+
+    writerFault(doc)
+
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+  })
 })
