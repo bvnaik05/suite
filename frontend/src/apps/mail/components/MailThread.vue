@@ -199,6 +199,8 @@
                           :label="getSenderInitial(mail)"
                           :image="mail.user_image"
                           :size="isCollapsed(mail) ? (isMobile ? 'lg' : 'md') : 'xl'"
+                          :class="{ 'cursor-pointer': !isCollapsed(mail) && !isMobile }"
+                          @click="openSenderCard(mail, $event)"
                         />
                         <!-- Collapsed rows align everything on one text baseline —
 									     name, preview and timestamp are three sizes with three
@@ -218,11 +220,27 @@
                                 : 'flex-col space-y-1'
                             "
                           >
-                            <div class="flex items-center space-x-1.5">
-                              <span
-                                class="truncate text-[15px] !font-semibold sm:text-base"
-                                :class="{
-                                  /* A collapsed row is centered against the taller avatar, so
+                            <!-- An open message's sender — avatar, name or address — opens a card
+												     for them: who they are, and writing to them, keeping their address or
+												     finding the rest of their mail. A folded row only opens. -->
+                            <!-- Focus stays put on open: the first button taking it showed its
+												     tooltip the moment the card appeared. -->
+                            <Popover
+                              trigger="manual"
+                              :auto-focus="false"
+                              :open="senderCardFor === mail.name"
+                              @update:open="(open: boolean) => !open && (senderCardFor = null)"
+                            >
+                              <template #trigger>
+                                <div
+                                  class="flex items-center space-x-1.5"
+                                  :class="{ 'cursor-pointer': !isCollapsed(mail) && !isMobile }"
+                                  @click="openSenderCard(mail, $event)"
+                                >
+                                  <span
+                                    class="truncate text-[15px] !font-semibold sm:text-base"
+                                    :class="{
+                                      /* A collapsed row is centered against the taller avatar, so
 														   whatever sets the text block's height decides where the name
 														   sits. The preview beside it states a 20px line box, matching
 														   the 20px hover actions that replace the timestamp — but a mail
@@ -230,29 +248,36 @@
 														   set the height and the row rose ~1px under the cursor.
 														   sm:, because the preset's font sizes carry a line-height of
 														   their own: a bare leading-5 loses to the sm:text-base above. */
-                                  'sm:leading-5': isCollapsed(mail) && !isMobile,
-                                }"
-                              >
-                                {{ mail.from_name || mail.from_email }}
-                              </span>
-                              <!-- leading-4: 16px holds Inter's ~15.7px glyph box at 13px, so truncate's
+                                      'sm:leading-5': isCollapsed(mail) && !isMobile,
+                                    }"
+                                  >
+                                    {{ mail.from_name || mail.from_email }}
+                                  </span>
+                                  <!-- leading-4: 16px holds Inter's ~15.7px glyph box at 13px, so truncate's
 												     overflow-hidden keeps the descenders of a g or a p, and it still sits
 												     under the sender name beside it, so the row does not grow. -->
-                              <span
-                                v-if="!isMobile && !isCollapsed(mail)"
-                                class="text-ink-gray-5 truncate leading-4"
-                              >
-                                <span>&lt;</span>
-                                <Tooltip :text="__('Filter messages from this sender')">
                                   <span
-                                    class="cursor-pointer hover:underline"
-                                    @click.stop="filterBySender(mail.from_email)"
-                                    >{{ mail.from_email }}</span
+                                    v-if="!isMobile && !isCollapsed(mail)"
+                                    class="text-ink-gray-5 truncate leading-4"
                                   >
-                                </Tooltip>
-                                <span>&gt;</span>
-                              </span>
-                            </div>
+                                    &lt;{{ mail.from_email }}&gt;
+                                  </span>
+                                </div>
+                              </template>
+                              <template #default="{ close }">
+                                <SenderCard
+                                  :name="mail.from_name || mail.from_email"
+                                  :email="mail.from_email"
+                                  :image="mail.user_image"
+                                  :initial="getSenderInitial(mail)"
+                                  @email="
+                                    (close(), requestCompose({ to: [{ email: mail.from_email }] }))
+                                  "
+                                  @copy="(close(), copyToClipBoard(mail.from_email))"
+                                  @filter="(close(), filterBySender(mail.from_email))"
+                                />
+                              </template>
+                            </Popover>
                             <!-- Same 13px truncate, same shaved descenders. Collapsed
 											     mails keep just sender + preview — recipients belong to
 											     the expanded reading view. A compact summary, not the
@@ -566,7 +591,7 @@
 </template>
 
 <script setup lang="ts">
-import { Avatar, Badge, Button, Tooltip } from 'frappe-ui'
+import { Avatar, Badge, Button, Popover } from 'frappe-ui'
 import { Ban, ChevronDown, Download, Forward, LoaderCircle, Reply, ReplyAll } from 'lucide-vue-next'
 import {
   computed,
@@ -596,6 +621,7 @@ import MailDetails from '@/apps/mail/components/MailDetails.vue'
 import MailDetailsPopover from '@/apps/mail/components/MailDetailsPopover.vue'
 import PlainTextBody from '@/apps/mail/components/PlainTextBody.vue'
 import ScreenerThreadBanner from '@/apps/mail/components/Screener/ScreenerThreadBanner.vue'
+import SenderCard from '@/apps/mail/components/SenderCard.vue'
 import SendMail from '@/apps/mail/components/SendMail.vue'
 import ThreadDivider from '@/apps/mail/components/ThreadDivider.vue'
 import ThreadHeader from '@/apps/mail/components/ThreadHeader.vue'
@@ -621,6 +647,7 @@ import type {
 } from '@/apps/mail/types'
 import {
   analyzeRemoteAssets,
+  copyToClipBoard,
   decodeHtmlEntities,
   downloadUrlAsFile,
   extractQuotedContent,
@@ -634,6 +661,7 @@ import {
 } from '@/apps/mail/utils'
 import { provideAccountScope } from '@/apps/mail/utils/accountScope'
 import {
+  useComposeMail,
   useFilterBySender,
   useScreenSize,
   useSettings,
@@ -703,6 +731,14 @@ const emit = defineEmits([
 ])
 const { isMobile } = useScreenSize()
 const { filterBySender } = useFilterBySender()
+const { requestCompose } = useComposeMail()
+// The open message whose sender card is showing, if any.
+const senderCardFor = ref<string | null>(null)
+const openSenderCard = (mail: Mail, event: MouseEvent) => {
+  if (isCollapsed(mail) || isMobile.value) return
+  event.stopPropagation()
+  senderCardFor.value = mail.name
+}
 const { openSettings } = useSettings()
 const dayjs = inject('$dayjs')
 // The pane acts as the thread's owning account (the active one unless the `account`
