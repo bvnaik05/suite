@@ -83,6 +83,8 @@ interface EditorSurface {
   peers?: CollaborationUser[]
   /** Where each comment thread shows; only the collaborative editor places them. */
   places?: ThreadPlaces
+  /** Clears the old editor's device store, which would replay a refused save into later opens. */
+  forgetStoredEdits?: () => Promise<void>
 }
 
 const props = defineProps<{ session: DocumentSession }>()
@@ -176,6 +178,9 @@ const showsRecoveryBanner = computed(() => !isPreviewing.value && !stopBanner.va
 watch(writes.refusedForGood, () => {
   refusedSaveKept.value = retainRecovery()
   editorSurface.value?.editor?.setEditable(false)
+  if (refusedSaveKept.value) {
+    void editorSurface.value?.forgetStoredEdits?.()
+  }
 })
 
 const version = useMutation(api.drive.versions.create, {

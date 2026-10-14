@@ -81,7 +81,9 @@ vi.mock('@/apps/drive', async () => {
 
 const rooms = vi.hoisted(() => ({ next: null as object | null }))
 // The body the server holds for a document edited without collaboration
-const stored = vi.hoisted(() => ({ html: '' }))
+const stored = vi.hoisted(() => ({ html: '', collab: 0, isRefusingSaves: false }))
+// The old editor's hold on its device store, which it gives up once a refused save is kept
+const oldEditor = vi.hoisted(() => ({ forgetStoredEdits: vi.fn(async () => {}) }))
 
 vi.mock('@/apps/writer/collab', () => ({
   BODY_FIELD: 'default',
@@ -117,10 +119,17 @@ vi.mock('./writerDocument', async (importOriginal) => {
     loading: false,
     error: null,
     submit: async () => null,
+    run: async () => {
+      if (stored.isRefusingSaves) {
+        throw Object.assign(new Error('CONFLICT'), { type: 'LoggedDocumentConflict' })
+      }
+
+      return null
+    },
   })
   const writerDocument = () => {
     function read() {
-      return { name: 'content-1', collab: 0, settings: {}, html: stored.html }
+      return { name: 'content-1', collab: stored.collab, settings: {}, html: stored.html }
     }
 
     const resources = reactive({
@@ -172,7 +181,26 @@ vi.mock('@/apps/writer/components/CollabTextEditor.vue', async () => {
     }),
   }
 })
-vi.mock('@/apps/writer/components/TextEditor.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/apps/writer/components/TextEditor.vue', async () => {
+  const { defineComponent: define, h: render, onMounted } = await import('vue')
+  return {
+    default: define({
+      props: { document: Object },
+      setup(props, { expose }) {
+        const editor = { getHTML: () => '<p>Old editor line</p>', setEditable: () => {} }
+        expose({ editor, forgetStoredEdits: oldEditor.forgetStoredEdits })
+        // Its first autosave, which the server refuses for a logged document
+        onMounted(() => {
+          const document = props.document as {
+            saveDoc: { run: (input: object) => Promise<unknown> }
+          }
+          void document.saveDoc.run({}).catch(() => {})
+        })
+        return () => render('div', { 'data-editor': '' })
+      },
+    }),
+  }
+})
 vi.mock('@/apps/writer/components/UsersBar.vue', () => ({ default: { render: () => null } }))
 vi.mock('./WriterDocumentMenu.vue', () => ({ default: { render: () => null } }))
 vi.mock('./VersionPreview.vue', async () => {
@@ -254,6 +282,10 @@ afterEach(() => {
   document.body.innerHTML = ''
   rooms.next = null
   stored.html = ''
+  stored.collab = 0
+  stored.isRefusingSaves = false
+  oldEditor.forgetStoredEdits.mockClear()
+  vi.restoreAllMocks()
 })
 
 function liveRoom() {
@@ -308,6 +340,10 @@ function recoveryBanner(root: Element) {
 }
 
 const STOPPED = 'Saving stopped in this tab. Reload to keep editing.'
+const REFUSED =
+  'This document now saves as you edit, so saving stopped in this tab. Reload to keep editing.'
+const REFUSED_KEPT =
+  'This document now saves as you edit, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.'
 
 // A live room whose saving failed for good, which the page shows as the stop strip
 function stoppedRoom() {
@@ -593,6 +629,30 @@ describe('Writer surface', () => {
     await settled()
     expect(stripTexts(root)).toHaveLength(1)
     await discardCopies()
+  })
+
+  it("clears the old editor's store once its refused save is kept as a recovery copy", async () => {
+    Object.assign(stored, { collab: 1, isRefusingSaves: true })
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(oldEditor.forgetStoredEdits).toHaveBeenCalledOnce())
+    expect((await listCopies('node-1')).map((copy) => copy.html)).toEqual([
+      '<p>Old editor line</p>',
+    ])
+    expect(stripTexts(root)).toEqual([REFUSED_KEPT])
+    await discardCopies()
+  })
+
+  it("keeps the old editor's store when the recovery copy can't be kept", async () => {
+    Object.assign(stored, { collab: 1, isRefusingSaves: true })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    })
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([REFUSED]))
+    await settled()
+    expect(oldEditor.forgetStoredEdits).not.toHaveBeenCalled()
   })
 
   it('opens the recovery copy a link names, in place of the editor', async () => {

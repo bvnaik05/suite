@@ -62,14 +62,10 @@ provide('editor', editor)
 
 // `useYjs` owns the unsaved flag: it sets `edited` on each change to store
 // and clears it when a save lands (`composables/unsaved.ts`).
-const { doc, save, cleanup, provider, loaded, peers, ...commentsDetail } = useYjs(
-  props.file.doc.name,
-  props.document,
-  editor,
-  edited,
-)
+const { doc, save, forgetStoredEdits, cleanup, provider, loaded, peers, ...commentsDetail } =
+  useYjs(props.file.doc.name, props.document, editor, edited)
 
-defineExpose({ editor, peers })
+defineExpose({ editor, peers, forgetStoredEdits })
 useAutoversion(editor, edited, props.document)
 watch(loaded, () => rebuild(editor.value))
 

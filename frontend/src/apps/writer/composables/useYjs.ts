@@ -138,6 +138,20 @@ export function useYjs(
   const { peers, cleanup: cleanupPeers } = useCollaborationUsers(provider.awareness)
   // Comments
   const { cleanup: cleanupComments, ...commentsData } = useComments(document, editor)
+
+  // Once a refused save is kept as a recovery copy, stop the store replaying it into later opens;
+  // only the rows go, so other old tabs keep their connections
+  async function forgetStoredEdits() {
+    if (!loaded.value) {
+      return
+    }
+
+    provider.disconnect()
+    const connection = await db._db
+    connection.transaction('updates', 'readwrite').objectStore('updates').clear()
+    await db.destroy()
+  }
+
   return {
     doc,
     cleanup: () => {
@@ -147,6 +161,7 @@ export function useYjs(
       cleanupComments()
     },
     save,
+    forgetStoredEdits,
     provider,
     peers,
     loaded,
