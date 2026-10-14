@@ -50,8 +50,8 @@ import { escapeBracketedAddresses } from '@/apps/mail/utils/html'
 import { parseMailto } from '@/apps/mail/utils/mailto'
 import { findQuoteRoots } from '@/apps/mail/utils/quotedContent'
 
-// Whether to withhold remote content is the thread's to say: it offers one Show for all its
-// messages (see HiddenImagesBanner), and lifts the block here once the reader asks.
+// Whether to withhold remote content is the thread's to say: it offers a Show in each message that
+// holds some (see HiddenImagesBanner), and lifts the block here once the reader asks.
 const { content, blockImages = false } = defineProps<{ content: string; blockImages?: boolean }>()
 
 const { dataTheme } = useTheme()

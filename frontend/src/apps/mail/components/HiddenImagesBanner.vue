@@ -1,26 +1,30 @@
 <template>
-  <!-- A thread's remote content is withheld until the reader asks for it, so a sender cannot use it to
-	     tell when their mail was opened. One banner for the whole thread: Show loads it in every message.
-	     A rounded, bordered banner on desktop; a full-bleed row on a phone. -->
-  <div
-    class="bg-surface-base text-p-sm text-ink-gray-8 flex items-center gap-3 border-b py-1.5 pl-3 pr-1.5 sm:rounded-6 sm:border"
-  >
-    <ImageOff class="text-ink-gray-5 size-4 shrink-0" />
-    <span class="flex-1">
+  <!-- A message's remote content is withheld until the reader asks for it, so a sender cannot use it
+	     to tell when their mail was opened. A note about this message, not a decision: the bars that
+	     ask for one (the Screener's, a blocked sender's) are filled; this is a line of grey text on
+	     the body's edge, Show a link right after it, so it never competes with them. -->
+  <div class="text-p-sm text-ink-gray-5 flex items-center gap-2">
+    <ImageOff class="size-4 shrink-0" />
+    <span>
       {{
         images === 0
-          ? __('Remote content hidden.')
+          ? __('Remote content hidden to protect your privacy.')
           : images === 1
-            ? __('1 image hidden.')
-            : __('{0} images hidden.', [String(images)])
+            ? __('1 image hidden to protect your privacy.')
+            : __('{0} images hidden to protect your privacy.', [String(images)])
       }}
+      <button
+        type="button"
+        class="text-ink-gray-7 hover:text-ink-gray-8 font-medium underline-offset-2 hover:underline"
+        @click="emit('show')"
+      >
+        {{ __('Show') }}
+      </button>
     </span>
-    <Button variant="ghost" :label="__('Show')" @click="emit('show')" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { Button } from 'frappe-ui'
 import { ImageOff } from 'lucide-vue-next'
 
 /** How many remote images are hidden; 0 when what is hidden is other remote content. */

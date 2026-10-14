@@ -53,21 +53,16 @@
                 'sm:flex sm:h-full sm:flex-col': isDraftAlone,
               }"
             >
+              <!-- pb, not mb: the thread's space-y is a margin, and the two would collapse. -->
               <ScreenerThreadBanner
                 v-if="screenedSenders.length"
+                class="sm:pb-3"
                 :senders="screenedSenders"
                 :domains="trustableDomains(screenedSenders.map((sender) => sender.email))"
-                :hidden-images="hiddenImages"
                 @allow="allowSenders()"
                 @allow-one="(email: string) => allowSenders([email])"
                 @allow-domain="(domain: string) => allowDomain(domain)"
                 @deny="denySenders()"
-                @load-images="imagesShown = true"
-              />
-              <HiddenImagesBanner
-                v-else-if="hiddenImages !== null"
-                :images="hiddenImages"
-                @show="imagesShown = true"
               />
               <!-- Rows carry their own date until a long thread's fold is opened; from then
 				     a quiet header names each day and the rows keep only the clock. On desktop
@@ -410,6 +405,15 @@
                             @click="unblockEmailAddressSubmit(mail.from_email)"
                           />
                         </div>
+                        <!-- This message's remote content, offered back here rather than once
+										     for the thread: the images are in this message, and whether to load
+										     them is a question about its sender. -->
+                        <HiddenImagesBanner
+                          v-if="hiddenImagesByMail.has(mail.name)"
+                          class="mb-3"
+                          :images="hiddenImagesByMail.get(mail.name)!"
+                          @show="showImagesOf(mail)"
+                        />
                         <CalendarInviteBanner
                           v-if="!readonly && !isCollapsed(mail) && icsAttachment(mail)"
                           :key="`invite-${mail.name}`"
@@ -999,34 +1003,38 @@ const screenedSenders = computed(() => {
   return [...senders.values()]
 })
 
-// Remote content is withheld from senders not yet trusted, and offered back once for the whole thread
-// (see HiddenImagesBanner). A sender allowed from here is trusted at once: their images load without
-// waiting for the rules to be read again. Once the rules are read again they say who is trusted —
-// an Undo, or a failed acceptance, takes the trust back.
-const imagesShown = ref(false)
+// Remote content is withheld from senders not yet trusted, and offered back in each message that
+// holds some (see HiddenImagesBanner).
+// A sender allowed from here is trusted at once: their images load without waiting for the rules to
+// be read again. Once the rules are read again they say who is trusted — an Undo, or a failed
+// acceptance, takes the trust back.
+const imagesShownIn = ref(new Set<string>())
 const trustedHere = ref(new Set<string>())
 watch(
   () => threadID,
   () => {
-    imagesShown.value = false
+    imagesShownIn.value = new Set()
     trustedHere.value = new Set()
   },
 )
+const showImagesOf = (mail: Mail) =>
+  (imagesShownIn.value = new Set([...imagesShownIn.value, mail.name]))
 const trustHere = (email: string) =>
   (trustedHere.value = new Set([...trustedHere.value, email.toLowerCase()]))
 const domainOf = (email?: string) => `@${(email ?? '').split('@').pop()?.toLowerCase()}`
 const isBlocked = (mail: Mail) =>
-  !imagesShown.value &&
+  !imagesShownIn.value.has(mail.name) &&
   !trustedHere.value.has(mail.from_email?.toLowerCase()) &&
   !trustedHere.value.has(domainOf(mail.from_email)) &&
   shouldBlockImages(mail)
-// How many remote images the thread holds back, or null when it holds nothing back.
-const hiddenImages = computed(() => {
-  const held = thread.value
-    .filter(isBlocked)
-    .map((mail) => analyzeRemoteAssets(mail.html_body))
-    .filter((assets) => assets.hasRemote)
-  return held.length ? held.reduce((n, assets) => n + assets.images, 0) : null
+// How many remote images each message holds back, for the messages that hold anything back.
+const hiddenImagesByMail = computed(() => {
+  const held = new Map<string, number>()
+  for (const mail of thread.value.filter(isBlocked)) {
+    const assets = analyzeRemoteAssets(mail.html_body)
+    if (assets.hasRemote) held.set(mail.name, assets.images)
+  }
+  return held
 })
 // A verdict changes who is trusted, and an accepted sender's images load: read the rules again.
 watch(screener.version, () =>
