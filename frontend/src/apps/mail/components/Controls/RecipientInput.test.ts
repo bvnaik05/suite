@@ -6,8 +6,8 @@ import type { RecipientField } from '@/apps/mail/utils/recipientFields'
 
 import RecipientInput from './RecipientInput.vue'
 
-// Whether the field believes it is on a phone — the chip menu exists only there, so each test
-// says which it is before mounting.
+// Whether the field believes it is on a phone — chips look and behave a little differently there,
+// so each test says which it is before mounting.
 const isMobile = vi.hoisted(() => ({ value: true }))
 
 vi.mock('frappe-ui', async () => {
@@ -37,7 +37,7 @@ vi.mock('frappe-ui', async () => {
         return () => (attrs.open ? h('div', { 'data-menu': '' }, slots.default?.()) : null)
       },
     }),
-    toast: { error: vi.fn() },
+    toast: { error: vi.fn(), success: vi.fn() },
   }
 })
 vi.mock('@vueuse/core', async (original) => ({
@@ -176,7 +176,7 @@ describe('RecipientInput chips on desktop', () => {
     const { root, model } = mount([amy, bo])
     await nextTick()
 
-    const remove = chips(root)[0].querySelector('svg')
+    const remove = chips(root)[0].querySelector<HTMLElement>('[aria-label^="Remove"]')
     expect(remove).not.toBeNull()
 
     remove!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -184,10 +184,11 @@ describe('RecipientInput chips on desktop', () => {
     expect(model.value.map((r) => r.email)).toEqual(['bo@example.com'])
   })
 
-  it('opens no menu on a chip: a recipient is dragged between fields there', async () => {
+  it('opens the menu on a click too, naming the full address the chip shows only a name for', async () => {
     const { root } = mount([amy, bo])
     await tapChip(root, 1)
 
-    expect(menu(root)).toBeNull()
+    expect(menu(root)?.textContent).toContain('bo@example.com')
+    expect(menuItem(root, 'Move to Cc')).not.toBeNull()
   })
 })
