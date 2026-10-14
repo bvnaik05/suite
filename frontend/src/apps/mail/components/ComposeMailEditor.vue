@@ -36,7 +36,9 @@
            the values line up down the page; the window pads nothing, so every row carries its own
            inset. -->
       <template v-if="windowed">
-        <div>
+        <!-- Scrolls rather than pushing the window's header off screen when enough recipients
+             wrap that the fields outgrow a capped window. -->
+        <div class="max-h-[40vh] min-h-0 shrink-0 overflow-y-auto">
           <div
             class="flex items-center gap-2 border-b px-4 py-2"
             :class="{ 'border-transparent': isDragging }"
@@ -261,7 +263,8 @@
           'py-2.5 max-sm:px-3': !windowed,
           // Docked, the window is as tall as its fields and a fixed page; expanded, the page
           // takes whatever the window's fixed height leaves.
-          'h-72 flex-none': windowed && !expanded,
+          // Shrinks (and scrolls) when the window meets its height cap on a short screen.
+          'h-72 min-h-16 shrink': windowed && !expanded,
           'min-h-0': windowed && expanded,
           'max-h-96 min-h-32': isInThread && !fillsHost,
           'sm:min-h-0': fillsHost,

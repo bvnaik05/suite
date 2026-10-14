@@ -45,7 +45,7 @@
             ? 'bottom-4 right-4 w-[28rem] max-w-[calc(100vw-2rem)]'
             : expanded
               ? 'inset-0 m-auto h-[min(85vh,760px)] w-[min(960px,calc(100vw-4rem))]'
-              : 'bottom-4 right-4 w-[600px] max-w-[calc(100vw-2rem)]'
+              : 'bottom-4 right-4 max-h-[calc(100vh-2rem)] w-[600px] max-w-[calc(100vw-2rem)]'
         "
       >
         <!-- Folded away, the bar is the whole window and one wide target that restores it, carrying

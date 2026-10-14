@@ -54,7 +54,10 @@ vi.mock('@/apps/mail/utils/composables', async () => {
   const { computed } = await import('vue')
   return { useScreenSize: () => ({ isMobile: computed(() => isMobile.value) }) }
 })
-vi.mock('@/apps/mail/stores/user', () => ({ userStore: () => ({ accountId: 'oa' }) }))
+vi.mock('@/apps/mail/utils/accountScope', async () => {
+  const { ref } = await import('vue')
+  return { injectAccountScope: () => ({ accountId: ref('oa') }) }
+})
 
 const amy: DraftRecipient = { email: 'amy@example.com', display_name: 'Amy Diaz' }
 const bo: DraftRecipient = { email: 'bo@example.com', display_name: 'Bo Chen' }

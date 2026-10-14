@@ -174,9 +174,9 @@ import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 
 import { api, client, useQuery } from '@/api'
 import ContactOption from '@/apps/mail/components/Controls/ContactOption.vue'
-import { userStore } from '@/apps/mail/stores/user'
 import { type DraftRecipient } from '@/apps/mail/types'
 import { isEmail } from '@/apps/mail/utils'
+import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import { RECIPIENT_FIELDS, type RecipientField } from '@/apps/mail/utils/recipientFields'
 
@@ -200,7 +200,9 @@ const { field, suggestionsTo = null } = defineProps<{
 const selectedRecipients = defineModel<DraftRecipient[]>({ default: () => [] })
 
 const { isMobile } = useScreenSize()
-const store = userStore()
+// The composer's account, not the active one: a reply from another account in All Inboxes looks
+// people up, and names them, in that account's address book.
+const { accountId } = injectAccountScope()
 
 const containerRef = useTemplateRef('container')
 const tagsRef = useTemplateRef('tags')
@@ -518,9 +520,9 @@ const addValue = (value: string) => {
 // suggestions on screen. If it is a contact, the name (and photo) follow, for the chip, its menu
 // and the header the mail goes out with.
 const nameRecipient = async (email: string) => {
-  if (!store.accountId) return
+  if (!accountId.value) return
   const found = await client
-    .query(api.mail.contacts.suggest, { account: store.accountId, text: email })
+    .query(api.mail.contacts.suggest, { account: accountId.value, text: email })
     .catch(() => [])
   const match = found.find((option) => option.email.toLowerCase() === email.toLowerCase())
   if (!match?.name) return
@@ -578,8 +580,8 @@ const handleDrop = (e: DragEvent) => {
 
 const debouncedSearch = refDebounced(searchText, 200)
 const suggestions = useQuery(api.mail.contacts.suggest, () =>
-  store.accountId && debouncedSearch.value && debouncedSearch.value === searchText.value
-    ? { account: store.accountId, text: debouncedSearch.value }
+  accountId.value && debouncedSearch.value && debouncedSearch.value === searchText.value
+    ? { account: accountId.value, text: debouncedSearch.value }
     : false,
 )
 const contacts = computed(() =>
