@@ -24,12 +24,15 @@ import { namedSequenceDetector } from './named-sequence.js'
 import { numericDetector } from './numeric.js'
 import { textNumberDetector } from './text-number.js'
 import { timeDetector } from './time.js'
+import type { Detector, Series } from './types.js'
+
+export type { Detector, Series } from './types.js'
 
 // Priority order — most specific first.  Date and time match strict regex
 // shapes so they never steal generic cases.  Named-sequence handles calendar
 // wrap-around.  Text-with-numbers tokenises around embedded ints.  Alphabetic
 // matches pure-letter sequences.  Numeric is the last resort before copy.
-const DETECTORS = [
+const DETECTORS: readonly Detector[] = [
   dateDetector,
   timeDetector,
   namedSequenceDetector,
@@ -38,7 +41,7 @@ const DETECTORS = [
   numericDetector,
 ]
 
-export function detectSeries(values) {
+export function detectSeries(values: readonly string[]): Series | null {
   for (const det of DETECTORS) {
     const result = det.detect(values)
     if (result) return result

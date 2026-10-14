@@ -15,21 +15,42 @@
 // "2025-04-02".  Each parser captures separator + ordering and reuses both
 // on output.
 
+import type { Detector } from './types.js'
+
+/** A parsed source date plus the shape to print it back in. */
+interface ParsedDate {
+  y: number
+  m: number
+  d: number
+  sep: string
+  order: 'dmy' | 'mdy' | 'ymd'
+  pad: boolean
+}
+
+interface DateParser {
+  regex: RegExp
+  parse(s: string): ParsedDate | null
+  /** Print `d` in the source's shape (`ctx` carries separator + padding). */
+  format(d: ParsedDate, ctx: ParsedDate): string
+}
+
+type StepKind = 'day' | 'week' | 'month' | 'year'
+
 // ── Parsers (regex → {y,m,d} + format(yymmdd) back to string) ────────────
 
-const _PAD2 = (n) => String(n).padStart(2, '0')
+const _PAD2 = (n: number) => String(n).padStart(2, '0')
 
 // 01-04-2025  /  01/04/2025  /  01.04.2025  — DAY first (DMY).  Frappe and
 // most non-US locales default to this ordering, so we try it before MDY.
-const DMY = {
+const DMY: DateParser = {
   regex: /^(\d{1,2})([\-/.])(\d{1,2})\2(\d{4})$/,
   parse(s) {
     const m = s.match(DMY.regex)
     if (!m) return null
-    const d = +m[1],
-      mo = +m[3],
-      y = +m[4]
-    return { y, m: mo, d, sep: m[2], order: 'dmy', pad: m[1].length === 2 }
+    const d = Number(m[1]),
+      mo = Number(m[3]),
+      y = Number(m[4])
+    return { y, m: mo, d, sep: m[2] ?? '', order: 'dmy', pad: (m[1] ?? '').length === 2 }
   },
   format(d, ctx) {
     const day = ctx.pad ? _PAD2(d.d) : String(d.d)
@@ -39,15 +60,15 @@ const DMY = {
 }
 
 // 04/01/2025 (US MDY) — only emit when DMY parse fails for some cell.
-const MDY = {
+const MDY: DateParser = {
   regex: /^(\d{1,2})([\-/.])(\d{1,2})\2(\d{4})$/,
   parse(s) {
     const m = s.match(MDY.regex)
     if (!m) return null
-    const mo = +m[1],
-      d = +m[3],
-      y = +m[4]
-    return { y, m: mo, d, sep: m[2], order: 'mdy', pad: m[1].length === 2 }
+    const mo = Number(m[1]),
+      d = Number(m[3]),
+      y = Number(m[4])
+    return { y, m: mo, d, sep: m[2] ?? '', order: 'mdy', pad: (m[1] ?? '').length === 2 }
   },
   format(d, ctx) {
     const day = ctx.pad ? _PAD2(d.d) : String(d.d)
@@ -57,12 +78,19 @@ const MDY = {
 }
 
 // 2025-04-01 (ISO) — year first, always dashes.
-const YMD = {
+const YMD: DateParser = {
   regex: /^(\d{4})-(\d{1,2})-(\d{1,2})$/,
   parse(s) {
     const m = s.match(YMD.regex)
     if (!m) return null
-    return { y: +m[1], m: +m[2], d: +m[3], sep: '-', order: 'ymd', pad: m[2].length === 2 }
+    return {
+      y: Number(m[1]),
+      m: Number(m[2]),
+      d: Number(m[3]),
+      sep: '-',
+      order: 'ymd',
+      pad: (m[2] ?? '').length === 2,
+    }
   },
   format(d, ctx) {
     const month = ctx.pad ? _PAD2(d.m) : String(d.m)
@@ -73,8 +101,8 @@ const YMD = {
 
 const PARSERS = [YMD, DMY, MDY]
 
-function _parseAll(vals, parser) {
-  const parsed = []
+function _parseAll(vals: readonly string[], parser: DateParser): ParsedDate[] | null {
+  const parsed: ParsedDate[] = []
   for (const v of vals) {
     const p = parser.parse(String(v))
     if (!p) return null
@@ -87,35 +115,38 @@ function _parseAll(vals, parser) {
 
 const DAY_MS = 86_400_000
 
-function _toUTC(d) {
+function _toUTC(d: ParsedDate): number {
   return Date.UTC(d.y, d.m - 1, d.d)
 }
 
-function _classifyStep(dates) {
+function _classifyStep(dates: readonly ParsedDate[]): { kind: StepKind; step: number } | null {
   if (dates.length < 2) return null
+  const first = dates[0] as ParsedDate
 
   // When all source dates share the same day-of-month, prefer month/year
   // step over day-step.  Otherwise "01-Jan, 01-Feb" parses as a 31-day
   // step (Jan→Feb is 31 days) and clamps wrong on shorter months.
-  const sameDay = dates.every((d) => d.d === dates[0].d)
+  const sameDay = dates.every((d) => d.d === first.d)
   if (sameDay) {
-    const monthDiffs = []
+    const monthDiffs: number[] = []
     for (let i = 1; i < dates.length; i++) {
-      monthDiffs.push((dates[i].y - dates[i - 1].y) * 12 + (dates[i].m - dates[i - 1].m))
+      const cur = dates[i] as ParsedDate
+      const prev = dates[i - 1] as ParsedDate
+      monthDiffs.push((cur.y - prev.y) * 12 + (cur.m - prev.m))
     }
-    if (monthDiffs.every((d) => d === monthDiffs[0]) && monthDiffs[0] !== 0) {
-      const stepM = monthDiffs[0]
+    const stepM = monthDiffs[0] ?? 0
+    if (monthDiffs.every((d) => d === stepM) && stepM !== 0) {
       if (stepM % 12 === 0) return { kind: 'year', step: stepM / 12 }
       return { kind: 'month', step: stepM }
     }
   }
 
-  const dayDiffs = []
+  const dayDiffs: number[] = []
   for (let i = 1; i < dates.length; i++) {
-    dayDiffs.push((_toUTC(dates[i]) - _toUTC(dates[i - 1])) / DAY_MS)
+    dayDiffs.push((_toUTC(dates[i] as ParsedDate) - _toUTC(dates[i - 1] as ParsedDate)) / DAY_MS)
   }
-  if (!dayDiffs.every((d) => d === dayDiffs[0])) return null
-  const stepD = dayDiffs[0]
+  const stepD = dayDiffs[0] ?? 0
+  if (!dayDiffs.every((d) => d === stepD)) return null
   if (stepD === 0) return null
   if (stepD % 7 === 0) return { kind: 'week', step: stepD / 7 }
   return { kind: 'day', step: stepD }
@@ -123,7 +154,7 @@ function _classifyStep(dates) {
 
 // ── Stepping ─────────────────────────────────────────────────────────────
 
-function _stepDate(base, kind, n) {
+function _stepDate(base: ParsedDate, kind: StepKind, n: number): ParsedDate {
   if (kind === 'day' || kind === 'week') {
     const ms = (kind === 'week' ? 7 : 1) * n * DAY_MS
     const dt = new Date(_toUTC(base) + ms)
@@ -147,7 +178,7 @@ function _stepDate(base, kind, n) {
 
 // ── Detector ─────────────────────────────────────────────────────────────
 
-export const dateDetector = {
+export const dateDetector: Detector = {
   detect(values) {
     for (const parser of PARSERS) {
       const dates = _parseAll(values, parser)
@@ -156,19 +187,20 @@ export const dateDetector = {
       if (!step) {
         // Single-cell date → daily step of 1 (matches Google Sheets).
         if (dates.length === 1) {
+          const only = dates[0] as ParsedDate
           return {
             kind: 'date',
             confidence: 0.9,
             next(offset, dir = 1) {
-              const next = _stepDate(dates[0], 'day', dir * offset)
-              return parser.format(next, dates[0])
+              const next = _stepDate(only, 'day', dir * offset)
+              return parser.format(next, only)
             },
           }
         }
         return null
       }
-      const anchorFwd = dates[dates.length - 1]
-      const anchorBack = dates[0]
+      const anchorFwd = dates[dates.length - 1] as ParsedDate
+      const anchorBack = dates[0] as ParsedDate
       const sign = step.step >= 0 ? 1 : -1
       return {
         kind: 'date',
