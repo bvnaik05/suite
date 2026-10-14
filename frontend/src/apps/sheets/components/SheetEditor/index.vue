@@ -17,6 +17,9 @@
       <h2 class="sn-load-error-title">
         <template v-if="loadError.kind === 'denied'">You don't have access to this sheet</template>
         <template v-else-if="loadError.kind === 'missing'">this sheet doesn't exist</template>
+        <template v-else-if="loadError.kind === 'crashed'">{{
+          __('This sheet stopped working')
+        }}</template>
         <template v-else>Couldn't open this sheet</template>
       </h2>
       <p class="sn-load-error-sub">
@@ -26,9 +29,17 @@
         <template v-else-if="loadError.kind === 'missing'"
           >It may have been deleted, or the link is wrong.</template
         >
+        <template v-else-if="loadError.kind === 'crashed'">{{
+          __('Reload to keep working. Edits from the last few seconds may not have been saved.')
+        }}</template>
         <template v-else>{{ loadError.message }}</template>
       </p>
-      <Button variant="solid" @click="emit('close')">Back to home</Button>
+      <Button v-if="loadError.kind === 'crashed'" variant="solid" @click="reloadPage">{{
+        __('Reload')
+      }}</Button>
+      <Button :variant="loadError.kind === 'crashed' ? 'subtle' : 'solid'" @click="emit('close')"
+        >Back to home</Button
+      >
     </div>
 
     <template v-else>
@@ -981,6 +992,7 @@ const {
   onUsedExtent: (max) => {
     if (grid) _expandGridTo(max.maxCol, max.maxRow)
   },
+  onCrash: (reason) => _onEngineCrash(reason),
 })
 const formats = createFormatsEngine()
 const merge = createMergeEngine()
@@ -2876,6 +2888,18 @@ let _savePromise = null
 let _pendingSaveBatch = null
 function hasUnsavedChanges() {
   return isDirty.value || isSaving.value
+}
+// The IronCalc worker died. The cells lived in it, so nothing more can be
+// saved: drop the pending save and show the crash screen, whose Reload
+// opens the last saved copy (at most one autosave's worth of edits behind).
+function _onEngineCrash(reason) {
+  console.error('[sheets] IronCalc worker crashed:', reason)
+  clearTimeout(_autoSaveTimer)
+  isDirty.value = false
+  loadError.value = { kind: 'crashed', message: reason }
+}
+function reloadPage() {
+  window.location.reload()
 }
 const confirmUnsavedNavigation = () => {
   // Embedded, the surface's leave guard flushes and keeps a recovery copy.

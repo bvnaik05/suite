@@ -35,6 +35,8 @@ export interface CellRead {
 export interface ErrorBody {
   message: string
   command?: unknown
+  /** The engine is broken (a wasm trap); every later request fails too. */
+  fatal?: true
 }
 
 export type WorkerResponse =
@@ -84,17 +86,34 @@ function isBytes(v: unknown): v is Uint8Array {
   return Object.prototype.toString.call(v) === '[object Uint8Array]'
 }
 
+// A Rust panic inside IronCalc surfaces as a wasm trap (RuntimeError).
+// After one, the engine's memory may be half-updated, so it can't be trusted.
+function isWasmTrap(e: unknown): boolean {
+  return typeof WebAssembly !== 'undefined' && e instanceof WebAssembly.RuntimeError
+}
+
+class EngineBrokenError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EngineBrokenError'
+  }
+}
+
 function errorBody(e: unknown): ErrorBody {
   if (e instanceof WorkbookError) {
     return e.command == null ? { message: e.message } : { message: e.message, command: e.command }
   }
-  return { message: e instanceof Error ? e.message : String(e) }
+  const message = e instanceof Error ? e.message : String(e)
+  return isWasmTrap(e) || e instanceof EngineBrokenError ? { message, fatal: true } : { message }
 }
 
 export function createWorkerHost(): WorkerHost {
   let wb: Workbook | null = null
+  // Set by the first wasm trap; from then on every request fails as fatal.
+  let broken: string | null = null
 
   function workbook(): Workbook {
+    if (broken) throw new EngineBrokenError(broken)
     if (!wb) throw new ProtocolError('workbook not initialised; send "init" first')
     return wb
   }
@@ -138,6 +157,8 @@ export function createWorkerHost(): WorkerHost {
       try {
         w.apply(cmd)
       } catch (e) {
+        // A trap is not this command's failure: the whole engine is gone.
+        if (isWasmTrap(e)) throw e
         result.ok = false
         result.error = errorBody(e).message
       }
@@ -265,6 +286,7 @@ export function createWorkerHost(): WorkerHost {
           throw new ProtocolError(`unknown request type "${String(type)}"`)
       }
     } catch (e) {
+      if (isWasmTrap(e)) broken = `IronCalc crashed: ${e instanceof Error ? e.message : String(e)}`
       return { reqId: id, error: errorBody(e) }
     }
   }
