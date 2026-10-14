@@ -81,11 +81,24 @@ describe("the old editor's device store once a refused save is kept", () => {
     type(refused, 'Refused line')
 
     await refused.forgetStoredEdits()
-    await new Promise((resolve) => setTimeout(resolve, 50))
     type(sibling, 'Typed after')
 
     expect(sibling.edited.value).toBe(true)
     expect(await storedText('doc-sibling')).toBe('Typed after')
+  })
+
+  it('stops storing even when the clear fails', async () => {
+    const tab = await loadedTab('doc-failed-clear')
+    type(tab, 'Kept line')
+    const transaction = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(() => {
+      throw new DOMException('The database connection is closing.', 'InvalidStateError')
+    })
+
+    await tab.forgetStoredEdits()
+    transaction.mockRestore()
+    type(tab, ' and more')
+
+    expect(await storedText('doc-failed-clear')).toBe('Kept line')
   })
 
   it('keeps the store when the copy was taken before the store loaded', async () => {

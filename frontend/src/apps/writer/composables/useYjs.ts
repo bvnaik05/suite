@@ -147,8 +147,13 @@ export function useYjs(
     }
 
     provider.disconnect()
-    const connection = await db._db
-    connection.transaction('updates', 'readwrite').objectStore('updates').clear()
+    await db.whenSynced
+    try {
+      db.db?.transaction('updates', 'readwrite').objectStore('updates').clear()
+    } catch {
+      // A failed clear leaves the store replaying into later opens, as before
+    }
+
     await db.destroy()
   }
 
