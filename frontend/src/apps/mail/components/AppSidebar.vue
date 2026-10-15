@@ -158,17 +158,25 @@ const isSectionCollapsed = (section: { key?: string }) =>
 // lead folders: a row like theirs that opens in place, rather than a section heading of its own.
 const moreOpen = computed(() => !collapsedSections.value.more)
 // It opens in place, so its icon is the chevron saying which way: down to open, up to fold away.
-const moreToggle = () => ({
+const moreToggle = (holds: string[]) => ({
   label: __('More'),
   icon: moreOpen.value ? ChevronUp : ChevronDown,
   to: undefined,
   onClick: () => setSectionCollapsed('more', moreOpen.value),
   activeFor: [] as string[],
   moreToggle: true,
+  // What the folders behind it answer to, so the one open can be found there while they are hidden.
+  holds,
 })
 const isMoreToggle = (item: object) => 'moreToggle' in item
-const withMore = <T, M>(items: T[], more: M[]) =>
-  more.length ? [...items, moreToggle(), ...(moreOpen.value ? more : [])] : items
+const withMore = <T, M extends { activeFor?: string[] }>(items: T[], more: M[]) =>
+  more.length
+    ? [
+        ...items,
+        moreToggle(more.flatMap((item) => item.activeFor ?? [])),
+        ...(moreOpen.value ? more : []),
+      ]
+    : items
 const store = userStore()
 const { mailboxes, unifiedFolders } = store
 
@@ -572,4 +580,15 @@ const sidebarItems = computed(() => {
 
   return groups
 })
+
+// A folder behind More that is open — reached by a link, a shortcut or a search — opens More, so
+// the sidebar shows where you are rather than a highlight hidden under a folded row.
+watch(
+  () =>
+    sidebarItems.value
+      .flatMap((group) => group.items as object[])
+      .some((item) => 'holds' in item && (item.holds as unknown[]).includes(activeKey.value)),
+  (inside) => inside && setSectionCollapsed('more', false),
+  { immediate: true },
+)
 </script>
