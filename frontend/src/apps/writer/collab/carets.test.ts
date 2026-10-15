@@ -21,6 +21,7 @@ const editors: Editor[] = []
 afterEach(() => {
   editors.splice(0).forEach((editor) => editor.destroy())
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 const BEA = { pid: PEER_ID, user: 'bea@x.com', arrival: 5 }
@@ -123,10 +124,28 @@ function earlierRival() {
   }
 }
 
-const isLabelIdle = (editor: Editor) =>
-  editor.view.dom
-    .querySelector('.collaboration-carets__label')
-    ?.classList.contains('collaboration-carets__label--idle')
+function isNamed(editor: Editor) {
+  const caret = editor.view.dom.querySelector('.collaboration-carets__caret')
+  return !caret?.classList.contains('collaboration-carets__caret--quiet')
+}
+
+// Lays this tab's caret either under Bea's flag or well clear of it
+function ownCaretUnderFlag(editor: Editor) {
+  const flag = { left: 100, right: 160, top: 50, bottom: 64 }
+  const box = { ...flag, x: 0, y: 0, width: 0, height: 0, toJSON: () => ({}) }
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(box)
+  vi.spyOn(editor.view, 'hasFocus').mockReturnValue(true)
+  const coords = vi.spyOn(editor.view, 'coordsAtPos')
+  return (isUnder: boolean) => {
+    const top = isUnder ? 52 : 200
+    coords.mockReturnValue({ left: 120, right: 120, top, bottom: top + 16 })
+  }
+}
+
+// A focused editor, its caret clear of every flag; the test page lays nothing out
+function focus(editor: Editor) {
+  ownCaretUnderFlag(editor)(false)
+}
 
 const labelTexts = (editor: Editor) =>
   [...editor.view.dom.querySelectorAll('.collaboration-carets__label')].map(
@@ -134,10 +153,10 @@ const labelTexts = (editor: Editor) =>
   )
 
 describe('Writer carets', () => {
-  it('draws another person’s caret by their full name, and never this tab’s own', async () => {
+  it('flags another person’s caret with their first name, and never this tab’s own', async () => {
     const { editor, awareness } = openEditor()
     const peerSays = remotePeer(awareness)
-    vi.spyOn(editor.view, 'hasFocus').mockReturnValue(true)
+    focus(editor)
     editor.commands.setTextSelection(2)
 
     let answerLookup = (_: object[]) => {}
@@ -153,7 +172,7 @@ describe('Writer carets', () => {
 
     expect(awareness.getLocalState()?.cursor).toHaveProperty('head')
     expect(labelsBefore).toEqual(['bea@x.com'])
-    expect(labelTexts(editor)).toEqual(['Bea Writer'])
+    expect(labelTexts(editor)).toEqual(['Bea'])
   })
 
   it('keeps a peer’s caret where it was while their text is on its way, and drops it when they clear or leave', async () => {
@@ -226,22 +245,74 @@ describe('Writer carets', () => {
     expect(shadedSelections(editor)).toEqual([['ell', moved]])
   })
 
-  it('fades a name a few seconds after its person stops, and shows it again when they move', async () => {
+  it('names a person while they move, select or type, and shrinks the name to a dot two seconds after', async () => {
     vi.useFakeTimers()
     searchUsers.mockResolvedValue([])
     const { editor, awareness } = openEditor()
     const peerSays = remotePeer(awareness)
     const user = { id: 'bea@x.com' }
+    const cursor = caretAt(editor, 3)
+    const seen: boolean[] = []
+    async function after(ms: number) {
+      await vi.advanceTimersByTimeAsync(ms)
+      seen.push(isNamed(editor))
+    }
 
+    peerSays({ user, cursor })
+    await after(1900)
+    await after(100)
+    peerSays({ user, cursor, typed: 1 })
+    await after(0)
+    await after(2000)
+    peerSays({ user, cursor, typed: 1 })
+    await after(0)
+    peerSays({ user, cursor: caretAt(editor, 2, 4), typed: 1 })
+    await after(1900)
+    await after(100)
+
+    expect(seen).toEqual([true, false, true, false, false, true, false])
+  })
+
+  it('drops a flag to its dot at once while it would sit over this tab’s own caret', async () => {
+    searchUsers.mockResolvedValue([])
+    const { editor, awareness } = openEditor()
+    const peerSays = remotePeer(awareness)
+    const user = { id: 'bea@x.com' }
+    const placeOwnCaret = ownCaretUnderFlag(editor)
+
+    placeOwnCaret(true)
+    editor.commands.setTextSelection(5)
     peerSays({ user, cursor: caretAt(editor, 3) })
-    await vi.advanceTimersByTimeAsync(2000)
-    const typing = isLabelIdle(editor)
-    await vi.advanceTimersByTimeAsync(1500)
-    const still = isLabelIdle(editor)
-    peerSays({ user, cursor: caretAt(editor, 4) })
-    await vi.advanceTimersByTimeAsync(0)
+    await tick()
+    const isNamedOnArrival = isNamed(editor)
+    placeOwnCaret(false)
+    editor.commands.setTextSelection(1)
+    const isNamedWhenClear = isNamed(editor)
+    placeOwnCaret(true)
+    editor.commands.setTextSelection(4)
 
-    expect([typing, still, isLabelIdle(editor)]).toEqual([false, true, false])
+    expect([isNamedOnArrival, isNamedWhenClear, isNamed(editor)]).toEqual([false, true, false])
+  })
+
+  it('counts this tab’s own typing for other tabs, and not another person’s edits', () => {
+    searchUsers.mockResolvedValue([])
+    const { editor, awareness, doc } = openEditor()
+    focus(editor)
+    function typedSoFar() {
+      return awareness.getLocalState()?.typed
+    }
+
+    const before = typedSoFar()
+    editor.commands.insertContent('!')
+    editor.commands.insertContent('?')
+    const typed = typedSoFar()
+    const theirs = new Y.Doc()
+    Y.applyUpdate(theirs, Y.encodeStateAsUpdate(doc))
+    const theirText = (theirs.getXmlFragment('default').get(0) as Y.XmlElement).get(0) as Y.XmlText
+    theirText.insert(0, 'well, ')
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(theirs, Y.encodeStateVector(doc)))
+
+    expect([before, typed, typedSoFar()]).toEqual([undefined, 2, 2])
   })
 
   it('binds the editor to the document’s body', () => {

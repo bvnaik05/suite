@@ -73,19 +73,54 @@ b {
   left: -1px;
   line-height: normal;
   padding: 0.15rem 0.3rem;
+  pointer-events: none;
   position: absolute;
   top: -1.4em;
-  transition: opacity 0.3s;
+  transition: opacity 0.2s;
   user-select: none;
   white-space: nowrap;
 }
 
-.collaboration-carets__label--idle {
+/* Two seconds after its person stops, the name shrinks to a dot on top of the caret, clear of the text */
+.collaboration-carets__caret::before {
+  background-color: var(--peer-solid);
+  border-radius: 50%;
+  content: '';
+  height: 6px;
+  left: -3px;
+  opacity: 0;
+  position: absolute;
+  top: -3px;
+  transition: opacity 0.2s;
+  width: 6px;
+}
+
+/* Room to hover a caret, which brings its name back */
+.collaboration-carets__caret::after {
+  bottom: 0;
+  content: '';
+  left: -3px;
+  pointer-events: auto;
+  position: absolute;
+  top: -3px;
+  width: 6px;
+}
+
+.collaboration-carets__caret--quiet::before {
+  opacity: 1;
+}
+
+.collaboration-carets__caret--quiet .collaboration-carets__label {
   opacity: 0;
 }
 
+.collaboration-carets__caret:hover .collaboration-carets__label {
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .collaboration-carets__label {
+  .collaboration-carets__label,
+  .collaboration-carets__caret::before {
     transition: none;
   }
 }

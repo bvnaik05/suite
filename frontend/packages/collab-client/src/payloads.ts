@@ -41,6 +41,8 @@ export interface HeardCaret {
   pid: number
   clock: number
   cursor: unknown
+  // How many edits the tab has made, so a peer sees it typing while its caret's stored position stays put
+  typed: number
   at: number | null
 }
 
@@ -141,11 +143,12 @@ export function parseCaret(heard: unknown): HeardCaret | null {
     return null
   }
 
-  const { cursor, at } = fieldsOf(state)
+  const { cursor, typed, at } = fieldsOf(state)
   return {
     pid,
     clock,
     cursor,
+    typed: Number(typed) || 0,
     at: typeof at === 'number' ? at : null,
   }
 }

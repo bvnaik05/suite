@@ -10,7 +10,7 @@ const OWN_ARRIVAL = 5
 function setup({ sends = true, at = 4 } = {}) {
   type Handler = (message: unknown) => void
   const handlers = new Map<string, Handler>()
-  const emitted: { rooms: string[]; state: { cursor: unknown; at: number } }[] = []
+  const emitted: { rooms: string[]; state: { cursor: unknown; typed: number; at: number } }[] = []
   const ahead: number[] = []
   const socket = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
@@ -177,7 +177,26 @@ describe('collab presence', () => {
 
     expect(emitted.length).toBeGreaterThanOrEqual(5)
     expect(emitted.length).toBeLessThanOrEqual(6)
-    expect(emitted.at(-1)).toEqual({ rooms: OWN_ROOMS, state: { cursor: { step: 49 }, at: 12 } })
+    expect(emitted.at(-1)).toEqual({
+      rooms: OWN_ROOMS,
+      state: { cursor: { step: 49 }, typed: 0, at: 12 },
+    })
+  })
+
+  it('carries a tab’s typing count to its peers, so they see it typing while its caret stays put', async () => {
+    vi.useFakeTimers()
+    const { presence, hear, answer, emitted, remoteStates } = setup()
+    answer([{ room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' }])
+
+    presence.awareness.setLocalStateField('typed', 3)
+    await vi.advanceTimersByTimeAsync(200)
+    hear('', {
+      room: OWN_ROOMS[0],
+      states: [{ pid: PEER_PID, user: 'b@x.com', n: 1, state: { cursor, typed: 4 } }],
+    })
+
+    expect(emitted.at(-1)?.state).toEqual({ cursor: null, typed: 3, at: 4 })
+    expect(remoteStates().get(PEER_PID)?.typed).toBe(4)
   })
 
   it('a viewer, a tab in no room and a hidden tab send nothing', async () => {

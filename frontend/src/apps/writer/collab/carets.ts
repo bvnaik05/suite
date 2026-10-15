@@ -59,20 +59,33 @@ function canPlace(editor: Editor, position: unknown) {
   return absolute !== null
 }
 
-function caretDrawer(labelFader: NameFader, colourOf: ColourOf) {
+// A flag carries a signed-in person's first name; a guest keeps the whole label, which tells guests apart
+function flagName(user: string, peerId: number) {
+  const name = peerName(user, peerId)
+  if (user === 'Guest') {
+    return name
+  }
+
+  const [firstName] = name.split(' ')
+  return firstName
+}
+
+function caretDrawer(flags: NameFlags, colourOf: ColourOf) {
   return (user: CaretUser, peerId: number) => {
     const caret = document.createElement('span')
     caret.classList.add('collaboration-carets__caret', 'peer-colour')
+    caret.classList.toggle(QUIET, !flags.isNamed(peerId))
     caret.dataset.peer = String(peerId)
     paint(caret, colourOf(peerId))
 
     const label = document.createElement('div')
     label.classList.add('collaboration-carets__label')
-    label.textContent = peerName(user.id, peerId)
-    labelFader.track(peerId, label)
+    label.textContent = flagName(user.id, peerId)
 
     // The plugin keeps a caret's element while the pid stays, so a name that arrives later is filled in
-    whenNamed(user.id, () => (label.textContent = peerName(user.id, peerId)))
+    whenNamed(user.id, () => {
+      label.textContent = flagName(user.id, peerId)
+    })
 
     caret.append(label)
     return caret
@@ -101,6 +114,16 @@ function selectionShader(colourOf: ColourOf) {
 export const Carets = Extension.create<{ presence: RoomPresence | null }>({
   name: 'collabCarets',
   addOptions: () => ({ presence: null }),
+  // Typing leaves a caret's stored position where it was, so this tab counts its edits for other tabs to see
+  onTransaction({ transaction }) {
+    const presence = this.options.presence
+    const sync = transaction.getMeta(ySyncPluginKey)
+    const isOwnEdit = !sync?.isChangeOrigin || sync.isUndoRedoOperation
+    if (!presence || !transaction.docChanged || !isOwnEdit || !this.editor.view.hasFocus()) return
+
+    const typed = Number(presence.awareness.getLocalState()?.typed ?? 0)
+    presence.awareness.setLocalStateField('typed', typed + 1)
+  },
   addProseMirrorPlugins() {
     if (!this.options.presence) {
       return []
@@ -109,14 +132,14 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
     const editor = this.editor
     const presence = this.options.presence
     const awareness = presence.awareness
-    const labelFader = nameFader(awareness)
+    const flags = new NameFlags(awareness)
     function colourOf(peerId: number) {
       return presenceColours(presence).get(peerId)
     }
 
     const cursorOptions = {
       awarenessStateFilter: (_: number, id: number) => id !== 0,
-      cursorBuilder: caretDrawer(labelFader, colourOf),
+      cursorBuilder: caretDrawer(flags, colourOf),
       selectionBuilder: selectionShader(colourOf),
     }
 
@@ -127,10 +150,12 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
       new Plugin({
         view(view) {
           const stopListening = presence.onChange(() => repaint(view, colourOf))
+          flags.showIn(view)
           return {
+            update: () => flags.settle(),
             destroy() {
               stopListening()
-              labelFader.destroy()
+              flags.destroy()
             },
           }
         },
@@ -139,57 +164,102 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
   },
 })
 
-const NAME_SHOWN_MS = 3000
+const NAME_SHOWN_MS = 2000
+const QUIET = 'collaboration-carets__caret--quiet'
 
-type NameFader = ReturnType<typeof nameFader>
+type Box = ReturnType<EditorView['coordsAtPos']>
 
-// A caret's name shows while its peer moves or types, and fades once they have been still a while
-function nameFader(awareness: Awareness) {
-  const labels = new Map<number, HTMLElement>()
-  const timers = new Map<number, ReturnType<typeof setTimeout>>()
-  const lastCarets = new Map<number, string>()
+// Where this tab's own caret is drawn, while it shows
+function ownCaretBox(view: EditorView) {
+  if (!view.hasFocus()) {
+    return null
+  }
 
-  const setLabelIdle = (peerId: number, isIdle: boolean) =>
-    labels.get(peerId)?.classList.toggle('collaboration-carets__label--idle', isIdle)
+  return view.coordsAtPos(view.state.selection.head)
+}
 
-  const forgetPeer = (peerId: number) => {
-    clearTimeout(timers.get(peerId))
-    for (const map of [labels, timers, lastCarets]) {
-      map.delete(peerId)
+// Whether a caret's flag would sit over this tab's own caret
+function isOverOwnCaret(caret: HTMLElement, own: Box | null) {
+  const label = caret.querySelector('.collaboration-carets__label')
+  if (!own || !label) {
+    return false
+  }
+
+  const flag = label.getBoundingClientRect()
+  const isWithin = own.left >= flag.left && own.left <= flag.right
+  return isWithin && own.top < flag.bottom && own.bottom > flag.top
+}
+
+// A caret's flag names its peer while they act and for two seconds after, then shrinks to a dot; it gives
+// way at once when it would sit over this tab's own caret. Hovering a caret brings its name back, in CSS
+class NameFlags {
+  private actions = new Map<number, string>()
+  private timers = new Map<number, ReturnType<typeof setTimeout>>()
+  private shownIn: EditorView | null = null
+
+  constructor(private readonly awareness: Awareness) {
+    awareness.on('change', this.onAwarenessChange)
+  }
+
+  isNamed(peerId: number) {
+    return this.timers.has(peerId)
+  }
+
+  showIn(view: EditorView) {
+    this.shownIn = view
+  }
+
+  settle() {
+    const view = this.shownIn
+    if (!view || view.isDestroyed) return
+
+    const ownCaret = ownCaretBox(view)
+    const carets = view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__caret')
+    for (const caret of carets) {
+      const isNamed = this.isNamed(Number(caret.dataset.peer)) && !isOverOwnCaret(caret, ownCaret)
+      caret.classList.toggle(QUIET, !isNamed)
     }
   }
 
-  const onAwarenessChange = ({ added, updated, removed }: Record<string, number[]>) => {
-    removed.forEach(forgetPeer)
-    for (const peerId of [...added, ...updated]) {
-      const cursor = awareness.getStates().get(peerId)?.cursor ?? null
-      const caretJson = JSON.stringify(cursor)
-      if (lastCarets.get(peerId) === caretJson) continue
-
-      lastCarets.set(peerId, caretJson)
-      setLabelIdle(peerId, false)
-      clearTimeout(timers.get(peerId))
-
-      const fade = () => {
-        timers.delete(peerId)
-        setLabelIdle(peerId, true)
-      }
-      timers.set(peerId, setTimeout(fade, NAME_SHOWN_MS))
+  destroy() {
+    this.awareness.off('change', this.onAwarenessChange)
+    for (const peerId of [...this.timers.keys()]) {
+      this.forget(peerId)
     }
   }
 
-  awareness.on('change', onAwarenessChange)
-  return {
-    track(peerId: number, label: HTMLElement) {
-      labels.set(peerId, label)
-      setLabelIdle(peerId, lastCarets.has(peerId) && !timers.has(peerId))
-    },
-    destroy() {
-      awareness.off('change', onAwarenessChange)
-      for (const peerId of [...timers.keys()]) {
-        forgetPeer(peerId)
-      }
-    },
+  private forget(peerId: number) {
+    clearTimeout(this.timers.get(peerId))
+    this.timers.delete(peerId)
+    this.actions.delete(peerId)
+  }
+
+  private quieten(peerId: number) {
+    this.timers.delete(peerId)
+    this.settle()
+  }
+
+  // A peer acts when their caret, selection or typing count changes, not when their state is only renewed
+  private onAwarenessChange = ({ added, updated, removed }: Record<string, number[]>) => {
+    for (const peerId of removed) {
+      this.forget(peerId)
+    }
+
+    const peerIds = [...added, ...updated].filter((peerId) => peerId !== this.awareness.clientID)
+    for (const peerId of peerIds) {
+      const { cursor = null, typed = null } = this.awareness.getStates().get(peerId) ?? {}
+      const action = JSON.stringify([cursor, typed])
+      if (this.actions.get(peerId) === action) continue
+
+      this.actions.set(peerId, action)
+      clearTimeout(this.timers.get(peerId))
+      this.timers.set(
+        peerId,
+        setTimeout(() => this.quieten(peerId), NAME_SHOWN_MS),
+      )
+    }
+
+    this.settle()
   }
 }
 

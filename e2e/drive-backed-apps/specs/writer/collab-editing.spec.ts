@@ -165,13 +165,17 @@ test.describe("Writer collaboration", () => {
 		expect(polls).toEqual([]);
 	});
 
-	test("each tab shows the other person's name, in the users bar and at their caret", async ({
+	test("each tab shows the other person's name in the users bar, and their first name at their caret", async ({
 		owner,
 		collaborator,
 		run,
 	}) => {
 		const nameOf = (user: { user: string }) =>
 			`Drive Writer E2E ${run.users.findIndex((each) => each.user === user.user) + 1}`;
+		function firstNameOf(user: { user: string }) {
+			const [firstName] = nameOf(user).split(" ");
+			return firstName;
+		}
 		const caretLabels = (page: Page) => page.locator(".collaboration-carets__label");
 		await openWriterDocument(owner.page, node);
 		await openWriterDocument(collaborator.page, node);
@@ -185,8 +189,8 @@ test.describe("Writer collaboration", () => {
 		await expect(
 			collaborator.page.getByRole("button", { name: `${nameOf(owner.user)} is here` }),
 		).toBeVisible();
-		await expect(caretLabels(owner.page)).toHaveText([nameOf(collaborator.user)]);
-		await expect(caretLabels(collaborator.page)).toHaveText([nameOf(owner.user)]);
+		await expect(caretLabels(owner.page)).toHaveText([firstNameOf(collaborator.user)]);
+		await expect(caretLabels(collaborator.page)).toHaveText([firstNameOf(owner.user)]);
 	});
 
 	test("compaction leaves the document unchanged, for an open tab and a late joiner", async ({

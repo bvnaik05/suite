@@ -192,7 +192,7 @@ export class Presence {
   private applyCarets(states: object[]) {
     const accepted: Clocked[] = []
     const carets = states.map(parseCaret).filter((caret): caret is HeardCaret => !!caret)
-    for (const { pid, clock, cursor, at } of carets) {
+    for (const { pid, clock, cursor, typed, at } of carets) {
       if (!this.members.has(pid)) continue
 
       if (at !== null) {
@@ -203,6 +203,7 @@ export class Presence {
       const shown = {
         user,
         cursor: this.hooks.position(cursor),
+        typed,
       }
       accepted.push([pid, clock, shown])
     }
@@ -235,10 +236,11 @@ export class Presence {
     if (this.closed || !this.joinedRooms.length || !this.hooks.showsCaret()) return
     if (document.visibilityState !== 'visible') return
 
-    const cursor = this.awareness.getLocalState()?.cursor ?? null
+    const local = this.awareness.getLocalState()
     this.lastSentAt = Date.now()
     const state = {
-      cursor,
+      cursor: local?.cursor ?? null,
+      typed: local?.typed ?? 0,
       at: this.hooks.appliedThrough(),
     }
     const caretMessage = {
