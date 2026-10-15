@@ -1,5 +1,5 @@
 import type { Peer } from '@suite/collab-client'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { assignColours, PALETTE } from './colours'
 import { peopleOf, personIdleSince, roomColours } from './peers'
@@ -56,6 +56,10 @@ function seenFrom(own: Peer, everyone: Peer[]) {
 }
 
 describe('Writer peers', () => {
+  beforeEach(() => {
+    searchUsers.mockResolvedValue([])
+  })
+
   it('reads a person as idle only once every tab of theirs is, from the last to go', () => {
     const cyIdle = tab(PEER_ID, 'cy@x.com', 1, 100)
     const cyInUse = tab(PEER_ID + 1, 'cy@x.com', 2)
@@ -71,8 +75,6 @@ describe('Writer peers', () => {
   })
 
   it('lists each signed-in person once and every guest tab apart', () => {
-    searchUsers.mockResolvedValue([])
-
     const peers: Peer[] = [
       tab(PEER_ID, 'cy@x.com', 1),
       tab(PEER_ID + 1, 'cy@x.com', 2),
