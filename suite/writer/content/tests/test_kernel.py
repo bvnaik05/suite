@@ -64,10 +64,9 @@ class TestKernel(UnitTestCase):
             table_cell(),
             append_node(paragraph("after")),
         )
-        # The editor's own message goes on to print the nodes, with their text
         self.assertEqual(
             kernel.judge(BUNDLE, None, rows),
-            kernel.Verdict(2, "schema: RangeError: Invalid content for node doc:"),
+            kernel.Verdict(2, "schema: cannot place tableCell"),
         )
 
     def test_blames_a_checkpoint_that_holds_the_bad_content(self):

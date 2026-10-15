@@ -34,7 +34,7 @@ describe('writerFault', () => {
       fragment.insert(0, [paragraph('abc'), cell])
     }
     const doc = docWithBody(cellInBody)
-    expect(writerFault(doc)).toMatch(/^schema: RangeError: Invalid content for node doc/)
+    expect(writerFault(doc)).toBe('schema: cannot place tableCell')
   })
 
   it('refuses text straight in the body', () => {

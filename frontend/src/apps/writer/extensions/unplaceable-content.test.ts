@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import * as Y from 'yjs'
 
+import { writerFault } from '../collab/fault'
 import { BODY_FIELD } from '../collab/field'
 import { writerEditorExtensions } from '../editor-extensions'
 import { writerSchema } from '../schema'
@@ -856,4 +857,106 @@ describe('typing next to many hidden leftovers', () => {
     expect(hiddenTyping.freezes).toEqual([])
     expect(hiddenTyping.time).toBeLessThanOrEqual(2 * plainTyping.time)
   })
+})
+
+function markedText(text: string, marks: Record<string, object>) {
+  const node = new Y.XmlText()
+  node.insert(0, text, marks)
+  return node
+}
+
+function tableWithEmptyRow() {
+  return element(
+    'table',
+    element('tableRow', element('tableCell', paragraph('x'))),
+    element('tableRow'),
+  )
+}
+
+const judgedBodies = [
+  {
+    name: 'an element of a kind the editor lacks',
+    blocks: () => [paragraph('a'), element('resizableMedia', paragraph('old'))],
+    isLost: true,
+  },
+  {
+    name: 'a table cell straight in the body',
+    blocks: () => [paragraph('a'), cellInBody()],
+    isLost: true,
+  },
+  {
+    name: 'a table cell inside a quote',
+    blocks: () => [paragraph('a'), element('blockquote', cellInBody())],
+    isLost: true,
+  },
+  {
+    name: 'text with a mark the editor lacks',
+    blocks: () => [element('paragraph', markedText('old', { oldMark: {} }))],
+    isLost: false,
+  },
+  {
+    name: 'bold text in a code block',
+    blocks: () => [element('codeBlock', markedText('both', { bold: {} }))],
+    isLost: false,
+  },
+  {
+    name: 'an empty list between paragraphs',
+    blocks: () => [paragraph('a'), leftover(), paragraph('b')],
+    isLost: false,
+  },
+  {
+    name: 'an empty table between paragraphs',
+    blocks: () => [paragraph('a'), element('table'), paragraph('b')],
+    isLost: false,
+  },
+  { name: 'an empty list alone', blocks: () => [leftover()], isLost: false },
+  { name: 'an empty table alone', blocks: () => [element('table')], isLost: false },
+  {
+    name: 'a quote holding only an empty list',
+    blocks: () => [element('blockquote', leftover())],
+    isLost: false,
+  },
+  {
+    name: 'a table row with no cells',
+    blocks: () => [paragraph('a'), tableWithEmptyRow()],
+    isLost: false,
+  },
+  {
+    name: 'a table of only a row with no cells',
+    blocks: () => [paragraph('a'), element('table', element('tableRow'))],
+    isLost: false,
+  },
+]
+
+describe('the judge and the editor', () => {
+  it.each(judgedBodies)('agree on $name', ({ blocks, isLost }) => {
+    const state = stored(...blocks())
+    const judged = new Y.Doc()
+    Y.applyUpdate(judged, state)
+
+    const tab = open(state)
+
+    const agreement = { isFrozen: tab.freezes.length > 0, isFaulted: writerFault(judged) !== null }
+    expect(agreement).toEqual({ isFrozen: isLost, isFaulted: isLost })
+  })
+})
+
+describe('a table row with no cells', () => {
+  it.each([
+    { name: 'beside a row with cells', table: tableWithEmptyRow, texts: ['a', 'x'] },
+    { name: 'as the only row', table: () => element('table', element('tableRow')), texts: ['a'] },
+  ])(
+    'opens $name without freezing, and an edit beside it writes only that edit',
+    ({ table, texts }) => {
+      const tab = open(stored(paragraph('a'), table()))
+      const asStored = body(tab)
+
+      expect([tab.freezes, blockTexts(tab), body(tab)]).toEqual([[], texts, asStored])
+
+      type(tab, 'Z')
+
+      const edited = asStored.replace('<paragraph>a<', '<paragraph>Za<')
+      expect([tab.freezes, body(tab)]).toEqual([[], edited])
+    },
+  )
 })
