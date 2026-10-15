@@ -460,6 +460,8 @@ function commentActions(comment: ThreadComment): DropdownOptions {
 }
 
 async function startEdit(comment: ThreadComment) {
+  // Its menu unmounts before it can report closing
+  menuComment.value = null
   editingComment.value = comment.name
   editText.value = comment.content
   await nextTick()

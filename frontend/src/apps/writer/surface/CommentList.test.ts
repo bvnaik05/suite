@@ -108,16 +108,28 @@ vi.mock('frappe-ui', async () => {
             ),
           ),
     }),
-    // Shows the menu's items beside its button, as if it were open
+    // Shows the menu's items beside its button, as if it were open; a pick reports closing a tick later
     Dropdown: define({
       props: { options: Array as () => { label: string; onClick: () => void }[] },
+      emits: ['update:open'],
       setup:
-        (props, { slots }) =>
+        (props, { emit, slots }) =>
         () =>
           render('div', [
-            slots.default?.(),
+            render('div', { onClick: () => emit('update:open', true) }, slots.default?.()),
             props.options?.map((option) =>
-              render('button', { role: 'menuitem', onClick: option.onClick }, option.label),
+              render(
+                'button',
+                {
+                  role: 'menuitem',
+                  onClick: async () => {
+                    option.onClick()
+                    await nextTick()
+                    emit('update:open', false)
+                  },
+                },
+                option.label,
+              ),
             ),
           ]),
     }),
@@ -1064,6 +1076,13 @@ describe('editing and deleting a comment', () => {
     return host.querySelectorAll('button[aria-label="More comment actions"]').length
   }
 
+  // The ⋯ buttons shown without being pointed at
+  function alwaysShown(host: Element) {
+    return [...host.querySelectorAll('button[aria-label="More comment actions"]')].filter(
+      (button) => !button.closest('.invisible'),
+    ).length
+  }
+
   function editBox() {
     return document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit comment"]')
   }
@@ -1074,11 +1093,12 @@ describe('editing and deleting a comment', () => {
     await nextTick()
   }
 
-  // Picks an item from the ⋯ menu of the comment with the text
+  // Opens the ⋯ menu of the comment with the text and picks an item from it
   async function pick(host: Element, text: string, item: string) {
     const block = [...host.querySelectorAll('li div')].find(
       (element) => element.querySelector(':scope > p:not(.flex)')?.textContent?.trim() === text,
     )
+    await click(labelled(block!, 'More comment actions'))
     const option = [...block!.querySelectorAll('[role="menuitem"]')].find(
       (element) => element.textContent === item,
     )
@@ -1173,6 +1193,20 @@ describe('editing and deleting a comment', () => {
     await click(buttonNamed(host, 'Cancel')!)
 
     expect([whileEditing, asked, editBox(), menus(host)]).toEqual([1, [], null, 2])
+  })
+
+  it('hides ⋯ again until pointed at once an edit picked from it is saved or cancelled', async () => {
+    const { host } = showList({ threads: [ON_TEXT] })
+    await click(rowButton(host, 'Is this right?'))
+
+    await pick(host, 'Thanks', 'Edit')
+    await type('Thanks again')
+    await save()
+    const afterSave = alwaysShown(host)
+    await pick(host, 'Is this right?', 'Edit')
+    await click(buttonNamed(host, 'Cancel'))
+
+    expect([afterSave, alwaysShown(host)]).toEqual([0, 0])
   })
 
   it('sends nothing for an unchanged comment, and can’t save an empty one', async () => {
