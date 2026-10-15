@@ -96,6 +96,12 @@ export function convertOldMedia(body: XmlFragment) {
   }
 }
 
+// Fills `doc` with a stored version's state, its old media converted; every reader of a version opens it here
+export function loadVersion(doc: Doc, state: Uint8Array) {
+  applyUpdate(doc, state)
+  convertOldMedia(doc.getXmlFragment(BODY_FIELD))
+}
+
 // The body with its old media converted, on a copy, so the document itself is unchanged
 export function withOldMediaConverted(doc: Doc) {
   const body = doc.getXmlFragment(BODY_FIELD)

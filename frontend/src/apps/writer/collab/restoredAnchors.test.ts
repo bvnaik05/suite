@@ -130,4 +130,34 @@ describe('threads after a restore', () => {
 
     expect(moved).toEqual([{}, {}])
   })
+
+  it('brings a thread back onto its own text after an old video that opens a list item', () => {
+    const doc = new Y.Doc()
+    const video = new Y.XmlElement('resizableMedia')
+    video.setAttribute('src', '/files/demo.mp4')
+    video.setAttribute('media-type', 'video')
+    const [first, second] = ['A text', 'B text'].map((value) => {
+      const paragraph = new Y.XmlElement('paragraph')
+      paragraph.insert(0, [new Y.XmlText(value)])
+      return paragraph
+    })
+    const item = new Y.XmlElement('listItem')
+    item.insert(0, [video, first, second])
+    const list = new Y.XmlElement('bulletList')
+    list.insert(0, [item])
+    doc.getXmlFragment(BODY_FIELD).insert(0, [list])
+    const text = second.get(0) as Y.XmlText
+    const anchor = encodeAnchor(
+      Y.createRelativePositionFromTypeIndex(text, 0, 0),
+      Y.createRelativePositionFromTypeIndex(text, 6, -1),
+      'B text',
+    )
+    const version = versionOf(doc)
+    item.delete(2, 1)
+
+    restoreEdit(doc, LINEAGE, version)
+    const anchors = restoredAnchors(doc, LINEAGE, version, [{ name: 't1', anchor }])
+
+    expect(covered(doc, anchors.t1)).toBe('B text')
+  })
 })

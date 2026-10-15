@@ -4,6 +4,7 @@ import type { VersionBody } from '@/apps/writer/surface/versions'
 
 import { encodeAnchor, readAnchor } from './anchors'
 import { BODY_FIELD } from './field'
+import { loadVersion } from './old-media'
 
 /** A thread as Drive lists it, by name with its stored anchor. */
 export interface AnchoredThread {
@@ -30,7 +31,7 @@ export function restoredAnchors(
 
   const version = new Y.Doc()
   try {
-    Y.applyUpdate(version, target.state)
+    loadVersion(version, target.state)
     return anchorsIn(current, version, threads)
   } finally {
     version.destroy()

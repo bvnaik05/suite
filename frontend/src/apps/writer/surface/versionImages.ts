@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { api, client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
+import { loadVersion } from '@/apps/writer/collab/old-media'
 import { mediaNodeId } from '@/apps/writer/extensions/drive-media'
 
 import type { VersionBody } from './versions'
@@ -47,7 +48,7 @@ function imagesInHTML(html: string): VersionImage[] {
 function imagesInState(state: Uint8Array): VersionImage[] {
   const doc = new Y.Doc()
   try {
-    Y.applyUpdate(doc, state)
+    loadVersion(doc, state)
     const elements = doc
       .getXmlFragment(BODY_FIELD)
       .createTreeWalker((node) => node instanceof Y.XmlElement)
