@@ -30,7 +30,7 @@
   },
   {
    "fieldname": "content",
-   "fieldtype": "Text",
+   "fieldtype": "Code",
    "label": "Content",
    "reqd": 1
   },

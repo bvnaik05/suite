@@ -139,6 +139,27 @@ class TestCommentWorkflows(IntegrationTestCase):
             2,
         )
 
+    def test_words_that_look_like_tags_are_kept_and_resend_cleanly(self):
+        words = "Replace <name> & <b>this</b> with yours"
+        first = create_thread(self.commenter, self.document.name, "anchor", words, client_id="t-1")
+        replied = reply(self.owner, first.name, words, client_id="r-1")
+        again = create_thread(self.commenter, self.document.name, "anchor", words, client_id="t-1")
+        replied_again = reply(self.owner, first.name, words, client_id="r-1")
+
+        self.assertEqual((again.name, replied_again.name), (first.name, replied.name))
+        listed = threads(self.owner, self.document.name)
+        self.assertEqual([row.content for row in listed[0].comments], [words, words])
+
+    def test_an_edit_stores_the_words_as_a_post_does(self):
+        words = "Replace <name> & <b>this</b> with yours"
+        posted = create_thread(self.commenter, self.document.name, "one", words)
+        edited = create_thread(self.commenter, self.document.name, "two", "Draft")
+        edit_comment(self.commenter, edited.comments[0].name, words)
+
+        posted_words = frappe.db.get_value("Drive Comment", posted.comments[0].name, "content")
+        edited_words = frappe.db.get_value("Drive Comment", edited.comments[0].name, "content")
+        self.assertEqual((posted_words, edited_words), (words, words))
+
     def test_a_reply_id_used_in_another_thread_is_refused(self):
         one = create_thread(self.commenter, self.document.name, "one", "First").name
         two = create_thread(self.commenter, self.document.name, "two", "Second").name
