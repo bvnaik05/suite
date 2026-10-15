@@ -5,10 +5,12 @@ For each Drive `File` row whose `file_url` is a
 
 1. Stream the object **once** to get its sha256, its size, and enough head
    bytes to sniff a MIME type.
-2. Reuse an existing private S3 blob for that content if there is one, so
-   two Drive files with the same bytes end as one object and one blob row.
-   A `Ready` row is not proof that its object is still there, so the object
-   is headed first and re-copied when it is gone.
+2. Reuse an existing `Ready` private S3 blob for that content if there is
+   one, so two Drive files with the same bytes end as one object and one
+   blob row. A `Ready` row is not proof that its object is still there, so
+   the object is headed first and re-copied when it is gone. A `Pending`
+   row is an upload in flight and is not reused; `File Blob` allows
+   duplicate content, so Build stores its own blob beside it.
 3. Otherwise server-side copy it into its blob folder,
    `private/<site prefix>/<blob>/<filename>`, in the same bucket,
    single-part below 5 GB and boto3's managed multipart copy above it.
@@ -60,7 +62,6 @@ from suite.drive.patches.build.layout import (
     private_key,
 )
 from suite.drive.patches.build.legacy import S3_URL_PREFIX, storage_key
-from suite.drive.patches.build.ports import BlobConflict
 from suite.drive.patches.build.state import MissingBytes, StoragePreparation
 
 # Read size while hashing a legacy object. Big enough that a multi-GB object
@@ -125,29 +126,17 @@ def _copy_one(env, bucket, prep: StoragePreparation, row) -> None:
         prep.s3_objects_reused += 1
         return
 
-    # Checked before the copy, so a blocked row costs no copy and leaves no
-    # object behind. `insert_blob` still raises on a concurrent insert.
-    if status := env.storage.blocked_by(digest.checksum):
-        return _blocked(prep, row, status)
-
     name = blob_name(digest.checksum)
     key = _place_new_object(bucket, legacy_key, env.storage.key_prefix(), name, row.file_name, digest.size)
     _record_copy(env, bucket, row, legacy_key, private_key(key), digest)
 
-    try:
-        blob = env.storage.insert_blob(
-            name=name,
-            key=key,
-            checksum=digest.checksum,
-            size=digest.size,
-            mime_type=digest.mime_type,
-        )
-    except BlobConflict:
-        # Something else took the unique triple since the check above.
-        # Report the row and carry on: aborting here would stop the
-        # migration and stop it again on every rerun.
-        return _blocked(prep, row, env.storage.blocked_by(digest.checksum) or "unknown")
-
+    blob = env.storage.insert_blob(
+        name=name,
+        key=key,
+        checksum=digest.checksum,
+        size=digest.size,
+        mime_type=digest.mime_type,
+    )
     env.files.link_blob(row.name, blob)
     prep.s3_objects_copied += 1
     prep.s3_bytes_copied += digest.size
@@ -235,10 +224,6 @@ def _read_once(bucket, key: str) -> _Digest:
             sha256.update(chunk)
             size += len(chunk)
     return _Digest(sha256.hexdigest(), size, sniff_mime(io.BytesIO(head)))
-
-
-def _blocked(prep: StoragePreparation, row, status: str) -> None:
-    _missing(prep, row, f"a File Blob for this content already exists with status {status!r}")
 
 
 def _missing(prep: StoragePreparation, row, reason: str) -> None:

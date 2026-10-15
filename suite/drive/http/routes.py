@@ -362,6 +362,8 @@ def node_archive_download(node: Given = None) -> Response:
         filename,
         as_attachment=True,
         environ=frappe.local.request.environ,
+        # Drive's WebDAV switch also decides the native redirect here
+        allow_native_redirect=bool(frappe.conf.get("drive_webdav_s3_redirect")),
     )
 
 

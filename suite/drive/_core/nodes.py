@@ -594,14 +594,21 @@ def signed_content_url(
     }
 
 
-def stream_content(row: frappe._dict, *, environ: dict | None = None, as_attachment: bool = True):
+def stream_content(
+    row: frappe._dict,
+    *,
+    environ: dict | None = None,
+    as_attachment: bool = True,
+    allow_native_redirect: bool = False,
+):
     """Stream one file node's bytes to the current request, Range and all.
 
     The caller has already spent §2.3's point check on `row`; this adds no
     second one, exactly as `signed_content_url` adds none. It exists beside
     that function because a signed blob redirect is not usable everywhere a
     byte path is: WebDAV's Windows client drops credentials across a redirect
-    (§12.3), so DAV needs the bytes on the same response.
+    (§12.3), so DAV needs the bytes on the same response. A caller whose
+    clients can follow the redirect opts in with `allow_native_redirect`.
 
     Conditional requests, `Range`, `206`, `416`, and the strong `ETag` are the
     framework's (§13.5). What Drive owns here is the refusal: a node with no
@@ -638,6 +645,7 @@ def stream_content(row: frappe._dict, *, environ: dict | None = None, as_attachm
         content.download_filename(row.title),
         as_attachment=as_attachment,
         environ=_range_honouring_environ(environ, blob.checksum),
+        allow_native_redirect=allow_native_redirect,
     )
 
 

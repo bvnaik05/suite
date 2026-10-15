@@ -144,15 +144,19 @@ class TestResume(S3CopyCase):
 
     def test_a_blob_still_uploading_is_not_claimed(self):
         # A Pending row is an upload in flight; its object may not be there.
+        # `File Blob` allows duplicate content, so Build stores its own blob.
         files = FakeFiles.with_s3_files(("f1", "team/f1", "a.txt"))
         bucket = FakeBucket().put("team/f1", BYTES)
         storage = FakeStorage().add_blob("blob-pending", key=THEIRS, checksum=SHA, status="Pending")
 
         _, prep = self.run_copy(files=files, bucket=bucket, storage=storage)
 
-        self.assertIsNone(files.blob_of("f1"))
+        self.assertEqual(files.blob_of("f1"), NAME)
+        self.assertEqual(sorted(storage.blobs), sorted(["blob-pending", NAME]))
+        self.assertEqual(bucket.objects[f"private/{FOLDER}a.txt"], BYTES)
         self.assertEqual(prep.s3_objects_reused, 0)
-        self.assertEqual(prep.s3_objects_copied, 0)
+        self.assertEqual(prep.s3_objects_copied, 1)
+        self.assertEqual(prep.missing_bytes, [])
 
     def test_a_complete_object_at_the_destination_is_not_copied_again(self):
         # What an interrupted run leaves: the object copied, no blob row.
@@ -478,41 +482,24 @@ class TestObjectAboveFiveGB(S3CopyCase):
         self.assertEqual(prep.missing_bytes, [])
 
 
-class TestBlockedByAnotherBlob(S3CopyCase):
-    """The unique index is `(checksum, is_private, driver)`, without `status`."""
+class TestAConcurrentBlobOfTheSameContent(S3CopyCase):
+    """`File Blob` has no unique index on content, so a twin never stops Build."""
 
-    def test_a_pending_row_is_reported_and_the_run_carries_on(self):
-        files = FakeFiles.with_s3_files(("f1", "team/f1", "a.txt"), ("f2", "team/f2", "b.txt"))
-        bucket = FakeBucket().put("team/f1", BYTES).put("team/f2", OTHER)
-        storage = FakeStorage().add_blob("blob-pending", key=THEIRS, checksum=SHA, status="Pending")
-
-        _, prep = self.run_copy(files=files, bucket=bucket, storage=storage)
-
-        # f1 cannot be linked, but a migration must not stop on it and stop
-        # again on every rerun.
-        self.assertIsNone(files.blob_of("f1"))
-        (missing,) = prep.missing_bytes
-        self.assertEqual(missing.file, "f1")
-        self.assertIn("Pending", missing.reason)
-        self.assertIsNotNone(files.blob_of("f2"))
-        self.assertEqual(prep.s3_objects_copied, 1)
-        # Nothing was copied for f1, so nothing is left behind for it.
-        self.assertEqual([source for _, source, _ in bucket.copies], ["team/f2"])
-
-    def test_an_insert_that_loses_a_race_is_reported(self):
-        class TakenMeanwhile(FakeStorage):
+    def test_a_blob_inserted_after_the_claim_does_not_stop_the_link(self):
+        class InsertedMeanwhile(FakeStorage):
             def insert_blob(self, **blob):
-                self.add_blob("blob-raced", key=THEIRS, checksum=blob["checksum"], status="Pending")
+                self.add_blob("blob-raced", key=THEIRS, checksum=blob["checksum"])
                 return super().insert_blob(**blob)
 
-        files = FakeFiles.with_s3_files(("f1", "team/f1", "a.txt"))
-        bucket = FakeBucket().put("team/f1", BYTES)
+        files = FakeFiles.with_s3_files(("f1", "team/f1", "a.txt"), ("f2", "team/f2", "b.txt"))
+        bucket = FakeBucket().put("team/f1", BYTES).put("team/f2", OTHER)
 
-        _, prep = self.run_copy(files=files, bucket=bucket, storage=TakenMeanwhile())
+        _, prep = self.run_copy(files=files, bucket=bucket, storage=InsertedMeanwhile())
 
-        self.assertIsNone(files.blob_of("f1"))
-        (missing,) = prep.missing_bytes
-        self.assertIn("Pending", missing.reason)
+        self.assertEqual(files.blob_of("f1"), NAME)
+        self.assertIsNotNone(files.blob_of("f2"))
+        self.assertEqual(prep.s3_objects_copied, 2)
+        self.assertEqual(prep.missing_bytes, [])
 
 
 class TestTheReadIsBounded(S3CopyCase):
