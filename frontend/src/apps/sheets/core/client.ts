@@ -26,6 +26,9 @@ import type { ApplyResult, CellRead, ReadWhat, WorkerResponse } from './worker.j
 export interface WorkerPort {
   postMessage(message: unknown): void
   onmessage: ((event: MessageEvent) => void) | null
+  /** An uncaught error in the worker, or the worker failing to start. */
+  onerror?: ((event: ErrorEvent) => void) | null
+  onmessageerror?: ((event: MessageEvent) => void) | null
   terminate?(): void
 }
 
@@ -137,6 +140,11 @@ export interface WorkbookClient {
   restore(bytes: Uint8Array | Promise<Uint8Array>): Promise<void>
   /** Resolves once no command is queued or in flight. */
   idle(): Promise<void>
+  /**
+   * Called once if the worker dies or IronCalc traps. The workbook is gone
+   * by then: every pending and later request fails. Returns an unsubscribe.
+   */
+  onCrash(cb: (reason: string) => void): () => void
   terminate(): void
 }
 
@@ -152,21 +160,41 @@ export async function createWorkbookClient(options: ClientOptions = {}): Promise
 
   let nextReqId = 1
   let terminated = false
+  // Why the worker stopped, when it crashed rather than being terminated.
+  let crashReason: string | null = null
+  const crashListeners = new Set<(reason: string) => void>()
   const waiting = new Map<number, { resolve(v: unknown): void; reject(e: Error): void }>()
+
+  // The worker is gone (or its engine is): fail everything waiting on it,
+  // so callers see an error instead of hanging, and tell the listeners.
+  function crash(reason: string): void {
+    if (terminated) return
+    terminated = true
+    crashReason = reason
+    port.terminate?.()
+    for (const entry of waiting.values()) entry.reject(new WorkerRequestError(reason))
+    waiting.clear()
+    for (const cb of crashListeners) cb(reason)
+  }
 
   port.onmessage = (event: MessageEvent) => {
     const res = event.data as WorkerResponse
     const entry = waiting.get(res.reqId)
     // reqId -1 (malformed request) or a stale id: nobody is waiting.
-    if (!entry) return
-    waiting.delete(res.reqId)
-    if ('error' in res) entry.reject(new WorkerRequestError(res.error.message, res.error.command))
-    else entry.resolve(res.result)
+    if (entry) {
+      waiting.delete(res.reqId)
+      if ('error' in res) entry.reject(new WorkerRequestError(res.error.message, res.error.command))
+      else entry.resolve(res.result)
+    }
+    if ('error' in res && res.error.fatal) crash(res.error.message)
   }
+  port.onerror = (event: ErrorEvent) => crash(`worker error: ${event.message || 'unknown'}`)
+  port.onmessageerror = () => crash('worker sent a message that could not be read')
 
   function request<T>(type: string, payload: unknown = {}): Promise<T> {
     // A read that waited for pending edits can reach here after terminate().
-    if (terminated) return Promise.reject(new WorkerRequestError('worker terminated'))
+    if (terminated)
+      return Promise.reject(new WorkerRequestError(crashReason ?? 'worker terminated'))
     const reqId = nextReqId++
     return new Promise<T>((resolve, reject) => {
       waiting.set(reqId, { resolve: resolve as (v: unknown) => void, reject })
@@ -407,6 +435,10 @@ export async function createWorkbookClient(options: ClientOptions = {}): Promise
       return (await request<{ bytes: Uint8Array }>('toBytes')).bytes
     },
     idle,
+    onCrash(cb) {
+      crashListeners.add(cb)
+      return () => crashListeners.delete(cb)
+    },
     terminate() {
       terminated = true
       port.terminate?.()

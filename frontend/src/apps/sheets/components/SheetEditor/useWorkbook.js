@@ -9,7 +9,8 @@
 //
 // What reacts to the workbook stays with the editor and comes in as
 // callbacks: syncNames when its sheet list changes, onVersion after every
-// applied edit, onUsedExtent when the open sheet's data extent is read.
+// applied edit, onUsedExtent when the open sheet's data extent is read,
+// onCrash(reason) if the worker dies (the workbook is lost with it).
 
 import { createCellProvider } from '../../core/cell-provider'
 import { createWorkbookClient } from '../../core/client'
@@ -26,8 +27,9 @@ export function useWorkbook({
   syncNames,
   onVersion,
   onUsedExtent,
+  onCrash,
 }) {
-  // { client, provider, offSheets, offVersion } once started (see startEngine).
+  // { client, provider, offSheets, offVersion, offCrash } once started (see startEngine).
   let engine = null
 
   async function startEngine(snapshotBytes = null) {
@@ -45,7 +47,8 @@ export function useWorkbook({
     // Tabs follow the workbook: its sheets on load, and any later change.
     const offSheets = client.onSheets(() => syncNames())
     const offVersion = client.onVersion(() => onVersion())
-    engine = { client, provider, offSheets, offVersion }
+    const offCrash = client.onCrash((reason) => onCrash(reason))
+    engine = { client, provider, offSheets, offVersion, offCrash }
     // The saved bytes may predate names being sent to IronCalc: send them all.
     namesInEngine = new Map()
     syncDefinedNames()
@@ -57,6 +60,7 @@ export function useWorkbook({
   function stopEngine() {
     engine?.offSheets()
     engine?.offVersion()
+    engine?.offCrash()
     engine?.provider.dispose()
     engine?.client.terminate()
     engine = null
