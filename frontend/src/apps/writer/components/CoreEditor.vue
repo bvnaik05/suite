@@ -34,7 +34,24 @@
                 @change="handleEditorChange"
               >
                 <template #default="{ editor }">
-                  <EditorBubbleMenu :editor :items="bubbleMenuButtons" :options="bubbleMenuOpts" />
+                  <BubbleMenu
+                    v-if="editor"
+                    :editor
+                    :should-show="bubbleMenuOpts.shouldShow"
+                    :get-referenced-virtual-element="bubbleMenuOpts.getReferencedVirtualElement"
+                    :options="bubbleMenuOpts.options"
+                    class="z-10"
+                    data-slot="bubble-menu"
+                  >
+                    <button
+                      type="button"
+                      class="flex h-7 items-center gap-1.5 rounded-4 border border-outline-gray-2 bg-surface-elevation-2 pl-2 pr-2.5 text-sm text-ink-gray-8 shadow-sm hover:bg-surface-gray-2"
+                      @click="addComment"
+                    >
+                      <span class="lucide-message-square-plus size-4" aria-hidden="true" />
+                      Comment
+                    </button>
+                  </BubbleMenu>
                   <EditorTableMenu :editor />
                   <EditorDropZone :editor :disabled="!editable" class="grow flex flex-col">
                     <EditorContent
@@ -87,11 +104,11 @@
 
 <script setup>
 import { TextSelection } from '@tiptap/pm/state'
+import { BubbleMenu } from '@tiptap/vue-3/menus'
 import { onKeyDown } from '@vueuse/core'
 import LucideMessageSquareQuote from '~icons/lucide/message-square-quote'
 import { Button, Dropdown, toast, useFileUpload } from 'frappe-ui'
 import {
-  EditorBubbleMenu,
   EditorContent,
   EditorDropZone,
   EditorTableMenu,
@@ -268,14 +285,6 @@ const menuButtons = computed(() =>
     openSettings: () => (showSettings.value = true),
   }),
 )
-
-const bubbleMenuButtons = [
-  {
-    label: 'Comment',
-    icon: 'lucide-message-square-plus',
-    action: () => addComment(),
-  },
-]
 
 const bubbleMenuOpts = computed(() => bubbleMenuOptions({ editor, comments: props.comments }))
 
