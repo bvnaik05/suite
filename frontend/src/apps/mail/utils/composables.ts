@@ -381,6 +381,8 @@ export const useDiscardingDrafts = () => ({
     (discardingDrafts.value = new Set([...discardingDrafts.value].filter((held) => held !== id))),
   isDiscarding: (row: { messages?: { id: string }[] }) =>
     !!row.messages?.length && row.messages.every((m) => discardingDrafts.value.has(m.id)),
+  /** Whether this one message is a draft waiting out its discard's Undo. */
+  isHeld: (id: string) => discardingDrafts.value.has(id),
 })
 export const useListReload = () => ({
   listReloadRequest,

@@ -745,6 +745,7 @@ import { provideAccountScope } from '@/apps/mail/utils/accountScope'
 import {
   mailSearchRoute,
   useComposeMail,
+  useDiscardingDrafts,
   useScreenSize,
   useSettings,
   useTheme,
@@ -989,10 +990,15 @@ watch(
 // flight. The server still returns them for a moment, so any re-derive — our own reload, the 30s poll,
 // or the new-mail socket — would otherwise re-add them here. Cleared when the open thread changes.
 const removedMailIds = new Set<string>()
+const { isHeld: isHeldDraft } = useDiscardingDrafts()
 const transformThreadMails = (mails: Mail[]) =>
   mails
     // Read-only views (the Screener) pass an explicit message list that isn't scoped to a mailbox.
     .filter((mail) => readonly || (!removedMailIds.has(mail.id) && filterRelevantMails(mail)))
+    // A draft discarded here is still on the server until its Undo has passed, so a reload hands
+    // it back. Left in, it came back as an open editor under the mail it answered — the discard
+    // undone without anyone pressing Undo. The lists leave it out for the same reason.
+    .filter((mail) => !isHeldDraft(mail.id))
     .map((mail) => ({
       ...mail,
       groupedRecipients: getGroupedRecipients(mail.recipients, false),
