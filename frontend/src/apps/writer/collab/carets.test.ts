@@ -1,5 +1,6 @@
 import type { CollabRoom, Peer } from '@suite/collab-client'
 import { Editor, type EditorOptions } from '@tiptap/core'
+import Bold from '@tiptap/extension-bold'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
@@ -28,8 +29,13 @@ afterEach(() => {
 
 const BEA: Peer = { pid: PEER_ID, user: 'bea@x.com', arrival: 5, idleSince: null }
 
-function openEditor() {
+// An editor on its own document, or on a copy of another tab's
+function openEditor(from?: Y.Doc) {
   const doc = new Y.Doc()
+  if (from) {
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(from))
+  }
+
   const presenceDoc = new Y.Doc()
   presenceDoc.clientID = 0
   const awareness = new Awareness(presenceDoc)
@@ -60,12 +66,16 @@ function openEditor() {
       Document,
       Paragraph,
       Text,
+      Bold,
       ...writerAdapter.bind({ doc, presence, onChange: () => () => true } as unknown as CollabRoom),
     ],
   }
   const editor = new Editor(editorOptions)
   editors.push(editor)
-  editor.commands.insertContent('hello')
+  if (!from) {
+    editor.commands.insertContent('hello')
+  }
+
   return { editor, awareness, doc, roomChanges }
 }
 
@@ -237,6 +247,60 @@ describe('Writer carets', () => {
 
     expect([placed, waiting, arrived, cleared]).toEqual(['he', 'he', 'hello wo', null])
     expect(caretAfter(editor)).toBeNull()
+  })
+
+  // Ann types at her caret in one tab; the other tab has her words before her caret's next message
+  async function typedBeforeTheirCaret(caret: number, typing: string, isBold = false) {
+    searchUsers.mockResolvedValue([])
+    const ann = openEditor()
+    focus(ann.editor)
+    ann.editor.chain().setTextSelection({ from: 1, to: 3 }).setMark('bold', {}).run()
+    if (!isBold) {
+      ann.editor.commands.unsetAllMarks()
+    }
+
+    ann.editor.commands.setTextSelection(caret)
+    const other = openEditor(ann.doc)
+    vi.spyOn(other.editor.view, 'coordsAtPos').mockReturnValue(OWN_CARETS.clear)
+    await remoteCaret(other.awareness, ann.awareness)
+
+    ann.editor.commands.insertContent(typing)
+    Y.applyUpdate(other.doc, Y.encodeStateAsUpdate(ann.doc, Y.encodeStateVector(other.doc)))
+    await tick()
+    return [caretAfter(other.editor), shadedSelections(other.editor)]
+  }
+
+  async function remoteCaret(awareness: Awareness, theirs: Awareness) {
+    remotePeer(awareness)({ user: { id: 'bea@x.com' }, cursor: theirs.getLocalState()?.cursor })
+    await tick()
+  }
+
+  it('draws a person’s caret after the words they typed at it, unselected, before their caret moves here', async () => {
+    const typed = [
+      await typedBeforeTheirCaret(6, ' world'),
+      await typedBeforeTheirCaret(3, 'XY'),
+      await typedBeforeTheirCaret(3, 'XY', true),
+    ]
+
+    expect(typed).toEqual([
+      ['hello world', []],
+      ['heXY', []],
+      ['heXY', []],
+    ])
+  })
+
+  it('keeps this tab’s own caret before words another person types at it', () => {
+    const { editor, doc } = openEditor()
+    focus(editor)
+    editor.commands.setTextSelection(3)
+
+    const theirs = new Y.Doc()
+    Y.applyUpdate(theirs, Y.encodeStateAsUpdate(doc))
+    const theirText = (theirs.getXmlFragment('default').get(0) as Y.XmlElement).get(0) as Y.XmlText
+    theirText.insert(2, 'XY')
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(theirs, Y.encodeStateVector(doc)))
+
+    expect([editor.getText(), editor.state.selection.from]).toEqual(['heXYllo', 3])
   })
 
   it('shades what another person selected in their colour, and nothing for a caret alone', async () => {

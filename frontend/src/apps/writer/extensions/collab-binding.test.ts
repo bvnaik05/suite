@@ -19,10 +19,11 @@ const SHA256: Record<string, string> = {
   // then side-by-side texts are written as one run in place, never folded into one;
   // then formatting the editor can't show where it sits is kept on a keptFormatting mark;
   // then the kept mark's shownFirst marks win, and builtMarks gives the marks a build would;
-  // then renders set an element the editor can't build aside again without rebuilding it until it changes
-  'dist/y-tiptap.js': '3bf1b7e08ea2f29af520228c303a855b440837a4fc53ff5d2cb2f31aadb53c51',
-  // published 788e88fe...; then positions skip hidden leftovers
-  'dist/src/lib.d.ts': '7e43ada60eb3ffaf60754b08f4d5268a4cd261e54c2b774a362760f0f41749ef',
+  // then renders set an element the editor can't build aside again without rebuilding it until it changes;
+  // then the caret sent to others is tied to the letter on its right
+  'dist/y-tiptap.js': 'c9229cf83508c24578384dbe86bbd2789a84ba597f0a1dee9dfad82b932d86b5',
+  // published 788e88fe...; then positions skip hidden leftovers; then the side a position is tied to
+  'dist/src/lib.d.ts': '44ad9f354ad7a2f929feb90acc6cb321c6447b7236af1f518c87ce2ea5a6fcef',
   'dist/src/plugins/cursor-plugin.d.ts':
     '14df8f3b1fd5b5cdc11bea5eadee07b107719aefd705a97c699465a31488f11a',
   'dist/src/plugins/keys.d.ts': '9596550a6e87582af85039f4c83300bbd6b3e69af1aef98caf2e4d8f632b96f2',

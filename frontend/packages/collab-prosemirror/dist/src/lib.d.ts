@@ -95,7 +95,7 @@ export function yDocToProsemirrorJSON(ydoc: Y.Doc, xmlFragment?: string): Record
  */
 export function yXmlFragmentToProsemirrorJSON(xmlFragment: Y.XmlFragment): Record<string, any>;
 export function setMeta(view: any, key: any, value: any): void;
-export function absolutePositionToRelativePosition(pos: number, type: Y.XmlFragment, mapping: ProsemirrorMapping, hidden: Set<Y.AbstractType<any>>): any;
+export function absolutePositionToRelativePosition(pos: number, type: Y.XmlFragment, mapping: ProsemirrorMapping, hidden: Set<Y.AbstractType<any>>, assoc?: number): any;
 export function relativePositionToAbsolutePosition(y: Y.Doc, documentType: Y.XmlFragment, relPos: any, mapping: ProsemirrorMapping, hidden: Set<Y.AbstractType<any>>): null | number;
 export function yXmlFragmentToProseMirrorFragment(yXmlFragment: Y.XmlFragment, schema: Schema): Fragment;
 export function yXmlFragmentToProseMirrorRootNode(yXmlFragment: Y.XmlFragment, schema: Schema): Node;

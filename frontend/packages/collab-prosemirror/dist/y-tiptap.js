@@ -2028,11 +2028,12 @@ const setMeta = (view, key, value) => {
  * @param {Y.XmlFragment} type
  * @param {ProsemirrorMapping} mapping
  * @param {Set<Y.AbstractType<any>>} hidden elements the editor doesn't show, each taking no room
+ * @param {number} [assoc] -1 ties the position to the content on its left, 0 to the content on its right
  * @return {any} relative position
  */
-const absolutePositionToRelativePosition = (pos, type, mapping, hidden) => {
+const absolutePositionToRelativePosition = (pos, type, mapping, hidden, assoc = -1) => {
   if (pos === 0) {
-    return Y.createRelativePositionFromTypeIndex(type, 0, -1)
+    return Y.createRelativePositionFromTypeIndex(type, 0, assoc)
   }
   /**
    * @type {any}
@@ -2041,7 +2042,7 @@ const absolutePositionToRelativePosition = (pos, type, mapping, hidden) => {
   while (n !== null && type !== n) {
     if (n instanceof Y.XmlText) {
       if (n._length >= pos) {
-        return Y.createRelativePositionFromTypeIndex(n, pos, -1)
+        return Y.createRelativePositionFromTypeIndex(n, pos, assoc)
       } else {
         pos -= n._length;
       }
@@ -2095,7 +2096,7 @@ const absolutePositionToRelativePosition = (pos, type, mapping, hidden) => {
       return createRelativePosition(n._item.parent, n._item)
     }
   }
-  return Y.createRelativePositionFromTypeIndex(type, type._length, -1)
+  return Y.createRelativePositionFromTypeIndex(type, type._length, assoc)
 };
 
 const createRelativePosition = (type, item) => {
@@ -2647,7 +2648,8 @@ const yCursorPlugin = (
             selection.anchor,
             ystate.type,
             ystate.binding.mapping,
-            ystate.binding.hidden
+            ystate.binding.hidden,
+            0
           );
           /**
            * @type {Y.RelativePosition}
@@ -2656,7 +2658,8 @@ const yCursorPlugin = (
             selection.head,
             ystate.type,
             ystate.binding.mapping,
-            ystate.binding.hidden
+            ystate.binding.hidden,
+            0
           );
           if (
             current.cursor == null ||
