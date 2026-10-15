@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Mail, MailCopy, Thread } from '@/apps/mail/types'
 
-import { mailCopies, mailCopyIds, mailCopyNames, rowMailIds } from './mailCopies'
+import { mailCopies, mailCopyIds, mailCopyNames, rowMailIds, threadStarIds } from './mailCopies'
 
 const mail = (overrides: Partial<Mail> = {}): Mail =>
   ({ name: 'message-d1', id: 'd1', ...overrides }) as Mail
@@ -47,5 +47,18 @@ describe('rowMailIds', () => {
 
   it('falls back to the row itself when its conversation is not loaded', () => {
     expect(rowMailIds({ id: 'x1' } as Thread)).toEqual(['x1'])
+  })
+})
+
+describe('threadStarIds', () => {
+  const older = mail({ id: 'a', name: 'message-a', flagged: 1 })
+  const newest = mail({ id: 'b', name: 'message-b', flagged: 0 })
+
+  it('stars only the message the row stands for', () => {
+    expect(threadStarIds(row('b', [older, newest]), true)).toEqual(['b'])
+  })
+
+  it('unstars every starred message, so the thread leaves Starred', () => {
+    expect(threadStarIds(row('b', [older, newest]), false).sort()).toEqual(['a', 'b'])
   })
 })

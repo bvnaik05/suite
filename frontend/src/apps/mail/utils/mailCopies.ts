@@ -36,3 +36,15 @@ export const rowMailIds = (thread: Thread): string[] => {
   const shown = (thread.messages ?? []).find((mail) => mailCopyIds(mail).includes(thread.id))
   return shown ? mailCopyIds(shown) : [thread.id]
 }
+
+/**
+ * The mail ids starring or unstarring a whole thread carries. A thread is starred while any message
+ * in it is (as the Starred folder reads it), so unstarring clears every starred message — clearing
+ * only the row's own left the thread in Starred, starred by an older message. Starring marks the
+ * row's own message alone: marking them all filled every message's star in the open thread.
+ */
+export const threadStarIds = (thread: Thread, flagged: boolean): string[] => {
+  if (flagged) return rowMailIds(thread)
+  const starred = (thread.messages ?? []).filter((mail) => mail.flagged).flatMap(mailCopyIds)
+  return [...new Set([...rowMailIds(thread), ...starred])]
+}

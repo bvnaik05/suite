@@ -329,7 +329,7 @@ import {
   stepFromKey,
   useGPrefix,
 } from '@/apps/mail/utils/listNavigation'
-import { mailCopies, mailCopyIds, rowMailIds } from '@/apps/mail/utils/mailCopies'
+import { mailCopies, mailCopyIds, threadStarIds } from '@/apps/mail/utils/mailCopies'
 import { selectActions as buildSelectActions } from '@/apps/mail/utils/selectActions'
 import { threadRow } from '@/apps/mail/utils/threadRows'
 import {
@@ -1099,7 +1099,11 @@ const handleSetSeen = (thread: Thread, seen: boolean, silent = false) => {
 // message, so BOTH have to be told: the pane's star stayed hollow when starring from the list, and
 // the list's star stayed hollow when starring from the pane. Only the ids actually sent to the
 // server are flipped locally, or a refetch would contradict whatever we lit up.
-const handleSetFlagged = (thread: Thread, flagged: boolean, ids: string[] = rowMailIds(thread)) => {
+const handleSetFlagged = (
+  thread: Thread,
+  flagged: boolean,
+  ids: string[] = threadStarIds(thread, flagged),
+) => {
   // The row stands for its representative mail (see serialize_thread), so it takes the star only
   // when that mail is one of the ones being starred.
   const rowChanged = ids.includes(thread.id)
@@ -1299,7 +1303,11 @@ const setThreadsFlagged = (threads: Thread[], flagged: boolean) => {
   const apply = (value: 0 | 1) => changed.forEach((t) => (t.flagged = value))
   apply(flagged ? 1 : 0)
   perAccount(changed, (account, rows) =>
-    client.mutation(api.mail.messages.flag, { account, ids: rows.flatMap(rowMailIds), flagged }),
+    client.mutation(api.mail.messages.flag, {
+      account,
+      ids: rows.flatMap((row) => threadStarIds(row, flagged)),
+      flagged,
+    }),
   ).catch((error) => {
     apply(flagged ? 0 : 1) // revert the optimistic update
     raiseError(error)

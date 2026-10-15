@@ -38,13 +38,7 @@
           variant="ghost"
           class="max-sm:!h-8 max-sm:!w-8"
           :tooltip="isFlagged ? __('Unstar') : __('Star')"
-          @click="
-            emit(
-              'setFlagged',
-              thread.map((m) => m.id),
-              !isFlagged,
-            )
-          "
+          @click="emit('setFlagged', starIds(), !isFlagged)"
         >
           <template #icon>
             <Star
@@ -143,6 +137,7 @@ import { getIcon, getMailboxName } from '@/apps/mail/utils'
 import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
+import { lastMessageOf } from '@/apps/mail/utils/threadFolding'
 import {
   mailboxForUnifiedFolder,
   mailboxIdForParam,
@@ -211,7 +206,13 @@ const canRemoveFrom = computed(() =>
   (thread ?? []).some((mail: Mail) => mail.id && mail.mailboxes.length > 1),
 )
 
-const isFlagged = computed(() => thread.every((m) => m.flagged))
+// Starred while any message is, as the Starred folder reads it. Starring marks the newest message;
+// unstarring clears them all, so the thread leaves Starred (see threadStarIds).
+const isFlagged = computed(() => thread.some((m) => m.flagged))
+const starIds = () =>
+  isFlagged.value
+    ? thread.filter((m) => m.flagged && m.id).map((m) => m.id)
+    : [lastMessageOf(thread)?.id].filter((id): id is string => !!id)
 
 const moreActions = computed((): Action[] => [
   {

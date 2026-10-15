@@ -16,7 +16,7 @@ import {
 } from '@/apps/mail/utils'
 import { useDiscardingDrafts, useUndo } from '@/apps/mail/utils/composables'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
-import { mailCopies, mailCopyIds, mailCopyNames, rowMailIds } from '@/apps/mail/utils/mailCopies'
+import { mailCopies, mailCopyIds, mailCopyNames, threadStarIds } from '@/apps/mail/utils/mailCopies'
 
 type SetSeenParams = {
   0?: string[]
@@ -639,7 +639,7 @@ export function useThreadActions(deps: {
   const setFlaggedByThreadIDs = (threadIDs: string[], flagged: boolean) => {
     setUndoAction(undefined)
     const touched = rows.value.filter((t: Thread) => threadIDs.includes(t.thread_id))
-    const ids = touched.flatMap(rowMailIds)
+    const ids = touched.flatMap((thread: Thread) => threadStarIds(thread, flagged))
     void setFlaggedSubmit({
       ids,
       flagged,

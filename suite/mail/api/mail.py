@@ -932,6 +932,10 @@ def serialize_thread(
     return {
         **{field: current[field] for field in current_fields},
         **{field: latest[field] for field in activity_fields},
+        # Starred while any message the view shows is — what the Starred folder lists by
+        # (someInThreadHaveKeyword). Read off the row's own message, a thread starred by an older one
+        # sat in Starred with a hollow star.
+        "flagged": cint(any(message.get("flagged") for message in thread_messages)),
         # A thread waits on a decision while any of its mail here is from an unscreened sender; these are
         # those senders, in the order they first wrote, so deciding the thread can decide them all.
         "unscreened": cint(any(is_unscreened_message(message) for message in messages)),

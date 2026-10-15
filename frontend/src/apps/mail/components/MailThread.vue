@@ -70,8 +70,11 @@
                 <!-- A stand-in, not something anyone wrote: grey. -->
                 <span v-else class="text-ink-gray-4">{{ __('[No subject]') }}</span>
                 <!-- Starring marks the conversation, so it sits with the conversation's name rather
-				     than among the toolbar's actions on it. -->
+				     than among the toolbar's actions on it — when the conversation is one message.
+				     With more, each message carries its own star and this one could not say which
+				     of them it meant; the list row stars the thread as a whole. -->
                 <Button
+                  v-if="isSingleMessage"
                   variant="ghost"
                   class="shrink-0"
                   :tooltip="isThreadFlagged ? __('Unstar') : __('Star')"
@@ -369,79 +372,85 @@
                             :class="{
                               'self-start': !isCollapsed(mail),
                               'self-center': isCollapsed(mail) && isMobile,
-                              /* Hovered collapsed rows swap text for icon buttons —
-												   no baseline to join, so center the block instead.
-												   group-has [data-state=open]: the ⋯ menu is portaled,
-												   so opening it ends the hover — without this the
-												   trigger unmounts and the menu loses its anchor. */
-                              'sm:group-hover/card:self-center sm:group-has-[[data-state=open]]/card:self-center':
-                                isCollapsed(mail) && !isMobile,
+                              /* No change of alignment on hover: the time stays (only
+												   invisible) and keeps the block on the text's baseline.
+												   Centring it while hovered moved the sender and preview
+												   by a fraction of a pixel, enough to see them jump. */
                             }"
                           >
-                            <!-- The timestamp yields to the actions on hover (fixed
-											     right edge), so the row never moves. -->
-                            <!-- flex, not a bare span: MailDate's own mr-1 doesn't
-											     count inside an inline wrapper, and the gap between
-											     time and actions went with it. -->
-                            <span
-                              v-if="!isMobile || isCollapsed(mail)"
-                              class="flex"
+                            <!-- The timestamp yields to the actions on hover, but keeps its room:
+											     it turns invisible rather than leaving, and on a folded row the
+											     actions sit over its place, right-aligned. Taken out, the preview
+											     beside it widened on hover and cut off somewhere else. min-w-15
+											     holds the two actions where the time is shorter than they are. -->
+                            <div
+                              class="relative flex items-center"
                               :class="{
-                                'sm:group-hover/card:hidden sm:group-has-[[data-state=open]]/card:hidden':
-                                  isCollapsed(mail),
+                                'sm:min-w-15 sm:justify-end': isCollapsed(mail) && !isMobile,
                               }"
                             >
-                              <MailDate
-                                :datetime="mail.received_at"
-                                :format="daysHeaded ? 'clock' : 'thread'"
-                              />
-                            </span>
-                            <!-- h-5: the 28px ghost buttons overhang the padding
+                              <!-- flex, not a bare span: MailDate's own mr-1 doesn't
+											     count inside an inline wrapper, and the gap between
+											     time and actions went with it. The time's line box is
+											     trimmed to its capitals and baseline: it has no
+											     descenders, so in a full line box it sat high, and the
+											     star centred on that box read lower than the time. -->
+                              <span
+                                v-if="!isMobile || isCollapsed(mail)"
+                                class="flex [&_div]:[text-box:trim-both_cap_alphabetic]"
+                                :class="{
+                                  'sm:group-hover/card:invisible sm:group-has-[[data-state=open]]/card:invisible':
+                                    isCollapsed(mail),
+                                }"
+                              >
+                                <MailDate
+                                  :datetime="mail.received_at"
+                                  :format="daysHeaded ? 'clock' : 'thread'"
+                                />
+                              </span>
+                              <!-- h-5: the 28px ghost buttons overhang the padding
 											     instead of growing the one-line row on hover. -->
-                            <div
-                              v-if="!isMobile && !readonly"
-                              :class="
-                                isCollapsed(mail)
-                                  ? 'hidden h-5 items-center gap-1 sm:group-hover/card:flex sm:group-has-[[data-state=open]]/card:flex'
-                                  : 'flex gap-1'
-                              "
-                            >
-                              <MailActions
-                                :mailbox
-                                :mail
-                                :is-collapsed="false"
-                                :show-reply-all="showReplyAll(mail)"
-                                :pop-out-draft
-                                :reply
-                                :reply-all
-                                :forward
-                                :reload-mails="handleReload"
-                                :drop-mail
-                                :thread="thread"
-                                :hide-star="isCollapsed(mail)"
-                                @set-flagged="onSetFlagged"
-                                @sync-unseen="handleSyncUnseen"
-                                @move-mail="
-                                  (m: Mail, target: string) => emit('moveMail', m, target)
+                              <div
+                                v-if="!isMobile && !readonly"
+                                :class="
+                                  isCollapsed(mail)
+                                    ? 'absolute right-0 top-1/2 hidden h-5 -translate-y-1/2 items-center gap-1 sm:group-hover/card:flex sm:group-has-[[data-state=open]]/card:flex'
+                                    : 'flex gap-1'
                                 "
-                                @mark-mail-spam="
-                                  (m: Mail, spam: boolean) => emit('markMailSpam', m, spam)
-                                "
-                                @delete-mail="(m: Mail) => emit('deleteMail', m)"
-                              />
+                              >
+                                <MailActions
+                                  :mailbox
+                                  :mail
+                                  :is-collapsed="false"
+                                  :show-reply-all="showReplyAll(mail)"
+                                  :pop-out-draft
+                                  :reply
+                                  :reply-all
+                                  :forward
+                                  :reload-mails="handleReload"
+                                  :drop-mail
+                                  :thread="thread"
+                                  :hide-star="isCollapsed(mail)"
+                                  @set-flagged="onSetFlagged"
+                                  @sync-unseen="handleSyncUnseen"
+                                  @move-mail="
+                                    (m: Mail, target: string) => emit('moveMail', m, target)
+                                  "
+                                  @mark-mail-spam="
+                                    (m: Mail, spam: boolean) => emit('markMailSpam', m, spam)
+                                  "
+                                  @delete-mail="(m: Mail) => emit('deleteMail', m)"
+                                />
+                              </div>
                             </div>
-                            <!-- A folded row's star keeps the far right whether or not the row is
-												     hovered: shown while starred, offered on hover while not, and
-												     a click either way. h-5 for the same reason as the actions:
-												     the button overhangs rather than growing the row. -->
+                            <!-- A folded row's star keeps the far right, always there, hollow or filled, as
+												     the list's rows keep theirs: shown only on hover, it either moved the
+												     time when it came or left a gap beside it while it was away. h-5 for
+												     the same reason as the actions: the button overhangs rather than
+												     growing the row. -->
                             <div
                               v-if="isCollapsed(mail) && !readonly && !mail.draft"
-                              class="h-5 items-center"
-                              :class="
-                                mail.flagged
-                                  ? 'flex'
-                                  : 'hidden sm:group-hover/card:flex sm:group-has-[[data-state=open]]/card:flex'
-                              "
+                              class="flex h-5 items-center"
                             >
                               <Button
                                 variant="ghost"
@@ -831,9 +840,9 @@ const copySubject = (event: MouseEvent, subject: string) => {
     void copyToClipBoard(subject)
   }, 200)
 }
-const isThreadFlagged = computed(
-  () => !!thread.value?.length && thread.value.every((m) => m.flagged),
-)
+// A thread is starred while any message in it is, as the Starred folder reads it.
+const isThreadFlagged = computed(() => !!thread.value?.some((m) => m.flagged))
+const isSingleMessage = computed(() => thread.value.filter((m) => !m.draft).length <= 1)
 const senderCardFor = ref<string | null>(null)
 // A second click on the sender closes their card. The press lands outside the card, which closes
 // it before the click arrives, so whether it was open is read on the press: otherwise the click
@@ -1083,9 +1092,9 @@ const syncWithSource = () => {
   const source = sourceMessages()
   if (!source?.length) return
 
-  // Refresh existing mails' mailbox membership and screening from the list (e.g. after a move, a
-  // sender accepted from the list, or an undo), in place so unsaved inline drafts and collapse state
-  // survive.
+  // Refresh existing mails' mailbox membership, screening and star from the list (e.g. after a move,
+  // a sender accepted or a row starred from the list, or an undo), in place so unsaved inline drafts
+  // and collapse state survive.
   const sourceById = new Map(source.map((mail) => [mail.id, mail]))
   thread.value.forEach((mail) => {
     const fresh = sourceById.get(mail.id)
@@ -1093,6 +1102,8 @@ const syncWithSource = () => {
     mail.mailboxes = fresh.mailboxes
     // Waiting again after an undo: a decision made here no longer holds, so the banner returns.
     mail.unscreened = fresh.unscreened
+    // A star set or cleared from the list row, or on another device, reaches the open thread.
+    mail.flagged = fresh.flagged
   })
 
   // Append any newly-arrived messages, before a trailing draft. Drafts are excluded: the only draft
