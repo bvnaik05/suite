@@ -184,28 +184,52 @@ describe('the text of the thread the panel points at', () => {
     expect(panel.opened).toEqual(['second'])
   })
 
-  // The editor's scroll area spans 0-500px; `top` is where the thread's text sits in it
+  // The editor's scroll area spans 0-500px; the thread's text starts at `top`, each later part a line below
   function placeText(editor: Editor, top: number) {
     const frame = document.createElement('div')
     frame.id = 'editor-scroll-container'
     frame.append(editor.view.dom)
     document.body.append(frame)
     frame.getBoundingClientRect = () => ({ top: 0, bottom: 500 }) as DOMRect
-    const text = editor.view.dom.querySelector<HTMLElement>('[data-thread="first"]')!
-    text.getBoundingClientRect = () => ({ top, bottom: top + 20 }) as DOMRect
-    text.scrollIntoView = vi.fn()
-    return text
+    const parts = [...editor.view.dom.querySelectorAll<HTMLElement>('[data-thread="first"]')]
+    for (const [index, part] of parts.entries()) {
+      const lineTop = top + index * 20
+      part.getBoundingClientRect = () => ({ top: lineTop, bottom: lineTop + 20 }) as DOMRect
+      part.scrollIntoView = vi.fn()
+    }
+
+    return parts
   }
 
   it('scrolls to the text only when none of it is in view', () => {
     const { editor } = twoThreads()
     const scrolled: unknown[] = []
     for (const top of [100, -15, -40, 600]) {
-      const text = placeText(editor, top)
+      const [text] = placeText(editor, top)
       showThread(editor.view, 'first')
       scrolled.push(vi.mocked(text.scrollIntoView).mock.calls)
     }
 
     expect(scrolled).toEqual([[], [], [[{ block: 'center' }]], [[{ block: 'center' }]]])
+  })
+
+  it('stays put while any part of text split by another thread is in view, else scrolls to its start', () => {
+    const doc = new Y.Doc()
+    const threads = { list: [] as DocumentThread[] }
+    const editor = openEditor(doc, threads)
+    editor.commands.setContent('<p>hello world</p>')
+    threads.list = [threadOn(doc, 'second', 0, 8), threadOn(doc, 'first', 4, 11)]
+    redrawThreads(editor.view)
+    const scrolled: number[][] = []
+    for (const top of [-30, -50]) {
+      const parts = placeText(editor, top)
+      showThread(editor.view, 'first')
+      scrolled.push(parts.map((part) => vi.mocked(part.scrollIntoView).mock.calls.length))
+    }
+
+    expect(scrolled).toEqual([
+      [0, 0],
+      [1, 0],
+    ])
   })
 })

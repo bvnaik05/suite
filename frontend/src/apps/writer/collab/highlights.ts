@@ -113,9 +113,10 @@ export function redrawThreads(view: EditorView) {
 /** Scrolls the editor to an open thread's text, only if none of it is in view. */
 export function showThread(view: EditorView, name: string) {
   const spans = [...view.dom.querySelectorAll('[data-thread]')]
-  const text = spans.find((span) => span.getAttribute('data-thread') === name)
+  const parts = spans.filter((span) => span.getAttribute('data-thread') === name)
+  const [text] = parts
   const frame = text?.closest('#editor-scroll-container')
-  if (!text || !frame || isInView(text, frame)) {
+  if (!text || !frame || parts.some((part) => isInView(part, frame))) {
     return
   }
 
