@@ -6,7 +6,7 @@
       </button>
     </Tooltip>
   </template>
-  <Tooltip v-if="showStar && !isMobile" :text="flagged ? __('Unstar Mail') : __('Star Mail')">
+  <Tooltip v-if="showStar && !isMobile" :text="flagged ? __('Unstar') : __('Star')">
     <button class="action-btn" @click.stop.prevent="emit('setFlagged', !flagged)">
       <Star
         class="icon text-ink-gray-5"
@@ -20,7 +20,7 @@
   <button
     v-else-if="showStar"
     class="action-btn"
-    :aria-label="flagged ? __('Unstar Mail') : __('Star Mail')"
+    :aria-label="flagged ? __('Unstar') : __('Star')"
     @click.stop.prevent="emit('setFlagged', !flagged)"
   >
     <Star
@@ -101,7 +101,7 @@ const actions = computed(() =>
       condition: someUnread.value,
     },
     {
-      label: many.value ? __('Archive {0} threads', [count.value]) : __('Archive Thread'),
+      label: many.value ? __('Archive {0} threads', [count.value]) : __('Archive'),
       onClick: () => emit('archive'),
       icon: Archive,
       condition: !everyIn(archiveId.value),
