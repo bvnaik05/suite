@@ -1508,7 +1508,7 @@ describe('comments not yet posted', () => {
 
     expect([openRow, closedRow]).toEqual([
       'You Not posted · Retry the quoted words Refused Discard',
-      'You Not posted · Retry Refused',
+      'You Not posted · Retry the quoted words Refused',
     ])
   })
 

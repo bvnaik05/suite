@@ -643,6 +643,9 @@ function rowClass(thread: DocumentThread) {
               </span>
               <span class="shrink-0">{{ dayOrTime(firstComment(row.thread)) }}</span>
             </span>
+            <span v-if="row.quote" class="block truncate border-l-2 pl-2 text-sm text-ink-gray-5">
+              {{ row.quote }}
+            </span>
             <span v-if="isClosed(row.thread)" class="flex gap-1 text-sm">
               <span class="truncate text-ink-gray-7">
                 <CommentText
@@ -670,9 +673,6 @@ function rowClass(thread: DocumentThread) {
           </div>
           <template v-if="isOpen(row.thread)">
             <div class="space-y-2 px-3 pb-3">
-              <p v-if="row.quote" class="truncate border-l-2 pl-2 text-sm text-ink-gray-5">
-                {{ row.quote }}
-              </p>
               <div
                 v-for="comment in row.thread.comments"
                 :key="comment.name"
