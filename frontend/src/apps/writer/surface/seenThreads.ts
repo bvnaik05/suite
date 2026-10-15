@@ -1,4 +1,4 @@
-import { useEventListener } from '@vueuse/core'
+import { useDocumentVisibility, useEventListener } from '@vueuse/core'
 import { ref, watch } from 'vue'
 
 import type { DocumentThread } from '@/apps/drive'
@@ -149,6 +149,7 @@ function followOtherTabs(key: string, follow: (marks: SeenMarks) => void) {
 /** The threads changed since last opened here; the open thread stays seen as it changes. */
 export function useSeenThreads({ user, node, threads, readAt, openThread }: SeenOptions) {
   const marks = ref<SeenMarks | null>(null)
+  const visibility = useDocumentVisibility()
 
   function markSeen(name: string | null) {
     const at = readAt()
@@ -163,7 +164,12 @@ export function useSeenThreads({ user, node, threads, readAt, openThread }: Seen
     keepSeen(user, node, marks.value)
   }
 
-  watch([threads, readAt, openThread], ([, , open]) => markSeen(open), { immediate: true })
+  // A reply counts as seen only while the page is on screen, and is marked once it comes back
+  watch(
+    [threads, readAt, openThread, visibility],
+    ([, , open]) => markSeen(visibility.value === 'visible' ? open : null),
+    { immediate: true },
+  )
   // Not written back: this tab writes the later marks the next time it marks a thread
   followOtherTabs(keyOf(user, node), (incoming) => {
     marks.value = merged(marks.value ?? {}, incoming)

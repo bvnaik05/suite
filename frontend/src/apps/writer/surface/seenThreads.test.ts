@@ -299,4 +299,28 @@ describe('which threads changed since last opened', () => {
       '2:2026-10-01 10:00:00:false',
     ])
   })
+
+  it('leaves a reply to the thread open in a hidden page unseen until the page is shown again', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    const readAt = ref<number | null>(1)
+    const { threads, open } = watchThreads([FIRST], readAt)
+    open.value = 'first'
+    await nextTick()
+    visibility.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+
+    threads.value = [REPLIED]
+    readAt.value = 2
+    await nextTick()
+    const whileHidden = watchThreads([REPLIED], ref<number | null>(3)).unread()
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+
+    expect([whileHidden, watchThreads([REPLIED], ref<number | null>(3)).unread()]).toEqual([
+      ['first'],
+      [],
+    ])
+  })
 })
