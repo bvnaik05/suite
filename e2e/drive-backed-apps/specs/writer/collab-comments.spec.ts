@@ -217,4 +217,27 @@ test.describe("Writer collaboration comments", () => {
 		await expect(reopened).not.toContainText("Not posted");
 		await expect(row).toHaveCount(1);
 	});
+
+	test("a comment Drive took but whose answer was lost makes one thread once retried", async ({ owner }) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		async function loseAnswer(route: Route) {
+			if (route.request().method() !== "POST") {
+				return route.fallback();
+			}
+
+			await route.fetch();
+			return route.abort();
+		}
+
+		await page.route("**/api/suite/drive/nodes/*/threads", loseAnswer);
+		const panel = await commentOnDocument(page, "Answer lost");
+		await expect(panel).toContainText("Not posted ·");
+
+		await page.unroute("**/api/suite/drive/nodes/*/threads", loseAnswer);
+		await panel.getByRole("button", { name: "Retry" }).click();
+
+		await expect(panel).not.toContainText("Not posted");
+		await expect(threadRow(panel, "Answer lost")).toHaveCount(1);
+	});
 });

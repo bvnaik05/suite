@@ -74,7 +74,7 @@ function followOtherTabs(user: string, node: string, drafts: Ref<ShownDraft[]>) 
   })
 }
 
-/** Comments on text from being written to being posted, kept on this device until Drive takes them. */
+/** Comments from being written to being posted, kept on this device until Drive takes them. */
 export function useCommentDrafts({ session, user, room, refreshThreads }: DraftOptions) {
   const list = deviceDrafts(user, session.nodeId)
   // The thread Drive made, or null with the draft kept, its words as first sent
@@ -139,8 +139,9 @@ function isInCopy(doc: Y.Doc, items: Y.ID[]) {
 // Whether the server came to hold the commented text; false once this tab can't save it
 function whenSaved(room: CollabRoom | null, items: Y.ID[]) {
   return new Promise<boolean>((resolve) => {
+    // With no room, only a comment on no text is saved
     if (!room) {
-      resolve(false)
+      resolve(!items.length)
       return
     }
 

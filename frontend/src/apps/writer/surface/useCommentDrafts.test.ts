@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
-import { anchorEnds, encodeAnchor } from '@/apps/writer/collab/anchors'
+import { anchorEnds, DOCUMENT_ANCHOR, encodeAnchor } from '@/apps/writer/collab/anchors'
 import { readDrafts } from '@/apps/writer/recovery/commentDrafts'
 
 import { useCommentDrafts } from './useCommentDrafts'
@@ -87,7 +87,7 @@ function driveComments(answers: (() => Promise<unknown>)[] = []) {
   return { session, posts }
 }
 
-function openDrafts(session: ReturnType<typeof driveComments>['session'], room: CollabRoom) {
+function openDrafts(session: ReturnType<typeof driveComments>['session'], room: CollabRoom | null) {
   const refreshThreads = vi.fn(async () => {})
   const drafts = useCommentDrafts({ session, user: 'ann', room: () => room, refreshThreads })
   return { ...drafts, refreshThreads }
@@ -243,6 +243,65 @@ describe('posting a comment on text', () => {
     expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
       "The text this comment is on wasn't saved, so it wasn't posted.",
     )
+  })
+})
+
+describe('posting a comment on the whole document', () => {
+  it('posts at once, before the room connects, with nothing to wait for', async () => {
+    const { session, posts } = driveComments()
+    const { drafts, start, write, post } = openDrafts(session, null)
+    start(DOCUMENT_ANCHOR)
+    write(drafts.value[0], ' Ship it ')
+    const [draft] = drafts.value
+
+    const thread = await post(draft)
+
+    expect([thread, posts, drafts.value]).toEqual([
+      'thread-1',
+      [[DOCUMENT_ANCHOR, 'Ship it', undefined, draft.clientId]],
+      [],
+    ])
+  })
+
+  it('keeps a comment on text unsent while there is no room to save its text', async () => {
+    const { session, posts } = driveComments()
+    const { drafts, start, write, post } = openDrafts(session, null)
+    start(helloAnchor(new Y.Doc()))
+    write(drafts.value[0], 'Too soon')
+    const [draft] = drafts.value
+
+    const thread = await post(draft)
+
+    expect([thread, posts, drafts.value.map((kept) => kept.isSent)]).toEqual([null, [], [true]])
+  })
+
+  it('makes one thread when Drive took the comment but its answer was lost, once sent again', async () => {
+    const taken = new Map<string, unknown[]>()
+    let isAnswerLost = true
+    const create = vi.fn(async (...input: unknown[]) => {
+      const clientId = String(input[3])
+      if (!taken.has(clientId)) {
+        taken.set(clientId, input)
+      }
+
+      if (isAnswerLost) {
+        isAnswerLost = false
+        throw new Error('Connection lost')
+      }
+
+      return { name: `thread-${taken.size}` }
+    })
+    const session = { nodeId: 'doc-1', comments: { create } } as unknown as ReturnType<
+      typeof driveComments
+    >['session']
+    const { drafts, start, write, post } = openDrafts(session, null)
+    start(DOCUMENT_ANCHOR)
+    write(drafts.value[0], 'Ship it')
+    const [draft] = drafts.value
+
+    const results = [await post(draft), await post(draft)]
+
+    expect([results, taken.size, create.mock.calls.length]).toEqual([[null, 'thread-1'], 1, 2])
   })
 })
 

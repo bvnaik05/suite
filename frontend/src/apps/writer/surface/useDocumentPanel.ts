@@ -71,7 +71,7 @@ async function changeThreads(
   return true
 }
 
-/** Adds, replies to, resolves and deletes the document's comments. */
+/** Replies to, resolves, edits and deletes the document's comments. */
 function threadActions(session: PanelSession, refreshThreads: () => Promise<void>) {
   function change(action: () => Promise<unknown>, fallback: string) {
     return changeThreads(action, refreshThreads, fallback)
@@ -79,8 +79,6 @@ function threadActions(session: PanelSession, refreshThreads: () => Promise<void
 
   const { comments } = session
   return {
-    addComment: (text: string, authorName?: string) =>
-      change(() => comments.create('document', text, authorName), 'Could not add the comment.'),
     reply: (thread: string, text: string, authorName?: string) =>
       change(() => comments.reply(thread, text, authorName), 'Could not add the reply.'),
     resolve: (thread: string, isResolved: boolean) =>

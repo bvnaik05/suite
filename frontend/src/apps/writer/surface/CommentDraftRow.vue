@@ -2,7 +2,7 @@
 import { Dropdown, type DropdownOptions } from 'frappe-ui'
 import { computed, ref } from 'vue'
 
-import { anchorQuote } from '@/apps/writer/collab/anchors'
+import { anchorQuote, DOCUMENT_ANCHOR } from '@/apps/writer/collab/anchors'
 
 import type { ShownDraft } from './useCommentDrafts'
 
@@ -18,6 +18,7 @@ const isMenuOpen = ref(false)
 const quote = computed(() => anchorQuote(props.draft.anchor))
 const isClosed = computed(() => !isOpen.value)
 const isNotPosted = computed(() => !props.draft.isPosting)
+const isOnDocument = computed(() => props.draft.anchor === DOCUMENT_ANCHOR)
 const rowClass = computed(() => {
   if (props.draft.isPosting) {
     return 'opacity-60'
@@ -60,6 +61,7 @@ function noteMenu(isShown: boolean) {
       >
         You
       </button>
+      <span v-if="isOnDocument" class="shrink-0">Whole document</span>
       <span v-if="draft.isPosting" class="shrink-0">Posting…</span>
       <template v-else>
         <span class="shrink-0">Not posted ·</span>

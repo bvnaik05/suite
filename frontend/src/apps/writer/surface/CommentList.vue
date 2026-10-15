@@ -16,6 +16,7 @@ import {
   useDriveGuestName,
   type DocumentThread,
 } from '@/apps/drive'
+import { DOCUMENT_ANCHOR } from '@/apps/writer/collab/anchors'
 import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
 import { useCurrentUser } from '@/boot/session'
 import { confirm, toast } from '@/platform/feedback'
@@ -45,8 +46,8 @@ const props = defineProps<{
   /** Whether the person can edit the document, which lets them change anyone's comment. */
   canEditDocument: boolean
   actions: ThreadActions
-  /** Comments on text not posted yet; only the collaborative editor makes them. */
-  drafts?: ReturnType<typeof useCommentDrafts>
+  /** Comments not posted yet, on text or on the whole document. */
+  drafts: ReturnType<typeof useCommentDrafts>
 }>()
 
 /** The thread shown open; its text in the editor stays lit. */
@@ -56,9 +57,7 @@ const litThread = defineModel<string | null>('litThread', { default: null })
 
 const tab = ref<CommentTab>('open')
 const rowItems = ref<HTMLElement[]>([])
-const isWritingOnDocument = ref(false)
-const documentText = ref('')
-const documentBox = ref<{ focus(): void } | null>(null)
+const documentCard = ref<{ focus(): void } | null>(null)
 const replyBoxes = ref<{ focus(): void }[]>([])
 /** A reply typed into each thread, kept while another is open. */
 const replyTexts = ref<Record<string, string>>({})
@@ -102,9 +101,12 @@ const shownDrafts = computed(() => {
     return []
   }
 
-  return props.drafts?.drafts.value ?? []
+  return props.drafts.drafts.value
 })
 const boxDrafts = computed(() => shownDrafts.value.filter((draft) => !draft.isSent))
+// The whole-document box takes the place of the line that starts it
+const documentDraft = computed(() => boxDrafts.value.find(isOnDocument))
+const textDrafts = computed(() => boxDrafts.value.filter((draft) => !isOnDocument(draft)))
 const sentDrafts = computed(() => shownDrafts.value.filter((draft) => draft.isSent))
 const canStartComment = computed(() => isOpenTab.value && props.canComment)
 const hasShownDrafts = computed(() => !!shownDrafts.value.length)
@@ -120,7 +122,6 @@ const emptyText = computed(() => {
 
   return 'No open comments. Select text and press Comment, or comment on the whole document above.'
 })
-const isDocumentBlank = computed(() => !documentText.value.trim())
 const replyText = computed({
   get: () => replyTexts.value[openThread.value ?? ''] ?? '',
   set: (text: string) => {
@@ -208,39 +209,28 @@ async function canDiscard(text: string) {
   })
 }
 
+function isOnDocument(draft: ShownDraft) {
+  return draft.anchor === DOCUMENT_ANCHOR
+}
+
+// One whole-document box at a time; asking again puts the cursor back in it
 async function startDocumentComment() {
   tab.value = 'open'
-  isWritingOnDocument.value = true
+  if (!documentDraft.value) {
+    props.drafts.start(DOCUMENT_ANCHOR)
+  }
+
   await nextTick()
-  documentBox.value?.focus()
-}
-
-async function stopDocumentComment() {
-  if (await canDiscard(documentText.value)) {
-    isWritingOnDocument.value = false
-    documentText.value = ''
-  }
-}
-
-async function submitDocumentComment() {
-  const text = documentText.value.trim()
-  if (!text) {
-    return
-  }
-
-  if (await props.actions.addComment(text, takeGuestName())) {
-    isWritingOnDocument.value = false
-    documentText.value = ''
-  }
+  documentCard.value?.focus()
 }
 
 function writeDraft(draft: ShownDraft, text: string) {
-  props.drafts?.write(draft, text)
+  props.drafts.write(draft, text)
 }
 
 // Sending again is a retry: the same words under the same client id
 async function postDraft(draft: ShownDraft) {
-  const thread = await props.drafts?.post(draft, takeGuestName())
+  const thread = await props.drafts.post(draft, takeGuestName())
   if (thread) {
     openThread.value = thread
   }
@@ -248,7 +238,7 @@ async function postDraft(draft: ShownDraft) {
 
 async function discardDraft(draft: ShownDraft) {
   if (await canDiscard(draft.text)) {
-    props.drafts?.discard(draft)
+    props.drafts.discard(draft)
   }
 }
 
@@ -260,7 +250,7 @@ async function discardSentDraft(draft: ShownDraft) {
     destructive: true,
   })
   if (isConfirmed) {
-    props.drafts?.discard(draft)
+    props.drafts.discard(draft)
   }
 }
 
@@ -499,30 +489,15 @@ function rowClass(thread: DocumentThread) {
         :maxlength="guestNameMaxLength"
         :description="guestNameHint"
       />
-      <form
-        v-if="isWritingOnDocument"
-        class="space-y-2 rounded bg-surface-gray-1 p-3"
-        @submit.prevent="submitDocumentComment"
-      >
-        <Textarea
-          ref="documentBox"
-          v-model="documentText"
-          :rows="2"
-          placeholder="Comment on the whole document"
-          aria-label="New comment"
-          @keydown.esc.stop.prevent="stopDocumentComment"
-        />
-        <div class="flex justify-end gap-1">
-          <Button size="sm" variant="ghost" label="Cancel" @click="stopDocumentComment" />
-          <Button
-            type="submit"
-            size="sm"
-            variant="outline"
-            label="Comment"
-            :disabled="isDocumentBlank"
-          />
-        </div>
-      </form>
+      <CommentDraftCard
+        v-if="documentDraft"
+        ref="documentCard"
+        :key="documentDraft.clientId"
+        :draft="documentDraft"
+        @write="writeDraft(documentDraft, $event)"
+        @post="postDraft(documentDraft)"
+        @discard="discardDraft(documentDraft)"
+      />
       <button
         v-else
         type="button"
@@ -533,7 +508,7 @@ function rowClass(thread: DocumentThread) {
       </button>
     </template>
     <CommentDraftCard
-      v-for="draft in boxDrafts"
+      v-for="draft in textDrafts"
       :key="draft.clientId"
       :draft
       @write="writeDraft(draft, $event)"

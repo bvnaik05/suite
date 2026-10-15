@@ -187,6 +187,40 @@ afterEach(() => {
   me.id = 'Asha Rao'
 })
 
+// Drafts as useCommentDrafts shows them, each post answered in turn by the thread Drive made or null
+function fakeDrafts(shown: Partial<ShownDraft>[] = [], answers: (string | null)[] = []) {
+  function made(index: number, draft: Partial<ShownDraft>): ShownDraft {
+    return {
+      clientId: `draft-${index}`,
+      anchor: 'on-some-text',
+      text: '',
+      isSent: false,
+      isPosting: false,
+      ...draft,
+    }
+  }
+
+  const drafts = ref<ShownDraft[]>(shown.map((draft, index) => made(index, draft)))
+  const posted: string[] = []
+  const list = {
+    drafts,
+    start: (anchor: string) => {
+      drafts.value = [...drafts.value, made(drafts.value.length, { anchor })]
+    },
+    write: (draft: ShownDraft, text: string) => {
+      draft.text = text
+    },
+    discard: (draft: ShownDraft) => {
+      drafts.value = drafts.value.filter((kept) => kept.clientId !== draft.clientId)
+    },
+    post: async (draft: ShownDraft) => {
+      posted.push(draft.clientId)
+      return answers.shift() ?? null
+    },
+  }
+  return { posted, list: list as unknown as ReturnType<typeof useCommentDrafts> }
+}
+
 // The list over the three threads, recording each change it asks for and each thread it opens or lights
 function showList({
   canComment = true,
@@ -195,7 +229,7 @@ function showList({
   isRefusingResolve = false,
   isRefusingEdit = false,
   canEditDocument = false,
-  drafts = undefined as ReturnType<typeof useCommentDrafts> | undefined,
+  drafts = fakeDrafts().list,
 } = {}) {
   const asked: string[] = []
   const opened: (string | null)[] = []
@@ -213,7 +247,6 @@ function showList({
   }
 
   const actions: ThreadActions = {
-    addComment: (text) => record(`add "${text}"`),
     reply: (thread, text) => record(`reply ${thread} "${text}"`),
     resolve: async (thread, isResolved) =>
       (await record(`resolve ${thread} ${isResolved}`)) && !isRefusingResolve,
@@ -534,7 +567,7 @@ describe('replying in an open thread', () => {
 
 describe('commenting on the whole document', () => {
   function documentBox() {
-    return document.querySelector<HTMLTextAreaElement>('textarea')
+    return document.querySelector<HTMLTextAreaElement>('textarea[aria-label="New comment"]')
   }
 
   async function type(text: string) {
@@ -543,43 +576,90 @@ describe('commenting on the whole document', () => {
     await nextTick()
   }
 
-  it('turns the line into a focused box, and posts what is typed', async () => {
-    const { host, asked } = showList()
-
-    await click(buttonNamed(host, 'Comment on the whole document…'))
-    await nextTick()
-    const isFocused = document.activeElement === documentBox()
-    await type('  Ship it ')
-    host.querySelector('form')!.requestSubmit()
-    await settled()
-
-    expect([isFocused, asked, documentBox()]).toEqual([true, ['add "Ship it"'], null])
-  })
-
-  it('opens the box under the Open tab when asked from elsewhere', async () => {
+  // The list with a handle to start a whole-document comment, as Ctrl+Alt+M does
+  function showStartableList(drafts = fakeDrafts().list) {
     const host = document.createElement('div')
     document.body.append(host)
     const list = ref<{ startDocumentComment(): Promise<void> } | null>(null)
-    const actions = {} as ThreadActions
     const props = {
       ref: list,
       threads: [DONE],
       places: PLACES,
       canComment: true,
       canEditDocument: false,
-      actions,
+      actions: {} as ThreadActions,
+      drafts,
     }
     mounted = createApp(() => h(CommentList, props))
     mounted.mount(host)
+    return { host, start: () => list.value!.startDocumentComment() }
+  }
+
+  it('turns the line into a focused box in its place, and posts what is typed', async () => {
+    const { list, posted } = fakeDrafts()
+    const { host } = showList({ drafts: list })
+
+    await click(buttonNamed(host, 'Comment on the whole document…'))
+    await nextTick()
+    const isFocused = document.activeElement === documentBox()
+    const hasLine = !!buttonNamed(host, 'Comment on the whole document…')
+    await type('Ship it')
+    documentBox()!.closest('form')!.requestSubmit()
+    await settled()
+    const kept = list.drafts.value.map(({ anchor, text }) => `${anchor} "${text}"`)
+
+    expect([isFocused, hasLine, posted, kept]).toEqual([
+      true,
+      false,
+      ['draft-0'],
+      ['document "Ship it"'],
+    ])
+  })
+
+  it('opens the box under the Open tab when asked from elsewhere', async () => {
+    const { host, start } = showStartableList()
     await click(buttonNamed(host, 'Resolved 1'))
 
-    await list.value!.startDocumentComment()
+    await start()
 
     const selected = host.querySelector('[role="tab"][aria-selected="true"]')?.textContent
     expect([selected, document.activeElement === documentBox()]).toEqual(['Open 0', true])
   })
 
-  it('closes an empty box without asking, and asks before dropping typed words', async () => {
+  it('keeps one box, putting the cursor back in it with its words when asked again', async () => {
+    const { list } = fakeDrafts()
+    const { host, start } = showStartableList(list)
+    await start()
+    await type('Half a thought')
+    documentBox()!.blur()
+
+    await start()
+
+    const boxes = host.querySelectorAll('textarea[aria-label="New comment"]').length
+    const isFocused = document.activeElement === documentBox()
+    expect([boxes, list.drafts.value.length, isFocused, documentBox()?.value]).toEqual([
+      1,
+      1,
+      true,
+      'Half a thought',
+    ])
+  })
+
+  it('keeps a comment on text in its own box beside the whole-document one', () => {
+    const { list } = fakeDrafts([{ anchor: 'document' }, { text: 'On the text' }])
+    const { host } = showList({ drafts: list })
+
+    const boxes = [...host.querySelectorAll('textarea')].map((box) => [
+      box.getAttribute('aria-label'),
+      box.placeholder,
+    ])
+    expect(boxes).toEqual([
+      ['New comment', 'Comment on the whole document'],
+      ['Comment on the text', 'Add a comment'],
+    ])
+  })
+
+  it('closes an empty box without asking, and asks before dropping typed words, on Cancel or Esc', async () => {
     const { host } = showList()
 
     await click(buttonNamed(host, 'Comment on the whole document…'))
@@ -591,12 +671,28 @@ describe('commenting on the whole document', () => {
     confirmed.answer = false
     await click(buttonNamed(host, 'Cancel'))
     await settled()
+    documentBox()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settled()
+    const afterNo = documentBox()?.value
+    confirmed.answer = true
+    documentBox()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await settled()
 
-    expect([afterEmpty, documentBox()?.value, confirmed.asked]).toEqual([
+    expect([afterEmpty, afterNo, confirmed.asked, documentBox()]).toEqual([
       [null, 0],
       'Half a thought',
-      ['Discard comment?'],
+      ['Discard comment?', 'Discard comment?', 'Discard comment?'],
+      null,
     ])
+  })
+
+  it('names the whole document on a comment to it that is posting', () => {
+    const { list } = fakeDrafts([
+      { anchor: 'document', text: 'Ship it', isSent: true, isPosting: true },
+    ])
+    const { host } = showList({ threads: [], drafts: list })
+
+    expect(rows(host)).toEqual(['You Whole document Posting… Ship it'])
   })
 })
 
@@ -902,32 +998,6 @@ describe('an edit while someone else changes the comment', () => {
 })
 
 describe('comments not yet posted', () => {
-  // Drafts as useCommentDrafts shows them, each post answered in turn by the thread Drive made or null
-  function fakeDrafts(shown: Partial<ShownDraft>[], answers: (string | null)[] = []) {
-    const drafts = ref<ShownDraft[]>(
-      shown.map((draft, index) => ({
-        clientId: `draft-${index}`,
-        anchor: 'document',
-        text: '',
-        isSent: false,
-        isPosting: false,
-        ...draft,
-      })),
-    )
-    const posted: string[] = []
-    const list = {
-      drafts,
-      discard: (draft: ShownDraft) => {
-        drafts.value = drafts.value.filter((kept) => kept.clientId !== draft.clientId)
-      },
-      post: async (draft: ShownDraft) => {
-        posted.push(draft.clientId)
-        return answers.shift() ?? null
-      },
-    }
-    return { posted, list: list as unknown as ReturnType<typeof useCommentDrafts> }
-  }
-
   function menus(host: Element) {
     return host.querySelectorAll('button[aria-label="More comment actions"]').length
   }
@@ -948,9 +1018,19 @@ describe('comments not yet posted', () => {
     )
     const boxes = host.querySelectorAll('textarea').length
 
-    expect([(box as HTMLTextAreaElement).value, boxes, isBoxFirst, rows(host), faded]).toEqual([
+    const isFocused = document.activeElement === box
+
+    expect([
+      (box as HTMLTextAreaElement).value,
+      boxes,
+      isFocused,
+      isBoxFirst,
+      rows(host),
+      faded,
+    ]).toEqual([
       'Still writing',
       1,
+      true,
       true,
       [
         'You Posting… On its way',

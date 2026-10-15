@@ -4,6 +4,7 @@ import { createApp, h, nextTick, ref, type App } from 'vue'
 import type { DocumentSession, DocumentVersion } from '@/apps/drive'
 
 import DocumentSidePanel from './DocumentSidePanel.vue'
+import type { useCommentDrafts } from './useCommentDrafts'
 
 vi.mock('frappe-ui', async () => {
   const { defineComponent: define, h: render, ref: state } = await import('vue')
@@ -71,6 +72,7 @@ interface NamingPanel {
 }
 
 let mounted: App | null = null
+const noDrafts = { drafts: ref([]) } as unknown as ReturnType<typeof useCommentDrafts>
 
 afterEach(() => {
   mounted?.unmount()
@@ -114,6 +116,7 @@ async function openVersionsPanel(isRefusingVersions = false) {
       threads: [],
       places: null,
       refreshThreads: async () => {},
+      drafts: noDrafts,
       saveFirst: async () => {
         steps.push('saved')
       },
@@ -242,6 +245,7 @@ describe('renaming a version in the Versions panel', () => {
         threads: [],
         places: null,
         refreshThreads: async () => {},
+        drafts: noDrafts,
         saveFirst: async () => {},
       }),
     )

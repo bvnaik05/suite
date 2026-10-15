@@ -21,8 +21,8 @@ const props = defineProps<{
   /** Where each thread shows in the editor; null when the editor can't tell. */
   places: ThreadPlaces | null
   refreshThreads: () => Promise<void>
-  /** Comments on text not posted yet; only the collaborative editor makes them. */
-  drafts?: ReturnType<typeof useCommentDrafts>
+  /** Comments not posted yet, on text or on the whole document. */
+  drafts: ReturnType<typeof useCommentDrafts>
   /** Saves the document's pending edits, throwing why it couldn't. */
   saveFirst: () => Promise<void>
 }>()
