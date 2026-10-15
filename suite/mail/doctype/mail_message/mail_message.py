@@ -1061,10 +1061,10 @@ def empty_mailbox(account: str, mailbox_id: str) -> None:
             _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to empty mailbox"),
+            _("Failed to empty folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to empty mailbox."))
+        frappe.throw(_("Failed to empty folder."))
 
 
 def move_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> None:
@@ -1079,10 +1079,10 @@ def move_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> N
         _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to move mail(s) to mailbox"),
+            _("Failed to move mail(s) to folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to move mail(s) to mailbox."))
+        frappe.throw(_("Failed to move mail(s) to folder."))
 
 
 def _try_update_emails(
@@ -1105,7 +1105,7 @@ def try_move_messages(account: str, ids: list[str], mailbox_id: str) -> tuple[li
 
     emails = [{"id": id, "mailbox_ids": {mailbox_id: True}} for id in ids]
     moved, complete = _try_update_emails(
-        account, emails, _("Failed to move mail(s) to mailbox"), replace_mailboxes=True
+        account, emails, _("Failed to move mail(s) to folder"), replace_mailboxes=True
     )
     _remove_cached_messages(account, moved)
     return moved, complete
@@ -1132,10 +1132,10 @@ def set_messages_mailboxes(account: str, mails: list[dict]) -> None:
         _remove_cached_messages(account, [mail["id"] for mail in mails])
     except Exception:
         log_mail_error(
-            _("Failed to restore mailbox membership for mail(s)"),
+            _("Failed to restore folders for mail(s)"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to restore mailbox membership for mail(s)."))
+        frappe.throw(_("Failed to restore folders for mail(s)."))
 
 
 def get_messages_mailboxes(account: str, ids: list[str]) -> list[dict]:
@@ -1168,10 +1168,10 @@ def add_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> No
         _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to add mail(s) to mailbox"),
+            _("Failed to add mail(s) to folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to add mail(s) to mailbox."))
+        frappe.throw(_("Failed to add mail(s) to folder."))
 
 
 def remove_messages_from_mailbox(account: str, ids: list[str], mailbox_id: str) -> None:
@@ -1186,10 +1186,10 @@ def remove_messages_from_mailbox(account: str, ids: list[str], mailbox_id: str) 
         _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to remove mail(s) from mailbox"),
+            _("Failed to remove mail(s) from folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to remove mail(s) from mailbox."))
+        frappe.throw(_("Failed to remove mail(s) from folder."))
 
 
 def _cache_seen(account: str, ids: list[str], seen: bool) -> None:

@@ -39,7 +39,7 @@
 	     header block) — above it, it read as page chrome sitting on top of the title. -->
   <div v-if="showDeleteBanner && !isMobile" class="space-x-1 border-b px-3 py-2.5 sm:px-5">
     <span class="text-ink-gray-5">
-      {{ __('Items in this mailbox will be automatically deleted after 30 days.') }}
+      {{ __('Items in this folder will be automatically deleted after 30 days.') }}
     </span>
     <Button :label="__('Delete Now')" variant="ghost" @click="showEmptyMailbox = true" />
   </div>
@@ -96,7 +96,7 @@
 						     reads as part of the header block, not a boxed-off strip. -->
             <div v-if="showDeleteBanner && mailbox !== 'search'" class="space-x-1 px-4">
               <span class="text-ink-gray-5">
-                {{ __('Items in this mailbox will be automatically deleted after 30 days.') }}
+                {{ __('Items in this folder will be automatically deleted after 30 days.') }}
               </span>
               <Button :label="__('Delete Now')" variant="ghost" @click="showEmptyMailbox = true" />
             </div>
@@ -1278,7 +1278,7 @@ async function emptyMailboxSubmit() {
 }
 const emptyMailboxOptions = computed(() => ({
   title: __('Empty {0}', [mailboxName.value]),
-  message: __(`Are you sure you want to empty the contents of this mailbox?`),
+  message: __(`Are you sure you want to empty this folder?`),
   icon: 'lucide-alert-triangle',
   theme: 'amber' as const,
   actions: [
