@@ -3,9 +3,18 @@
  "autoname": "hash",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["title", "content"],
+ "field_order": ["node", "title", "content"],
  "fields": [
-  {"fieldname": "title", "fieldtype": "Data", "label": "Title", "reqd": 1},
+  {
+   "fieldname": "node",
+   "fieldtype": "Link",
+   "label": "Node",
+   "options": "Drive Node",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The Drive node that owns this drawing after adoption."
+  },
+  {"fieldname": "title", "fieldtype": "Data", "label": "Title"},
   {"fieldname": "content", "fieldtype": "JSON", "label": "Content", "reqd": 1}
  ],
  "module": "Draw",
