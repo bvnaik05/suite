@@ -70,6 +70,21 @@ describe('document threads', () => {
     expect(names(threads.value)).toEqual(['kept'])
   })
 
+  it('has loaded once a read succeeds, and not after a failed one', async () => {
+    const drive = driveThreads()
+    const { hasLoaded, refresh } = openThreads(drive.session)
+    const hasLoadedAtFirst = hasLoaded.value
+    drive.reads[0].fail()
+    await settled()
+    const hasLoadedAfterFailing = hasLoaded.value
+
+    const read = refresh()
+    drive.reads[1].answer([])
+    await read
+
+    expect([hasLoadedAtFirst, hasLoadedAfterFailing, hasLoaded.value]).toEqual([false, false, true])
+  })
+
   it('reads again when the window gets focus', async () => {
     const drive = driveThreads()
     openThreads(drive.session)

@@ -294,6 +294,7 @@ function showList({
   const app = createApp(() =>
     h(CommentList, {
       threads: listed.value,
+      hasLoaded: true,
       node: 'doc-1',
       places: PLACES,
       canComment,
@@ -824,6 +825,7 @@ describe('commenting on the whole document', () => {
     const props = {
       ref: list,
       threads: [DONE],
+      hasLoaded: true,
       node: 'doc-1',
       places: PLACES,
       canComment: true,

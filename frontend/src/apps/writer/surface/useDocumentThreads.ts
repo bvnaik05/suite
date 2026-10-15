@@ -1,17 +1,19 @@
 import { useEventListener } from '@vueuse/core'
-import { shallowRef } from 'vue'
+import { ref, shallowRef } from 'vue'
 
 import type { DocumentSession, DocumentThread } from '@/apps/drive'
 
 /** A document's comment threads as Drive has them, read again on focus and whenever `refresh` is called. */
 export function useDocumentThreads(session: Pick<DocumentSession, 'comments'>) {
   const threads = shallowRef<DocumentThread[]>([])
+  const hasLoaded = ref(false)
   const reader = freshReader(async () => {
     threads.value = (await session.comments.list()).threads
+    hasLoaded.value = true
   })
   useEventListener(window, 'focus', () => void reader.read())
   void reader.read()
-  return { threads, refresh: reader.read }
+  return { threads, hasLoaded, refresh: reader.read }
 }
 
 // Runs `read`, and once more after it when called meanwhile, since that read may predate the change

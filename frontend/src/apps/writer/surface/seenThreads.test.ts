@@ -32,7 +32,7 @@ const FIRST = thread('first')
 const SECOND = thread('second')
 
 // The threads as this person sees them on this device, with one open or none
-function watchThreads(listed: DocumentThread[]) {
+function watchThreads(listed: DocumentThread[], hasLoaded = ref(true)) {
   const threads = shallowRef(listed)
   const open = ref<string | null>(null)
   const scope = effectScope()
@@ -42,6 +42,7 @@ function watchThreads(listed: DocumentThread[]) {
       user: 'ann',
       node: 'doc-1',
       threads: () => threads.value,
+      hasLoaded: () => hasLoaded.value,
       openThread: () => open.value,
     }),
   )!
@@ -95,6 +96,23 @@ describe('which threads changed since last opened', () => {
     const { unread } = watchThreads([FIRST, SECOND])
 
     expect([unread(), Object.keys(readSeen('ann', 'doc-1') ?? {})]).toEqual([
+      [],
+      ['first', 'second'],
+    ])
+  })
+
+  it('keeps nothing while the threads load or fail to, then starts with every thread seen', async () => {
+    const hasLoaded = ref(false)
+    const { threads, unread } = watchThreads([], hasLoaded)
+    await nextTick()
+    const whileLoading = readSeen('ann', 'doc-1')
+
+    threads.value = [FIRST, SECOND]
+    hasLoaded.value = true
+    await nextTick()
+
+    expect([whileLoading, unread(), Object.keys(readSeen('ann', 'doc-1') ?? {})]).toEqual([
+      null,
       [],
       ['first', 'second'],
     ])

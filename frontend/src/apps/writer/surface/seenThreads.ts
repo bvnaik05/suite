@@ -16,6 +16,8 @@ interface SeenOptions {
   user: string
   node: string
   threads: () => DocumentThread[]
+  /** Whether Drive's threads have been read; until then nothing shows as changed. */
+  hasLoaded: () => boolean
   openThread: () => string | null
 }
 
@@ -71,10 +73,10 @@ function marksOf(threads: DocumentThread[]) {
   return Object.fromEntries(threads.map((thread) => [thread.name, threadMark(thread)]))
 }
 
-// A document first opened on this device starts with every thread seen
-function startingMarks(user: string, node: string, threads: DocumentThread[]) {
+// A document first opened on this device starts with every thread seen, once they load
+function startingMarks(user: string, node: string, threads: DocumentThread[], isLoaded: boolean) {
   const kept = readSeen(user, node)
-  if (kept) {
+  if (kept || !isLoaded) {
     return kept
   }
 
@@ -84,7 +86,7 @@ function startingMarks(user: string, node: string, threads: DocumentThread[]) {
 }
 
 // Another tab on this device opening a thread clears it here too
-function followOtherTabs(key: string, marks: Ref<SeenMarks>) {
+function followOtherTabs(key: string, marks: Ref<SeenMarks | null>) {
   useEventListener(window, 'storage', (event) => {
     if (event.key === key) {
       marks.value = parseSeen(event.newValue) ?? marks.value
@@ -93,12 +95,13 @@ function followOtherTabs(key: string, marks: Ref<SeenMarks>) {
 }
 
 /** The threads changed since last opened here; the open thread stays seen as it changes. */
-export function useSeenThreads({ user, node, threads, openThread }: SeenOptions) {
-  const marks = ref<SeenMarks>(startingMarks(user, node, threads()))
+export function useSeenThreads({ user, node, threads, hasLoaded, openThread }: SeenOptions) {
+  const marks = ref<SeenMarks | null>(null)
 
   function markSeen(name: string | null) {
+    marks.value ??= startingMarks(user, node, threads(), hasLoaded())
     const thread = threads().find((listed) => listed.name === name)
-    if (!thread) {
+    if (!thread || !marks.value) {
       return
     }
 
@@ -108,11 +111,12 @@ export function useSeenThreads({ user, node, threads, openThread }: SeenOptions)
     keepSeen(user, node, marks.value)
   }
 
-  watch([threads, openThread], ([, open]) => markSeen(open), { immediate: true })
+  watch([threads, hasLoaded, openThread], ([, , open]) => markSeen(open), { immediate: true })
   followOtherTabs(keyOf(user, node), marks)
 
   return {
-    isUnread: (thread: DocumentThread) => marks.value[thread.name] !== threadMark(thread),
+    isUnread: (thread: DocumentThread) =>
+      marks.value !== null && marks.value[thread.name] !== threadMark(thread),
     markSeen,
   }
 }

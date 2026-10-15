@@ -128,7 +128,11 @@ const preview = shallowRef<
 >({ version: null, copy: null })
 
 const recoveryBanner = ref<InstanceType<typeof RecoveryBanner> | null>(null)
-const { threads, refresh: refreshThreads } = useDocumentThreads(props.session)
+const {
+  threads,
+  hasLoaded: hasLoadedThreads,
+  refresh: refreshThreads,
+} = useDocumentThreads(props.session)
 
 const {
   mode: collabMode,
@@ -772,6 +776,7 @@ onBeforeUnmount(() => {
                 :can-rename-version="canSaveVersion"
                 :is-restoring-version="isRestoringVersion"
                 :threads="threads"
+                :has-loaded-threads="hasLoadedThreads"
                 :places="threadPlaces"
                 :refresh-threads="refreshThreads"
                 :drafts="commentDrafts"
