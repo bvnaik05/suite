@@ -470,7 +470,7 @@ def node_put_content(
 def node_get_content(node: Given = None, format: Given = None, download: Given = None) -> Response:
     """Send one readable node's bytes: a signed redirect, or a streamed export.
 
-    A file redirects to a short-lived signed `/f/` URL, which the framework
+    A file redirects to a short-lived signed blob URL, which the framework
     serves against the signature alone - so the READ check has to happen here,
     before the URL exists. The file shows in the browser where it safely can;
     `download` makes the URL save it instead. A content document has no stored

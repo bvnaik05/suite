@@ -212,13 +212,13 @@ class TestSiteStorage(StubbedDatabase):
         run.assert_called_once_with(batch_size=500)
 
     def test_claiming_looks_for_a_private_s3_blob_and_revives_it(self):
-        self.db.get_value.return_value = frappe._dict(name="blob-1", key="ab/cd/x")
+        self.db.get_value.return_value = frappe._dict(name="blob-1", key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt")
         with patch("frappe.storage.blob.revive_blob", return_value=True) as revive:
             claimed = self.storage.claim_blob("abc")
 
         # The key comes back too: a Ready row is not proof that its object
         # is still in the bucket, and only the caller can head it.
-        self.assertEqual((claimed.name, claimed.key), ("blob-1", "ab/cd/x"))
+        self.assertEqual((claimed.name, claimed.key), ("blob-1", "5e1f0c3a9b7d/b7x2k9q4mz/x.txt"))
         self.db.get_value.assert_called_once_with(
             "File Blob",
             {"checksum": "abc", "is_private": 1, "driver": "s3", "status": "Ready"},
@@ -228,7 +228,7 @@ class TestSiteStorage(StubbedDatabase):
         revive.assert_called_once_with("blob-1")
 
     def test_a_blob_the_gc_already_took_is_not_claimed(self):
-        self.db.get_value.return_value = frappe._dict(name="blob-1", key="ab/cd/x")
+        self.db.get_value.return_value = frappe._dict(name="blob-1", key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt")
         with patch("frappe.storage.blob.revive_blob", return_value=False):
             self.assertIsNone(self.storage.claim_blob("abc"))
 
@@ -252,14 +252,18 @@ class TestSiteStorage(StubbedDatabase):
         with patch.object(frappe, "new_doc", return_value=blob):
             self.assertEqual(
                 self.storage.insert_blob(
-                    key="ab/cd/x", checksum="x", size=self.LARGE_SIZE, mime_type="text/plain"
+                    name="b7x2k9q4mz",
+                    key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
+                    checksum="x",
+                    size=self.LARGE_SIZE,
+                    mime_type="text/plain",
                 ),
                 "blob-9",
             )
 
         blob.update.assert_called_once_with(
             {
-                "key": "ab/cd/x",
+                "key": "5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
                 "checksum": "x",
                 "file_size": self.LARGE_SIZE,
                 "mime_type": "text/plain",
@@ -268,13 +272,19 @@ class TestSiteStorage(StubbedDatabase):
                 "status": "Ready",
             }
         )
-        blob.insert.assert_called_once_with(ignore_permissions=True)
+        blob.insert.assert_called_once_with(ignore_permissions=True, set_name="b7x2k9q4mz")
 
     def test_the_insert_is_wrapped_in_a_savepoint(self):
         blob = MagicMock()
         blob.name = "blob-9"
         with patch.object(frappe, "new_doc", return_value=blob):
-            self.storage.insert_blob(key="ab/cd/x", checksum="x", size=12, mime_type="text/plain")
+            self.storage.insert_blob(
+                name="b7x2k9q4mz",
+                key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
+                checksum="x",
+                size=12,
+                mime_type="text/plain",
+            )
 
         # Released, not rolled back: a clean insert must leave the batch's
         # own transaction alone.
@@ -290,7 +300,13 @@ class TestSiteStorage(StubbedDatabase):
         blob.insert.side_effect = frappe.UniqueValidationError("File Blob")
         with patch.object(frappe, "new_doc", return_value=blob):
             with self.assertRaises(BlobConflict):
-                self.storage.insert_blob(key="ab/cd/x", checksum="x", size=12, mime_type="text/plain")
+                self.storage.insert_blob(
+                    name="b7x2k9q4mz",
+                    key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
+                    checksum="x",
+                    size=12,
+                    mime_type="text/plain",
+                )
 
         self.db.rollback.assert_called_once_with(save_point="drive_build_insert_blob")
         self.db.release_savepoint.assert_not_called()
@@ -340,6 +356,7 @@ class TestBotoBucket(unittest.TestCase):
         self.client.head_object.return_value = {"ContentLength": 3}
         self.bucket.open("src")
         self.bucket.size("src")
+        self.bucket.sizes_under("private/")
         self.bucket.copy_object("src", "dst")
         self.bucket.managed_copy("src", "dst")
 
@@ -352,6 +369,15 @@ class TestBotoBucket(unittest.TestCase):
         ):
             self.assertEqual(getattr(self.client, forbidden).call_count, 0, forbidden)
 
+    def test_sizes_under_lists_one_prefix(self):
+        self.client.list_objects_v2.return_value = {"Contents": [{"Key": "private/p/b/a.txt", "Size": 7}]}
+        self.assertEqual(self.bucket.sizes_under("private/p/b/"), {"private/p/b/a.txt": 7})
+        self.client.list_objects_v2.assert_called_once_with(Bucket="drive-bucket", Prefix="private/p/b/")
+
+        # S3 leaves `Contents` out of an empty listing.
+        self.client.list_objects_v2.return_value = {"KeyCount": 0}
+        self.assertEqual(self.bucket.sizes_under("private/p/c/"), {})
+
     def test_both_copies_stay_inside_one_bucket(self):
         self.bucket.copy_object("src", "dst")
         self.client.copy_object.assert_called_once_with(
@@ -362,6 +388,19 @@ class TestBotoBucket(unittest.TestCase):
         self.client.copy.assert_called_once_with(
             {"Bucket": "drive-bucket", "Key": "src"}, "drive-bucket", "dst"
         )
+
+
+class TestTheKeyPrefix(unittest.TestCase):
+    """Not stubbed: `get_driver` reads the app hooks from the database."""
+
+    def test_the_key_prefix_is_the_site_s3_drivers_own(self):
+        conf = frappe._dict(db_name="suite_build_db", storage_driver_config={"bucket": "b"})
+        with (
+            patch.object(frappe, "conf", conf),
+            patch.object(frappe.local, "storage_driver_instances", {}, create=True),
+        ):
+            # sha256(b"suite_build_db")[:12], the framework's default folder
+            self.assertEqual(SiteStorage().key_prefix(), "57b841b5ba8c/")
 
 
 class TestTheSiteWiring(StubbedDatabase):

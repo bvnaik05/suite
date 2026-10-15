@@ -681,7 +681,7 @@ def _preview(env, deck, source):
     found = target.preview(deck.node)
     if found:
         # §13 validates a stored row rather than rewriting it. `put_private_blob`
-        # is content addressed, so re-encoding first would rename the preview
+        # deduplicates by content, so re-encoding first would rename the preview
         # blob after any encoder change and refuse the deck for good.
         _validate_preview(target, deck, source, found)
         return 1
