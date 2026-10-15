@@ -698,6 +698,7 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     moveRecipient,
     isBodyEmpty,
     isMailEmpty,
+    isUntouched,
     isLoading,
     isSavingDraft,
     isDiscarding,

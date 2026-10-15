@@ -504,6 +504,7 @@ const {
   payListDebt,
   sendMail,
   discardMail,
+  isUntouched,
   onClosed,
   showScheduleModal,
   openScheduleModal,
@@ -620,6 +621,8 @@ defineExpose({
   mail,
   sendMail,
   discardMail,
+  // Nothing written yet: the window has nothing to keep, so leaving it closes it (see SendMail).
+  isUntouched,
   openScheduleModal,
 })
 

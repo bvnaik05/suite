@@ -11,7 +11,8 @@
 	     a composer opened from inside a thread would otherwise lose to the thread pane, which
 	     teleports out itself. Nothing traps focus or locks scrolling — docked, the page behind is
 	     simply live; expanded, a click on the dimmed page minimises the window: clicking away from a
-	     draft means "let me look at that", not "throw this out". Restoring brings it back expanded. -->
+	     draft means "let me look at that", not "throw this out". Restoring brings it back expanded.
+	     An empty one closes instead (see leaveExpanded). -->
   <Teleport :to="overlayLayer ?? 'body'">
     <Transition
       enter-from-class="opacity-0"
@@ -22,7 +23,7 @@
       <div
         v-if="show && expanded && !minimised"
         class="bg-black-overlay-200 dark:bg-black-overlay-700 fixed inset-0 z-40"
-        @click="minimised = true"
+        @click="leaveExpanded"
       />
     </Transition>
     <!-- Rises and fades in from the corner, and sinks back out a little faster than it came. -->
@@ -83,7 +84,7 @@
             variant="ghost"
             :aria-label="expanded ? __('Shrink') : __('Expand')"
             :tooltip="expanded ? __('Shrink') : __('Expand')"
-            @click="expanded = !expanded"
+            @click="setExpanded(!expanded)"
           >
             <template #icon>
               <span
@@ -121,6 +122,7 @@
 </template>
 
 <script setup lang="ts">
+import { useStorage } from '@vueuse/core'
 import { Button, usePortalTarget } from 'frappe-ui'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 
@@ -160,13 +162,20 @@ claimComposeWindow(show, () => editor.value?.mail?.id)
 // come from the composer rather than from the copy the thread still remembers.
 defineExpose({ mail: computed(() => editor.value?.mail) })
 
-// Each compose starts docked, or expanded when the host asks: a request to write is not a request
-// to resume whatever the last draft's window happened to be doing.
-const expanded = ref(startExpanded)
+// The first compose opens docked; after that, each opens the size the reader last chose for one —
+// docked or expanded, remembered in this browser as the size of a screen is — or expanded when the
+// host asks for room. Never minimised: a request to write wants the window in front. Only a choice
+// made with Expand/Shrink (or Esc) is remembered; a pop-out opening large is the host's call.
+const prefersExpanded = useStorage('mail-compose-expanded', false)
+const expanded = ref(startExpanded || prefersExpanded.value)
 const minimised = ref(false)
+const setExpanded = (value: boolean) => {
+  expanded.value = value
+  prefersExpanded.value = value
+}
 watch(show, (open) => {
   if (!open) return
-  expanded.value = startExpanded
+  expanded.value = startExpanded || prefersExpanded.value
   minimised.value = false
 })
 
@@ -197,6 +206,15 @@ const restore = (e: KeyboardEvent) => {
   minimised.value = false
 }
 
+// A click on the dimmed page beside an expanded window: with something written, "let me look at
+// that", so it folds away to come back to. With nothing written there is nothing to come back to,
+// and a folded bar left behind for an empty message was clutter — it closes, quietly, as Discard
+// closes an untouched one.
+const leaveExpanded = () => {
+  if (editor.value?.isUntouched) void editor.value.discardMail()
+  else minimised.value = true
+}
+
 // Esc docks an expanded window. Ignored while a popover is open,
 // or a dialog above this window — the contacts picker, Send later — which reka closes on the same
 // key without marking it handled.
@@ -205,7 +223,7 @@ const onEscape = (e: KeyboardEvent) => {
   if (!expanded.value || minimised.value) return
   if (document.querySelector('[data-reka-popper-content-wrapper]')) return
   if (document.querySelector('.dialog-content[data-state="open"]')) return
-  expanded.value = false
+  setExpanded(false)
 }
 
 onMounted(() => window.addEventListener('keydown', onEscape))
