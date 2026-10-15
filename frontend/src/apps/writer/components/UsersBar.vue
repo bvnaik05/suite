@@ -11,7 +11,7 @@
         <div
           v-for="user in users.slice(0, 3)"
           :key="user.name"
-          class="peer-ring-room flex items-center rounded-full"
+          class="peer-slot flex items-center rounded-full"
           :class="{ 'peer-idle': isIdle(user) }"
         >
           <Tooltip :text="tooltipOf(user)">
@@ -19,11 +19,15 @@
               v-if="user.avatar"
               class="peer-colour peer-avatar"
               :size="'sm'"
-              :style="ringStyle(user)"
+              :style="peerColourStyle(user)"
               :image="user.avatar"
               :label="user.name"
             />
-            <span v-else class="peer-colour peer-avatar peer-initials" :style="ringStyle(user)">
+            <span
+              v-else
+              class="peer-colour peer-avatar peer-initials"
+              :style="peerColourStyle(user)"
+            >
               {{ initialsOf(user.name) }}
             </span>
           </Tooltip>
@@ -61,7 +65,7 @@
         >
           <circle
             class="peer-colour"
-            :style="ringStyle(item)"
+            :style="peerColourStyle(item)"
             cx="8"
             cy="8"
             r="4.5"
@@ -110,7 +114,7 @@ function tooltipOf(user) {
 
 // A collaborative document's person has a colour with a dark-mode variant; the older editor's has one colour,
 // which fills its initials in white
-function ringStyle(user) {
+function peerColourStyle(user) {
   if (user.colour) {
     return colourStyle(user.colour)
   }
@@ -139,22 +143,13 @@ function initialsOf(name) {
 </script>
 
 <style scoped>
-/* Room for the ring, so rings sit 2px apart and the header's gap counts from the ring */
-.peer-ring-room {
-  margin: 3px;
-}
-
-/* Dimmed, ring and all, while the person is idle */
+/* Dimmed while the person is idle */
 .peer-idle {
   opacity: 0.45;
 }
 
-/* The page's colour between the avatar and its ring */
 .peer-avatar {
   border-radius: 50%;
-  box-shadow:
-    0 0 0 1.5px var(--surface-base),
-    0 0 0 3px var(--peer-solid);
 }
 
 /* Drawn like the person's caret flag: their tint, their name's ink */

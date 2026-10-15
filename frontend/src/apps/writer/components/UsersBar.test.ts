@@ -45,7 +45,7 @@ function mount(users: object[]) {
 }
 
 function avatarsOf(root: HTMLElement) {
-  return [...root.querySelectorAll<HTMLElement>('.peer-ring-room')].map((avatar) => ({
+  return [...root.querySelectorAll<HTMLElement>('.peer-slot')].map((avatar) => ({
     isDimmed: avatar.classList.contains('peer-idle'),
     tooltip: avatar.querySelector('.tooltip')?.getAttribute('title'),
   }))
