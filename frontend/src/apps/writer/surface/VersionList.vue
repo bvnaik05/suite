@@ -5,6 +5,7 @@ import { computed, nextTick, ref } from 'vue'
 import type { DocumentVersion } from '@/apps/drive'
 import { fullName } from '@/apps/writer/composables/useUsers'
 
+import { waitForFocusBack } from './focusBack'
 import { versionDays, versionTime } from './versionDates'
 
 /**
@@ -35,7 +36,7 @@ const newName = ref('')
 const isSavingName = ref(false)
 const renameInputs = ref<{ focus(): void }[]>([])
 // The closing menu hands focus back to its button, which passes it on to the name box once
-let isRenamePicked = false
+const focusBack = waitForFocusBack()
 
 function isViewed(version: DocumentVersion) {
   return previewed.value?.seq === version.seq
@@ -92,21 +93,17 @@ async function focusNameBox() {
 function startRenaming(version: DocumentVersion) {
   renamingRow.value = version.seq
   newName.value = version.label ?? ''
-  isRenamePicked = true
+  focusBack.wait(() => void focusNameBox())
   void focusNameBox()
 }
 
 function stopRenaming() {
   renamingRow.value = null
   newName.value = ''
-  isRenamePicked = false
 }
 
 function passFocusToNameBox() {
-  if (isRenamePicked) {
-    isRenamePicked = false
-    void focusNameBox()
-  }
+  focusBack.focused()
 }
 
 // An empty or unchanged name sends nothing

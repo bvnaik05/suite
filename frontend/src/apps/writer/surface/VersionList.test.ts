@@ -362,4 +362,19 @@ describe('renaming a version', () => {
 
     expect([isHandedBack, document.activeElement === menuButton]).toEqual([true, true])
   })
+
+  it('leaves focus on the menu button when it comes back after the person has moved on', async () => {
+    const { rename } = renamer()
+    const { host } = mountList({ rename })
+    const menuButton = rowOf(host, named.seq).querySelector<HTMLButtonElement>(
+      '[aria-label="More version actions"]',
+    )!
+
+    await pickRename(host, named.seq)
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    menuButton.focus()
+    await nextTick()
+
+    expect(document.activeElement === menuButton).toBe(true)
+  })
 })

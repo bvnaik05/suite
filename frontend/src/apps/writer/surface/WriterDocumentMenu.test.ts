@@ -133,4 +133,15 @@ describe('Writer document menu', () => {
 
     expect([beforeFocusBack, onSaveVersion.mock.calls.length]).toEqual([0, 1])
   })
+
+  it('forgets Save version when the person does something else before focus comes back', () => {
+    const onSaveVersion = vi.fn()
+    mountMenu(true, true, onSaveVersion)
+
+    host!.querySelector<HTMLElement>('[role="menuitem"]')!.click()
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+    focusMenuButton()
+
+    expect(onSaveVersion.mock.calls.length).toBe(0)
+  })
 })

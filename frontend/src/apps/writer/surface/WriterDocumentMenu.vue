@@ -9,6 +9,7 @@ import { toast } from '@/platform/feedback'
 import { translate as __ } from '@/platform/translation'
 
 import { downloadDocx, downloadMarkdown, exportHTML, type ExportScope } from './exports'
+import { waitForFocusBack } from './focusBack'
 
 /**
  * The Writer document's menu in the Drive header: download as DOCX or
@@ -31,8 +32,8 @@ const DOCX_TYPES = '.docx,application/vnd.openxmlformats-officedocument.wordproc
 
 /** Read when the menu opens: the editor's document is not reactive. */
 const hasTabs = ref(false)
-/** Save version was picked; it goes once the closing menu has handed focus back to its button. */
-let isVersionPicked = false
+/** Save version goes once the closing menu has handed focus back to its button. */
+const focusBack = waitForFocusBack()
 
 function noteTabs(open: boolean) {
   if (open && props.editor) {
@@ -65,17 +66,12 @@ function downloadOption(label: string, icon: string, save: Download) {
 }
 
 function pickVersion() {
-  isVersionPicked = true
+  focusBack.wait(() => emit('saveVersion'))
 }
 
 // After the menu's own focus return, so the name box keeps the focus
 function saveVersionOnFocusBack() {
-  if (!isVersionPicked) {
-    return
-  }
-
-  isVersionPicked = false
-  emit('saveVersion')
+  focusBack.focused()
 }
 
 function versionGroups() {
