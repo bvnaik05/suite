@@ -50,9 +50,9 @@ class SuiteSettings(Document):
         changes = self._profile_changes()
         if changes:
             frappe.enqueue(
-                "suite.mail.directory.push_site_profile",
+                "suite.mail.directory.push_tenant_profile",
                 enqueue_after_commit=True,
-                job_id="suite-site-profile",  # a burst of saves pushes the latest values once
+                job_id="suite-tenant-profile",  # a burst of saves pushes the latest values once
                 deduplicate=True,
                 **changes,
             )

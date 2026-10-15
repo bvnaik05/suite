@@ -187,8 +187,8 @@ def set_account_enabled(user: str, enabled: bool) -> None:
         get_client().call("mail.accounts.set_account_enabled", email=email, enabled=bool(enabled))
 
 
-def push_site_profile(**changes: str) -> None:
-    """Sends the workspace name (as the site's title) and contact email to Suite Cloud.
+def push_tenant_profile(**changes: str) -> None:
+    """Sends the workspace name (as the tenant's title) and contact email to Suite Cloud.
 
     Queued by the Suite Settings save; a Suite Cloud that is unreachable or not configured must
     not stop an admin from editing the settings, so failures are logged rather than raised.
@@ -199,4 +199,4 @@ def push_site_profile(**changes: str) -> None:
     try:
         get_client().call("tenant.update_tenant_profile", **changes)
     except Exception:
-        log_mail_error("Failed to push the site profile to Suite Cloud", frappe.get_traceback())
+        log_mail_error("Failed to push the tenant profile to Suite Cloud", frappe.get_traceback())
