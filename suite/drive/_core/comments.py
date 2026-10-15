@@ -498,6 +498,7 @@ def _insert_comment(
 ) -> tuple[str, list[str]]:
     guest_name = _guest_name(principals, author_name)
     mentions = _mentions(text)
+    # Frappe counts words made only of tags as missing; _validate_text already refuses blank words
     row = frappe.get_doc(
         {
             "doctype": "Drive Comment",
@@ -509,7 +510,7 @@ def _insert_comment(
             "mentions": frappe.as_json(mentions),
             "client_id": client_id,
         }
-    ).insert(ignore_permissions=True)
+    ).insert(ignore_permissions=True, ignore_mandatory=True)
     return row.name, mentions
 
 

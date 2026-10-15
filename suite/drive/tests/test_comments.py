@@ -160,6 +160,26 @@ class TestCommentWorkflows(IntegrationTestCase):
         edited_words = frappe.db.get_value("Drive Comment", edited.comments[0].name, "content")
         self.assertEqual((posted_words, edited_words), (words, words))
 
+    def test_words_made_only_of_tags_post_and_reply_as_an_edit_saves_them(self):
+        words = "<name> <br>"
+        posted = create_thread(self.commenter, self.document.name, "anchor", words)
+        reply(self.owner, posted.name, words)
+
+        listed = threads(self.owner, self.document.name)
+        self.assertEqual([row.content for row in listed[0].comments], [words, words])
+
+    def test_blank_words_are_refused_at_post_and_reply(self):
+        posted = create_thread(self.commenter, self.document.name, "anchor", "First")
+        for post in (
+            lambda: create_thread(self.commenter, self.document.name, "anchor", " \n "),
+            lambda: reply(self.owner, posted.name, " \n "),
+        ):
+            with self.subTest(post=post), self.assertRaises(frappe.ValidationError):
+                post()
+
+        listed = threads(self.owner, self.document.name)
+        self.assertEqual([len(thread.comments) for thread in listed], [1])
+
     def test_a_reply_id_used_in_another_thread_is_refused(self):
         one = create_thread(self.commenter, self.document.name, "one", "First").name
         two = create_thread(self.commenter, self.document.name, "two", "Second").name
