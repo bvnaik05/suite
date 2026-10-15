@@ -4712,7 +4712,6 @@ export type GetOverviewOutputLimits = {
   max_groups?: number
   max_mailing_lists?: number
   max_disk_gb?: number
-  default_disk_quota_gb?: number
 }
 
 export type GetOverviewOutputMemberCount = { total: number; disabled: number }
@@ -4735,11 +4734,7 @@ export type GetOverviewOutputSite = {
   contact_email: string | null
 }
 
-export type GetOverviewOutputStorage = {
-  allocated_gb: number | null
-  max_gb: number | null
-  default_quota_gb: number | null
-}
+export type GetOverviewOutputStorage = { used_bytes: number | null; max_gb: number | null }
 
 export type GetOverviewOutputWorkspace = { name: string | null; logo: string | null }
 

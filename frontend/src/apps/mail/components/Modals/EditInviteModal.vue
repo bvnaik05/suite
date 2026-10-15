@@ -38,8 +38,8 @@
           v-model="inviteQuota"
           type="number"
           :min="0"
-          :label="__('Quota (GB, 0 = unlimited)')"
-          :description="__('Leave blank to use the configured default disk quota.')"
+          :label="__('Quota (GB)')"
+          :description="__('Leave blank or 0 for no limit.')"
           :disabled="!isEditableInvite"
         />
         <!-- Fixed when the request was created (set_only_once on the doctype), so the roles the

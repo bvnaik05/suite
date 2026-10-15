@@ -183,7 +183,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { api, useQuery } from '@/api'
-import { formatGb } from '@/apps/mail/utils'
+import { formatBytes, formatGb } from '@/apps/mail/utils'
 import { ADD_QUERY } from '@/apps/mail/utils/addOnArrival'
 import { fromNow } from '@/apps/mail/utils/datetime'
 import { DashboardCard, DashboardLayout } from '@/platform/dashboard'
@@ -197,11 +197,7 @@ type Limits = {
   max_mailing_lists?: number
   max_disk_gb?: number
 }
-type Storage = {
-  allocated_gb: number | null
-  max_gb: number | null
-  default_quota_gb: number | null
-}
+type Storage = { used_bytes: number | null; max_gb: number | null }
 type Site = {
   site?: string
   title?: string
@@ -262,12 +258,11 @@ const gb = formatGb
 
 const storagePercent = computed(() => {
   const storage = data.value?.storage
-  if (!storage?.max_gb || storage.allocated_gb == null) return undefined
-  return Math.round((storage.allocated_gb / storage.max_gb) * 100)
+  if (!storage?.max_gb || storage.used_bytes == null) return undefined
+  return Math.round((storage.used_bytes / (storage.max_gb * 1024 ** 3)) * 100)
 })
 
 const serviceRows = computed(() => {
-  const quota = data.value?.storage?.default_quota_gb
   const status = site.value?.status
   return [
     { label: __('Workspace'), kind: 'workspace', value: workspace.value?.name },
@@ -278,10 +273,6 @@ const serviceRows = computed(() => {
       kind: 'status',
       value: status,
       theme: status === 'Active' ? 'green' : 'amber',
-    },
-    {
-      label: __('Default Quota'),
-      value: quota ? __('{0} GB per account', [String(quota)]) : undefined,
     },
     { label: __('Contact'), value: site.value?.contact_email },
   ]
@@ -347,8 +338,8 @@ const stats = computed(() => {
     {
       label: __('Storage'),
       icon: HardDrive,
-      value: gb(storage?.allocated_gb),
-      sub: storage?.max_gb ? __('of {0} allocated', [gb(storage.max_gb)]) : __('allocated, no cap'),
+      value: storage?.used_bytes == null ? '—' : formatBytes(storage.used_bytes),
+      sub: storage?.max_gb ? __('of {0} used', [gb(storage.max_gb)]) : __('used, no cap'),
       warn: (storagePercent.value ?? 0) >= 80,
       bar: storagePercent.value,
       to: { name: 'mail-accounts' },
@@ -436,8 +427,8 @@ const attention = computed(() => {
       key: 'storage',
       icon: HardDrive,
       tone: 'amber',
-      title: __('Storage is {0}% allocated', [String(storagePercent.value)]),
-      description: __('New accounts will be refused once the site quota is fully allocated.'),
+      title: __('Storage is {0}% used', [String(storagePercent.value)]),
+      description: __('The site is close to the disk its plan includes.'),
       action: __('Review'),
       to: { name: 'mail-accounts' },
     })

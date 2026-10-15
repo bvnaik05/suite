@@ -9,8 +9,6 @@ from unittest.mock import patch
 
 import frappe
 
-DEFAULT_QUOTA_GB = 5.0
-
 
 class FakeSuiteCloud:
     def __init__(self) -> None:
@@ -60,14 +58,15 @@ class FakeSuiteCloud:
                 "max_groups": 50,
                 "max_mailing_lists": 50,
                 "max_disk_gb": 100,
-                "default_disk_quota_gb": DEFAULT_QUOTA_GB,
             },
             "usage": {
                 "domains": len(self.domains),
                 "accounts": len(self.accounts),
                 "groups": len(self.groups),
                 "mailing_lists": len(self.lists),
-                "allocated_disk_gb": sum(a["disk_quota_gb"] for a in self.accounts.values()),
+                "used_disk_bytes": sum(
+                    a["used_disk_bytes"] for a in (*self.accounts.values(), *self.groups.values())
+                ),
             },
         }
 
@@ -437,7 +436,7 @@ class FakeSuiteCloud:
             "enabled": 1,
             "disable_receiving": bool(disable_receiving),
             "display_name": display_name,
-            "disk_quota_gb": disk_quota_gb or DEFAULT_QUOTA_GB,
+            "disk_quota_gb": disk_quota_gb or 0,
             "used_disk_bytes": 0,
             "locale": locale or "en-US",
             "time_zone": time_zone,
@@ -525,7 +524,7 @@ class FakeSuiteCloud:
             "disable_receiving": bool(disable_receiving),
             "aliases": self._alias_rows(aliases),
             "members": list(members or []),
-            "disk_quota_gb": disk_quota_gb or DEFAULT_QUOTA_GB,
+            "disk_quota_gb": disk_quota_gb or 0,
             "used_disk_bytes": 0,
         }
         for member in members or []:

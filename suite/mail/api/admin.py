@@ -22,7 +22,7 @@ from suite.mail.api.utils import get_avatar_url
 from suite.mail.directory import GB, get_account_metadata, get_active_domain_names
 from suite.mail.directory import get_domains as get_site_domains
 from suite.mail.suite_cloud import get_client
-from suite.mail.utils import get_config, log_mail_error
+from suite.mail.utils import log_mail_error
 from suite.mail.utils.dns import ZoneFileRecord
 from suite.mail.utils.dt import from_utc_z, to_utc_z
 from suite.mail.utils.logger import log_admin_action
@@ -596,7 +596,7 @@ def add_member(
     ``username``/``domain`` are the primary address (becomes the User); ``aliases`` are additional
     full email addresses attached to the same account. ``groups`` and ``mailing_lists`` are the
     addresses of groups and lists the account joins once it is created — right away when invites
-    are off, on verification otherwise. ``quota_gb`` unset means Suite Cloud's default for the site.
+    are off, on verification otherwise. ``quota_gb`` unset or 0 means no disk limit.
     ``disable_receiving`` makes the account send-only: mail addressed to it bounces back.
 
     ``locale`` and ``time_zone``, like the name and password, only apply when the account is created
@@ -1203,9 +1203,7 @@ def add_group(
         email=email,
         description=description,
         members=_listify(members) or None,
-        # Unset means the Mail Settings default, as for accounts; Suite Cloud's own default is the
-        # last resort when that is blank too.
-        disk_quota_gb=flt(quota_gb) or flt(get_config("default_disk_quota_gb")) or None,
+        disk_quota_gb=flt(quota_gb) or None,  # unset or 0: no disk limit
         disable_receiving=bool(disable_receiving) or None,
     )
     if disable_receiving and not group.get("disable_receiving"):
@@ -1458,9 +1456,8 @@ def get_overview() -> dict:
         overview["mailing_lists"] = usage.get("mailing_lists")
         overview["limits"] = limits
         overview["storage"] = {
-            "allocated_gb": usage.get("allocated_disk_gb"),
+            "used_bytes": _bytes_or_none(usage.get("used_disk_bytes")),
             "max_gb": limits.get("max_disk_gb"),
-            "default_quota_gb": limits.get("default_disk_quota_gb"),
         }
         overview["site"] = {
             k: site.get(k)
