@@ -499,7 +499,7 @@ const {
   isLoading,
   isRecipientsEmpty,
   moveRecipient,
-  updateOriginalMail,
+  onOpened,
   saveDraft,
   payListDebt,
   sendMail,
@@ -575,7 +575,7 @@ const toggleCcBcc = () => {
 // a calendar invite's participants — and the To field otherwise. The delay is the dialog's: focusing
 // during its transition doesn't take.
 onMounted(() => {
-  updateOriginalMail()
+  onOpened()
   if (mailDetails?.in_reply_to) return textEditor.value.editor.commands.focus()
 
   // Deferred, and the choice made from inside: TextEditor renders nothing until it has built its
