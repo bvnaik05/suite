@@ -1453,7 +1453,8 @@ const discardDrafts = (rows: Thread[]) => {
   const keys = rows.map(threadKey)
   goToNextThreadOrClose(keys)
   closeComposeWindowFor(rows.flatMap(messageIds))
-  const held = rows.flatMap((row) => row.messages.map((m) => m.id))
+  // Only the drafts, as in a single account's list (see useThreadActions).
+  const held = rows.flatMap((row) => row.messages.filter((m) => m.draft).map((m) => m.id))
   held.forEach(holdDraft)
   const show = () => held.forEach(releaseDraft)
   commitAfterUndo({

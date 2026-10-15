@@ -1022,9 +1022,12 @@ export function useThreadActions(deps: {
     closeComposeWindowHolding(thread_ids)
     const names = currentMailboxMails(thread_ids).map((m) => m.name)
     const removed = handleSuccessAndRemoveFromList(thread_ids, false)
-    // Removing from the list only names the rows; the list hides them because they are held as
-    // discarding, until the delete lands or Undo lets them go.
-    const held = removed.flatMap((thread) => thread.messages.map((m) => m.id))
+    // Removing from the list only names the rows; the list hides them because their drafts are held
+    // as discarding, until the delete lands or Undo lets them go. Only the drafts: the mail they
+    // answer is not being discarded, and held too it took the conversation off every other list.
+    const held = removed.flatMap((thread) =>
+      thread.messages.filter((m) => m.draft).map((m) => m.id),
+    )
     held.forEach(holdDraft)
     const restore = () => {
       held.forEach(releaseDraft)
