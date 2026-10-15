@@ -1015,9 +1015,16 @@ watch(heldDrafts, (now, before) => {
   )
   if (!back.length) return
   back.forEach(populateDraftMails)
-  thread.value = [...thread.value, ...back].sort((a, b) =>
-    a.received_at.localeCompare(b.received_at),
-  )
+  // Put in its place by date, the rest left as they are: a reply begun since is not saved yet and
+  // has no date, so it stays after, where it was being written.
+  const next = [...thread.value]
+  for (const mail of back) {
+    const at = next.findIndex(
+      (other: Mail) => !other.received_at || other.received_at > mail.received_at,
+    )
+    next.splice(at === -1 ? next.length : at, 0, mail)
+  }
+  thread.value = next
 })
 const transformThreadMails = (mails: Mail[]) =>
   mails
