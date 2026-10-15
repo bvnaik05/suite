@@ -154,6 +154,24 @@ describe('restoreEdit', () => {
     expect(shown(current)).toEqual(page(heading('Then'), paragraph(text('yesterday', ['italic']))))
   })
 
+  it.each([
+    { name: 'another lineage', versionLineage: 'other' },
+    { name: 'its own lineage', versionLineage: 'own' },
+  ])('brings back an old image of a version of $name as an image', ({ versionLineage }) => {
+    const version = new Y.Doc()
+    const old = new Y.XmlElement('resizableMedia')
+    old.setAttribute('src', '/private/files/chart.png')
+    old.setAttribute('media-type', 'img')
+    version.getXmlFragment(BODY_FIELD).insert(0, [old])
+    const current = copyOf(version)
+    current.getXmlFragment(BODY_FIELD).delete(0, 1)
+
+    restore(current, 'own', version, versionLineage)
+
+    const image = { type: 'image', attrs: { src: '/private/files/chart.png', align: 'left' } }
+    expect(shown(current)).toEqual(page(paragraph(image)))
+  })
+
   it('makes the document a migrated HTML version', () => {
     const current = documentOf(page(paragraph(text('today'))))
 

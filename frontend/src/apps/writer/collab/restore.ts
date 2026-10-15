@@ -4,6 +4,7 @@ import { updateYFragment, yXmlFragmentToProseMirrorRootNode } from '@tiptap/y-ti
 import * as Y from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { convertOldMedia } from '@/apps/writer/collab/old-media'
 import { writerSchema } from '@/apps/writer/schema'
 import type { VersionBody } from '@/apps/writer/surface/versions'
 
@@ -24,6 +25,7 @@ export function restoreEdit(current: Y.Doc, lineage: string, target: VersionBody
   try {
     if ('state' in target) {
       Y.applyUpdate(version, target.state)
+      convertOldMedia(version.getXmlFragment(BODY_FIELD))
     }
 
     Y.applyUpdate(copy, Y.encodeStateAsUpdate(current))

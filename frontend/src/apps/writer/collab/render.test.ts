@@ -48,4 +48,18 @@ describe('writerRender', () => {
 
     expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
   })
+
+  it('shows an old image in the readable copy and leaves the document as it was', () => {
+    const doc = new Y.Doc()
+    const old = new Y.XmlElement('resizableMedia')
+    old.setAttribute('src', '/private/files/chart.png')
+    old.setAttribute('media-type', 'img')
+    doc.getXmlFragment(BODY_FIELD).insert(0, [old])
+    const before = Y.encodeStateAsUpdate(doc)
+
+    const { html } = writerRender(doc)
+
+    expect(html).toMatch(/<img [^>]*src="\/private\/files\/chart\.png"/)
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+  })
 })
