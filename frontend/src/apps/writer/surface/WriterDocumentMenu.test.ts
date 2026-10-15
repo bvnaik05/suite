@@ -83,6 +83,17 @@ function mountMenu(isEditable: boolean, canSaveVersion = false, onSaveVersion = 
   return [...host.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)
 }
 
+// The menu's button, here disabled for want of an editor, takes focus as reka gives it back
+function focusMenuButton() {
+  host!.querySelector('button')!.dispatchEvent(new FocusEvent('focus'))
+}
+
+// Picks Save version, and the menu closes, handing focus back to its button
+function pickSaveVersion() {
+  host!.querySelector<HTMLElement>('[role="menuitem"]')!.click()
+  focusMenuButton()
+}
+
 afterEach(() => {
   unmount()
   host?.remove()
@@ -102,11 +113,24 @@ describe('Writer document menu', () => {
     const onSaveVersion = vi.fn()
 
     const items = mountMenu(true, true, onSaveVersion)
-    host?.querySelector<HTMLElement>('[role="menuitem"]')?.click()
+    pickSaveVersion()
 
     expect([items, onSaveVersion.mock.calls.length]).toEqual([
       ['Save version', 'Download as DOCX', 'Download as Markdown', 'Import DOCX'],
       1,
     ])
+  })
+
+  it('asks for the name only once the closing menu has given focus back to its button', () => {
+    const onSaveVersion = vi.fn()
+    mountMenu(true, true, onSaveVersion)
+
+    focusMenuButton()
+    host!.querySelector<HTMLElement>('[role="menuitem"]')!.click()
+    const beforeFocusBack = onSaveVersion.mock.calls.length
+    focusMenuButton()
+    focusMenuButton()
+
+    expect([beforeFocusBack, onSaveVersion.mock.calls.length]).toEqual([0, 1])
   })
 })

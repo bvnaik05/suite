@@ -66,13 +66,21 @@ afterEach(() => {
 })
 
 // The Versions panel over a session that records the versions taken, after the edits are saved
-async function openVersionsPanel() {
+async function openVersionsPanel(isRefusingVersions = false) {
   const steps: string[] = []
+  const outsideButton = document.createElement('button')
   const session = {
     comments: {},
     versions: {
       list: async () => ({ rows: [], next_cursor: null }),
       create: async (kind: string, label: string) => {
+        if (isRefusingVersions) {
+          // As a browser moves focus off the box once saving disables it
+          document.body.append(outsideButton)
+          outsideButton.focus()
+          throw new Error('offline')
+        }
+
         steps.push(`took ${kind} "${label}"`)
       },
     },
@@ -166,5 +174,19 @@ describe('naming a version in the Versions panel', () => {
     await settled()
 
     expect([steps, nameBox()]).toEqual([[], null])
+  })
+
+  it('keeps the box, the name and the cursor when the version fails to save', async () => {
+    const { steps } = await openVersionsPanel(true)
+
+    await type('Before the review')
+    await press('Enter')
+    await settled()
+
+    expect([steps, nameBox()?.value, document.activeElement === nameBox()]).toEqual([
+      ['saved'],
+      'Before the review',
+      true,
+    ])
   })
 })

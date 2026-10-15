@@ -19,7 +19,7 @@ vi.hoisted(() => {
 })
 
 vi.mock('frappe-ui', async () => {
-  const { defineComponent: define, h: render } = await import('vue')
+  const { defineComponent: define, h: render, ref: state } = await import('vue')
   const emptyComponent = { render: () => null }
   return {
     Avatar: emptyComponent,
@@ -46,7 +46,19 @@ vi.mock('frappe-ui', async () => {
           render('button', { onClick: () => emit('click') }, props.label),
     }),
     Skeleton: emptyComponent,
-    TextInput: emptyComponent,
+    TextInput: define({
+      props: { modelValue: String },
+      emits: ['update:modelValue'],
+      setup(props, { emit, expose }) {
+        const input = state<HTMLInputElement | null>(null)
+        expose({ focus: () => input.value?.focus() })
+        function write(event: Event) {
+          emit('update:modelValue', (event.target as HTMLInputElement).value)
+        }
+
+        return () => render('input', { ref: input, value: props.modelValue, onInput: write })
+      },
+    }),
     Tooltip: define({
       setup:
         (_, { slots }) =>
@@ -68,12 +80,12 @@ vi.mock('@/apps/drive', async () => {
   return {
     DriveDocumentHeader: define({
       emits: ['update:panel'],
-      setup: (_, { emit }) => {
+      setup: (_, { emit, slots }) => {
         const openVersions = {
           'data-open-versions': '',
           onClick: () => emit('update:panel', 'versions'),
         }
-        return () => render('button', openVersions)
+        return () => [render('button', openVersions), slots.actions?.()]
       },
     }),
     DriveCommentAuthor: define({ setup: () => () => null }),
@@ -282,7 +294,18 @@ vi.mock('@/apps/writer/components/TextEditor.vue', async (importOriginal) => {
   }
 })
 vi.mock('@/apps/writer/components/UsersBar.vue', () => ({ default: { render: () => null } }))
-vi.mock('./WriterDocumentMenu.vue', () => ({ default: { render: () => null } }))
+vi.mock('./WriterDocumentMenu.vue', async () => {
+  const { defineComponent: define, h: render } = await import('vue')
+  return {
+    default: define({
+      emits: ['saveVersion'],
+      setup:
+        (_, { emit }) =>
+        () =>
+          render('button', { 'data-save-version': '', onClick: () => emit('saveVersion') }),
+    }),
+  }
+})
 vi.mock('@/apps/writer/composables/useUsers', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/apps/writer/composables/useUsers')>()),
   fullName: (user: string) => user,
@@ -539,6 +562,18 @@ describe('Writer surface', () => {
     expect(row.textContent).toMatch(/ana@example\.com · 10:41(\s(AM|am))?$/)
     expect(day.textContent).toMatch(/^(Mar 4, 2025|4 Mar 2025)$/)
     vi.unstubAllEnvs()
+  })
+
+  it('opens the Versions panel from Save version in the document menu, with the cursor in the name box', async () => {
+    const root = await openedSurface(oneVersion)
+
+    root.querySelector<HTMLElement>('[data-save-version]')!.click()
+    await vi.waitFor(() =>
+      expect(root.querySelector('input[aria-label="Version name"]')).not.toBeNull(),
+    )
+
+    expect(document.activeElement).toBe(root.querySelector('input[aria-label="Version name"]'))
+    expect(root.querySelector('aside')?.textContent).toContain('Before review')
   })
 
   it('shows a version in place of the editor until Back to current', async () => {

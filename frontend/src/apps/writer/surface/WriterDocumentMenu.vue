@@ -31,6 +31,8 @@ const DOCX_TYPES = '.docx,application/vnd.openxmlformats-officedocument.wordproc
 
 /** Read when the menu opens: the editor's document is not reactive. */
 const hasTabs = ref(false)
+/** Save version was picked; it goes once the closing menu has handed focus back to its button. */
+let isVersionPicked = false
 
 function noteTabs(open: boolean) {
   if (open && props.editor) {
@@ -62,6 +64,20 @@ function downloadOption(label: string, icon: string, save: Download) {
   }
 }
 
+function pickVersion() {
+  isVersionPicked = true
+}
+
+// After the menu's own focus return, so the name box keeps the focus
+function saveVersionOnFocusBack() {
+  if (!isVersionPicked) {
+    return
+  }
+
+  isVersionPicked = false
+  emit('saveVersion')
+}
+
 function versionGroups() {
   if (!props.canSaveVersion) {
     return []
@@ -75,7 +91,7 @@ function versionGroups() {
         {
           label: __('Save version'),
           icon: 'lucide-bookmark-plus',
-          onClick: () => emit('saveVersion'),
+          onClick: pickVersion,
         },
       ],
     },
@@ -144,6 +160,7 @@ async function importFile(file: File) {
       :tooltip="__('More document actions')"
       :aria-label="__('More document actions')"
       :disabled="!editor"
+      @focus="saveVersionOnFocusBack"
     />
   </Dropdown>
 </template>

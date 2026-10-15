@@ -58,9 +58,6 @@ const isNamingVersion = ref(false)
 const versionName = ref('')
 const versionNameInput = ref<{ focus(): void } | null>(null)
 
-// A closing menu hands focus back to its trigger a moment later
-const MENU_FOCUS_RETURN_MS = 250
-
 // Guests may sign their comments. Signed-in users never see the field (spec §10.5)
 const {
   shown: showGuestName,
@@ -211,13 +208,7 @@ function authorLabel(comment: ThreadComment) {
 async function startNamingVersion() {
   isNamingVersion.value = true
   await nextTick()
-  function take() {
-    versionNameInput.value?.focus()
-  }
-
-  take()
-  document.addEventListener('focusin', take, { once: true })
-  setTimeout(() => document.removeEventListener('focusin', take), MENU_FOCUS_RETURN_MS)
+  versionNameInput.value?.focus()
 }
 
 function stopNamingVersion() {
@@ -233,13 +224,21 @@ async function saveNamedVersion() {
   }
 
   isSavingVersion.value = true
+  let isSaved = false
   try {
-    if (await saveVersion(label, props.saveFirst)) {
-      stopNamingVersion()
-    }
+    isSaved = await saveVersion(label, props.saveFirst)
   } finally {
     isSavingVersion.value = false
   }
+
+  if (isSaved) {
+    stopNamingVersion()
+    return
+  }
+
+  // The box was disabled while saving, which drops its focus
+  await nextTick()
+  versionNameInput.value?.focus()
 }
 
 defineExpose({ reloadVersions: () => load('versions'), startNamingVersion })
