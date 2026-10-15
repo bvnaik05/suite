@@ -14,16 +14,6 @@ import type { LiveSocket, Peer } from './types'
 
 // Carets go out trailing-edge, at most ten a second
 const SEND_MS = 100
-const COLORS = [
-  '#E5484D',
-  '#D6409F',
-  '#8E4EC6',
-  '#3E63DD',
-  '#0090FF',
-  '#12A594',
-  '#30A46C',
-  '#F76B15',
-]
 
 export interface PresenceHooks {
   // Whether a room is one of this document's
@@ -39,7 +29,11 @@ export interface PresenceHooks {
 }
 
 // Another tab, by the user the realtime service verified and the rooms it shares with this one
-type Member = { user: string; rooms: Set<string> }
+interface Member {
+  user: string
+  arrival: number | null
+  rooms: Set<string>
+}
 
 // A peer's pid, its count and the state the cursor plugin draws
 type Clocked = [number, number, object]
@@ -51,6 +45,7 @@ export class Presence {
   private readonly members = new Map<number, Member>()
   private readonly listeners = new Set<() => void>()
   private pid = 0
+  private arrival: number | null = null
   private joinedRooms: string[] = []
   private sendTimer: ReturnType<typeof setTimeout> | null = null
   private lastSentAt = 0
@@ -71,12 +66,15 @@ export class Presence {
 
   // Everyone else in the document now, one entry per tab
   get peers(): Peer[] {
-    const toPeer = ([pid, { user }]: [number, Member]): Peer => ({
-      pid,
-      user,
-      color: color(pid),
-    })
-    return [...this.members].map(toPeer)
+    return [...this.members].map(([pid, { user, arrival }]): Peer => ({ pid, user, arrival }))
+  }
+
+  get ownPid() {
+    return this.pid
+  }
+
+  get ownArrival() {
+    return this.arrival
   }
 
   onChange(listener: () => void) {
@@ -92,6 +90,7 @@ export class Presence {
     }
 
     this.pid = answer.pid
+    this.arrival = answer.arrival
     this.joinedRooms = rooms.filter((room) => this.hooks.isOwnRoom(room))
 
     const previousPids = new Set(this.members.keys())
@@ -177,11 +176,13 @@ export class Presence {
       return false
     }
 
-    const { room, pid, user } = heardMember
+    const { room, pid, user, arrival } = heardMember
     const member: Member = this.members.get(pid) ?? {
       user,
+      arrival,
       rooms: new Set<string>(),
     }
+    member.arrival ??= arrival
     member.rooms.add(room)
     this.members.set(pid, member)
     return true
@@ -198,10 +199,7 @@ export class Presence {
         this.hooks.peerAhead(at)
       }
 
-      const user = {
-        id: this.members.get(pid)!.user,
-        color: color(pid),
-      }
+      const user = { id: this.members.get(pid)!.user }
       const shown = {
         user,
         cursor: this.hooks.position(cursor),
@@ -256,8 +254,6 @@ export class Presence {
     }
   }
 }
-
-const color = (pid: number) => COLORS[pid % COLORS.length]
 
 // One awareness update carrying every accepted state
 function encodeStates(accepted: Clocked[]) {

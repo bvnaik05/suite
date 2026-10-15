@@ -5,6 +5,7 @@ import { Presence } from './presence'
 const OWN_ROOMS = ['sc:mine-now', 'sc:mine-next']
 const OWN_PID = 2 ** 31 + 1
 const PEER_PID = 2 ** 31 + 2
+const OWN_ARRIVAL = 5
 
 function setup({ sends = true, at = 4 } = {}) {
   type Handler = (message: unknown) => void
@@ -34,6 +35,7 @@ function setup({ sends = true, at = 4 } = {}) {
     const ack = {
       rooms,
       pid: OWN_PID,
+      arrival: OWN_ARRIVAL,
       roster,
       count: roster.length,
       carets,
@@ -67,15 +69,14 @@ describe('collab presence', () => {
     const { presence, answer } = setup()
 
     answer([
-      { room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' },
-      { room: OWN_ROOMS[1], pid: PEER_PID, user: 'b@x.com' },
-      { room: OWN_ROOMS[0], pid: OWN_PID, user: 'a@x.com' },
-      { room: 'sc:other-document', pid: PEER_PID + 1, user: 'c@x.com' },
+      { room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com', arrival: 3 },
+      { room: OWN_ROOMS[1], pid: PEER_PID, user: 'b@x.com', arrival: 3 },
+      { room: OWN_ROOMS[0], pid: OWN_PID, user: 'a@x.com', arrival: OWN_ARRIVAL },
+      { room: 'sc:other-document', pid: PEER_PID + 1, user: 'c@x.com', arrival: 4 },
     ])
 
-    expect(presence.peers).toEqual([
-      { pid: PEER_PID, user: 'b@x.com', color: expect.stringMatching(/^#/) },
-    ])
+    expect(presence.peers).toEqual([{ pid: PEER_PID, user: 'b@x.com', arrival: 3 }])
+    expect([presence.ownPid, presence.ownArrival]).toEqual([OWN_PID, OWN_ARRIVAL])
   })
 
   it('keeps a peer until it has left every room this tab shares with it', () => {
@@ -107,10 +108,25 @@ describe('collab presence', () => {
     hear('', claimed)
 
     const state = remoteStates().get(PEER_PID)
-    expect(state?.user.id).toBe('b@x.com')
-    expect(state?.user.color).toMatch(/^#[0-9A-F]{6}$/)
+    expect(state?.user).toEqual({ id: 'b@x.com' })
     expect(state?.cursor).toEqual({ anchor: caret.anchor, head: caret.anchor })
     expect(presence.awareness.getLocalState()).toEqual({})
+  })
+
+  it('ranks a peer by the arrival the service stamped, never one its tab claims, and keeps the first one heard', () => {
+    const { presence, answer, hear } = setup()
+    answer()
+
+    hear('', {
+      room: OWN_ROOMS[0],
+      states: [{ pid: PEER_PID, user: 'b@x.com', n: 1, state: { cursor, arrival: 1 } }],
+    })
+    const beforeStamp = presence.peers[0].arrival
+    hear('_join', { room: OWN_ROOMS[1], pid: PEER_PID, user: 'b@x.com', arrival: 7 })
+    hear('_join', { room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com', arrival: 2 })
+
+    expect(beforeStamp).toBeNull()
+    expect(presence.peers).toEqual([{ pid: PEER_PID, user: 'b@x.com', arrival: 7 }])
   })
 
   it('draws a peer’s position only as the app reads it', () => {

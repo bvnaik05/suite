@@ -3,6 +3,7 @@ import { decodeBase64 } from './bytes'
 // What the realtime service answers to this socket's room set
 export interface JoinAnswer {
   pid: number
+  arrival: number | null
   count: number
   roster: object[]
   carets: object[]
@@ -26,6 +27,7 @@ export interface HeardMember {
   room: string
   pid: number
   user: string
+  arrival: number | null
 }
 
 // Caret states the realtime service relays for one room
@@ -61,6 +63,11 @@ function objectsIn(raw: unknown): object[] {
   return raw.filter((element) => element && typeof element === 'object')
 }
 
+// When the realtime service saw a tab connect; null from a service that doesn't count arrivals
+function arrivalOf(raw: unknown) {
+  return typeof raw === 'number' ? raw : null
+}
+
 function decodedOrNull(base64: string) {
   try {
     return decodeBase64(base64)
@@ -70,13 +77,14 @@ function decodedOrNull(base64: string) {
 }
 
 export function parseJoinAnswer(heard: unknown): JoinAnswer | null {
-  const { pid, count, roster, carets } = fieldsOf(heard)
+  const { pid, arrival, count, roster, carets } = fieldsOf(heard)
   if (typeof pid !== 'number') {
     return null
   }
 
   return {
     pid,
+    arrival: arrivalOf(arrival),
     count: typeof count === 'number' ? count : 0,
     roster: objectsIn(roster),
     carets: objectsIn(carets),
@@ -106,9 +114,13 @@ export function lineageOf(heard: unknown) {
 }
 
 export function parseMember(heard: unknown): HeardMember | null {
-  const { room, pid, user } = fieldsOf(heard)
+  const { room, pid, user, arrival } = fieldsOf(heard)
   const isMember = typeof room === 'string' && typeof pid === 'number' && typeof user === 'string'
-  return isMember ? { room, pid, user } : null
+  if (!isMember) {
+    return null
+  }
+
+  return { room, pid, user, arrival: arrivalOf(arrival) }
 }
 
 export function parseCaretBatch(heard: unknown): CaretBatch | null {

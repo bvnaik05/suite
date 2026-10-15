@@ -19,11 +19,14 @@ const sites = new Map();
 // Per site: whether sockets may join, asked of the site at most every 30 s
 const joinableBySite = new Map();
 let flushTimer = null;
+// Counts sockets in the order they connect, so every tab ranks the people in a room the same way
+let arrivals = 0;
 
 const is_room = (room) => typeof room === "string" && ROOM_PATTERN.test(room);
 
 const collab_handlers = (socket) => {
 	const pid = 2 ** 31 + crypto.randomInt(2 ** 31);
+	const arrival = ++arrivals;
 	const user = socket.user;
 	const isGuest = !user || user === "Guest";
 	const joinedRooms = new Set();
@@ -150,6 +153,7 @@ const collab_handlers = (socket) => {
 			const entry = {
 				pid,
 				user,
+				arrival,
 				isGuest,
 				state: null,
 				hasCaret: false,
@@ -157,7 +161,7 @@ const collab_handlers = (socket) => {
 			};
 			site.rooms.get(room).set(pid, entry);
 			socket.join(room);
-			socket.to(room).emit("suite_collab_presence_join", { room, pid, user });
+			socket.to(room).emit("suite_collab_presence_join", { room, pid, user, arrival });
 		}
 
 		if (!site.rooms.size && !site.dirty.size) {
@@ -180,6 +184,7 @@ const collab_handlers = (socket) => {
 						room,
 						pid: entry.pid,
 						user: entry.user,
+						arrival: entry.arrival,
 					};
 					roster.push(member);
 				}
@@ -188,7 +193,8 @@ const collab_handlers = (socket) => {
 				}
 			}
 		}
-		return { rooms, pid, roster, count, carets };
+
+		return { rooms, pid, arrival, roster, count, carets };
 	}
 };
 
@@ -268,6 +274,7 @@ function presence_state(entry) {
 	return {
 		pid: entry.pid,
 		user: entry.user,
+		arrival: entry.arrival,
 		n: entry.updates,
 		state: entry.state,
 	};

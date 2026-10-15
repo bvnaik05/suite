@@ -10,6 +10,7 @@ import * as Y from 'yjs'
 
 import { writerAdapter } from './adapter'
 import { caretPosition } from './carets'
+import { assignColours, PALETTE } from './colours'
 
 const searchUsers = vi.hoisted(() => vi.fn())
 vi.mock('@/apps/writer/drive', () => ({ searchUsers }))
@@ -22,12 +23,31 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+const BEA = { pid: PEER_ID, user: 'bea@x.com', arrival: 5 }
+
 function openEditor() {
   const doc = new Y.Doc()
   const presenceDoc = new Y.Doc()
   presenceDoc.clientID = 0
   const awareness = new Awareness(presenceDoc)
-  const presence = { awareness, peers: [], onChange: () => () => true }
+  const listeners = new Set<() => void>()
+  const presence = {
+    awareness,
+    peers: [BEA],
+    ownPid: 2 ** 31 + 1,
+    ownArrival: null,
+    onChange: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+  function roomChanges(peers: (typeof BEA)[]) {
+    presence.peers = peers
+    for (const listener of listeners) {
+      listener()
+    }
+  }
+
   const element = document.createElement('div')
   document.body.append(element)
 
@@ -43,7 +63,7 @@ function openEditor() {
   const editor = new Editor(editorOptions)
   editors.push(editor)
   editor.commands.insertContent('hello')
-  return { editor, awareness, doc }
+  return { editor, awareness, doc, roomChanges }
 }
 
 function caretAt(editor: Editor, at: number, to = at) {
@@ -82,8 +102,26 @@ function caretAfter(editor: Editor) {
 
 const shadedSelections = (editor: Editor) =>
   [...editor.view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__selection')].map(
-    (shade) => [shade.textContent, shade.style.backgroundColor],
+    (shade) => [shade.textContent, shade.style.getPropertyValue('--peer-light')],
   )
+
+function caretColour(editor: Editor) {
+  const caret = editor.view.dom.querySelector<HTMLElement>('.collaboration-carets__caret')
+  return caret?.style.getPropertyValue('--peer-light')
+}
+
+// Bea's colour when nobody else in the room has it
+const beaColour = assignColours([BEA.user]).get(BEA.user)!
+
+// Someone who arrived before Bea and whose own colour is hers
+function earlierRival() {
+  for (let index = 0; ; index++) {
+    const user = `rival${index}@x.com`
+    if (assignColours([user]).get(user) === beaColour) {
+      return { pid: PEER_ID + 1, user, arrival: 1 }
+    }
+  }
+}
 
 const isLabelIdle = (editor: Editor) =>
   editor.view.dom
@@ -105,7 +143,7 @@ describe('Writer carets', () => {
     let answerLookup = (_: object[]) => {}
     const lookup = new Promise((resolve) => (answerLookup = resolve))
     searchUsers.mockReturnValue(lookup)
-    const user = { id: 'bea@x.com', color: '#3E63DD' }
+    const user = { id: 'bea@x.com' }
 
     peerSays({ user, cursor: caretAt(editor, 3) })
     await tick()
@@ -126,7 +164,8 @@ describe('Writer carets', () => {
       setPeerState(state)
       await tick()
     }
-    const user = { id: 'bea@x.com', color: '#3E63DD' }
+
+    const user = { id: 'bea@x.com' }
     const peerDoc = new Y.Doc()
     const ourUpdate = Y.encodeStateAsUpdate(doc)
     Y.applyUpdate(peerDoc, ourUpdate)
@@ -158,16 +197,33 @@ describe('Writer carets', () => {
     searchUsers.mockResolvedValue([])
     const { editor, awareness } = openEditor()
     const peerSays = remotePeer(awareness)
-    const user = { id: 'bea@x.com', color: '#3E63DD' }
+    const user = { id: 'bea@x.com' }
 
     peerSays({ user, cursor: caretAt(editor, 2, 5) })
     await tick()
     const selected = shadedSelections(editor)
+    const caret = caretColour(editor)
     peerSays({ user, cursor: caretAt(editor, 3) })
     await tick()
 
-    expect(selected).toEqual([['ell', 'rgba(62, 99, 221, 0.2)']])
+    expect(selected).toEqual([['ell', beaColour.light.solid]])
+    expect(caret).toBe(beaColour.light.solid)
     expect(shadedSelections(editor)).toEqual([])
+  })
+
+  it('repaints a person’s caret and selection when an earlier arrival with their colour joins', async () => {
+    searchUsers.mockResolvedValue([])
+    const { editor, awareness, roomChanges } = openEditor()
+    const peerSays = remotePeer(awareness)
+    peerSays({ user: { id: BEA.user }, cursor: caretAt(editor, 2, 5) })
+    await tick()
+
+    roomChanges([earlierRival(), BEA])
+    await tick()
+
+    const moved = PALETTE[(PALETTE.indexOf(beaColour) + 1) % PALETTE.length].light.solid
+    expect(caretColour(editor)).toBe(moved)
+    expect(shadedSelections(editor)).toEqual([['ell', moved]])
   })
 
   it('fades a name a few seconds after its person stops, and shows it again when they move', async () => {
@@ -175,7 +231,7 @@ describe('Writer carets', () => {
     searchUsers.mockResolvedValue([])
     const { editor, awareness } = openEditor()
     const peerSays = remotePeer(awareness)
-    const user = { id: 'bea@x.com', color: '#3E63DD' }
+    const user = { id: 'bea@x.com' }
 
     peerSays({ user, cursor: caretAt(editor, 3) })
     await vi.advanceTimersByTimeAsync(2000)

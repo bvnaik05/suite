@@ -1,13 +1,45 @@
 import type { RoomPresence } from '@suite/collab-client'
 import { Extension, type Editor } from '@tiptap/core'
 import { Plugin } from '@tiptap/pm/state'
-import { relativePositionToAbsolutePosition, yCursorPlugin, ySyncPluginKey } from '@tiptap/y-tiptap'
+import type { EditorView } from '@tiptap/pm/view'
+import {
+  relativePositionToAbsolutePosition,
+  setMeta,
+  yCursorPlugin,
+  yCursorPluginKey,
+  ySyncPluginKey,
+} from '@tiptap/y-tiptap'
 import type { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-import { peerName, whenNamed } from './peers'
+import { colourStyle, type PeerColour } from './colours'
+import { peerName, presenceColours, whenNamed } from './peers'
 
-type CaretUser = { id: string; color: string }
+interface CaretUser {
+  id: string
+}
+
+type ColourOf = (peerId: number) => PeerColour | undefined
+
+function paint(element: HTMLElement, colour: PeerColour | undefined) {
+  if (!colour) return
+
+  for (const [property, value] of Object.entries(colourStyle(colour))) {
+    element.style.setProperty(property, value)
+  }
+}
+
+// The plugin keeps a caret's element while its pid stays, so a colour that moves is painted onto it
+function repaint(view: EditorView, colourOf: ColourOf) {
+  if (view.isDestroyed) return
+
+  const carets = view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__caret')
+  for (const caret of carets) {
+    paint(caret, colourOf(Number(caret.dataset.peer)))
+  }
+
+  setMeta(view, yCursorPluginKey, { awarenessUpdated: true })
+}
 
 // Whether a peer's position points at text this tab has
 function canPlace(editor: Editor, position: unknown) {
@@ -27,15 +59,15 @@ function canPlace(editor: Editor, position: unknown) {
   return absolute !== null
 }
 
-function caretDrawer(labelFader: NameFader) {
+function caretDrawer(labelFader: NameFader, colourOf: ColourOf) {
   return (user: CaretUser, peerId: number) => {
     const caret = document.createElement('span')
-    caret.classList.add('collaboration-carets__caret')
-    caret.style.borderColor = user.color
+    caret.classList.add('collaboration-carets__caret', 'peer-colour')
+    caret.dataset.peer = String(peerId)
+    paint(caret, colourOf(peerId))
 
     const label = document.createElement('div')
     label.classList.add('collaboration-carets__label')
-    label.style.backgroundColor = user.color
     label.textContent = peerName(user.id, peerId)
     labelFader.track(peerId, label)
 
@@ -47,10 +79,22 @@ function caretDrawer(labelFader: NameFader) {
   }
 }
 
-const shadeSelection = (user: { color: string }) => ({
-  class: 'collaboration-carets__selection',
-  style: `background-color: ${user.color}${SHADE_ALPHA}`,
-})
+// A colour as an inline style, for a decoration that takes its style as text
+function styleText(colour: PeerColour | undefined) {
+  if (!colour) {
+    return ''
+  }
+
+  const properties = Object.entries(colourStyle(colour))
+  return properties.map(([property, value]) => `${property}: ${value}`).join('; ')
+}
+
+function selectionShader(colourOf: ColourOf) {
+  return (_: CaretUser, peerId: number) => ({
+    class: 'collaboration-carets__selection peer-colour',
+    style: styleText(colourOf(peerId)),
+  })
+}
 
 // Other people's carets, drawn from the room's presence. This tab's own state is client 0, which the
 // default filter would draw because it compares against the document's clientID
@@ -63,25 +107,38 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
     }
 
     const editor = this.editor
-    const awareness = this.options.presence.awareness
+    const presence = this.options.presence
+    const awareness = presence.awareness
     const labelFader = nameFader(awareness)
+    function colourOf(peerId: number) {
+      return presenceColours(presence).get(peerId)
+    }
+
     const cursorOptions = {
       awarenessStateFilter: (_: number, id: number) => id !== 0,
-      cursorBuilder: caretDrawer(labelFader),
-      selectionBuilder: shadeSelection,
+      cursorBuilder: caretDrawer(labelFader, colourOf),
+      selectionBuilder: selectionShader(colourOf),
     }
 
     const placedAwareness = withHeldCarets(awareness, (position) => canPlace(editor, position))
     // The plugin reads only the members a held awareness has
     return [
       yCursorPlugin(placedAwareness as Awareness, cursorOptions),
-      new Plugin({ view: () => ({ destroy: labelFader.destroy }) }),
+      new Plugin({
+        view(view) {
+          const stopListening = presence.onChange(() => repaint(view, colourOf))
+          return {
+            destroy() {
+              stopListening()
+              labelFader.destroy()
+            },
+          }
+        },
+      }),
     ]
   },
 })
 
-// Alpha appended to a peer's #rrggbb colour, light enough to read the text through two overlapping shades
-const SHADE_ALPHA = '33'
 const NAME_SHOWN_MS = 3000
 
 type NameFader = ReturnType<typeof nameFader>

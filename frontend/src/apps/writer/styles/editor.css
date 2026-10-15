@@ -31,9 +31,29 @@ b {
   color: inherit !important;
 }
 
+/* A person's colour: the element carries both modes' shades, and the theme picks one */
+.peer-colour {
+  --peer-solid: var(--peer-light);
+  --peer-tint: var(--peer-light-tint);
+  --peer-ink: var(--peer-light-ink);
+  --peer-selection: var(--peer-light-selection);
+}
+
+:root[data-theme='dark'] .peer-colour {
+  --peer-solid: var(--peer-dark);
+  --peer-tint: var(--peer-dark-tint);
+  --peer-ink: var(--peer-dark-ink);
+  --peer-selection: var(--peer-dark-selection);
+}
+
+.collaboration-carets__selection {
+  background-color: var(--peer-selection);
+  border-radius: 3px;
+}
+
 .collaboration-carets__caret {
-  border-left: 1px solid #0d0d0d;
-  border-right: 1px solid #0d0d0d;
+  border-left: 1px solid var(--peer-solid);
+  border-right: 1px solid var(--peer-solid);
   margin-left: -1px;
   margin-right: -1px;
   pointer-events: none;
@@ -43,8 +63,10 @@ b {
 
 /* Render the username above the caret */
 .collaboration-carets__label {
+  background-color: var(--peer-tint);
   border-radius: 3px 3px 3px 0;
-  color: var(--ink-base);
+  box-shadow: inset 0 0 0 1px var(--peer-solid);
+  color: var(--peer-ink);
   font-size: 10px;
   font-style: normal;
   font-weight: 600;

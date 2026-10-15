@@ -28,7 +28,7 @@ import * as Y from 'yjs'
 import type { DocumentThread } from '@/apps/drive'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { redrawThreads, ThreadHighlights, type ThreadPlaces } from '@/apps/writer/collab/highlights'
-import { peopleOf } from '@/apps/writer/collab/peers'
+import { peopleOf, presenceColours } from '@/apps/writer/collab/peers'
 import { anchorSelection } from '@/apps/writer/collab/places'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
@@ -63,7 +63,10 @@ const roster = shallowRef(presence?.peers ?? [])
 const stopListening = presence?.onChange(() => (roster.value = presence.peers))
 onBeforeUnmount(() => stopListening?.())
 
-const peers = computed(() => peopleOf(roster.value))
+const peers = computed(() => {
+  const colours = presence && presenceColours(presence)
+  return peopleOf(roster.value, colours || new Map())
+})
 const places = shallowRef<ThreadPlaces>(new Map())
 const isFrozen = ref(false)
 defineExpose({ editor, peers, places, isFrozen })

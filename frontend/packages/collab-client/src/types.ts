@@ -83,17 +83,21 @@ export interface LiveSocket {
 // `polling`: no answer from the realtime service, or this tab's own rows stopped coming back over it
 export type LiveState = 'joining' | 'live' | 'polling'
 
-// Another tab in the document, named by the user the realtime service verified
+// Another tab in the document, named by the user the realtime service verified. `arrival` ranks when
+// it connected, the same for every tab; null from a service that doesn't count arrivals
 export interface Peer {
   pid: number
   user: string
-  color: string
+  arrival: number | null
 }
 
 export interface RoomPresence {
   // Carets for the cursor plugin; this tab's own state is client 0
   readonly awareness: Awareness
   readonly peers: Peer[]
+  // This tab, as the realtime service knows it
+  readonly ownPid: number
+  readonly ownArrival: number | null
   onChange(listener: () => void): () => void
 }
 
