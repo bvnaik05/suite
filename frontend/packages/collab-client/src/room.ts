@@ -309,6 +309,7 @@ export class Room implements CollabRoom {
     if (!this.writable && !this.losingAccess) return
 
     this.writable = false
+    this.notifyListeners()
     this.losingAccess ??= this.boundedFlush()
     await this.losingAccess
     if (this.unsent) {
@@ -653,7 +654,7 @@ export class Room implements CollabRoom {
       return
     }
 
-    if (!this.writable) return
+    if (!this.writable && !this.losingAccess) return
 
     if (origin === RESTORE && this.restoreToken) {
       this.ownOutbox.add(update, this.appliedThrough, this.restoreToken)
