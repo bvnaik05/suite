@@ -42,6 +42,10 @@ class TestSuiteCloudClient(UnitTestCase):
         self.request = request.call_args
         return result
 
+    def test_the_session_carries_the_site_credentials(self) -> None:
+        self.assertEqual(self.client.session.headers["Authorization"], "token key:secret")
+        self.assertEqual(self.client.session.headers["Frappe-Authorization-Source"], "Suite Site")
+
     def test_a_read_is_a_get_with_the_query_string(self) -> None:
         self._call(_response(200, {"data": {"domain": "acme.com"}}))
         self.assertEqual(self.request.args, ("GET", f"{BASE}mail.domains.get_domain"))
