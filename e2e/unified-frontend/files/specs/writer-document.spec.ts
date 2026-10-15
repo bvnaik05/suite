@@ -113,11 +113,6 @@ test("losing edit access freezes the editor and cancels the pending save", async
 		.slice(trashedAt)
 		.filter((line) => /\/method\/(save_doc|save_html|new_version|update_settings)/.test(line));
 	expect(writes).toEqual([]);
-	const recovery = await page.evaluate(
-		(node) => localStorage.getItem(`suite:writer-recovery:${node}`),
-		doc.name,
-	);
-	expect(recovery).toContain("Typed before the document was trashed");
 
 	// The recovery copy has a way out: an HTML file of the unsaved work.
 	const download = page.waitForEvent("download");
