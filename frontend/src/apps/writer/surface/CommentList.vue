@@ -26,8 +26,15 @@ import type { ThreadActions } from './useDocumentPanel'
 import { dayOrTime } from './versionDates'
 
 type ThreadComment = DocumentThread['comments'][number]
+// A row, or the Resolved line when row is null
+interface ShownItem {
+  key: string
+  row: ThreadRow | null
+}
 
 const RESOLVED_MESSAGE_MS = 5000
+// Its own key, so changes to the threads around it keep the line and its focus
+const RESOLVED_LINE = 'resolved-line'
 // The most a comment holds, in UTF-8 bytes, as Drive counts them
 const MAX_COMMENT_BYTES = 65_535
 
@@ -102,6 +109,18 @@ const shownResolvedRows = computed(() => {
 
   return resolvedRows.value
 })
+const shownItems = computed(() => {
+  const items: ShownItem[] = openRows.value.map((row) => ({ key: row.thread.name, row }))
+  if (resolvedRows.value.length) {
+    items.push({ key: RESOLVED_LINE, row: null })
+  }
+
+  for (const row of shownResolvedRows.value) {
+    items.push({ key: row.thread.name, row })
+  }
+
+  return items
+})
 const boxDrafts = computed(() => props.drafts.drafts.value.filter((draft) => !draft.isSent))
 // The whole-document box takes the place of the line that starts it
 const documentDraft = computed(() => boxDrafts.value.find(isOnDocument))
@@ -137,15 +156,6 @@ const guestNameHint = computed(() => {
 
 function canReply(thread: DocumentThread) {
   return !thread.resolved && props.canComment
-}
-
-// The Resolved line sits before the first resolved row
-function startsResolved(index: number) {
-  return index === openRows.value.length
-}
-
-function isRowShown(thread: DocumentThread) {
-  return !thread.resolved || isResolvedShown.value
 }
 
 function toggleResolvedShown() {
@@ -602,91 +612,74 @@ function rowClass(thread: DocumentThread) {
         @retry="postDraft(draft)"
         @discard="discardSentDraft(draft)"
       />
-      <template
-        v-for="({ thread, quote, where }, index) in [...openRows, ...resolvedRows]"
-        :key="thread.name"
-      >
-        <li v-if="startsResolved(index)" role="none" class="pt-2 first:pt-0">
-          <button
-            type="button"
-            class="group flex w-full items-center rounded-4 px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
-            :aria-expanded="isResolvedShown"
-            @click="toggleResolvedShown"
-          >
-            Resolved · {{ resolvedRows.length }}
-            <span
-              class="lucide-chevron-right ml-auto size-4 transition-transform duration-200 group-aria-expanded:rotate-90"
-              aria-hidden="true"
-            />
-          </button>
-        </li>
+      <template v-for="{ key, row } in shownItems" :key>
         <li
-          v-if="isRowShown(thread)"
+          v-if="row"
           ref="rowItems"
-          :data-thread="thread.name"
+          :data-thread="row.thread.name"
           class="group relative rounded-4 transition-opacity duration-200"
-          :class="rowClass(thread)"
-          @mouseenter="lightThread(thread)"
+          :class="rowClass(row.thread)"
+          @mouseenter="lightThread(row.thread)"
           @mouseleave="dimThread"
         >
           <button
             type="button"
             class="block w-full space-y-1 px-3 py-2 text-left"
-            :aria-expanded="isOpen(thread)"
-            @click="toggleThread(thread)"
+            :aria-expanded="isOpen(row.thread)"
+            @click="toggleThread(row.thread)"
           >
             <span class="flex items-center gap-1.5 pr-8 text-xs text-ink-gray-5">
               <span class="min-w-0 text-sm-medium text-ink-gray-8">
                 <DriveCommentAuthor
-                  :author="firstComment(thread).author"
-                  :author-name="firstComment(thread).author_name"
-                  >{{ authorLabel(firstComment(thread)) }}</DriveCommentAuthor
+                  :author="firstComment(row.thread).author"
+                  :author-name="firstComment(row.thread).author_name"
+                  >{{ authorLabel(firstComment(row.thread)) }}</DriveCommentAuthor
                 >
               </span>
-              <span v-if="where" class="shrink-0">{{ where }}</span>
-              <span v-if="isUnread(thread)" class="flex shrink-0 items-center">
+              <span v-if="row.where" class="shrink-0">{{ row.where }}</span>
+              <span v-if="isUnread(row.thread)" class="flex shrink-0 items-center">
                 <span class="size-1.5 rounded-full bg-surface-amber-7" aria-hidden="true" />
                 <span class="sr-only">Unread</span>
               </span>
-              <span class="shrink-0">{{ dayOrTime(firstComment(thread)) }}</span>
+              <span class="shrink-0">{{ dayOrTime(firstComment(row.thread)) }}</span>
             </span>
-            <span v-if="isClosed(thread)" class="flex gap-1 text-p-sm">
+            <span v-if="isClosed(row.thread)" class="flex gap-1 text-p-sm">
               <span class="truncate text-ink-gray-7">
                 <CommentText
-                  :content="firstComment(thread).content"
-                  :mentions="firstComment(thread).mentions"
+                  :content="firstComment(row.thread).content"
+                  :mentions="firstComment(row.thread).mentions"
                 />
               </span>
-              <span v-if="replies(thread).length" class="shrink-0 text-ink-gray-5">
-                · {{ repliesLabel(thread) }}
+              <span v-if="replies(row.thread).length" class="shrink-0 text-ink-gray-5">
+                · {{ repliesLabel(row.thread) }}
               </span>
             </span>
           </button>
           <div
             v-if="canComment"
             class="absolute right-1 top-1 flex items-center"
-            :class="actionsClass(thread)"
+            :class="actionsClass(row.thread)"
           >
             <Button
               size="sm"
               variant="ghost"
-              :icon="resolveIcon(thread)"
-              :aria-label="resolveLabel(thread)"
-              @click="toggleResolved(thread)"
+              :icon="resolveIcon(row.thread)"
+              :aria-label="resolveLabel(row.thread)"
+              @click="toggleResolved(row.thread)"
             />
           </div>
-          <template v-if="isOpen(thread)">
+          <template v-if="isOpen(row.thread)">
             <div class="space-y-2 px-3 pb-3">
-              <p v-if="quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
-                {{ quote }}
+              <p v-if="row.quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
+                {{ row.quote }}
               </p>
               <div
-                v-for="comment in thread.comments"
+                v-for="comment in row.thread.comments"
                 :key="comment.name"
                 class="group/comment relative space-y-1"
               >
                 <p
-                  v-if="isReply(thread, comment)"
+                  v-if="isReply(row.thread, comment)"
                   class="flex items-center gap-2 pr-8 text-sm-medium text-ink-gray-8"
                 >
                   <Avatar
@@ -747,7 +740,11 @@ function rowClass(thread: DocumentThread) {
                   </Dropdown>
                 </div>
               </div>
-              <form v-if="canReply(thread)" class="space-y-1" @submit.prevent="submitReply(thread)">
+              <form
+                v-if="canReply(row.thread)"
+                class="space-y-1"
+                @submit.prevent="submitReply(row.thread)"
+              >
                 <div class="relative">
                   <MentionTextarea
                     ref="replyBoxes"
@@ -755,7 +752,7 @@ function rowClass(thread: DocumentThread) {
                     :rows="1"
                     placeholder="Reply"
                     aria-label="Reply"
-                    @keydown.enter="sendOnEnter($event, thread)"
+                    @keydown.enter="sendOnEnter($event, row.thread)"
                     @focus="showReplyHint"
                     @blur="hideReplyHint"
                   />
@@ -775,6 +772,20 @@ function rowClass(thread: DocumentThread) {
               </form>
             </div>
           </template>
+        </li>
+        <li v-else role="none" class="pt-2 first:pt-0">
+          <button
+            type="button"
+            class="group flex w-full items-center rounded-4 px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
+            :aria-expanded="isResolvedShown"
+            @click="toggleResolvedShown"
+          >
+            Resolved · {{ resolvedRows.length }}
+            <span
+              class="lucide-chevron-right ml-auto size-4 transition-transform duration-200 group-aria-expanded:rotate-90"
+              aria-hidden="true"
+            />
+          </button>
         </li>
       </template>
     </ul>

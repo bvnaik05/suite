@@ -434,6 +434,24 @@ describe('the comments list', () => {
     ])
   })
 
+  it('keeps focus on the Resolved line while another tab changes the resolved threads', async () => {
+    const { host, listed } = showList()
+    const focused: (string | undefined)[] = []
+
+    buttonNamed(host, 'Resolved · 1')!.focus()
+    for (const threads of [
+      [ON_TEXT, { ...WHOLE, resolved: true }, DONE],
+      [ON_TEXT, WHOLE, DONE],
+      [{ ...ON_TEXT, resolved: true }, WHOLE, DONE],
+    ]) {
+      listed.value = threads
+      await nextTick()
+      focused.push(document.activeElement?.textContent?.trim())
+    }
+
+    expect(focused).toEqual(['Resolved · 2', 'Resolved · 1', 'Resolved · 2'])
+  })
+
   it('closes the open thread when it is resolved with Resolved unfolded', async () => {
     const { host, opened } = showList()
 
