@@ -197,6 +197,6 @@ def push_site_profile(**changes: str) -> None:
     if not changes or not is_suite_cloud_configured():
         return
     try:
-        get_client().call("site.update_site_profile", **changes)
+        get_client().call("tenant.update_tenant_profile", **changes)
     except Exception:
         log_mail_error("Failed to push the site profile to Suite Cloud", frappe.get_traceback())

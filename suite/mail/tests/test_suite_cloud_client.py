@@ -44,7 +44,7 @@ class TestSuiteCloudClient(UnitTestCase):
 
     def test_the_session_carries_the_site_credentials(self) -> None:
         self.assertEqual(self.client.session.headers["Authorization"], "token key:secret")
-        self.assertEqual(self.client.session.headers["Frappe-Authorization-Source"], "Suite Site")
+        self.assertEqual(self.client.session.headers["Frappe-Authorization-Source"], "Suite Tenant")
 
     def test_a_read_is_a_get_with_the_query_string(self) -> None:
         self._call(_response(200, {"data": {"domain": "acme.com"}}))
@@ -69,7 +69,7 @@ class TestSuiteCloudClient(UnitTestCase):
 
     def test_verbs_follow_the_method_name(self) -> None:
         cases = {
-            "site.ping": "GET",
+            "tenant.ping": "GET",
             "mail.domains.list_domains": "GET",
             "mail.domains.check_domain": "GET",
             "mail.accounts.update_account": "PATCH",
@@ -100,7 +100,7 @@ class TestSuiteCloudClient(UnitTestCase):
             (422, "ClusterRejectedError", frappe.ValidationError),
             (422, "ValidationError", frappe.ValidationError),
             (400, "InvalidInputError", frappe.ValidationError),
-            (403, "SiteSuspendedError", frappe.PermissionError),
+            (403, "TenantSuspendedError", frappe.PermissionError),
         ]
         for status, exc_type, expected in cases:
             with self.subTest(exc_type=exc_type), self.assertRaisesRegex(expected, "^Refused by the cloud$"):
@@ -123,14 +123,19 @@ class TestSuiteCloudClient(UnitTestCase):
                 self._call(_response(409, {"errors": errors}))
 
     def test_bad_credentials_keep_the_settings_hint(self) -> None:
-        for response in (_frappe_error(401, "SiteAuthError", "Site authentication failed."), _response(403)):
+        for response in (
+            _frappe_error(401, "TenantAuthError", "Tenant authentication failed."),
+            _response(403),
+        ):
             with self.assertRaisesRegex(SuiteCloudCredentialsError, "check Suite Settings"):
                 self._call(response)
 
     def test_address_refusals_point_at_the_allowed_list(self) -> None:
         with self.assertRaisesRegex(SuiteCloudAddressError, "allowed addresses"):
             self._call(
-                _frappe_error(403, "SiteAddressError", "Site x does not accept requests from this address.")
+                _frappe_error(
+                    403, "TenantAddressError", "Tenant x does not accept requests from this address."
+                )
             )
 
     def test_server_failures_are_unavailable(self) -> None:
@@ -155,4 +160,4 @@ class TestSuiteCloudClient(UnitTestCase):
             patch.object(self.client.session, "request", side_effect=requests.ConnectionError("down")),
             self.assertRaises(SuiteCloudUnavailableError),
         ):
-            self.client.call("site.ping")
+            self.client.call("tenant.ping")

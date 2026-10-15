@@ -3,7 +3,7 @@
 The site never talks to Stalwart's management API itself: every directory change (domains,
 accounts, groups, mailing lists) is proxied through Suite Cloud, which checks ownership and
 pushes to the cluster. Authentication is the site's API key and secret, handed out by Frappe
-Cloud when the site was registered, sent as a Frappe token with the ``Suite Site``
+Cloud when the site was registered, sent as a Frappe token with the ``Suite Tenant``
 authorization source.
 """
 
@@ -62,10 +62,10 @@ _EXCEPTIONS_BY_TYPE = {
     "ValidationError": frappe.ValidationError,
     "InvalidInputError": frappe.ValidationError,
     "ClusterRejectedError": frappe.ValidationError,
-    "SiteAuthError": SuiteCloudCredentialsError,
+    "TenantAuthError": SuiteCloudCredentialsError,
     "AuthenticationError": SuiteCloudCredentialsError,
-    "SiteSuspendedError": frappe.PermissionError,
-    "SiteAddressError": SuiteCloudAddressError,
+    "TenantSuspendedError": frappe.PermissionError,
+    "TenantAddressError": SuiteCloudAddressError,
     "PermissionError": frappe.PermissionError,
     "ClusterMisconfiguredError": SuiteCloudUnavailableError,
     "ClusterFailedError": SuiteCloudUnavailableError,
@@ -94,7 +94,7 @@ class SuiteCloudClient:
         self.session.headers.update(
             {
                 "Authorization": f"token {api_key}:{api_secret}",
-                "Frappe-Authorization-Source": "Suite Site",
+                "Frappe-Authorization-Source": "Suite Tenant",
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             }
@@ -103,7 +103,7 @@ class SuiteCloudClient:
     def call(self, method: str, **params: Any) -> Any:
         """Calls ``suite_cloud.api.<method>`` and returns its result.
 
-        ``method`` names the API and the call: ``site.ping`` for what any hosted product has, and
+        ``method`` names the API and the call: ``tenant.ping`` for what any hosted product has, and
         ``mail.domains.list_domains`` and friends for the mail directory.
 
         Refusals come back as the Frappe exception Suite Cloud raised: not found (another site's

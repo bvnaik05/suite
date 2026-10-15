@@ -80,7 +80,7 @@ class TestSuiteSettings(SuiteCloudTestCase):
         settings = frappe.get_doc("Suite Settings")
         site = settings.validate_suite_cloud_credentials()
         self.assertEqual(site["site"], "acme.frappe.test")
-        self.assertEqual(self.fake.calls[-1][0], "site.ping")
+        self.assertEqual(self.fake.calls[-1][0], "tenant.ping")
         self.assertNotIn("expects the JMAP URL", frappe.get_message_log()[-1]["message"])
 
         # The site is registered on c1; a JMAP URL of another cluster is worth a warning.
@@ -105,7 +105,7 @@ class TestSuiteSettings(SuiteCloudTestCase):
         calls = len(self.fake.calls)
         with self.change_settings("Suite Settings", is_onboarded=1):
             pass
-        self.assertEqual([c for c in self.fake.calls[calls:] if c[0] == "site.update_site_profile"], [])
+        self.assertEqual([c for c in self.fake.calls[calls:] if c[0] == "tenant.update_tenant_profile"], [])
 
     def test_validate_credentials_needs_configuration(self) -> None:
         with self.change_settings("Suite Settings", site_api_secret=""):
