@@ -347,7 +347,7 @@ describe('the Comments panel while versions load', () => {
 
     expect([
       host.textContent?.includes('Loading…'),
-      host.textContent?.includes('Comment on the whole document…'),
+      host.textContent?.includes('Add a comment…'),
     ]).toEqual([false, true])
   })
 })

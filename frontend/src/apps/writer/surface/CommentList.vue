@@ -132,7 +132,7 @@ const emptyText = computed(() => {
     return 'No open comments.'
   }
 
-  return 'No open comments. Select text and press Comment, or comment on the whole document above.'
+  return 'No open comments. Select text and press Comment, or add one above.'
 })
 const replyText = computed({
   get: () => replyTexts.value[openThread.value ?? ''] ?? '',
@@ -578,7 +578,7 @@ function rowClass(thread: DocumentThread) {
         class="block w-full rounded-4 px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
         @click="startDocumentComment"
       >
-        Comment on the whole document…
+        Add a comment…
       </button>
     </template>
     <CommentDraftCard

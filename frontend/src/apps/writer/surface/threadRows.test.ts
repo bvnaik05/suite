@@ -26,11 +26,11 @@ describe('thread rows in the comments panel', () => {
     const threads = ['gone', 'later', 'coming', 'old', 'earlier', 'whole'].map(thread)
 
     expect(shown(threadRows(threads, places))).toEqual([
-      'whole [Whole document] ""',
+      'whole [] ""',
       'earlier [] "earlier"',
       'later [] "later"',
       'coming [] "new words"',
-      'old [Not attached] ""',
+      'old [] ""',
       'gone [Text deleted] "old words"',
     ])
   })
@@ -42,7 +42,7 @@ describe('thread rows in the comments panel', () => {
     ])
 
     expect(shown(threadRows([thread('deleted'), thread('new'), thread('whole')], places))).toEqual([
-      'whole [Whole document] ""',
+      'whole [] ""',
       'new [] ""',
       'deleted [Text deleted] "gone"',
     ])

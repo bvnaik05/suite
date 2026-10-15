@@ -17,7 +17,7 @@ async function openComments(page: Page) {
 
 async function commentOnDocument(page: Page, text: string) {
 	const panel = await openComments(page);
-	await panel.getByRole("button", { name: "Comment on the whole document…" }).click();
+	await panel.getByRole("button", { name: "Add a comment…" }).click();
 	await panel.getByLabel("New comment").fill(text);
 	await panel.getByRole("button", { name: "Comment", exact: true }).click();
 	return panel;
@@ -88,7 +88,6 @@ test.describe("Writer collaboration comments", () => {
 		await openWriterDocument(page, node);
 		const panel = await commentOnDocument(page, "Whole document note");
 		const row = threadRow(panel, "Whole document note");
-		await expect(row).toContainText("Whole document");
 
 		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
 		await row.getByLabel("Reply", { exact: true }).fill("A reply");
@@ -139,7 +138,7 @@ test.describe("Writer collaboration comments", () => {
 
 		await commentOnDocument(owner.page, "Seen from the other tab");
 
-		await expect(threadRow(watching, "Seen from the other tab")).toContainText("Whole document");
+		await expect(threadRow(watching, "Seen from the other tab")).toBeVisible();
 	});
 
 	test("a thread someone else changed shows unread until opened, and stays read through a reload", async ({
@@ -177,7 +176,7 @@ test.describe("Writer collaboration comments", () => {
 		const [handle = ""] = collaborator.user.user.split("@");
 		await openWriterDocument(page, node);
 		const panel = await openComments(page);
-		await panel.getByRole("button", { name: "Comment on the whole document…" }).click();
+		await panel.getByRole("button", { name: "Add a comment…" }).click();
 		const box = panel.getByLabel("New comment");
 		await box.pressSequentially(`Ask @${handle}`);
 		const option = panel.getByRole("option");

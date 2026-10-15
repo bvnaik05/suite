@@ -2,7 +2,7 @@ import type { DocumentThread } from '@/apps/drive'
 import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
 import type { ThreadPlace } from '@/apps/writer/collab/places'
 
-/** A thread as the comments panel lists it, with a word for where it is unless it is on text. */
+/** A thread as the comments panel lists it, with a word when its text was deleted. */
 export interface ThreadRow {
   thread: DocumentThread
   quote: string
@@ -11,9 +11,9 @@ export interface ThreadRow {
 
 // In the panel's order, top to bottom (Q119 puts deleted text at the end)
 const PLACE_WORDS = {
-  document: 'Whole document',
+  document: '',
   text: '',
-  unplaced: 'Not attached',
+  unplaced: '',
   deleted: 'Text deleted',
 } as const
 

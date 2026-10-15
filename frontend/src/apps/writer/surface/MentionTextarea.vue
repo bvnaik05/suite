@@ -202,6 +202,7 @@ defineExpose({ focus })
     <Textarea
       ref="field"
       v-bind="$attrs"
+      class="resize-none"
       :model-value="shown"
       role="combobox"
       aria-autocomplete="list"

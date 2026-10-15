@@ -29,7 +29,7 @@ const PRODUCTS: Product[] = [
 		doctype: "Writer Document",
 		title: "Guest names doc",
 		post: "Comment",
-		start: "Comment on the whole document…",
+		start: "Add a comment…",
 	},
 	{ label: "Sheets", doctype: "Sheet", title: "Guest names sheet", post: "Comment" },
 	{ label: "Slides", doctype: "Presentation", title: "Guest names deck", post: "Add" },

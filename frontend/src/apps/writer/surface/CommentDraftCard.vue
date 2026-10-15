@@ -15,9 +15,6 @@ const quote = computed(() => anchorQuote(props.draft.anchor))
 const isPostDisabled = computed(() => !props.draft.text.trim())
 const isOnDocument = computed(() => props.draft.anchor === DOCUMENT_ANCHOR)
 const boxLabel = computed(() => (isOnDocument.value ? 'New comment' : 'Comment on the text'))
-const boxPlaceholder = computed(() =>
-  isOnDocument.value ? 'Comment on the whole document' : 'Add a comment',
-)
 
 function focus() {
   field.value?.focus()
@@ -34,7 +31,7 @@ defineExpose({ focus })
       ref="field"
       :model-value="draft.text"
       :rows="2"
-      :placeholder="boxPlaceholder"
+      placeholder="Add a comment"
       :aria-label="boxLabel"
       @update:model-value="emit('write', $event)"
       @keydown.esc.stop.prevent="emit('discard')"
