@@ -11,8 +11,7 @@ const emit = defineEmits<{ write: [text: string]; post: []; discard: [] }>()
 
 const field = ref<InstanceType<typeof Textarea> | null>(null)
 const quote = computed(() => anchorQuote(props.draft.anchor))
-const isPostDisabled = computed(() => props.draft.isPosting || !props.draft.text.trim())
-const postLabel = computed(() => (props.draft.isPosting ? 'Posting…' : 'Comment'))
+const isPostDisabled = computed(() => !props.draft.text.trim())
 
 onMounted(() => field.value?.focus())
 </script>
@@ -24,7 +23,6 @@ onMounted(() => field.value?.focus())
       ref="field"
       :model-value="draft.text"
       :rows="2"
-      :disabled="draft.isPosting"
       placeholder="Add a comment"
       aria-label="Comment on the text"
       @update:model-value="emit('write', $event)"
@@ -35,7 +33,7 @@ onMounted(() => field.value?.focus())
         type="submit"
         size="sm"
         variant="outline"
-        :label="postLabel"
+        label="Comment"
         :disabled="isPostDisabled"
       />
     </div>

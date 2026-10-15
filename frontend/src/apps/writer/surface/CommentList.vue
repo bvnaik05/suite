@@ -21,6 +21,7 @@ import { useCurrentUser } from '@/boot/session'
 import { confirm, toast } from '@/platform/feedback'
 
 import CommentDraftCard from './CommentDraftCard.vue'
+import CommentDraftRow from './CommentDraftRow.vue'
 import { threadRows } from './threadRows'
 import type { ShownDraft, useCommentDrafts } from './useCommentDrafts'
 import type { ThreadActions } from './useDocumentPanel'
@@ -96,9 +97,17 @@ const shownRows = computed(() => {
 
   return resolvedRows.value
 })
-const shownDrafts = computed(() => props.drafts?.drafts.value ?? [])
+const shownDrafts = computed(() => {
+  if (!isOpenTab.value) {
+    return []
+  }
+
+  return props.drafts?.drafts.value ?? []
+})
+const boxDrafts = computed(() => shownDrafts.value.filter((draft) => !draft.isSent))
+const sentDrafts = computed(() => shownDrafts.value.filter((draft) => draft.isSent))
 const canStartComment = computed(() => isOpenTab.value && props.canComment)
-const hasShownDrafts = computed(() => isOpenTab.value && !!shownDrafts.value.length)
+const hasShownDrafts = computed(() => !!shownDrafts.value.length)
 const isEmpty = computed(() => !shownRows.value.length && !hasShownDrafts.value)
 const emptyText = computed(() => {
   if (!isOpenTab.value) {
@@ -229,12 +238,28 @@ function writeDraft(draft: ShownDraft, text: string) {
   props.drafts?.write(draft, text)
 }
 
-function postDraft(draft: ShownDraft) {
-  void props.drafts?.post(draft, takeGuestName())
+// Sending again is a retry: the same words under the same client id
+async function postDraft(draft: ShownDraft) {
+  const thread = await props.drafts?.post(draft, takeGuestName())
+  if (thread) {
+    openThread.value = thread
+  }
 }
 
 async function discardDraft(draft: ShownDraft) {
   if (await canDiscard(draft.text)) {
+    props.drafts?.discard(draft)
+  }
+}
+
+async function discardSentDraft(draft: ShownDraft) {
+  const isConfirmed = await confirm({
+    title: 'Discard this comment?',
+    message: "It hasn't been posted, and can't be brought back.",
+    confirmLabel: 'Discard',
+    destructive: true,
+  })
+  if (isConfirmed) {
     props.drafts?.discard(draft)
   }
 }
@@ -507,18 +532,22 @@ function rowClass(thread: DocumentThread) {
         Comment on the whole document…
       </button>
     </template>
-    <section v-if="hasShownDrafts" class="space-y-2" aria-label="Not posted yet">
-      <h3 class="text-sm-medium text-ink-gray-5">Not posted yet</h3>
-      <CommentDraftCard
-        v-for="draft in shownDrafts"
+    <CommentDraftCard
+      v-for="draft in boxDrafts"
+      :key="draft.clientId"
+      :draft
+      @write="writeDraft(draft, $event)"
+      @post="postDraft(draft)"
+      @discard="discardDraft(draft)"
+    />
+    <ul class="space-y-1">
+      <CommentDraftRow
+        v-for="draft in sentDrafts"
         :key="draft.clientId"
         :draft
-        @write="writeDraft(draft, $event)"
-        @post="postDraft(draft)"
-        @discard="discardDraft(draft)"
+        @retry="postDraft(draft)"
+        @discard="discardSentDraft(draft)"
       />
-    </section>
-    <ul class="space-y-1">
       <li
         v-for="{ thread, quote, where } in shownRows"
         ref="rowItems"

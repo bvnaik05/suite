@@ -8,15 +8,36 @@ export interface CommentDraft {
   clientId: string
   anchor: string
   text: string
+  // Comment was pressed, so the words stay as sent and any later send is a retry
+  isSent: boolean
 }
 
 const PREFIX = 'suite:writer-comment-drafts:'
 
 /** The drafts this person has on this device for one document, oldest first. */
 export function readDrafts(user: string, node: string): CommentDraft[] {
+  try {
+    return parseDrafts(localStorage.getItem(keyOf(user, node)))
+  } catch {
+    return []
+  }
+}
+
+/** The client ids of the drafts another tab took out of this person's drafts for the document. */
+export function removedElsewhere(user: string, node: string, event: StorageEvent) {
+  if (event.key !== keyOf(user, node)) {
+    return new Set<string>()
+  }
+
+  const left = new Set(parseDrafts(event.newValue).map((draft) => draft.clientId))
+  const before = parseDrafts(event.oldValue).map((draft) => draft.clientId)
+  return new Set(before.filter((clientId) => !left.has(clientId)))
+}
+
+function parseDrafts(value: string | null): CommentDraft[] {
   let stored: unknown
   try {
-    stored = JSON.parse(localStorage.getItem(keyOf(user, node)) ?? '[]')
+    stored = JSON.parse(value ?? '[]')
   } catch {
     return []
   }
@@ -25,7 +46,7 @@ export function readDrafts(user: string, node: string): CommentDraft[] {
     return []
   }
 
-  return stored.filter(isDraft)
+  return stored.filter(isDraft).map((draft) => ({ ...draft, isSent: draft.isSent === true }))
 }
 
 /** Keeps the draft, in place of any earlier one with its client id. */

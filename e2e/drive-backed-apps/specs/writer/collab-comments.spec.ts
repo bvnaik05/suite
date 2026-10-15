@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
 import { expectSaved, openForCollab, saveNamedVersion, typeParagraph } from "../../helpers/collab";
@@ -28,7 +28,7 @@ function threadRow(panel: Locator, text: string) {
 	return panel.getByRole("listitem").filter({ hasText: text });
 }
 
-// Types a line, selects its last word and starts a comment on it from the bubble menu
+// Types a line, selects its last word and starts a comment on it from the bubble menu, in the panel it returns
 async function startCommentOnLastWord(page: Page, line: string) {
 	await typeParagraph(page, line);
 	await expectSaved(page);
@@ -38,11 +38,19 @@ async function startCommentOnLastWord(page: Page, line: string) {
 	}
 
 	await page.locator('[data-slot="bubble-menu"]').getByRole("button", { name: "Comment" }).click();
-	const drafts = page.getByRole("complementary", { name: "Comments" }).getByRole("region", {
-		name: "Not posted yet",
-	});
-	await expect(drafts).toContainText(word);
-	return drafts;
+	const panel = page.getByRole("complementary", { name: "Comments" });
+	await expect(panel.getByLabel("Comment on the text")).toBeVisible();
+	await expect(panel).toContainText(word);
+	return panel;
+}
+
+// Fails each new thread as a dropped connection would, and lets the list through
+function refuseNewThreads(route: Route) {
+	if (route.request().method() === "POST") {
+		return route.abort();
+	}
+
+	return route.fallback();
 }
 
 test.describe("Writer collaboration comments", () => {
@@ -129,7 +137,7 @@ test.describe("Writer collaboration comments", () => {
 		const panel = page.getByRole("complementary", { name: "Comments" });
 		const row = threadRow(panel, "About this word");
 		await expect(row).not.toContainText("Text deleted");
-		await expect(drafts).toHaveCount(0);
+		await expect(drafts.getByLabel("Comment on the text")).toHaveCount(0);
 		await expect(writerEditor(page).locator("[data-thread]")).toHaveText("sentence");
 
 		await writerEditor(page).locator("[data-thread]").dblclick();
@@ -178,13 +186,35 @@ test.describe("Writer collaboration comments", () => {
 		await drafts.getByLabel("Comment on the text").fill("Not sent yet");
 
 		await page.reload();
-		const reopened = (await openComments(page)).getByRole("region", { name: "Not posted yet" });
+		const reopened = await openComments(page);
 		await expect(reopened.getByLabel("Comment on the text")).toHaveValue("Not sent yet");
 
 		await reopened.getByRole("button", { name: "Cancel" }).click();
 		await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
-		await expect(reopened).toHaveCount(0);
+		await expect(reopened.getByLabel("Comment on the text")).toHaveCount(0);
 		await page.reload();
 		await expect((await openComments(page)).getByText("No open comments.", { exact: false })).toBeVisible();
+	});
+
+	test("a refused comment stays as sent through a reload, and Retry posts it once", async ({ owner }) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		const drafts = await startCommentOnLastWord(page, "the refused sentence");
+		await page.route("**/api/suite/drive/nodes/*/threads", refuseNewThreads);
+		await drafts.getByLabel("Comment on the text").fill("Sent while offline");
+		await drafts.getByRole("button", { name: "Comment" }).click();
+		await expect(drafts).toContainText("Not posted ·");
+
+		await page.unroute("**/api/suite/drive/nodes/*/threads", refuseNewThreads);
+		await page.reload();
+		const reopened = await openComments(page);
+		await expect(reopened).toContainText("Not posted ·");
+		await expect(reopened.getByLabel("Comment on the text")).toHaveCount(0);
+		await reopened.getByRole("button", { name: "Retry" }).click();
+
+		const row = threadRow(reopened, "Sent while offline");
+		await expect(row.getByRole("button", { name: /Sent while offline/ })).toHaveAttribute("aria-expanded", "true");
+		await expect(reopened).not.toContainText("Not posted");
+		await expect(row).toHaveCount(1);
 	});
 });

@@ -1,8 +1,9 @@
 import type { CollabRoom } from '@suite/collab-client'
+import { useEventListener } from '@vueuse/core'
 import { toast } from 'frappe-ui'
 import { v4 } from 'uuid'
-import { ref } from 'vue'
-import type * as Y from 'yjs'
+import { ref, type Ref } from 'vue'
+import * as Y from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { anchorEnds } from '@/apps/writer/collab/anchors'
@@ -10,6 +11,7 @@ import {
   dropDraft,
   keepDraft,
   readDrafts,
+  removedElsewhere,
   type CommentDraft,
 } from '@/apps/writer/recovery/commentDrafts'
 
@@ -31,19 +33,30 @@ interface DraftOptions {
 function deviceDrafts(user: string, node: string) {
   const kept = readDrafts(user, node).map((draft) => ({ ...draft, isPosting: false }))
   const drafts = ref<ShownDraft[]>(kept)
-  function keep(draft: ShownDraft) {
-    keepDraft(user, node, { clientId: draft.clientId, anchor: draft.anchor, text: draft.text })
+  followOtherTabs(user, node, drafts)
+  function keep({ clientId, anchor, text, isSent }: ShownDraft) {
+    keepDraft(user, node, { clientId, anchor, text, isSent })
   }
 
   return {
     drafts,
     start(anchor: string) {
-      const draft: ShownDraft = { clientId: v4(), anchor, text: '', isPosting: false }
+      const draft: ShownDraft = {
+        clientId: v4(),
+        anchor,
+        text: '',
+        isSent: false,
+        isPosting: false,
+      }
       keep(draft)
       drafts.value = [...drafts.value, draft]
     },
     write(draft: ShownDraft, text: string) {
       draft.text = text
+      keep(draft)
+    },
+    send(draft: ShownDraft) {
+      draft.isSent = true
       keep(draft)
     },
     discard(draft: ShownDraft) {
@@ -53,44 +66,74 @@ function deviceDrafts(user: string, node: string) {
   }
 }
 
+// Drops the drafts another tab posted or discarded, and takes on none it starts
+function followOtherTabs(user: string, node: string, drafts: Ref<ShownDraft[]>) {
+  useEventListener(window, 'storage', (event) => {
+    const removed = removedElsewhere(user, node, event)
+    drafts.value = drafts.value.filter((draft) => !removed.has(draft.clientId))
+  })
+}
+
 /** Comments on text from being written to being posted, kept on this device until Drive takes them. */
 export function useCommentDrafts({ session, user, room, refreshThreads }: DraftOptions) {
   const list = deviceDrafts(user, session.nodeId)
+  // The thread Drive made, or null with the draft kept, its words as first sent
   async function post(draft: ShownDraft, authorName?: string) {
+    list.send(draft)
     draft.isPosting = true
-    const isPosted = await postOnceSaved(draft, authorName)
+    const thread = await postOnceSaved(draft, authorName)
     draft.isPosting = false
-    if (isPosted) {
+    if (thread) {
       list.discard(draft)
       await refreshThreads()
     }
 
-    return isPosted
+    return thread
   }
 
   async function postOnceSaved(draft: ShownDraft, authorName?: string) {
-    if (!(await whenSaved(room(), anchorEnds(draft.anchor)))) {
+    const current = room()
+    const items = anchorEnds(draft.anchor)
+    if (current && !isInCopy(current.doc, items)) {
+      toast.error("The text this comment is on wasn't saved, so it wasn't posted.")
+      return null
+    }
+
+    if (!(await whenSaved(current, items))) {
       toast.error("The text wasn't saved, so the comment wasn't posted. It's kept on this device.")
-      return false
+      return null
     }
 
     const isShown = list.drafts.value.some((shown) => shown.clientId === draft.clientId)
-    return isShown && sendDraft(session, draft, authorName)
+    if (!isShown) {
+      return null
+    }
+
+    return sendDraft(session, draft, authorName)
   }
 
   return { ...list, post }
 }
 
-// Whether Drive took the comment; a resend with the same client id never posts twice
+// The thread Drive made or answered; a resend with the same client id never posts twice
 async function sendDraft(session: DraftOptions['session'], draft: ShownDraft, authorName?: string) {
   try {
-    await session.comments.create(draft.anchor, draft.text.trim(), authorName, draft.clientId)
+    const thread = await session.comments.create(
+      draft.anchor,
+      draft.text.trim(),
+      authorName,
+      draft.clientId,
+    )
+    return thread.name
   } catch (error) {
     showError(error, 'Could not add the comment.')
-    return false
+    return null
   }
+}
 
-  return true
+// Whether this copy holds the commented text, saved or still waiting to be sent
+function isInCopy(doc: Y.Doc, items: Y.ID[]) {
+  return items.every((id) => Y.getState(doc.store, id.client) > id.clock)
 }
 
 // Whether the server came to hold the commented text; false once this tab can't save it

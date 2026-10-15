@@ -1014,7 +1014,7 @@ describe('commenting from the editor', () => {
   }
 
   function draftCount(root: Element) {
-    return root.querySelectorAll('[aria-label="Not posted yet"] form').length
+    return root.querySelectorAll('textarea[aria-label="Comment on the text"]').length
   }
 
   it('starts exactly one comment on the selected text on Ctrl+Alt+M', async () => {

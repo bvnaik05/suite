@@ -80,7 +80,12 @@ export interface DocumentSession {
   comments: {
     list(resolved?: boolean): Promise<NodeThreadsOutput>
     /** `clientId`, made by the caller, makes a resend return the first post instead of posting twice. */
-    create(anchor: string, text: string, authorName?: string, clientId?: string): Promise<unknown>
+    create(
+      anchor: string,
+      text: string,
+      authorName?: string,
+      clientId?: string,
+    ): Promise<{ name: string }>
     reply(thread: string, text: string, authorName?: string, clientId?: string): Promise<unknown>
     resolve(thread: string, resolved: boolean): Promise<unknown>
     edit(comment: string, text: string): Promise<unknown>

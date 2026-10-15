@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref, type App } from 'vue'
+import * as Y from 'yjs'
 
 import type { DocumentThread } from '@/apps/drive'
+import { encodeAnchor } from '@/apps/writer/collab/anchors'
 import type { ThreadPlace } from '@/apps/writer/collab/places'
 
 import CommentList from './CommentList.vue'
+import type { ShownDraft, useCommentDrafts } from './useCommentDrafts'
 import type { ThreadActions } from './useDocumentPanel'
 
 const confirmed = vi.hoisted(() => ({ asked: [] as string[], answer: true }))
@@ -192,6 +195,7 @@ function showList({
   isRefusingResolve = false,
   isRefusingEdit = false,
   canEditDocument = false,
+  drafts = undefined as ReturnType<typeof useCommentDrafts> | undefined,
 } = {}) {
   const asked: string[] = []
   const opened: (string | null)[] = []
@@ -225,6 +229,7 @@ function showList({
       canComment,
       canEditDocument,
       actions,
+      drafts,
       openThread: shown.value,
       'onUpdate:openThread': open,
       'onUpdate:litThread': (name: string | null) => lit.push(name),
@@ -893,5 +898,147 @@ describe('an edit while someone else changes the comment', () => {
     await nextTick()
 
     expect([editBox()?.value, warnings]).toEqual(['Mine', []])
+  })
+})
+
+describe('comments not yet posted', () => {
+  // Drafts as useCommentDrafts shows them, each post answered in turn by the thread Drive made or null
+  function fakeDrafts(shown: Partial<ShownDraft>[], answers: (string | null)[] = []) {
+    const drafts = ref<ShownDraft[]>(
+      shown.map((draft, index) => ({
+        clientId: `draft-${index}`,
+        anchor: 'document',
+        text: '',
+        isSent: false,
+        isPosting: false,
+        ...draft,
+      })),
+    )
+    const posted: string[] = []
+    const list = {
+      drafts,
+      discard: (draft: ShownDraft) => {
+        drafts.value = drafts.value.filter((kept) => kept.clientId !== draft.clientId)
+      },
+      post: async (draft: ShownDraft) => {
+        posted.push(draft.clientId)
+        return answers.shift() ?? null
+      },
+    }
+    return { posted, list: list as unknown as ReturnType<typeof useCommentDrafts> }
+  }
+
+  function menus(host: Element) {
+    return host.querySelectorAll('button[aria-label="More comment actions"]').length
+  }
+
+  it('shows a comment being written above the list, and sent ones as the first rows', () => {
+    const { list } = fakeDrafts([
+      { text: 'Still writing' },
+      { text: 'On its way', isSent: true, isPosting: true },
+      { text: 'Refused', isSent: true },
+    ])
+    const { host } = showList({ threads: [WHOLE], drafts: list })
+    const box = host.querySelector('textarea[aria-label="Comment on the text"]')!
+    const isBoxFirst = !!(
+      box.compareDocumentPosition(host.querySelector('ul')!) & Node.DOCUMENT_POSITION_FOLLOWING
+    )
+    const faded = [...host.querySelectorAll('li')].map((row) =>
+      row.classList.contains('opacity-60'),
+    )
+    const boxes = host.querySelectorAll('textarea').length
+
+    expect([(box as HTMLTextAreaElement).value, boxes, isBoxFirst, rows(host), faded]).toEqual([
+      'Still writing',
+      1,
+      true,
+      [
+        'You Posting… On its way',
+        'You Not posted · Retry Refused',
+        expect.stringMatching(/^Ben Ito Whole document .* Looks good overall$/),
+      ],
+      [true, false, false],
+    ])
+  })
+
+  it('posts from the box and retries from Retry, opening the thread once Drive takes it', async () => {
+    const { list, posted } = fakeDrafts(
+      [{ text: 'New words' }, { text: 'Refused', isSent: true }],
+      [null, 'thread-9'],
+    )
+    const { host, opened } = showList({ drafts: list, openThread: 'whole' })
+
+    host.querySelector('form')!.requestSubmit()
+    await settled()
+    await click(buttonNamed(host, 'Retry'))
+    await settled()
+
+    expect([posted, opened]).toEqual([['draft-0', 'draft-1'], ['thread-9']])
+  })
+
+  it('discards a refused comment from its ⋯ only once confirmed, and offers no ⋯ while posting', async () => {
+    const { list } = fakeDrafts([
+      { text: 'On its way', isSent: true, isPosting: true },
+      { text: 'Refused', isSent: true },
+    ])
+    const { host } = showList({ threads: [], drafts: list })
+    function discard() {
+      return host.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+    }
+
+    for (const toggle of host.querySelectorAll<HTMLButtonElement>('li button[aria-expanded]')) {
+      await click(toggle)
+    }
+
+    const shownMenus = menus(host)
+    confirmed.answer = false
+    await click(discard())
+    await settled()
+    const afterNo = rows(host).length
+    confirmed.answer = true
+    await click(discard())
+    await settled()
+
+    expect([shownMenus, confirmed.asked, afterNo, rows(host)]).toEqual([
+      1,
+      ['Discard this comment?', 'Discard this comment?'],
+      2,
+      ['You Posting… On its way'],
+    ])
+  })
+
+  it('opens a refused comment to its quote and words on a click, and closes it on another', async () => {
+    const content = new Y.XmlText()
+    new Y.Doc().getXmlFragment('default').insert(0, [content])
+    content.insert(0, 'the quoted words')
+    const anchor = encodeAnchor(
+      Y.createRelativePositionFromTypeIndex(content, 0, 0),
+      Y.createRelativePositionFromTypeIndex(content, content.length, -1),
+      'the quoted words',
+    )
+    const { list } = fakeDrafts([{ anchor, text: 'Refused', isSent: true }])
+    const { host } = showList({ threads: [], drafts: list })
+
+    await click(buttonNamed(host, 'You'))
+    const [openRow] = rows(host)
+    await click(buttonNamed(host, 'You'))
+    const [closedRow] = rows(host)
+
+    expect([openRow, closedRow]).toEqual([
+      'You Not posted · Retry the quoted words Refused Discard',
+      'You Not posted · Retry Refused',
+    ])
+  })
+
+  it('shows no unposted comments under Resolved', async () => {
+    const { list } = fakeDrafts([{ text: 'Still writing' }, { text: 'Refused', isSent: true }])
+    const { host } = showList({ drafts: list })
+
+    await click(buttonNamed(host, 'Resolved 1'))
+
+    expect([host.querySelector('textarea'), rows(host)]).toEqual([
+      null,
+      [expect.stringMatching(/^Asha Rao Text deleted .* Fixed the title · 1 reply$/)],
+    ])
   })
 })
