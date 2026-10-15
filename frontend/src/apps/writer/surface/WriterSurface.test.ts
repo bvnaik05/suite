@@ -1,4 +1,5 @@
 import type { Editor as TiptapEditor } from '@tiptap/core'
+import { toast } from 'frappe-ui'
 import { fromUint8Array } from 'js-base64'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, reactive, ref } from 'vue'
@@ -360,13 +361,18 @@ async function serverMinBuilds(minBuilds: Record<string, string>, body = '{}') {
   await window.fetch('/api/method/ping')
 }
 
-async function openedSurface(versions?: Versions, path = '/d/node-1', comments?: Comments) {
+async function openedSurface(
+  versions?: Versions,
+  path = '/d/node-1',
+  comments?: Comments,
+  access = ref({ role: 50 }),
+) {
   const session = {
     nodeId: 'node-1',
     comments,
     title: ref('Quarterly plan'),
     state: ref('Active'),
-    access: ref({ role: 50 }),
+    access,
     refreshAccess: async () => {},
     versions,
     credentials: {
@@ -520,6 +526,32 @@ async function discardCopies() {
   for (const copy of await listCopies('node-1')) {
     await discardCopy(copy)
   }
+}
+
+// Types a line the room has yet to send, shuts the write gate, and takes the file the toast's Download my changes saves
+async function downloadedChanges() {
+  Object.assign(liveRoom(), { saveState: 'unsaved', unsent: 1 })
+  const access = ref({ role: 50 })
+  const root = await openedSurface(undefined, '/d/node-1', undefined, access)
+  root
+    .querySelector<EditorElement>('[data-editor] .ProseMirror')!
+    .editor.commands.insertContent('Unsent line')
+  const files: Blob[] = []
+  Object.assign(URL, {
+    createObjectURL: (blob: Blob) => {
+      files.push(blob)
+      return 'blob:changes'
+    },
+    revokeObjectURL: () => {},
+  })
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  const warning = vi.spyOn(toast, 'warning')
+
+  access.value = { role: 30 }
+  const [, shown] = warning.mock.lastCall!
+  ;(shown?.action as { onClick: () => void }).onClick()
+  await vi.waitFor(() => expect(files).toHaveLength(1))
+  return files[0] as File
 }
 
 const shownText = (root: Element) => root.querySelector('[data-editor] .ProseMirror')!.textContent
@@ -880,6 +912,21 @@ describe('Writer surface', () => {
       'You can no longer open this document. Unsent changes were kept as a recovery copy.',
     ])
     expect(await listCopies('node-1')).toHaveLength(1)
+    await discardCopies()
+  })
+
+  it('downloads the line typed but not yet sent from the lost-access toast, before the device keeps a copy', async () => {
+    const file = await downloadedChanges()
+
+    expect(file.name).toBe('Quarterly plan (recovered).html')
+    expect(await file.text()).toContain('<p>Unsent line</p>')
+  })
+
+  it('downloads the line typed but not yet sent from the lost-access toast, not an older copy on the device', async () => {
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Older copy</p>', new Date('2026-01-01'))
+    const file = await downloadedChanges()
+
+    expect(await file.text()).toContain('<p>Unsent line</p>')
     await discardCopies()
   })
 

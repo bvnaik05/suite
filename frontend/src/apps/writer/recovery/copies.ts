@@ -167,7 +167,7 @@ function sizeOf(html: string) {
 }
 
 /** The copy as a standalone HTML document, named after the document title. */
-export function recoveryFile(copy: RecoveryCopy): File {
+export function recoveryFile(copy: Pick<RecoveryCopy, 'title' | 'savedAt' | 'html'>): File {
   const title = copy.title || 'Document'
   const name = title.replace(/[<>:"/\\|?*]/g, '').trim() || 'Document'
   const escapedTitle = escapeText(title)
@@ -185,7 +185,7 @@ export function recoveryFile(copy: RecoveryCopy): File {
 }
 
 /** Saves the copy through the browser. The copy stays on the device. */
-export function downloadCopy(copy: RecoveryCopy) {
+export function downloadCopy(copy: Pick<RecoveryCopy, 'title' | 'savedAt' | 'html'>) {
   const file = recoveryFile(copy)
   const url = URL.createObjectURL(file)
   const link = document.createElement('a')

@@ -554,6 +554,13 @@ function retainRecovery(): boolean {
 watch(copiesKept, () => recoveryBanner.value?.refresh())
 
 async function downloadChanges() {
+  // The editor holds this tab's unsent work, which the device may not have kept as a copy yet
+  const html = editorSurface.value?.editor?.getHTML()
+  if (html) {
+    downloadCopy({ title: props.session.title.value, savedAt: new Date(), html })
+    return
+  }
+
   const [latest] = await listCopies(props.session.nodeId)
   if (!latest) {
     toast.error('No recovery copy is kept for this document.')
