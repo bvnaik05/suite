@@ -172,9 +172,8 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             />
             <p class="text-p-xs text-ink-gray-5">{{ versionNameHint }}</p>
           </div>
-          <p v-if="lists.isLoading" class="text-sm text-ink-gray-5">Loading…</p>
           <CommentList
-            v-else-if="isCommentsPanel"
+            v-if="isCommentsPanel"
             ref="commentList"
             v-model:open-thread="openThread"
             v-model:lit-thread="litThread"
@@ -187,6 +186,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             :actions="threadActions"
             :drafts
           />
+          <p v-else-if="lists.isLoading" class="text-sm text-ink-gray-5">Loading…</p>
           <template v-else>
             <VersionList
               v-model:previewed="previewedVersion"

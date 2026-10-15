@@ -25,6 +25,7 @@ vi.mock('frappe-ui', async () => {
           ]),
     }),
     Textarea: emptyComponent,
+    TabButtons: emptyComponent,
     Tooltip: emptyComponent,
     Button: define({
       props: { label: String },
@@ -281,5 +282,72 @@ describe('renaming a version in the Versions panel', () => {
     const { host } = await openViewingPanel(false)
 
     expect(renameItem(host)).toBeUndefined()
+  })
+})
+
+// The side panel, showing `kind`, over a session whose versions never finish loading
+function panelWhileVersionsLoad(kind: 'comments' | 'versions') {
+  const started: string[] = []
+  const shown = ref<string | null>(kind)
+  const panel = ref<{ startDocumentComment(): Promise<void>; reloadVersions(): void } | null>(null)
+  const session = {
+    nodeId: 'doc-1',
+    comments: {},
+    versions: { list: () => new Promise(() => {}) },
+  } as unknown as DocumentSession
+  const drafts = {
+    drafts: ref([]),
+    start: (anchor: string) => started.push(anchor),
+  } as unknown as ReturnType<typeof useCommentDrafts>
+  const host = document.createElement('div')
+  document.body.append(host)
+  const app = createApp(() =>
+    h(DocumentSidePanel, {
+      ref: panel,
+      panel: shown.value,
+      'onUpdate:panel': (opened: string | null) => {
+        shown.value = opened
+      },
+      previewedVersion: null,
+      session,
+      canComment: true,
+      canEditDocument: false,
+      canRestoreVersion: false,
+      canRenameVersion: false,
+      isRestoringVersion: false,
+      threads: [],
+      hasLoadedThreads: true,
+      places: null,
+      refreshThreads: async () => {},
+      drafts,
+      saveFirst: async () => {},
+    }),
+  )
+  app.mount(host)
+  mounted = app
+  return { panel, host, started }
+}
+
+describe('the Comments panel while versions load', () => {
+  it('starts a whole-document comment from the Versions panel before its versions arrive', async () => {
+    const { panel, started } = panelWhileVersionsLoad('versions')
+    await nextTick()
+
+    await panel.value!.startDocumentComment()
+
+    expect(started).toHaveLength(1)
+  })
+
+  it('keeps the comments shown while versions reload behind them', async () => {
+    const { panel, host } = panelWhileVersionsLoad('comments')
+    await nextTick()
+
+    panel.value!.reloadVersions()
+    await nextTick()
+
+    expect([
+      host.textContent?.includes('Loading…'),
+      host.textContent?.includes('Comment on the whole document…'),
+    ]).toEqual([false, true])
   })
 })
