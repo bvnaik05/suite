@@ -1,4 +1,4 @@
-"""Validate drawing scenes while legacy rows await Drive adoption."""
+"""Validate drawing scenes and defer identity and access to Drive."""
 
 import json
 import re
