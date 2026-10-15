@@ -386,6 +386,23 @@ class TestCommentWorkflows(IntegrationTestCase):
         self.assertEqual(activity.node, self.document.name)
         self.assertEqual(frappe.parse_json(activity.detail)["comment"], comment.name)
 
+    def test_an_edit_notifies_only_the_people_it_adds(self):
+        thread = create_thread(self.commenter, self.document.name, "anchor", f"Hi @[{MENTIONED}]").name
+        comment = frappe.db.get_value("Drive Comment", {"thread": thread}, "name")
+
+        edit_comment(self.commenter, comment, f"Hi @[{MENTIONED}] and @[{OWNER}]")
+        edit_comment(self.commenter, comment, f"Hi @[{MENTIONED}] and @[{OWNER}], fixed")
+        edit_comment(self.commenter, comment, f"Hi @[{OWNER}]")
+
+        activity = frappe.get_all(
+            "Drive Activity", filters={"node": self.document.name, "action": "comment"}, pluck="name"
+        )
+        notified = frappe.get_all(
+            "Drive Notification", filters={"activity": ["in", activity]}, pluck="to_user"
+        )
+        self.assertEqual(sorted(notified), sorted([MENTIONED, OWNER]))
+        self.assertEqual(len(activity), 4)
+
     def test_unreadable_threads_are_hidden_and_trash_refuses_writes(self):
         thread = create_thread(self.owner, self.document.name, "anchor", "Before trash").name
         comment = frappe.db.get_value("Drive Comment", {"thread": thread}, "name")

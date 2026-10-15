@@ -251,7 +251,7 @@ def edit_comment(principals: Principals, comment: str, text: str) -> frappe._dic
             },
             via_link=via_link,
         )
-        notify_users(activity, mentions)
+        notify_users(activity, set(mentions) - set(_json_value(comment_row.mentions, [])))
     except Exception as exc:
         rollback_savepoint(savepoint, exc)
         raise
@@ -455,7 +455,7 @@ def _comment(comment: str, *, for_update: bool = False) -> frappe._dict:
     row = frappe.db.get_value(
         "Drive Comment",
         comment,
-        ["name", "thread", "node", "author", "author_name"],
+        ["name", "thread", "node", "author", "author_name", "mentions"],
         as_dict=True,
         for_update=for_update,
     )
