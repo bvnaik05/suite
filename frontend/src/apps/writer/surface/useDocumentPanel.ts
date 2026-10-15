@@ -12,6 +12,8 @@ interface PanelLists {
   isLoadingMore: boolean
 }
 
+type VersionChanges = Parameters<PanelSession['versions']['update']>[1]
+
 export function showError(error: unknown, fallback: string) {
   if (error instanceof Error) {
     toast.error(error.message)
@@ -108,6 +110,35 @@ async function saveVersion(
   return true
 }
 
+// Naming an automatic version also keeps it, as the daily thinner deletes only unpinned automatic ones
+function renameChanges(version: DocumentVersion, label: string): VersionChanges {
+  if (version.kind === 'auto') {
+    return { label, pinned: true }
+  }
+
+  return { label }
+}
+
+// The renamed version, or null when Drive refused the name
+async function renameVersion(
+  session: PanelSession,
+  lists: PanelLists,
+  version: DocumentVersion,
+  label: string,
+) {
+  const changes = renameChanges(version, label)
+  try {
+    await session.versions.update(String(version.seq), changes)
+  } catch (error) {
+    showError(error, 'Could not rename the version.')
+    return null
+  }
+
+  const renamed = { ...version, label, pinned: Number(changes.pinned ?? version.pinned) }
+  lists.versions = lists.versions.map((row) => (row.seq === version.seq ? renamed : row))
+  return renamed
+}
+
 // The side panel's comments and versions; comments are the document's threads, read again when the panel opens
 export function useDocumentPanel(session: PanelSession, refreshThreads: () => Promise<void>) {
   const lists = reactive<PanelLists>({
@@ -131,6 +162,8 @@ export function useDocumentPanel(session: PanelSession, refreshThreads: () => Pr
     loadMoreVersions: () => loadMoreVersions(session, lists),
     saveVersion: (label: string, saveFirst: () => Promise<void>) =>
       saveVersion(session, lists, label, saveFirst),
+    renameVersion: (version: DocumentVersion, label: string) =>
+      renameVersion(session, lists, version, label),
     ...threadActions(session, refreshThreads),
   }
 }

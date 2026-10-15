@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Dropdown, Tooltip, type DropdownOptions } from 'frappe-ui'
-import { computed, ref } from 'vue'
+import { Dropdown, TextInput, Tooltip, type DropdownOptions } from 'frappe-ui'
+import { computed, nextTick, ref } from 'vue'
 
 import type { DocumentVersion } from '@/apps/drive'
 import { fullName } from '@/apps/writer/composables/useUsers'
@@ -16,6 +16,8 @@ const props = defineProps<{
   versions: DocumentVersion[]
   canRestore: boolean
   isRestoring: boolean
+  /** Names the version, answering whether Drive took the name; absent for someone who can't. */
+  rename?: (version: DocumentVersion, label: string) => Promise<boolean>
 }>()
 
 const previewed = defineModel<DocumentVersion | null>('previewed', { required: true })
@@ -28,6 +30,12 @@ const days = computed(() => versionDays(props.versions))
 const isCurrentViewed = computed(() => !previewed.value)
 /** The row whose menu is open keeps its actions while the pointer is in the menu. */
 const menuRow = ref<number | null>(null)
+const renamingRow = ref<number | null>(null)
+const newName = ref('')
+const isSavingName = ref(false)
+const renameInputs = ref<{ focus(): void }[]>([])
+// The closing menu hands focus back to its button, which passes it on to the name box once
+let isRenamePicked = false
 
 function isViewed(version: DocumentVersion) {
   return previewed.value?.seq === version.seq
@@ -68,8 +76,78 @@ function noteMenu(version: DocumentVersion, isOpen: boolean) {
   }
 }
 
+function isRenaming(version: DocumentVersion) {
+  return renamingRow.value === version.seq
+}
+
+function canRename(version: DocumentVersion) {
+  return !!props.rename && (version.kind === 'auto' || version.kind === 'named')
+}
+
+async function focusNameBox() {
+  await nextTick()
+  renameInputs.value[0]?.focus()
+}
+
+function startRenaming(version: DocumentVersion) {
+  renamingRow.value = version.seq
+  newName.value = version.label ?? ''
+  isRenamePicked = true
+  void focusNameBox()
+}
+
+function stopRenaming() {
+  renamingRow.value = null
+  newName.value = ''
+  isRenamePicked = false
+}
+
+function passFocusToNameBox() {
+  if (isRenamePicked) {
+    isRenamePicked = false
+    void focusNameBox()
+  }
+}
+
+// An empty or unchanged name sends nothing
+async function saveName(version: DocumentVersion) {
+  const label = newName.value.trim()
+  if (!label || label === version.label || !props.rename) {
+    stopRenaming()
+    return
+  }
+
+  isSavingName.value = true
+  let isRenamed = false
+  try {
+    isRenamed = await props.rename(version, label)
+  } finally {
+    isSavingName.value = false
+  }
+
+  if (isRenamed) {
+    stopRenaming()
+    return
+  }
+
+  // The box was disabled while saving, which drops its focus
+  await focusNameBox()
+}
+
 function actions(version: DocumentVersion): DropdownOptions {
-  return [{ label: 'Download', icon: 'lucide-download', onClick: () => emit('download', version) }]
+  const download = {
+    label: 'Download',
+    icon: 'lucide-download',
+    onClick: () => emit('download', version),
+  }
+  if (!canRename(version)) {
+    return [download]
+  }
+
+  return [
+    { label: 'Rename', icon: 'lucide-pencil', onClick: () => startRenaming(version) },
+    download,
+  ]
 }
 </script>
 
@@ -102,7 +180,20 @@ function actions(version: DocumentVersion): DropdownOptions {
           class="absolute inset-y-2 left-0 w-0.5 rounded-full bg-surface-gray-7"
           aria-hidden="true"
         />
+        <div v-if="isRenaming(version)" class="min-w-0 flex-1 space-y-1 py-1.5 pl-3 pr-1">
+          <TextInput
+            ref="renameInputs"
+            v-model="newName"
+            placeholder="Version name"
+            aria-label="New version name"
+            :disabled="isSavingName"
+            @keydown.enter.prevent="saveName(version)"
+            @keydown.esc.prevent="stopRenaming"
+          />
+          <p class="text-p-xs text-ink-gray-5">Enter to save · Esc to cancel</p>
+        </div>
         <button
+          v-else
           type="button"
           class="min-w-0 flex-1 py-1.5 pl-3 pr-1 text-left"
           :aria-pressed="isViewed(version)"
@@ -132,6 +223,7 @@ function actions(version: DocumentVersion): DropdownOptions {
               type="button"
               class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
               aria-label="More version actions"
+              @focus="passFocusToNameBox"
             >
               <span class="lucide-ellipsis size-4" aria-hidden="true" />
             </button>

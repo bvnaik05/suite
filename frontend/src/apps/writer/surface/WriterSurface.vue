@@ -728,6 +728,7 @@ onBeforeUnmount(() => {
                 :session="session"
                 :can-comment="canComment"
                 :can-restore-version="canRestoreVersion"
+                :can-rename-version="canSaveVersion"
                 :is-restoring-version="isRestoringVersion"
                 :threads="threads"
                 :places="threadPlaces"

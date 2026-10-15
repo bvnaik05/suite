@@ -6,7 +6,7 @@ import type { DocumentVersion } from '@/apps/drive'
 import VersionList from './VersionList.vue'
 
 vi.mock('frappe-ui', async () => {
-  const { defineComponent: define, h: render } = await import('vue')
+  const { defineComponent: define, h: render, ref: state } = await import('vue')
   return {
     // Shows the menu's items beside its button, as if it were open
     Dropdown: define({
@@ -20,6 +20,19 @@ vi.mock('frappe-ui', async () => {
               render('button', { role: 'menuitem', onClick: option.onClick }, option.label),
             ),
           ]),
+    }),
+    TextInput: define({
+      props: { modelValue: String },
+      emits: ['update:modelValue'],
+      setup(props, { emit, expose }) {
+        const input = state<HTMLInputElement | null>(null)
+        expose({ focus: () => input.value?.focus() })
+        function write(event: Event) {
+          emit('update:modelValue', (event.target as HTMLInputElement).value)
+        }
+
+        return () => render('input', { ref: input, value: props.modelValue, onInput: write })
+      },
     }),
     Tooltip: define({
       setup:
@@ -39,6 +52,8 @@ const NOW = new Date(2026, 9, 15, 18, 0)
 const named = version(3, 'Before review', new Date(2026, 9, 15, 14, 14))
 const automatic = version(2, null, new Date(2026, 9, 15, 9, 5))
 const lastWeek = version(1, null, new Date(2026, 9, 8, 11, 0))
+const beforeRestoring = milestone(4, new Date(2026, 9, 15, 15, 0))
+const VERSIONS = [beforeRestoring, named, automatic, lastWeek]
 
 let mounted: App | null = null
 
@@ -54,17 +69,28 @@ afterEach(() => {
 })
 
 function version(seq: number, label: string | null, takenAt: Date) {
-  const shape = { seq, label, actor: 'ana@example.com', creation: takenAt.toISOString() }
+  const kind = label ? 'named' : 'auto'
+  const shape = { seq, kind, label, actor: 'ana@example.com', creation: takenAt.toISOString() }
   return shape as unknown as DocumentVersion
+}
+
+function milestone(seq: number, takenAt: Date) {
+  return { ...version(seq, 'Before restoring', takenAt), kind: 'milestone' }
 }
 
 interface ListOptions {
   canRestore?: boolean
   isRestoring?: boolean
   previewed?: DocumentVersion | null
+  rename?: (version: DocumentVersion, label: string) => Promise<boolean>
 }
 
-function mountList({ canRestore = true, isRestoring = false, previewed = null }: ListOptions = {}) {
+function mountList({
+  canRestore = true,
+  isRestoring = false,
+  previewed = null,
+  rename,
+}: ListOptions = {}) {
   const shown = ref(previewed)
   const restored: number[] = []
   const downloaded: number[] = []
@@ -72,9 +98,10 @@ function mountList({ canRestore = true, isRestoring = false, previewed = null }:
   document.body.append(host)
   const app = createApp(() =>
     h(VersionList, {
-      versions: [named, automatic, lastWeek],
+      versions: VERSIONS,
       canRestore,
       isRestoring,
+      rename,
       previewed: shown.value,
       'onUpdate:previewed': (next: DocumentVersion | null) => {
         shown.value = next
@@ -90,7 +117,7 @@ function mountList({ canRestore = true, isRestoring = false, previewed = null }:
 
 function rowOf(host: Element, seq: number) {
   const rows = [...host.querySelectorAll('section > div')]
-  return rows[[named, automatic, lastWeek].findIndex((each) => each.seq === seq)]
+  return rows[VERSIONS.findIndex((each) => each.seq === seq)]
 }
 
 function rowButton(host: Element, seq: number) {
@@ -101,6 +128,14 @@ function currentButton(host: Element) {
   return [...host.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === 'Current version',
   )!
+}
+
+function menuOf(host: Element, seq: number) {
+  return [...rowOf(host, seq).querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+}
+
+function menuItem(host: Element, seq: number, label: string) {
+  return menuOf(host, seq).find((item) => item.textContent === label)!
 }
 
 function linesOf(host: Element, seq: number) {
@@ -167,7 +202,7 @@ describe("a version's actions", () => {
   it('downloads the version on its row from its menu', () => {
     const { host, downloaded } = mountList()
 
-    rowOf(host, lastWeek.seq).querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
+    menuItem(host, lastWeek.seq, 'Download').click()
 
     expect(downloaded).toEqual([lastWeek.seq])
   })
@@ -192,5 +227,139 @@ describe("a version's actions", () => {
     )
 
     expect(isHidden).toEqual([false, true])
+  })
+})
+
+describe('renaming a version', () => {
+  // A rename that records each name sent, and that Drive takes unless told to refuse
+  function renamer(isRefusing = false) {
+    const sent: [number, string][] = []
+    async function rename(row: DocumentVersion, label: string) {
+      sent.push([row.seq, label])
+      if (isRefusing) {
+        // As a browser moves focus off the box once saving disables it
+        document.body.append(outsideButton)
+        outsideButton.focus()
+      }
+
+      return !isRefusing
+    }
+
+    const outsideButton = document.createElement('button')
+    return { sent, rename }
+  }
+
+  function nameBox() {
+    return document.querySelector<HTMLInputElement>('input[aria-label="New version name"]')
+  }
+
+  async function pickRename(host: Element, seq: number) {
+    menuItem(host, seq, 'Rename').click()
+    await nextTick()
+    await nextTick()
+  }
+
+  async function type(text: string) {
+    nameBox()!.value = text
+    nameBox()!.dispatchEvent(new Event('input'))
+    await nextTick()
+  }
+
+  async function press(key: string) {
+    nameBox()!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve))
+    await nextTick()
+  }
+
+  function labelsOf(host: Element, seq: number) {
+    return menuOf(host, seq).map((item) => item.textContent)
+  }
+
+  it('offers Rename on automatic and named versions, not on one kept before a restore', () => {
+    const { rename } = renamer()
+    const { host } = mountList({ rename })
+
+    expect(VERSIONS.map((each) => labelsOf(host, each.seq))).toEqual([
+      ['Download'],
+      ['Rename', 'Download'],
+      ['Rename', 'Download'],
+      ['Rename', 'Download'],
+    ])
+  })
+
+  it('offers no Rename to someone who can’t rename', () => {
+    const { host } = mountList()
+
+    expect(labelsOf(host, named.seq)).toEqual(['Download'])
+  })
+
+  it('puts the cursor in a box on the row holding the current name', async () => {
+    const { rename } = renamer()
+    const { host } = mountList({ rename })
+
+    await pickRename(host, named.seq)
+
+    expect([nameBox()?.value, document.activeElement === nameBox()]).toEqual([
+      'Before review',
+      true,
+    ])
+  })
+
+  it('sends the new name on Enter and shows the row again', async () => {
+    const { sent, rename } = renamer()
+    const { host } = mountList({ rename })
+
+    await pickRename(host, automatic.seq)
+    await type('  Before the review ')
+    await press('Enter')
+
+    expect([sent, nameBox()]).toEqual([[[automatic.seq, 'Before the review']], null])
+  })
+
+  it('sends nothing on Esc, on an empty name or on the same name', async () => {
+    const { sent, rename } = renamer()
+    const { host } = mountList({ rename })
+    const isClosed: boolean[] = []
+
+    for (const [text, key] of [
+      ['Final', 'Escape'],
+      ['   ', 'Enter'],
+      ['Before review', 'Enter'],
+    ]) {
+      await pickRename(host, named.seq)
+      await type(text)
+      await press(key)
+      isClosed.push(nameBox() === null)
+    }
+
+    expect([sent, isClosed]).toEqual([[], [true, true, true]])
+  })
+
+  it('keeps the box, the name and the cursor when the name isn’t taken', async () => {
+    const { rename } = renamer(true)
+    const { host } = mountList({ rename })
+
+    await pickRename(host, named.seq)
+    await type('Final')
+    await press('Enter')
+
+    expect([nameBox()?.value, document.activeElement === nameBox()]).toEqual(['Final', true])
+  })
+
+  it('takes back the focus the closing menu hands to its button, once', async () => {
+    const { rename } = renamer()
+    const { host } = mountList({ rename })
+    const menuButton = rowOf(host, named.seq).querySelector<HTMLButtonElement>(
+      '[aria-label="More version actions"]',
+    )!
+
+    await pickRename(host, named.seq)
+    menuButton.focus()
+    await nextTick()
+    const isHandedBack = document.activeElement === nameBox()
+    menuButton.focus()
+    await nextTick()
+
+    expect([isHandedBack, document.activeElement === menuButton]).toEqual([true, true])
   })
 })

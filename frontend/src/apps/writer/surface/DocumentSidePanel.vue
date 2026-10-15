@@ -26,6 +26,7 @@ const props = defineProps<{
   session: DocumentSession
   canComment: boolean
   canRestoreVersion: boolean
+  canRenameVersion: boolean
   isRestoringVersion: boolean
   threads: DocumentThread[]
   /** Where each thread shows in the editor; null when the editor can't tell. */
@@ -47,8 +48,17 @@ const previewedVersion = defineModel<DocumentVersion | null>('previewedVersion',
   required: true,
 })
 
-const { lists, load, loadMoreVersions, addComment, reply, resolve, removeComment, saveVersion } =
-  useDocumentPanel(props.session, props.refreshThreads)
+const {
+  lists,
+  load,
+  loadMoreVersions,
+  addComment,
+  reply,
+  resolve,
+  removeComment,
+  saveVersion,
+  renameVersion,
+} = useDocumentPanel(props.session, props.refreshThreads)
 
 const commentText = ref('')
 const replyingTo = ref<string | null>(null)
@@ -76,6 +86,7 @@ const hasNoThreads = computed(() => !props.threads.length && !shownDrafts.value.
 const isReplyBlank = computed(() => !replyText.value.trim())
 const hasNoVersions = computed(() => !lists.versions.length)
 const showsVersionName = computed(() => isNamingVersion.value && panel.value === 'versions')
+const versionRename = computed(() => (props.canRenameVersion ? renameShownVersion : undefined))
 const versionNameHint = computed(() =>
   isSavingVersion.value ? 'Saving first…' : 'Enter to save · Esc to cancel',
 )
@@ -241,6 +252,16 @@ async function saveNamedVersion() {
   versionNameInput.value?.focus()
 }
 
+// The bar over a viewed version names it, so it takes the new name too
+async function renameShownVersion(version: DocumentVersion, label: string) {
+  const renamed = await renameVersion(version, label)
+  if (renamed && previewedVersion.value?.seq === version.seq) {
+    previewedVersion.value = renamed
+  }
+
+  return !!renamed
+}
+
 defineExpose({ reloadVersions: () => load('versions'), startNamingVersion })
 </script>
 
@@ -388,6 +409,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion })
               :versions="lists.versions"
               :can-restore="canRestoreVersion"
               :is-restoring="isRestoringVersion"
+              :rename="versionRename"
               @restore="emit('restoreVersion', $event)"
               @download="emit('downloadVersion', $event)"
             />

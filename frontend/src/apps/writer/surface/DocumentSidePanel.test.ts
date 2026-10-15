@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref, type App } from 'vue'
 
-import type { DocumentSession } from '@/apps/drive'
+import type { DocumentSession, DocumentVersion } from '@/apps/drive'
 
 import DocumentSidePanel from './DocumentSidePanel.vue'
 
@@ -10,7 +10,19 @@ vi.mock('frappe-ui', async () => {
   const emptyComponent = { render: () => null }
   return {
     Avatar: emptyComponent,
-    Dropdown: emptyComponent,
+    // Shows the menu's items beside its button, as if it were open
+    Dropdown: define({
+      props: { options: Array as () => { label: string; onClick: () => void }[] },
+      setup:
+        (props, { slots }) =>
+        () =>
+          render('div', [
+            slots.default?.(),
+            props.options?.map((option) =>
+              render('button', { role: 'menuitem', onClick: option.onClick }, option.label),
+            ),
+          ]),
+    }),
     Textarea: emptyComponent,
     Tooltip: emptyComponent,
     Button: define({
@@ -96,6 +108,7 @@ async function openVersionsPanel(isRefusingVersions = false) {
       session,
       canComment: true,
       canRestoreVersion: false,
+      canRenameVersion: false,
       isRestoringVersion: false,
       threads: [],
       places: null,
@@ -188,5 +201,77 @@ describe('naming a version in the Versions panel', () => {
       'Before the review',
       true,
     ])
+  })
+})
+
+describe('renaming a version in the Versions panel', () => {
+  const automatic = {
+    seq: 2,
+    kind: 'auto',
+    label: null,
+    pinned: 0,
+    actor: null,
+    creation: null,
+  } as unknown as DocumentVersion
+
+  // The panel viewing an automatic version, recording each version it is told to show
+  async function openViewingPanel(canRenameVersion: boolean) {
+    const shown: (string | null | undefined)[] = []
+    const session = {
+      comments: {},
+      versions: {
+        list: async () => ({ rows: [automatic], next_cursor: null }),
+        update: async () => {},
+      },
+    } as unknown as DocumentSession
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(() =>
+      h(DocumentSidePanel, {
+        panel: 'versions',
+        previewedVersion: automatic,
+        'onUpdate:previewedVersion': (version: DocumentVersion | null) =>
+          shown.push(version?.label),
+        session,
+        canComment: true,
+        canRestoreVersion: false,
+        canRenameVersion,
+        isRestoringVersion: false,
+        threads: [],
+        places: null,
+        refreshThreads: async () => {},
+        saveFirst: async () => {},
+      }),
+    )
+    app.mount(host)
+    mounted = app
+    await settled()
+    return { host, shown }
+  }
+
+  function renameItem(host: Element) {
+    return [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === 'Rename',
+    )
+  }
+
+  it('gives the version being viewed its new name', async () => {
+    const { host, shown } = await openViewingPanel(true)
+
+    renameItem(host)!.click()
+    await nextTick()
+    const box = document.querySelector<HTMLInputElement>('input[aria-label="New version name"]')!
+    box.value = 'Before the review'
+    box.dispatchEvent(new Event('input'))
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await settled()
+
+    expect(shown).toEqual(['Before the review'])
+  })
+
+  it('offers no Rename to someone who can’t save versions', async () => {
+    const { host } = await openViewingPanel(false)
+
+    expect(renameItem(host)).toBeUndefined()
   })
 })

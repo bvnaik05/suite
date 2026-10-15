@@ -121,3 +121,78 @@ describe('changing a thread from the panel', () => {
     ])
   })
 })
+
+// A Drive session listing an automatic and a named version, whose renames go in or are refused
+function renamingSession(refusal?: string) {
+  const sent: [string, object][] = []
+  const rows = [
+    { seq: 2, kind: 'auto', label: null, pinned: 0 },
+    { seq: 3, kind: 'named', label: 'Draft one', pinned: 0 },
+  ]
+  const session = {
+    comments: {},
+    versions: {
+      list: () => Promise.resolve({ rows, next_cursor: null }),
+      update: (seq: string, changes: object) => {
+        sent.push([seq, changes])
+        if (refusal) {
+          return Promise.reject(new Error(refusal))
+        }
+
+        return Promise.resolve()
+      },
+    },
+  } as unknown as Pick<DocumentSession, 'comments' | 'versions'>
+  return { session, sent }
+}
+
+async function renameRow(refusal: string | undefined, seq: number, label: string) {
+  const { session, sent } = renamingSession(refusal)
+  const panel = useDocumentPanel(session, noRefresh)
+  await panel.load('versions')
+  const version = panel.lists.versions.find((row) => row.seq === seq)!
+  const renamed = await panel.renameVersion(version, label)
+  const shown = panel.lists.versions.map((row) => ({
+    seq: row.seq,
+    label: row.label,
+    pinned: row.pinned,
+  }))
+  return { renamed, sent, shown }
+}
+
+describe('renaming a version', () => {
+  it('names an automatic version and keeps it from being thinned', async () => {
+    const { renamed, sent, shown } = await renameRow(undefined, 2, 'Before the review')
+
+    expect([renamed?.label, sent, shown]).toEqual([
+      'Before the review',
+      [['2', { label: 'Before the review', pinned: true }]],
+      [
+        { seq: 2, label: 'Before the review', pinned: 1 },
+        { seq: 3, label: 'Draft one', pinned: 0 },
+      ],
+    ])
+  })
+
+  it('changes only the name of a named version', async () => {
+    const { sent, shown } = await renameRow(undefined, 3, 'Draft two')
+
+    expect([sent, shown]).toEqual([
+      [['3', { label: 'Draft two' }]],
+      [
+        { seq: 2, label: null, pinned: 0 },
+        { seq: 3, label: 'Draft two', pinned: 0 },
+      ],
+    ])
+  })
+
+  it('says why Drive refused the name and keeps the list as it was', async () => {
+    const { renamed, shown } = await renameRow('You can’t edit this document.', 3, 'Draft two')
+
+    expect([renamed, shown[1], vi.mocked(toast.error).mock.calls]).toEqual([
+      null,
+      { seq: 3, label: 'Draft one', pinned: 0 },
+      [['You can’t edit this document.']],
+    ])
+  })
+})
