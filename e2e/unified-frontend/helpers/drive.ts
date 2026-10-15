@@ -137,6 +137,8 @@ export function listView(
 
 /** Permanent removal. The UI gates this behind ticket 007, the route does not. */
 export async function purge(api: APIRequestContext, node: string): Promise<void> {
+	// Only a trash root can be deleted forever; a node already trashed or gone answers 409 or 404 here
+	await send(api, "patch", `${DRIVE}/nodes/${node}`, { state: "Trashed" });
 	const response = await send(api, "delete", `${DRIVE}/nodes/${node}`);
 	if (!response.ok() && response.status() !== 404) {
 		throw new Error(`purge ${node} failed with ${response.status()}: ${await response.text()}`);
