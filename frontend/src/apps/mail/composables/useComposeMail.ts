@@ -193,7 +193,10 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     () =>
       !isSavedDraft &&
       fieldsOf() === openedWith &&
-      bodyText(mail.html_body) === bodyText(buildSignature(mail.from_email) + prefilledBody),
+      bodyText(mail.html_body) === bodyText(buildSignature(mail.from_email) + prefilledBody) &&
+      // Text alone missed a pasted or inserted image: a body that was only that read as untouched,
+      // and leaving it closed the draft without an Undo.
+      imageCount(mail.html_body) === imageCount(buildSignature(mail.from_email) + prefilledBody),
   )
   const openQuotedContent = () => {
     mail.html_body += `<br>${mail.quoted_content}`
@@ -213,6 +216,7 @@ export const useComposeMail = (options: ComposeMailOptions) => {
           '</div>'
       : ''
   }
+  const imageCount = (html: string) => (html?.match(/<img\b/gi) ?? []).length
   const bodyText = (html: string) => {
     const element = document.createElement('div')
     element.innerHTML = html || ''
