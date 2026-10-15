@@ -82,7 +82,7 @@ test("Move uses the Drive folder picker and rewrites the parent", async ({ page 
 	await expect(dialog).toBeVisible();
 	await dialog.getByRole("button", { name: home.title }).click();
 	await dialog.getByRole("button", { name: destination.title }).click();
-	await dialog.getByRole("button", { name: "Move", exact: true }).click();
+	await dialog.getByRole("button", { name: "Move here", exact: true }).click();
 
 	await expect(dialog).toBeHidden();
 	await expect.poll(async () => (await getNode(api, target.name)).parent_node).toBe(destination.name);
@@ -130,7 +130,7 @@ test("Make a copy accepts the title the server returns", async ({ page }) => {
 
 	const dialog = page.getByRole("dialog", { name: "Make a copy" });
 	await dialog.getByRole("button", { name: home.title }).click();
-	await dialog.getByRole("button", { name: "Copy", exact: true }).click();
+	await dialog.getByRole("button", { name: "Copy here", exact: true }).click();
 	await expect(dialog).toBeHidden();
 
 	await expect

@@ -111,7 +111,7 @@ test("a mixed bulk move reports both halves and keeps the failures selected", as
 	const dialog = page.getByRole("dialog", { name: "Move to" });
 	await dialog.getByRole("button", { name: home.title }).click();
 	await dialog.getByRole("button", { name: destination.title }).click();
-	await dialog.getByRole("button", { name: "Move", exact: true }).click();
+	await dialog.getByRole("button", { name: "Move here", exact: true }).click();
 
 	await expect(page.getByText("1 moved · 1 failed")).toBeVisible();
 	await expect(page.getByText("1 selected")).toBeVisible();
@@ -142,6 +142,6 @@ test("Select all loaded selects only the loaded rows", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}?view=list&sort=title&dir=asc`);
 	await expect(page.locator("[data-node]")).toHaveCount(5);
 	await page.getByRole("button", { name: "More file actions" }).click();
-	await page.getByRole("menuitem", { name: "Select all loaded" }).click();
+	await page.getByRole("menuitem", { name: "Select all", exact: true }).click();
 	await expect(page.getByText("5 selected")).toBeVisible();
 });
