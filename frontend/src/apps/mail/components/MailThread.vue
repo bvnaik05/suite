@@ -8,10 +8,8 @@
       @set-flagged="onSetFlagged"
       @set-seen="setThreadSeen"
       @move-thread="onMoveThread"
-      @add-thread-to-mailbox="(mailboxId: string) => emit('addThreadToMailbox', mailboxId)"
-      @remove-thread-from-mailbox="
-        (mailboxId: string) => emit('removeThreadFromMailbox', mailboxId)
-      "
+      @add-thread-to-mailbox="(mailboxId: string) => fileThread(mailboxId, true)"
+      @remove-thread-from-mailbox="(mailboxId: string) => fileThread(mailboxId, false)"
       @set-spam-status="onSetSpamStatus"
       @delete-thread="emit('deleteThread')"
       @prev-thread="emit('prevThread')"
@@ -1541,6 +1539,13 @@ const syncFlagged = (ids: string[], flagged: boolean) =>
   thread.value?.forEach((mail: Mail) => {
     if (ids.includes(mail.id)) mail.flagged = flagged ? 1 : 0
   })
+// Filing the thread in a folder or taking it out, from the toolbar's Folders menu: the thread's
+// mail shows it at once, so the menu's tick follows the click rather than the list's next refresh,
+// and the request goes up behind it. A refused one is corrected by that refresh.
+const fileThread = (mailboxId: string, add: boolean) => {
+  syncMailboxMembership(mailboxId, add)
+  emit(add ? 'addThreadToMailbox' : 'removeThreadFromMailbox', mailboxId)
+}
 const syncMailboxMembership = (mailboxId: string, add: boolean) => {
   if (add) {
     const mb = scope.mailboxes.value.data?.find((m: MailboxData) => m.id === mailboxId)
@@ -1553,10 +1558,13 @@ const syncMailboxMembership = (mailboxId: string, add: boolean) => {
     thread.value?.forEach((mail: Mail) => {
       if (!mail.mailboxes.some((m) => m.mailbox_id === mailboxId)) mail.mailboxes.push(entry)
     })
-  } else if (thread.value?.every((mail: Mail) => mail.mailboxes.length > 1))
-    thread.value?.forEach(
-      (mail: Mail) => (mail.mailboxes = mail.mailboxes.filter((m) => m.mailbox_id !== mailboxId)),
-    )
+  } else
+    // Out of the folder wherever that leaves the message somewhere — the server keeps a message's
+    // last folder too (see folderTicks).
+    thread.value?.forEach((mail: Mail) => {
+      if (mail.mailboxes.length > 1)
+        mail.mailboxes = mail.mailboxes.filter((m) => m.mailbox_id !== mailboxId)
+    })
 }
 
 // Optimistically drop a message from the pane (per-message trash/junk/delete) before its request

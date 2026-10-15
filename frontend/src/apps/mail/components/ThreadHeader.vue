@@ -55,21 +55,16 @@
             </template>
           </Button>
         </AdaptiveDropdown>
-        <AdaptiveDropdown v-if="showAddTo" :options="addToOptions" :title="__('Add To')">
-          <Button variant="ghost" class="max-sm:!h-8 max-sm:!w-8" :tooltip="__('Add To')">
-            <template #icon>
-              <FolderPlus class="icon max-sm:!h-[18px] max-sm:!w-[18px]" />
-            </template>
-          </Button>
-        </AdaptiveDropdown>
+        <!-- Where the thread is filed, as ticks: one box per folder it can be in, so the same
+             menu says where it is and changes it. Stays open, to file it in several at once. -->
         <AdaptiveDropdown
-          v-if="canRemoveFrom"
-          :options="removeFromOptions"
-          :title="__('Remove From')"
+          v-if="folderOptions.length"
+          :options="folderOptions"
+          :title="__('Folders')"
         >
-          <Button variant="ghost" class="max-sm:!h-8 max-sm:!w-8" :tooltip="__('Remove From')">
+          <Button variant="ghost" class="max-sm:!h-8 max-sm:!w-8" :tooltip="__('Folders')">
             <template #icon>
-              <FolderMinus class="icon max-sm:!h-[18px] max-sm:!w-[18px]" />
+              <Folders class="icon max-sm:!h-[18px] max-sm:!w-[18px]" />
             </template>
           </Button>
         </AdaptiveDropdown>
@@ -111,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { Button } from 'frappe-ui'
+import { Button, Checkbox } from 'frappe-ui'
 import { Icon } from 'frappe-ui/experimental'
 import {
   Archive,
@@ -122,8 +117,7 @@ import {
   CircleCheck,
   Ellipsis,
   FolderInput,
-  FolderMinus,
-  FolderPlus,
+  Folders,
   Mail as MailIcon,
   Star,
   Trash2,
@@ -136,6 +130,7 @@ import type { Mail, MailboxData } from '@/apps/mail/types'
 import { getIcon, getMailboxName } from '@/apps/mail/utils'
 import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useScreenSize } from '@/apps/mail/utils/composables'
+import { folderTicks } from '@/apps/mail/utils/folderTicks'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
 import { lastMessageOf } from '@/apps/mail/utils/threadFolding'
 import {
@@ -191,19 +186,6 @@ const backRoute = computed(() =>
 // here across the thread's mails (a mail still being sent has no id yet and doesn't count).
 const threadMailboxes = computed(() =>
   commonMailboxIds((thread ?? []).filter((mail: Mail) => mail.id)),
-)
-
-// Every mailbox the thread's mails touch (union), and whether any mail is in more than one — used by
-// Remove From, which is only offered when removing won't orphan a mail.
-const threadMailboxesUnion = computed(() => [
-  ...new Set(
-    (thread ?? [])
-      .filter((mail: Mail) => mail.id)
-      .flatMap((mail: Mail) => mail.mailboxes.map((m) => m.mailbox_id)),
-  ),
-])
-const canRemoveFrom = computed(() =>
-  (thread ?? []).some((mail: Mail) => mail.id && mail.mailboxes.length > 1),
 )
 
 // Starred while any message is, as the Starred folder reads it. Starring marks the newest message;
@@ -271,30 +253,54 @@ const moreActions = computed((): Action[] => [
 
 const visibleActions = computed(() => moreActions.value.filter((action) => action.condition()))
 
-const showAddTo = computed(() =>
+const showFiling = computed(() =>
   threadMailboxes.value.every((m) => ![mailboxIds.value.junk, mailboxIds.value.trash].includes(m)),
 )
 
+// The folders a thread can be filed in by hand: the Inbox, Archive and your own. Sent and Drafts
+// are filed by sending and writing, Junk and Trash by what is done with the mail, so they are not
+// ticked here. None at all while the thread is in Junk or Trash: it comes out of those by a move.
 // Default to [] rather than undefined: in All Inboxes the pane's mailbox resource belongs to the
 // row's account and is still loading on first paint, and AdaptiveDropdown requires an array.
-const addToOptions = computed(() =>
-  (mailboxes.value.data ?? [])
-    .filter(
-      (m) =>
-        (!m.role || ['inbox', 'archive'].includes(m.role)) && !threadMailboxes.value.includes(m.id),
-    )
-    .map((m) => getMailboxOption(m, 'addThreadToMailbox')),
+const fileableFolders = computed(() =>
+  showFiling.value
+    ? (mailboxes.value.data ?? []).filter((m) => !m.role || ['inbox', 'archive'].includes(m.role))
+    : [],
 )
 
-const removeFromOptions = computed(() =>
-  (mailboxes.value.data ?? [])
-    .filter(
-      (m) =>
-        threadMailboxesUnion.value.includes(m.id) &&
-        ![mailboxIds.value.sent, mailboxIds.value.drafts].includes(m.id),
-    )
-    .map((m) => getMailboxOption(m, 'removeThreadFromMailbox')),
-)
+const folderOptions = computed(() => {
+  const mails = (thread ?? []).filter((mail: Mail) => mail.id)
+  const ticks = folderTicks(
+    mails,
+    fileableFolders.value.map((m) => m.id),
+  )
+  return fileableFolders.value.map((mailbox, i) => {
+    const { ticked, removable } = ticks[i]
+    const blocked = ticked === 'all' && !removable
+    return {
+      label: getMailboxName(mailbox),
+      slots: {
+        prefix: () =>
+          h(Checkbox, {
+            modelValue: ticked === 'all',
+            indeterminate: ticked === 'some',
+            disabled: blocked,
+            class: 'pointer-events-none',
+          }),
+      },
+      // Unticking the folder some message's only one would leave it nowhere: it stays, greyed.
+      disabled: blocked,
+      keepOpen: true,
+      onClick: (event?: Event) => {
+        event?.preventDefault()
+        if (blocked) return
+        // A half-ticked folder takes the whole thread; a ticked one lets it go.
+        if (ticked === 'all') emit('removeThreadFromMailbox', mailbox.id)
+        else emit('addThreadToMailbox', mailbox.id)
+      },
+    }
+  })
+})
 
 const moveToOptions = computed(() =>
   (mailboxes.value.data ?? [])
@@ -302,10 +308,7 @@ const moveToOptions = computed(() =>
     .map((m) => getMailboxOption(m, 'moveThread')),
 )
 
-const getMailboxOption = (
-  mailbox: MailboxData,
-  emitName: 'moveThread' | 'addThreadToMailbox' | 'removeThreadFromMailbox',
-) => ({
+const getMailboxOption = (mailbox: MailboxData, emitName: 'moveThread') => ({
   label: getMailboxName(mailbox),
   icon: h(Icon, { name: getIcon(mailbox), class: FOLDER_ICON_COLOR_MAP[mailbox.color!] }),
   onClick: () => emit(emitName, mailbox.id),
