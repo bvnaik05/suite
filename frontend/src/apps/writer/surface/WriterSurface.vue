@@ -167,9 +167,11 @@ const writes = createWriteGate(props.session, () => {
     toast.warning('Editing access changed. This document is now read-only.')
     return
   }
+
+  const html = editorSurface.value?.editor?.getHTML()
   toast.warning('Editing access changed. Your unsaved changes are kept on this device.', {
     duration: Number.POSITIVE_INFINITY,
-    action: { label: 'Download my changes', onClick: downloadChanges },
+    action: { label: 'Download my changes', onClick: () => downloadChanges(html) },
   })
 })
 
@@ -553,9 +555,8 @@ function retainRecovery(): boolean {
 
 watch(copiesKept, () => recoveryBanner.value?.refresh())
 
-async function downloadChanges() {
-  // The editor holds this tab's unsent work, which the device may not have kept as a copy yet
-  const html = editorSurface.value?.editor?.getHTML()
+async function downloadChanges(html: string | undefined) {
+  // What the editor held when editing access was lost, which a later rebuild replaces
   if (html) {
     downloadCopy({ title: props.session.title.value, savedAt: new Date(), html })
     return

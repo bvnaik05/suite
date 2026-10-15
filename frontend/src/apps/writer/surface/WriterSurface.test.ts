@@ -529,7 +529,7 @@ async function discardCopies() {
 }
 
 // Types a line the room has yet to send, shuts the write gate, and takes the file the toast's Download my changes saves
-async function downloadedChanges() {
+async function downloadedChanges(afterClose: (root: Element) => unknown = () => {}, role = 30) {
   Object.assign(liveRoom(), { saveState: 'unsaved', unsent: 1 })
   const access = ref({ role: 50 })
   const root = await openedSurface(undefined, '/d/node-1', undefined, access)
@@ -547,7 +547,8 @@ async function downloadedChanges() {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   const warning = vi.spyOn(toast, 'warning')
 
-  access.value = { role: 30 }
+  access.value = { role }
+  await afterClose(root)
   const [, shown] = warning.mock.lastCall!
   ;(shown?.action as { onClick: () => void }).onClick()
   await vi.waitFor(() => expect(files).toHaveLength(1))
@@ -925,6 +926,28 @@ describe('Writer surface', () => {
   it('downloads the line typed but not yet sent from the lost-access toast, not an older copy on the device', async () => {
     keepPageCopy('node-1', 'Quarterly plan', '<p>Older copy</p>', new Date('2026-01-01'))
     const file = await downloadedChanges()
+
+    expect(await file.text()).toContain('<p>Unsent line</p>')
+    await discardCopies()
+  })
+
+  it('downloads the work held when editing access was lost, not what the editor shows after a rebuild', async () => {
+    const file = await downloadedChanges((root) =>
+      root
+        .querySelector<EditorElement>('[data-editor] .ProseMirror')!
+        .editor.commands.setContent('<p>Server text</p>'),
+    )
+
+    expect(await file.text()).toContain('<p>Unsent line</p>')
+    expect(await file.text()).not.toContain('Server text')
+  })
+
+  it('downloads the work held when the document became unreadable, not an older copy on the device', async () => {
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Older copy</p>', new Date('2026-01-01'))
+    const file = await downloadedChanges(
+      (root) => vi.waitFor(() => expect(root.querySelector('[data-editor]')).toBeNull()),
+      0,
+    )
 
     expect(await file.text()).toContain('<p>Unsent line</p>')
     await discardCopies()
