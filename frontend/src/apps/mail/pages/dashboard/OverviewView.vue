@@ -199,7 +199,7 @@ type Limits = {
 }
 type Storage = { used_bytes: number | null; max_gb: number | null }
 type Site = {
-  site?: string
+  tenant?: string
   title?: string
   status?: string
   cluster?: string
