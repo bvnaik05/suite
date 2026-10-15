@@ -115,6 +115,11 @@ class TestSuiteCloudClient(UnitTestCase):
             with self.subTest(status=status), self.assertRaises(expected):
                 self._call(_response(status, text="not json"))
 
+    def test_malformed_errors_fall_back_to_the_status_code(self) -> None:
+        for errors in ({"type": "DuplicateEntryError"}, "DuplicateEntryError", 409):
+            with self.subTest(errors=errors), self.assertRaises(frappe.DuplicateEntryError):
+                self._call(_response(409, {"errors": errors}))
+
     def test_bad_credentials_keep_the_settings_hint(self) -> None:
         for response in (_frappe_error(401, "SiteAuthError", "Site authentication failed."), _response(403)):
             with self.assertRaisesRegex(SuiteCloudCredentialsError, "check Suite Settings"):

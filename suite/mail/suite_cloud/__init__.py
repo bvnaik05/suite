@@ -186,7 +186,7 @@ def _error_payload(response: requests.Response) -> tuple[str | None, str | None]
     except ValueError:
         return None, None
     errors = payload.get("errors") if isinstance(payload, dict) else None
-    if not errors or not isinstance(errors[0], dict):
+    if not isinstance(errors, list) or not errors or not isinstance(errors[0], dict):
         return None, None
 
     exc_type, message = errors[0].get("type"), errors[0].get("message")
