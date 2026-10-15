@@ -17,9 +17,8 @@
           <Tooltip :text="tooltipOf(user)">
             <Avatar
               v-if="user.avatar"
-              class="peer-colour peer-avatar"
+              class="peer-avatar"
               :size="'sm'"
-              :style="peerColourStyle(user)"
               :image="user.avatar"
               :label="user.name"
             />

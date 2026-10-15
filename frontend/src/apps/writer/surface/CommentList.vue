@@ -20,7 +20,7 @@ import { isComposing } from './commentMentions'
 import CommentText from './CommentText.vue'
 import MentionTextarea from './MentionTextarea.vue'
 import { useSeenThreads } from './seenThreads'
-import { threadRows } from './threadRows'
+import { threadRows, type ThreadRow } from './threadRows'
 import type { ShownDraft, useCommentDrafts } from './useCommentDrafts'
 import type { ThreadActions } from './useDocumentPanel'
 import { dayOrTime } from './versionDates'
@@ -196,6 +196,17 @@ async function showOpenThread(name: string | null) {
 
 watch(openThread, showOpenThread, { immediate: true })
 
+function hasThread(shown: ThreadRow[], name: string | null) {
+  return shown.some(({ thread }) => thread.name === name)
+}
+
+// The open thread closes once it leaves the list: resolved or deleted elsewhere, or behind the other tab
+watch(shownRows, (shown, before) => {
+  if (hasThread(before, openThread.value) && !hasThread(shown, openThread.value)) {
+    closeThread()
+  }
+})
+
 // A closed panel leaves no text lit
 onBeforeUnmount(() => {
   closeThread()
@@ -341,7 +352,6 @@ async function toggleResolved(thread: DocumentThread) {
   }
 
   const isResolving = !thread.resolved
-  closeThread()
   leavingThreads.value.add(thread.name)
   const isChanged = await setResolved(thread.name, isResolving)
   leavingThreads.value.delete(thread.name)

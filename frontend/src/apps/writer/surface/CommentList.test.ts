@@ -393,6 +393,44 @@ describe('the comments list', () => {
     expect(seen).toEqual([['whole'], ['on-text'], [], []])
   })
 
+  it('closes the open thread once another tab deletes it', async () => {
+    const { host, opened, listed } = showList()
+
+    await click(rowButton(host, 'Is this right?'))
+    listed.value = [WHOLE, DONE]
+    await nextTick()
+
+    expect(opened).toEqual(['on-text', null])
+  })
+
+  it('closes the open thread once another tab resolves it, staying under Open', async () => {
+    const { host, opened, listed } = showList()
+
+    await click(rowButton(host, 'Is this right?'))
+    listed.value = [{ ...ON_TEXT, resolved: true }, WHOLE, DONE]
+    await nextTick()
+
+    expect([opened, !!buttonNamed(host, 'Open 1')]).toEqual([['on-text', null], true])
+  })
+
+  it('closes the open thread when the person turns to the other tab', async () => {
+    const { host, opened } = showList()
+
+    await click(rowButton(host, 'Is this right?'))
+    await click(buttonNamed(host, 'Resolved 1'))
+
+    expect(opened).toEqual(['on-text', null])
+  })
+
+  it('keeps open a thread the list has not caught up with yet', async () => {
+    const { opened, listed } = showList({ openThread: 'just-posted' })
+
+    listed.value = [ON_TEXT, WHOLE]
+    await nextTick()
+
+    expect(opened).toEqual([])
+  })
+
   it('shows an open thread’s quote and every reply', async () => {
     const { host } = showList()
 
@@ -407,6 +445,20 @@ describe('the comments list', () => {
 })
 
 describe('resolving and reopening a thread', () => {
+  it('keeps the open thread open while another is resolved from its row', async () => {
+    const { host, asked } = showList()
+
+    await click(rowButton(host, 'Is this right?'))
+    await click(
+      host.querySelector<HTMLButtonElement>(
+        'li[data-thread="whole"] button[aria-label="Resolve"]',
+      ) ?? undefined,
+    )
+    await settled()
+
+    expect([asked, openRows(host)]).toEqual([['resolve whole true'], ['on-text']])
+  })
+
   it('resolves the open thread from its ✓, closes it, and offers Undo for 5 seconds', async () => {
     const { host, asked } = showList()
 
@@ -432,6 +484,30 @@ describe('resolving and reopening a thread', () => {
     await settled()
 
     expect(asked).toEqual(['resolve whole true', 'resolve whole false'])
+  })
+
+  it('closes the open thread when it is reopened from Resolved', async () => {
+    const { host, asked, opened } = showList()
+
+    await click(buttonNamed(host, 'Resolved 1'))
+    await click(rowButton(host, 'Fixed the title'))
+    await click(labelled(host, 'Reopen'))
+    await settled()
+
+    expect([asked, opened]).toEqual([['resolve done false'], ['done', null]])
+  })
+
+  it('leaves the thread closed when Undo puts it back under Open', async () => {
+    const { host, opened } = showList()
+
+    await click(rowButton(host, 'Looks good overall'))
+    await click(labelled(host, 'Resolve'))
+    await settled()
+    toasts[0].action.onClick()
+    await settled()
+
+    const isBack = rows(host).some((row) => row.includes('Looks good overall'))
+    expect([opened, openRows(host), isBack]).toEqual([['whole', null], [], true])
   })
 
   it('offers no Undo when the thread could not be resolved', async () => {
@@ -690,6 +766,21 @@ describe('replying in an open thread', () => {
     seen.push(host.textContent?.includes(hint))
 
     expect(seen).toEqual([true, false, false])
+  })
+
+  it('keeps the thread open with its words when Drive refuses to resolve it', async () => {
+    const { host } = showList({ isRefusingResolve: true })
+    await click(rowButton(host, 'Looks good overall'))
+    await type('Half a reply')
+
+    await click(
+      host.querySelector<HTMLButtonElement>(
+        'li[data-thread="whole"] button[aria-label="Resolve"]',
+      ) ?? undefined,
+    )
+    await settled()
+
+    expect([openRows(host), replyBox()?.value]).toEqual([['whole'], 'Half a reply'])
   })
 
   it('keeps a half-typed reply when another thread is opened and back', async () => {
