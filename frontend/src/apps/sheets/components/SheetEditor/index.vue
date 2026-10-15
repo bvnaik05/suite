@@ -1849,11 +1849,9 @@ function repeatLast() {
   handlers[last.kind]?.(...last.args)
 }
 
-// Wrap text needs a row-height bump to actually be visible — toggleFmt alone
-// flips the format flag but the renderer's wrapped text gets clipped at the
-// Writes `textWrap` (overflow | clip | wrap) for the selection. Auto-fits
-// every row to fit wrapped content when the user opts into wrap mode; the
-// other modes leave row heights alone (user may have grown rows manually).
+// Writes `textWrap` (overflow | clip | wrap) for the selection, then refits
+// its rows: they grow to show wrapped text, or shrink back when wrapping is
+// turned off. Rows sized by hand keep their height.
 function setTextWrap(mode) {
   formats.applyToRange(
     selectionIds(),
@@ -1864,9 +1862,9 @@ function setTextWrap(mode) {
   )
   refreshActiveFormat()
   isDirty.value = true
-  if (mode === 'wrap' && grid) {
+  if (grid) {
     const { r0, r1 } = grid.getSelection()
-    for (let r = r0; r <= r1; r++) grid.autoFitRow(r)
+    grid.refitRows(r0, r1)
   }
   recordAction?.('setTextWrap', [mode])
 }
@@ -2568,14 +2566,15 @@ function _setupGridInstance() {
               [id]: value,
             },
           }
-          // Multi-line value (Cmd+Enter) auto-grows its row like Google Sheets.
-          // The height diff rides the history op so undo/redo restores it;
-          // _queueOp destructures only the known keys, so server sync is
-          // unaffected. Row heights live in the current sheet's canvas view,
-          // hence the writeSheet guard.
+          // A row fits its wrapped or multi-line text (Cmd+Enter) unless it
+          // was sized by hand, like Google Sheets: it grows or shrinks with
+          // the edit. The height diff rides the history op so undo/redo
+          // restores it; _queueOp destructures only the known keys, so server
+          // sync is unaffected. Row heights live in the current sheet's
+          // canvas view, hence the writeSheet guard.
           if (writeSheet === currentSheet.value) {
             const p = parseCellId(id)
-            const grow = p && grid?.autoGrowRowFor?.(p.row, p.col, value)
+            const grow = p && grid?.refitRowFor?.(p.row, p.col, value)
             if (grow) {
               op.beforeRowH = {
                 [p.row]: grow.before,
