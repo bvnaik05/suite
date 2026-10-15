@@ -750,6 +750,7 @@ function rowClass(thread: DocumentThread) {
                     ref="replyBoxes"
                     v-model="replyText"
                     :rows="1"
+                    class="pr-8"
                     placeholder="Reply"
                     aria-label="Reply"
                     @keydown.enter="sendOnEnter($event, row.thread)"

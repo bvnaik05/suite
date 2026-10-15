@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Avatar, Textarea } from 'frappe-ui'
-import { computed, nextTick, ref, useId, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, useId, watch } from 'vue'
 
 import { fullName, lookUp, searchMentions, useUsers } from '@/apps/writer/composables/useUsers'
 import type { WriterUser } from '@/apps/writer/drive'
@@ -17,6 +17,7 @@ import {
 } from './commentMentions'
 
 const MAX_SHOWN = 6
+const MAX_LINES = 5
 const STEPS: Record<string, number> = { ArrowDown: 1, ArrowUp: -1 }
 
 defineOptions({ inheritAttrs: false })
@@ -193,6 +194,28 @@ function setActive(index: number) {
 function focus() {
   field.value?.focus()
 }
+
+// Grows with the text up to MAX_LINES, then scrolls
+function fitHeight() {
+  const box = field.value?.inputElement
+  if (!box) {
+    return
+  }
+
+  box.style.height = 'auto'
+  const style = getComputedStyle(box)
+  const border = box.offsetHeight - box.clientHeight
+  const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+  const maxHeight = parseFloat(style.lineHeight) * MAX_LINES + padding + border
+  const height = Math.min(box.scrollHeight + border, maxHeight)
+  box.style.height = `${height}px`
+  if (document.activeElement === box) {
+    box.scrollIntoView({ block: 'nearest' })
+  }
+}
+
+watch(shown, fitHeight, { flush: 'post' })
+onMounted(fitHeight)
 
 defineExpose({ focus })
 </script>

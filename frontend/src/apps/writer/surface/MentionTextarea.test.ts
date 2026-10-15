@@ -89,6 +89,9 @@ const OTHER_ANN = person('ann2@x.com', 'Ann Lee')
 
 let mounted: App | null = null
 
+// jsdom lays nothing out, so has nothing to scroll
+Element.prototype.scrollIntoView = () => {}
+
 beforeEach(() => {
   people.isLoggedIn = true
   people.isHeld = false
