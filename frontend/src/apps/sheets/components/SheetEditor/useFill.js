@@ -36,8 +36,10 @@ export function useFill({
     for (let r = total.r0; r <= total.r1; r++) {
       for (let c = total.c0; c <= total.c1; c++) {
         if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-        const srcR = src.r0 + ((r - src.r0 + srcRows) % srcRows)
-        const srcC = src.c0 + ((c - src.c0 + srcCols) % srcCols)
+        // True modulo: a drag more than one source-height up or left gives a
+        // negative offset, and JS `%` would keep the sign.
+        const srcR = src.r0 + ((((r - src.r0) % srcRows) + srcRows) % srcRows)
+        const srcC = src.c0 + ((((c - src.c0) % srcCols) + srcCols) % srcCols)
         const rule = validation.get(cellId(srcR, srcC), sn)
         if (rule) validation.set(cellId(r, c), rule, sn)
       }
@@ -223,8 +225,9 @@ export function useFill({
     for (let r = total.r0; r <= total.r1; r++) {
       for (let c = total.c0; c <= total.c1; c++) {
         if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-        const srcR = src.r0 + ((r - src.r0 + srcRows) % srcRows)
-        const srcC = src.c0 + ((c - src.c0 + srcCols) % srcCols)
+        // True modulo, as in _fillValidation.
+        const srcR = src.r0 + ((((r - src.r0) % srcRows) + srcRows) % srcRows)
+        const srcC = src.c0 + ((((c - src.c0) % srcCols) + srcCols) % srcCols)
         const fmt = formats.get(cellId(srcR, srcC), sn)
         if (fmt && Object.keys(fmt).length) formats.set(cellId(r, c), fmt, sn)
         else formats.clear(cellId(r, c), sn)

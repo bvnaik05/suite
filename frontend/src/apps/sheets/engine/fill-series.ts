@@ -190,17 +190,19 @@ export function planFill(
     const count = goDown ? total.r1 - src.r1 : src.r0 - total.r0
     const dir = goDown ? 1 : -1
     const filled = computeFillDown(readGrid(src), count, dir, { mode })
-    const startR = goDown ? src.r1 + 1 : total.r0
-    filled.forEach((row, rOff) =>
+    // filled[0] is the row next to the source: below it going down, above it
+    // going up (ISSUES #22).
+    filled.forEach((row, rOff) => {
+      const r = goDown ? src.r1 + 1 + rOff : src.r0 - 1 - rOff
       row.forEach((val, cOff) => {
         if (typeof val === 'string' && val.startsWith('=')) {
           const srcRowOff =
             dir > 0 ? rOff % srcRows : (((srcRows - 1 - rOff) % srcRows) + srcRows) % srcRows
-          val = adjustFormula(val, startR + rOff - (src.r0 + srcRowOff), 0)
+          val = adjustFormula(val, r - (src.r0 + srcRowOff), 0)
         }
-        put(startR + rOff, src.c0 + cOff, val)
-      }),
-    )
+        put(r, src.c0 + cOff, val)
+      })
+    })
     workSrc = {
       r0: Math.min(src.r0, total.r0),
       r1: Math.max(src.r1, total.r1),
@@ -212,15 +214,16 @@ export function planFill(
     const count = goRight ? total.c1 - workSrc.c1 : workSrc.c0 - total.c0
     const dir = goRight ? 1 : -1
     const filled = computeFillRight(readGrid(workSrc), count, dir, { mode })
-    const startC = goRight ? workSrc.c1 + 1 : total.c0
+    // row[0] is the column next to the source, as in the vertical pass.
     filled.forEach((row, rOff) =>
       row.forEach((val, cOff) => {
+        const c = goRight ? workSrc.c1 + 1 + cOff : workSrc.c0 - 1 - cOff
         if (typeof val === 'string' && val.startsWith('=')) {
           const srcColOff =
             dir > 0 ? cOff % srcCols : (((srcCols - 1 - cOff) % srcCols) + srcCols) % srcCols
-          val = adjustFormula(val, 0, startC + cOff - (workSrc.c0 + srcColOff))
+          val = adjustFormula(val, 0, c - (workSrc.c0 + srcColOff))
         }
-        put(workSrc.r0 + rOff, startC + cOff, val)
+        put(workSrc.r0 + rOff, c, val)
       }),
     )
   }
