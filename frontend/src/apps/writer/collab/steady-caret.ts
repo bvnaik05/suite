@@ -3,9 +3,14 @@ import type { Transaction } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 
+interface Measured {
+  transaction: Transaction
+  top: number
+}
+
 interface Storage {
   scroller: HTMLElement | null
-  caretTop: number | null
+  measured: Measured | null
   isDragging: boolean
   stop: (() => void) | null
 }
@@ -34,19 +39,25 @@ function caretTop(view: EditorView) {
   return view.coordsAtPos(view.state.selection.head).top
 }
 
-// Where this tab's caret sits on screen before others' edit lands, while it is in sight
+// The scroller's visible band, or the window's while the doc still fits
+function sightOf(scroller: HTMLElement | null) {
+  if (scroller) {
+    return scroller.getBoundingClientRect()
+  }
+
+  return { top: 0, bottom: window.innerHeight }
+}
+
+// Where this tab's caret sits on screen before others' edit lands, kept for that edit alone
 function measure(storage: Storage, view: EditorView, transaction: Transaction) {
-  storage.caretTop = null
   if (storage.isDragging || !isOthersEdit(transaction)) return
 
   storage.scroller ??= scrollerOf(view.dom)
-  if (!storage.scroller) return
-
-  const bounds = storage.scroller.getBoundingClientRect()
+  const sight = sightOf(storage.scroller)
   const top = caretTop(view)
-  const isInSight = top >= bounds.top && top <= bounds.bottom
+  const isInSight = top >= sight.top && top <= sight.bottom
   if (isInSight) {
-    storage.caretTop = top
+    storage.measured = { transaction, top }
   }
 }
 
@@ -72,7 +83,7 @@ export const SteadyCaret = Extension.create<object, Storage>({
   name: 'steadyCaret',
 
   addStorage() {
-    return { scroller: null, caretTop: null, isDragging: false, stop: null }
+    return { scroller: null, measured: null, isDragging: false, stop: null }
   },
 
   onCreate() {
@@ -90,12 +101,16 @@ export const SteadyCaret = Extension.create<object, Storage>({
     }
   },
 
-  onTransaction() {
-    const before = this.storage.caretTop
-    this.storage.caretTop = null
-    if (before === null || !this.storage.scroller) return
+  // Plugins dispatch their own transactions while the edit lands, so only the measured one scrolls
+  onTransaction({ transaction }) {
+    const measured = this.storage.measured
+    if (measured?.transaction !== transaction) return
 
-    this.storage.scroller.scrollTop += caretTop(this.editor.view) - before
+    this.storage.measured = null
+    this.storage.scroller ??= scrollerOf(this.editor.view.dom)
+    if (!this.storage.scroller) return
+
+    this.storage.scroller.scrollTop += caretTop(this.editor.view) - measured.top
   },
 
   onDestroy() {

@@ -201,6 +201,8 @@ describe('Writer carets', () => {
   it('keeps a peer’s caret where it was while their text is on its way, and drops it when they clear or leave', async () => {
     searchUsers.mockResolvedValue([])
     const { editor, awareness, doc } = openEditor()
+    // Their edit has this tab measure its own caret, and the test page lays nothing out
+    vi.spyOn(editor.view, 'coordsAtPos').mockReturnValue(OWN_CARETS.clear)
     const setPeerState = remotePeer(awareness)
     const peerSays = async (state: object | null) => {
       setPeerState(state)
