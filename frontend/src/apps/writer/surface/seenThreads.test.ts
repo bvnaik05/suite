@@ -84,10 +84,12 @@ describe('the marks kept on this device', () => {
     })
 
     keepSeen('ann', 'doc-1', { first: '1::false' })
-    const { unread, threads } = watchThreads([FIRST])
-    threads.value = [thread('first', [said('first-1', '2026-10-02 09:00:00')])]
+    const { unread, threads, seen } = watchThreads([FIRST, SECOND])
+    threads.value = [thread('first', [said('first-1', '2026-10-02 09:00:00')]), SECOND]
+    const changed = unread()
+    seen.markSeen('first')
 
-    expect([readSeen('ann', 'doc-1'), unread()]).toEqual([null, ['first']])
+    expect([readSeen('ann', 'doc-1'), changed, unread()]).toEqual([null, ['first'], []])
   })
 })
 
@@ -171,14 +173,14 @@ describe('which threads changed since last opened', () => {
     expect([whileOpen, unread()]).toEqual([['second'], []])
   })
 
-  it('keeps a thread seen across a reload once opened, and forgets threads gone from the list', async () => {
+  it('keeps a thread seen across a reload once opened', async () => {
     const { threads, seen } = watchThreads([FIRST, SECOND])
     threads.value = [thread('first', [...FIRST.comments, said('first-2', '2026-10-01 10:00:00')])]
 
     seen.markSeen('first')
     const { unread } = watchThreads(threads.value)
 
-    expect([unread(), Object.keys(readSeen('ann', 'doc-1') ?? {})]).toEqual([[], ['first']])
+    expect(unread()).toEqual([])
   })
 
   it('clears a thread here once another tab on this device opens it', () => {
@@ -198,6 +200,40 @@ describe('which threads changed since last opened', () => {
     )
 
     expect([before, unread()]).toEqual([['first'], []])
+  })
+
+  it('keeps what another tab opened when this tab opens a thread, before the other tab’s word arrives', () => {
+    const replied = [
+      thread('first', [...FIRST.comments, said('first-2', '2026-10-01 10:00:00')]),
+      thread('second', [...SECOND.comments, said('second-2', '2026-10-01 10:00:00')]),
+    ]
+    watchThreads([FIRST, SECOND])
+    const { seen: here } = watchThreads(replied)
+    const { seen: otherTab } = watchThreads(replied)
+
+    otherTab.markSeen('second')
+    here.markSeen('first')
+    const { unread } = watchThreads(replied)
+
+    expect(unread()).toEqual([])
+  })
+
+  it('keeps the thread open here seen when another tab’s older marks arrive, without writing them back', async () => {
+    const { threads, open, unread } = watchThreads([FIRST])
+    const older = localStorage.getItem('suite:writer-seen-threads:ann:doc-1')
+    open.value = 'first'
+    threads.value = [thread('first', [...FIRST.comments, said('first-2', '2026-10-01 10:00:00')])]
+    await nextTick()
+    localStorage.setItem('suite:writer-seen-threads:ann:doc-1', older!)
+
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'suite:writer-seen-threads:ann:doc-1', newValue: older }),
+    )
+
+    expect([unread(), localStorage.getItem('suite:writer-seen-threads:ann:doc-1')]).toEqual([
+      [],
+      older,
+    ])
   })
 
   it('keeps its marks when another document’s marks change on this device', () => {

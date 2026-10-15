@@ -1,5 +1,5 @@
 import { useEventListener } from '@vueuse/core'
-import { ref, watch, type Ref } from 'vue'
+import { ref, watch } from 'vue'
 
 import type { DocumentThread } from '@/apps/drive'
 
@@ -85,11 +85,26 @@ function startingMarks(user: string, node: string, threads: DocumentThread[], is
   return marks
 }
 
+// The marks with the named thread seen as it is now, when it is listed
+function withSeen(marks: SeenMarks, threads: DocumentThread[], name: string | null) {
+  const thread = threads.find((listed) => listed.name === name)
+  if (!thread) {
+    return marks
+  }
+
+  return { ...marks, [thread.name]: threadMark(thread) }
+}
+
 // Another tab on this device opening a thread clears it here too
-function followOtherTabs(key: string, marks: Ref<SeenMarks | null>) {
+function followOtherTabs(key: string, follow: (marks: SeenMarks) => void) {
   useEventListener(window, 'storage', (event) => {
-    if (event.key === key) {
-      marks.value = parseSeen(event.newValue) ?? marks.value
+    if (event.key !== key) {
+      return
+    }
+
+    const incoming = parseSeen(event.newValue)
+    if (incoming) {
+      follow(incoming)
     }
   })
 }
@@ -100,19 +115,20 @@ export function useSeenThreads({ user, node, threads, hasLoaded, openThread }: S
 
   function markSeen(name: string | null) {
     marks.value ??= startingMarks(user, node, threads(), hasLoaded())
-    const thread = threads().find((listed) => listed.name === name)
-    if (!thread || !marks.value) {
+    if (!marks.value) {
       return
     }
 
-    const listed = new Set(threads().map((kept) => kept.name))
-    const left = Object.entries(marks.value).filter(([kept]) => listed.has(kept))
-    marks.value = { ...Object.fromEntries(left), [thread.name]: threadMark(thread) }
+    // Read again, since another tab may have marked threads since
+    marks.value = withSeen(readSeen(user, node) ?? marks.value, threads(), name)
     keepSeen(user, node, marks.value)
   }
 
   watch([threads, hasLoaded, openThread], ([, , open]) => markSeen(open), { immediate: true })
-  followOtherTabs(keyOf(user, node), marks)
+  // The thread open here stays seen here alone; writing it back would fight a tab with older threads
+  followOtherTabs(keyOf(user, node), (incoming) => {
+    marks.value = withSeen(incoming, threads(), openThread())
+  })
 
   return {
     isUnread: (thread: DocumentThread) =>
