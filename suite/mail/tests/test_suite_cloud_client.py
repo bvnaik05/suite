@@ -144,6 +144,12 @@ class TestSuiteCloudClient(UnitTestCase):
             with self.subTest(exc_type), self.assertRaises(SuiteCloudUnavailableError):
                 self._call(_frappe_error(status, exc_type, "The mail server is not reachable right now."))
 
+    def test_a_mail_server_failure_type_wins_over_its_status(self) -> None:
+        # A 409 alone would raise a duplicate; only the mapping by name makes it unavailable.
+        for exc_type in ("ClusterFailedError", "ClusterUnavailableError", "ClusterMisconfiguredError"):
+            with self.subTest(exc_type), self.assertRaises(SuiteCloudUnavailableError):
+                self._call(_frappe_error(409, exc_type, "Refused by the cloud"))
+
     def test_unreachable_is_unavailable(self) -> None:
         with (
             patch.object(self.client.session, "request", side_effect=requests.ConnectionError("down")),
