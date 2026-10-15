@@ -101,6 +101,7 @@ from suite.mail.api.mail import (
     fetch_attachment,
     fetch_attachments_as_zip,
     fetch_mail_as_eml,
+    file_mails,
     get_all_inbox_unread_count,
     get_delivery_status,
     get_email_suggestions,

@@ -6015,6 +6015,35 @@ const operationMoveMails: MutationRef<MoveMailsInput, MoveMailsOutput, MoveMails
   loadValidators: async () => (await import('./validators')).operationMoveMails,
 }
 
+export type FileMailsInput = {
+  account: string
+  ids: Array<string>
+  action: 'archive' | 'move' | 'junk' | 'not_junk' | 'trash'
+  mailbox?: string | null
+  screen_action?: string | null
+  leaves?: string | null
+}
+
+export type FileMailsOutput = { updated: Array<string>; left_inbox: boolean }
+
+export type FileMailsError = 'PermissionError' | 'ValidationError'
+
+const operationFileMails: MutationRef<FileMailsInput, FileMailsOutput, FileMailsError> = {
+  id: 'file_mails',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.file',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.file_mails',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationFileMails,
+}
+
 export type AddMailsToMailboxInput = { account: string; ids: Array<string>; mailbox_id: string }
 
 export type AddMailsToMailboxOutput = null
@@ -6980,6 +7009,7 @@ export const api = {
     flag: operationSetFlagged,
     seen: operationSetMailsSeen,
     move: operationMoveMails,
+    file: operationFileMails,
     addToFolder: operationAddMailsToMailbox,
     removeFromFolder: operationRemoveMailsFromMailbox,
     setFolders: operationSetMailsMailboxes,
