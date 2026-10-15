@@ -287,7 +287,7 @@ BASELINE_DEBT = {
             "suite/mail/tests/test_suite_cloud_gating.py"
             "|dotted-string|suite.calendar.doctype.calendar_event.mailing_lists.log_mail_error",
             "suite/mail/tests/test_suite_cloud_gating.py|import|suite.calendar.doctype.calendar_event.mailing_lists",
-            "suite/suite_core/doctype/suite_settings/suite_settings.py|dotted-string|suite.mail.directory.push_site_profile",
+            "suite/suite_core/doctype/suite_settings/suite_settings.py|dotted-string|suite.mail.directory.push_tenant_profile",
             "suite/suite_core/doctype/suite_settings/suite_settings.py|import|suite.mail",
             "suite/suite_core/doctype/suite_settings/suite_settings.py|import|suite.mail.utils",
             "suite/suite_core/test_utils.py|import|suite.mail.utils",

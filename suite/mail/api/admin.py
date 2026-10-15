@@ -1448,7 +1448,7 @@ def get_overview() -> dict:
         overview["pending_invites"] = invites["pending"]
 
     with suppress(Exception):
-        site = get_client().call("site.ping")
+        site = get_client().call("tenant.ping")
         usage = site.get("usage") or {}
         limits = site.get("limits") or {}
         overview["domains"] = usage.get("domains")
@@ -1461,7 +1461,7 @@ def get_overview() -> dict:
         }
         overview["site"] = {
             k: site.get(k)
-            for k in ("site", "title", "status", "cluster", "mail_hostname", "jmap_url", "contact_email")
+            for k in ("tenant", "title", "status", "cluster", "mail_hostname", "jmap_url", "contact_email")
         }
 
     with suppress(Exception):

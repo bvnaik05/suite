@@ -24,18 +24,18 @@ class FakeSuiteCloud:
     # --- dispatch ---------------------------------------------------------------------------
 
     def call(self, method: str, **params):
-        """``site.<call>`` or ``mail.<resource>.<call>``, as the real client addresses them."""
+        """``tenant.<call>`` or ``mail.<resource>.<call>``, as the real client addresses them."""
 
         self.calls.append((method, params))
         api, _, name = method.partition(".")
-        assert api in ("site", "mail"), method
+        assert api in ("tenant", "mail"), method
         handler = getattr(self, name.replace(".", "__"))
         return handler(**params)
 
     site_title = "Acme"
     site_contact = "ops@acme.test"
 
-    def update_site_profile(self, title=None, contact_email=None) -> dict:
+    def update_tenant_profile(self, title=None, contact_email=None) -> dict:
         if title is not None:
             self.site_title = title.strip() or "acme.frappe.test"
         if contact_email is not None:
@@ -44,7 +44,7 @@ class FakeSuiteCloud:
 
     def ping(self) -> dict:
         return {
-            "site": "acme.frappe.test",
+            "tenant": "acme.frappe.test",
             "title": self.site_title,
             "status": "Active",
             "enabled": True,
