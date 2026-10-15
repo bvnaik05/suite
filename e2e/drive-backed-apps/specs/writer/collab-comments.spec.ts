@@ -68,10 +68,14 @@ test.describe("Writer collaboration comments", () => {
 		await expect(row).toContainText("Whole document");
 
 		await row.getByRole("button", { name: /Whole document note/ }).click();
-		await row.getByRole("button", { name: "Reply" }).click();
-		await row.getByLabel("Reply").fill("A reply");
-		await row.getByRole("button", { name: "Send" }).click();
+		await expect(row.getByLabel("Reply")).toBeFocused();
+		await page.keyboard.type("A reply");
+		await page.keyboard.press("Enter");
 		await expect(row).toContainText("A reply");
+		await row.getByRole("button", { name: "Resolve" }).click();
+		await expect(row).toHaveCount(0);
+		await page.getByRole("button", { name: "Undo" }).click();
+		await expect(row).toHaveCount(1);
 		await row.getByRole("button", { name: "Resolve" }).click();
 		await expect(row).toHaveCount(0);
 		await panel.getByRole("radio", { name: "Resolved 1" }).click();

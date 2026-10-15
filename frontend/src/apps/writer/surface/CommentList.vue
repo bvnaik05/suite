@@ -9,7 +9,7 @@ import {
   type DocumentThread,
 } from '@/apps/drive'
 import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
-import { confirm } from '@/platform/feedback'
+import { confirm, toast } from '@/platform/feedback'
 
 import CommentDraftCard from './CommentDraftCard.vue'
 import { threadRows } from './threadRows'
@@ -19,6 +19,8 @@ import { dayOrTime } from './versionDates'
 
 type ThreadComment = DocumentThread['comments'][number]
 type CommentTab = 'open' | 'resolved'
+
+const RESOLVED_MESSAGE_MS = 5000
 
 /**
  * The document's comment threads under Open and Resolved tabs, one row each and
@@ -45,8 +47,13 @@ const rowItems = ref<HTMLElement[]>([])
 const isWritingOnDocument = ref(false)
 const documentText = ref('')
 const documentBox = ref<{ focus(): void } | null>(null)
-const replyingTo = ref<string | null>(null)
-const replyText = ref('')
+const replyBoxes = ref<{ focus(): void }[]>([])
+/** A reply typed into each thread, kept while another is open. */
+const replyTexts = ref<Record<string, string>>({})
+const isReplyFocused = ref(false)
+/** Threads being resolved or reopened, faded until they leave the tab. */
+const leavingThreads = ref(new Set<string>())
+let isSendingReply = false
 
 // Guests may sign their comments. Signed-in users never see the field (spec §10.5)
 const {
@@ -88,7 +95,17 @@ const emptyText = computed(() => {
   return 'No open comments. Select text and press Comment, or comment on the whole document above.'
 })
 const isDocumentBlank = computed(() => !documentText.value.trim())
-const isReplyBlank = computed(() => !replyText.value.trim())
+const replyText = computed({
+  get: () => replyTexts.value[openThread.value ?? ''] ?? '',
+  set: (text: string) => {
+    if (openThread.value) {
+      replyTexts.value[openThread.value] = text
+    }
+  },
+})
+const hasReplyText = computed(() => !!replyText.value.trim())
+const isReplyHintShown = computed(() => isReplyFocused.value && !replyText.value)
+const canReply = computed(() => isOpenTab.value && props.canComment)
 const guestNameHint = computed(() => {
   if (guestNameAtLimit.value) {
     return `Names can have up to ${GUEST_NAME_LIMIT} characters.`
@@ -101,14 +118,16 @@ function isOpen(thread: DocumentThread) {
   return openThread.value === thread.name
 }
 
-function toggleThread(thread: DocumentThread) {
-  replyingTo.value = null
+// Opened from the list, the thread's reply box takes the cursor
+async function toggleThread(thread: DocumentThread) {
   if (isOpen(thread)) {
     closeThread()
     return
   }
 
   openThread.value = thread.name
+  await nextTick()
+  replyBoxes.value[0]?.focus()
 }
 
 function closeThread() {
@@ -198,31 +217,61 @@ async function discardDraft(draft: ShownDraft) {
   }
 }
 
-function isReplying(thread: DocumentThread) {
-  return replyingTo.value === thread.name
-}
-
-function startReply(thread: DocumentThread) {
-  replyingTo.value = thread.name
-  replyText.value = ''
-}
-
 async function submitReply(thread: DocumentThread) {
   const text = replyText.value.trim()
-  if (!text) {
+  if (!text || isSendingReply) {
     return
   }
 
-  if (await props.actions.reply(thread.name, text, takeGuestName())) {
-    replyingTo.value = null
-    replyText.value = ''
+  isSendingReply = true
+  try {
+    if (await props.actions.reply(thread.name, text, takeGuestName())) {
+      replyTexts.value[thread.name] = ''
+    }
+  } finally {
+    isSendingReply = false
   }
 }
 
-// A thread leaves the tab it is in, so it closes
-function toggleResolved(thread: DocumentThread) {
+function showReplyHint() {
+  isReplyFocused.value = true
+}
+
+function hideReplyHint() {
+  isReplyFocused.value = false
+}
+
+// Shift+Enter and a word still being composed stay in the box
+function sendOnEnter(event: KeyboardEvent, thread: DocumentThread) {
+  if (event.shiftKey || event.isComposing) {
+    return
+  }
+
+  event.preventDefault()
+  void submitReply(thread)
+}
+
+function offerUndoResolve(thread: DocumentThread) {
+  toast.success('Comment resolved', {
+    duration: RESOLVED_MESSAGE_MS,
+    action: { label: 'Undo', onClick: () => void props.actions.resolve(thread.name, false) },
+  })
+}
+
+// A thread leaves the tab it is in, so it closes and fades until it has gone
+async function toggleResolved(thread: DocumentThread) {
+  if (leavingThreads.value.has(thread.name)) {
+    return
+  }
+
+  const isResolving = !thread.resolved
   closeThread()
-  void props.actions.resolve(thread.name, !thread.resolved)
+  leavingThreads.value.add(thread.name)
+  const isChanged = await props.actions.resolve(thread.name, isResolving)
+  leavingThreads.value.delete(thread.name)
+  if (isChanged && isResolving) {
+    offerUndoResolve(thread)
+  }
 }
 
 function resolveLabel(thread: DocumentThread) {
@@ -231,6 +280,22 @@ function resolveLabel(thread: DocumentThread) {
   }
 
   return 'Resolve'
+}
+
+function resolveIcon(thread: DocumentThread) {
+  if (thread.resolved) {
+    return 'lucide-rotate-ccw'
+  }
+
+  return 'lucide-check'
+}
+
+function actionsClass(thread: DocumentThread) {
+  if (isOpen(thread)) {
+    return ''
+  }
+
+  return 'invisible group-hover:visible group-focus-within:visible'
 }
 
 async function deleteComment(comment: ThreadComment) {
@@ -273,6 +338,10 @@ function repliesLabel(thread: DocumentThread) {
 defineExpose({ startDocumentComment })
 
 function rowClass(thread: DocumentThread) {
+  if (leavingThreads.value.has(thread.name)) {
+    return 'pointer-events-none opacity-0'
+  }
+
   if (isOpen(thread)) {
     return 'bg-surface-gray-1'
   }
@@ -344,7 +413,7 @@ function rowClass(thread: DocumentThread) {
         ref="rowItems"
         :key="thread.name"
         :data-thread="thread.name"
-        class="relative rounded"
+        class="group relative rounded transition-opacity duration-200"
         :class="rowClass(thread)"
         @mouseenter="lightThread(thread)"
         @mouseleave="dimThread"
@@ -355,7 +424,7 @@ function rowClass(thread: DocumentThread) {
           :aria-expanded="isOpen(thread)"
           @click="toggleThread(thread)"
         >
-          <span class="flex items-center gap-1.5 pr-6 text-xs text-ink-gray-5">
+          <span class="flex items-center gap-1.5 pr-16 text-xs text-ink-gray-5">
             <span class="min-w-0 text-sm-medium text-ink-gray-8">
               <DriveCommentAuthor
                 :author="firstComment(thread).author"
@@ -381,16 +450,28 @@ function rowClass(thread: DocumentThread) {
             </span>
           </span>
         </button>
-        <template v-if="isOpen(thread)">
+        <div
+          v-if="canComment"
+          class="absolute right-1 top-1 flex items-center"
+          :class="actionsClass(thread)"
+        >
           <Button
-            v-if="canComment"
-            class="absolute right-1 top-1"
+            v-if="isOpen(thread)"
             size="sm"
             variant="ghost"
             icon="lucide-trash-2"
             aria-label="Delete comment"
             @click="deleteComment(firstComment(thread))"
           />
+          <Button
+            size="sm"
+            variant="ghost"
+            :icon="resolveIcon(thread)"
+            :aria-label="resolveLabel(thread)"
+            @click="toggleResolved(thread)"
+          />
+        </div>
+        <template v-if="isOpen(thread)">
           <div class="space-y-2 px-3 pb-3">
             <div v-for="comment in replies(thread)" :key="comment.name" class="space-y-1">
               <p class="flex items-center gap-2 text-sm-medium text-ink-gray-8">
@@ -416,28 +497,32 @@ function rowClass(thread: DocumentThread) {
               </p>
               <p class="whitespace-pre-wrap text-p-sm text-ink-gray-7">{{ comment.content }}</p>
             </div>
-            <form
-              v-if="isReplying(thread)"
-              class="flex gap-2"
-              @submit.prevent="submitReply(thread)"
-            >
-              <TextInput
-                v-model="replyText"
-                class="flex-1"
-                placeholder="Reply"
-                aria-label="Reply"
-              />
-              <Button type="submit" label="Send" :disabled="isReplyBlank" />
+            <form v-if="canReply" class="space-y-1" @submit.prevent="submitReply(thread)">
+              <div class="relative">
+                <Textarea
+                  ref="replyBoxes"
+                  v-model="replyText"
+                  :rows="1"
+                  placeholder="Reply"
+                  aria-label="Reply"
+                  @keydown.enter="sendOnEnter($event, thread)"
+                  @focus="showReplyHint"
+                  @blur="hideReplyHint"
+                />
+                <Button
+                  v-if="hasReplyText"
+                  type="submit"
+                  class="absolute bottom-1 right-1"
+                  size="sm"
+                  variant="ghost"
+                  icon="lucide-arrow-up"
+                  aria-label="Send reply"
+                />
+              </div>
+              <p v-if="isReplyHintShown" class="text-p-xs text-ink-gray-5">
+                Enter to send · Shift+Enter for a new line
+              </p>
             </form>
-            <div v-else-if="canComment" class="flex gap-1">
-              <Button size="sm" variant="ghost" label="Reply" @click="startReply(thread)" />
-              <Button
-                size="sm"
-                variant="ghost"
-                :label="resolveLabel(thread)"
-                @click="toggleResolved(thread)"
-              />
-            </div>
           </div>
         </template>
       </li>

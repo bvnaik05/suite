@@ -9,10 +9,22 @@ import type { ThreadActions } from './useDocumentPanel'
 
 const confirmed = vi.hoisted(() => ({ asked: [] as string[], answer: true }))
 
+interface ShownToast {
+  message: string
+  duration: number
+  action: { label: string; onClick: () => void }
+}
+
+const toasts = vi.hoisted(() => [] as ShownToast[])
+
 vi.mock('@/platform/feedback', () => ({
   confirm: async ({ title }: { title: string }) => {
     confirmed.asked.push(title)
     return confirmed.answer
+  },
+  toast: {
+    success: (message: string, options: Omit<ShownToast, 'message'>) =>
+      toasts.push({ message, ...options }),
   },
 }))
 
@@ -146,6 +158,7 @@ afterEach(() => {
   document.body.replaceChildren()
   confirmed.asked = []
   confirmed.answer = true
+  toasts.length = 0
 })
 
 // The list over the three threads, recording each change it asks for and each thread it opens or lights
@@ -153,6 +166,7 @@ function showList({
   canComment = true,
   threads = [ON_TEXT, WHOLE, DONE],
   openThread = null as string | null,
+  isRefusingResolve = false,
 } = {}) {
   const asked: string[] = []
   const opened: (string | null)[] = []
@@ -171,7 +185,8 @@ function showList({
   const actions: ThreadActions = {
     addComment: (text) => record(`add "${text}"`),
     reply: (thread, text) => record(`reply ${thread} "${text}"`),
-    resolve: (thread, isResolved) => record(`resolve ${thread} ${isResolved}`),
+    resolve: async (thread, isResolved) =>
+      (await record(`resolve ${thread} ${isResolved}`)) && !isRefusingResolve,
     removeComment: (name) => record(`remove ${name}`),
   }
   const host = document.createElement('div')
@@ -207,6 +222,10 @@ function rows(host: Element) {
 
 function buttonNamed(host: Element, name: string) {
   return [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === name)
+}
+
+function labelled(host: Element, label: string) {
+  return host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ?? undefined
 }
 
 function rowButton(host: Element, text: string) {
@@ -282,14 +301,201 @@ describe('the comments list', () => {
       false,
     ])
   })
+})
 
-  it('resolves the open thread and closes it', async () => {
+describe('resolving and reopening a thread', () => {
+  it('resolves the open thread from its ✓, closes it, and offers Undo for 5 seconds', async () => {
     const { host, asked } = showList()
 
     await click(rowButton(host, 'Looks good overall'))
-    await click(buttonNamed(host, 'Resolve'))
+    await click(labelled(host, 'Resolve'))
+    await settled()
 
-    expect([asked, openRows(host)]).toEqual([['resolve whole true'], []])
+    const shown = toasts.map(({ message, duration, action }) => [message, duration, action.label])
+    expect([asked, openRows(host), shown]).toEqual([
+      ['resolve whole true'],
+      [],
+      [['Comment resolved', 5000, 'Undo']],
+    ])
+  })
+
+  it('reopens that thread once on Undo', async () => {
+    const { host, asked } = showList()
+
+    await click(rowButton(host, 'Looks good overall'))
+    await click(labelled(host, 'Resolve'))
+    await settled()
+    toasts[0].action.onClick()
+    await settled()
+
+    expect(asked).toEqual(['resolve whole true', 'resolve whole false'])
+  })
+
+  it('offers no Undo when the thread could not be resolved', async () => {
+    const { host, asked } = showList({ isRefusingResolve: true })
+
+    await click(rowButton(host, 'Looks good overall'))
+    await click(labelled(host, 'Resolve'))
+    await settled()
+
+    expect([asked, toasts]).toEqual([['resolve whole true'], []])
+  })
+
+  it('sends one resolve for two quick clicks on the same ✓', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Looks good overall'))
+    const resolveButton = labelled(host, 'Resolve')!
+
+    resolveButton.click()
+    resolveButton.click()
+    await settled()
+
+    expect(asked).toEqual(['resolve whole true'])
+  })
+
+  it('lets a thread be resolved again once a refused resolve comes back', async () => {
+    const { host, asked } = showList({ isRefusingResolve: true })
+    await click(rowButton(host, 'Looks good overall'))
+    await click(labelled(host, 'Resolve'))
+    await settled()
+
+    await click(labelled(host, 'Resolve'))
+    await settled()
+
+    expect(asked).toEqual(['resolve whole true', 'resolve whole true'])
+  })
+
+  it('reopens a resolved thread from ↺ in the same spot, with no message', async () => {
+    const { host, asked } = showList()
+
+    await click(buttonNamed(host, 'Resolved 1'))
+    const hasResolve = !!labelled(host, 'Resolve')
+    await click(labelled(host, 'Reopen'))
+    await settled()
+
+    expect([hasResolve, asked, toasts]).toEqual([false, ['resolve done false'], []])
+  })
+})
+
+describe('replying in an open thread', () => {
+  function replyBox() {
+    return document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')
+  }
+
+  async function type(text: string) {
+    replyBox()!.value = text
+    replyBox()!.dispatchEvent(new Event('input'))
+    await nextTick()
+  }
+
+  async function press(options: KeyboardEventInit) {
+    const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, ...options })
+    replyBox()!.dispatchEvent(event)
+    await settled()
+    return event.defaultPrevented
+  }
+
+  it('puts the cursor in the reply box of a thread opened from the list', async () => {
+    const { host } = showList()
+
+    await click(rowButton(host, 'Is this right?'))
+    await nextTick()
+
+    expect([replyBox(), document.activeElement === replyBox()]).toEqual([expect.anything(), true])
+  })
+
+  it('leaves the cursor where it was when the thread is opened from its text', async () => {
+    showList({ openThread: 'on-text' })
+    await settled()
+
+    expect([replyBox(), document.activeElement === replyBox()]).toEqual([expect.anything(), false])
+  })
+
+  it('sends the reply on Enter and empties the box', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+
+    await type('  Agreed ')
+    const isKeptOutOfBox = await press({})
+
+    expect([asked, replyBox()?.value, isKeptOutOfBox]).toEqual([
+      ['reply on-text "Agreed"'],
+      '',
+      true,
+    ])
+  })
+
+  it('sends nothing on Shift+Enter or while a word is being composed', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+
+    await type('Agreed')
+    const pressed = [await press({ shiftKey: true }), await press({ isComposing: true })]
+
+    expect([asked, pressed]).toEqual([[], [false, false]])
+  })
+
+  it('sends one reply for two quick presses of Enter', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+    await type('Agreed')
+
+    const enter = { key: 'Enter', cancelable: true }
+    replyBox()!.dispatchEvent(new KeyboardEvent('keydown', enter))
+    replyBox()!.dispatchEvent(new KeyboardEvent('keydown', enter))
+    await settled()
+
+    expect(asked).toEqual(['reply on-text "Agreed"'])
+  })
+
+  it('shows the send arrow only once there is text, and sends from it', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+
+    const isShownEmpty = !!labelled(host, 'Send reply')
+    await type('Agreed')
+    await click(labelled(host, 'Send reply'))
+    await settled()
+
+    expect([isShownEmpty, asked]).toEqual([false, ['reply on-text "Agreed"']])
+  })
+
+  it('shows the keys to use only while the box is empty and has the cursor', async () => {
+    const { host } = showList()
+    const hint = 'Enter to send · Shift+Enter for a new line'
+    await click(rowButton(host, 'Is this right?'))
+    await nextTick()
+
+    const seen = [host.textContent?.includes(hint)]
+    await type('A')
+    seen.push(host.textContent?.includes(hint))
+    await type('')
+    replyBox()!.blur()
+    await nextTick()
+    seen.push(host.textContent?.includes(hint))
+
+    expect(seen).toEqual([true, false, false])
+  })
+
+  it('keeps a half-typed reply when another thread is opened and back', async () => {
+    const { host } = showList()
+    await click(rowButton(host, 'Is this right?'))
+    await type('Half a reply')
+
+    await click(rowButton(host, 'Looks good overall'))
+    const otherBox = replyBox()?.value
+    await click(rowButton(host, 'Is this right?'))
+
+    expect([otherBox, replyBox()?.value]).toEqual(['', 'Half a reply'])
+  })
+
+  it('offers no reply box in a resolved thread', async () => {
+    const { host } = showList()
+
+    await click(buttonNamed(host, 'Resolved 1'))
+    await click(rowButton(host, 'Fixed the title'))
+
+    expect(replyBox()).toBeNull()
   })
 })
 
@@ -363,17 +569,25 @@ describe('an empty tab and a reader who can’t comment', () => {
     )
   })
 
-  it('offers a reader no top line, reply, resolve or delete', async () => {
-    const { host } = showList({ canComment: false, threads: [ON_TEXT] })
+  it('offers a reader no top line, reply, resolve or delete, in either tab', async () => {
+    const { host } = showList({ canComment: false, threads: [ON_TEXT, DONE] })
+    function extras() {
+      const labels = [...host.querySelectorAll('button')].map(
+        (button) => button.textContent?.trim() || button.getAttribute('aria-label'),
+      )
+      const rest = labels.filter((label) => !/^(Open|Resolved) \d$|Is this|Fixed/.test(label ?? ''))
+      return [host.querySelector('textarea'), rest]
+    }
 
     await click(rowButton(host, 'Is this right?'))
-    const labels = [...host.querySelectorAll('button')].map(
-      (button) => button.textContent?.trim() || button.getAttribute('aria-label'),
-    )
+    const inOpen = extras()
+    await click(buttonNamed(host, 'Resolved 1'))
+    await click(rowButton(host, 'Fixed the title'))
 
-    expect(
-      labels.filter((label) => !/^(Open|Resolved) \d$|Is this right/.test(label ?? '')),
-    ).toEqual([])
+    expect([inOpen, extras()]).toEqual([
+      [null, []],
+      [null, []],
+    ])
   })
 
   it('tells a reader only that nothing is open', () => {
