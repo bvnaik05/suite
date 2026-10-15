@@ -1025,6 +1025,51 @@ const sourceMessages = (): Mail[] | undefined => {
   const fetched = threadFallback.data?.map(mailRow)
   return fetched?.[0]?.thread_id === threadID ? fetched : undefined
 }
+// A thread opened from Drafts is opened for its draft: it is shown where the draft is, not at the top
+// of the conversation it answers, which could be screens above it. Once per opening, on its first
+// load — a reload while writing must not pull the page about. A draft that is the whole thread
+// already has the pane.
+let landOnDraft = true
+// The mail above it keeps growing for a moment — an HTML body is drawn in a frame that takes its
+// height once it loads — so one scroll left the draft pushed back below the fold. It is held in view
+// while the page settles, and let go the moment the reader scrolls or reaches for the page.
+// Returns whether it could — opened from Drafts, the thread can arrive as the draft alone, with the
+// mail it answers landing a moment later, and until then there is nothing above it to scroll past.
+const scrollToDraft = (data: Mail[]): boolean => {
+  // On a fresh page the folders can arrive after the thread, and until then it can't be told
+  // whether this is Drafts — so it waits for them rather than deciding it isn't.
+  if (!mailboxIds.value.drafts) return false
+  if (mailbox !== mailboxIds.value.drafts) return true
+  const draft = data.find((mail) => mail.draft)
+  if (!draft || data.length < 2) return false
+  // The pane is drawn after the thread loads, so its scroller is looked for once it is.
+  nextTick(() => {
+    const container = threadContainerRef.value
+    if (!container) return
+    const reveal = () =>
+      container
+        .querySelector(`[data-mail-name="${CSS.escape(draft.name)}"]`)
+        ?.scrollIntoView({ block: 'start' })
+    const growth = new ResizeObserver(reveal)
+    const events = ['wheel', 'touchstart', 'pointerdown', 'keydown']
+    const letGo = () => {
+      growth.disconnect()
+      clearTimeout(timer)
+      events.forEach((type) => container.removeEventListener(type, letGo))
+    }
+    const timer = setTimeout(letGo, 2000)
+    events.forEach((type) => container.addEventListener(type, letGo, { passive: true }))
+    if (container.firstElementChild) growth.observe(container.firstElementChild)
+    reveal()
+  })
+  return true
+}
+watch(
+  () => mailboxIds.value.drafts,
+  () => {
+    if (landOnDraft && thread.value.length && scrollToDraft(thread.value)) landOnDraft = false
+  },
+)
 const loadThread = () => {
   if (!threadID) return
   const source = sourceMessages()
@@ -1042,6 +1087,7 @@ const loadThread = () => {
   }
   thread.value = data
   setCollapsedGroup(data)
+  if (landOnDraft && scrollToDraft(data)) landOnDraft = false
 
   // Opening a draft from the list puts it in the thread, so a composer window still holding that
   // same draft would be a second editor on it — two copies saving over each other, which is how
@@ -1124,6 +1170,7 @@ const syncWithSource = () => {
   holdNewestOpen(thread.value)
   if (draftIndex === -1) thread.value.push(...additions)
   else thread.value.splice(draftIndex, 0, ...additions)
+  if (landOnDraft && scrollToDraft(thread.value)) landOnDraft = false
 }
 // The mail the "more messages" divider hides, settled when the thread loads and emptied when the
 // divider opens it (see stillFolded for what it hides as the thread changes).
@@ -1311,6 +1358,7 @@ watch(
     resetCollapsedGroup()
     removedMailIds.clear()
     thread.value = []
+    landOnDraft = true
     // Going back to the list takes the composer window with it: everything in this pane hangs off
     // `threadID`, the popped-out composer included, so it is unmounted along with the thread it
     // came from. What is left behind is only the memory of it, and the next thread opened mounted
