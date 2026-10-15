@@ -1990,7 +1990,7 @@ _sheetTabs = useSheetTabs({
   run: (type, payload) => _client()?.dispatch(_command(type, payload)),
   currentSheet,
   formats,
-  extras: [merge, comments, validation, protection, condFormat, sortFilter, slicers],
+  extras: [merge, comments, validation, protection, condFormat, sortFilter, slicers, charts, pivot],
   getGrid: () => grid,
   activeCell,
   showInput: (id) => _showInputInFormulaBar(id),

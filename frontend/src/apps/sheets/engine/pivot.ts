@@ -559,6 +559,31 @@ export function createPivotEngine() {
     _remap(sheet, null, mapRow)
   }
 
+  // Sheet operations, run alongside the other stores' (useSheetTabs extras).
+  // A pivot names the sheet it reads (sourceSheet) and the sheet it writes
+  // its table to (outputSheet).
+  function renameSheet(oldName: string, newName: string) {
+    let changed = false
+    for (const p of Object.values(_pivots)) {
+      if (p.sourceSheet === oldName) {
+        p.sourceSheet = newName
+        changed = true
+      }
+      if (p.outputSheet === oldName) {
+        p.outputSheet = newName
+        changed = true
+      }
+    }
+    if (changed) _notify()
+  }
+
+  // A pivot whose output sheet is deleted goes with it.
+  function deleteSheet(name: string) {
+    const gone = Object.values(_pivots).filter((p) => p.outputSheet === name)
+    for (const p of gone) delete _pivots[p.id]
+    if (gone.length) _notify()
+  }
+
   // Returns true if the given sheet+cellId falls within any pivot's source range.
   function affectsPivot(sheetName: string) {
     return Object.values(_pivots).some((p) => p.sourceSheet === sheetName)
@@ -607,6 +632,8 @@ export function createPivotEngine() {
     affectsPivot,
     remapCols,
     remapRows,
+    renameSheet,
+    deleteSheet,
     snapshot,
     restore,
     setOnChange,
