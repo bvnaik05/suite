@@ -13204,10 +13204,6 @@
               "max_disk_gb": {
                 "title": "Max Disk Gb",
                 "type": "number"
-              },
-              "default_disk_quota_gb": {
-                "title": "Default Disk Quota Gb",
-                "type": "number"
               }
             },
             "title": "Limits",
@@ -13365,16 +13361,16 @@
           },
           "Storage": {
             "properties": {
-              "allocated_gb": {
+              "used_bytes": {
                 "anyOf": [
                   {
-                    "type": "number"
+                    "type": "integer"
                   },
                   {
                     "type": "null"
                   }
                 ],
-                "title": "Allocated Gb"
+                "title": "Used Bytes"
               },
               "max_gb": {
                 "anyOf": [
@@ -13386,23 +13382,11 @@
                   }
                 ],
                 "title": "Max Gb"
-              },
-              "default_quota_gb": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Default Quota Gb"
               }
             },
             "required": [
-              "allocated_gb",
-              "max_gb",
-              "default_quota_gb"
+              "used_bytes",
+              "max_gb"
             ],
             "title": "Storage",
             "type": "object"

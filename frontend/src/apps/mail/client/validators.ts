@@ -6307,7 +6307,6 @@ export const operationGetOverview: Validators<GetOverviewInput, GetOverviewOutpu
               max_groups: { title: 'Max Groups', type: 'integer' },
               max_mailing_lists: { title: 'Max Mailing Lists', type: 'integer' },
               max_disk_gb: { title: 'Max Disk Gb', type: 'number' },
-              default_disk_quota_gb: { title: 'Default Disk Quota Gb', type: 'number' },
             },
             title: 'Limits',
             type: 'object',
@@ -6363,17 +6362,10 @@ export const operationGetOverview: Validators<GetOverviewInput, GetOverviewOutpu
           },
           Storage: {
             properties: {
-              allocated_gb: {
-                anyOf: [{ type: 'number' }, { type: 'null' }],
-                title: 'Allocated Gb',
-              },
+              used_bytes: { anyOf: [{ type: 'integer' }, { type: 'null' }], title: 'Used Bytes' },
               max_gb: { anyOf: [{ type: 'number' }, { type: 'null' }], title: 'Max Gb' },
-              default_quota_gb: {
-                anyOf: [{ type: 'number' }, { type: 'null' }],
-                title: 'Default Quota Gb',
-              },
             },
-            required: ['allocated_gb', 'max_gb', 'default_quota_gb'],
+            required: ['used_bytes', 'max_gb'],
             title: 'Storage',
             type: 'object',
           },

@@ -221,11 +221,10 @@ class TestGroupsAndLists(SuiteCloudTestCase):
         self.fake.groups[group]["used_disk_bytes"] = 1024
         listed = admin.get_groups()["items"][0]
         self.assertEqual((listed["quota_gb"], listed["used_bytes"]), (2, 1024))
-        with self.change_settings("Mail Settings", default_disk_quota_gb=7):
-            frappe.local.request_cache.clear()
-            admin.add_group("ops", DOMAIN)
-        frappe.local.request_cache.clear()
-        self.assertEqual(self.fake.groups[f"ops@{DOMAIN}"]["disk_quota_gb"], 7)
+        # No quota asked for means none: Suite Cloud applies no default.
+        admin.add_group("ops", DOMAIN)
+        self.assertEqual(self.fake.groups[f"ops@{DOMAIN}"]["disk_quota_gb"], 0)
+        self.assertEqual(admin.get_group(f"ops@{DOMAIN}")["quota"]["total"], 0)
         admin.delete_groups([f"ops@{DOMAIN}"])
 
         admin.add_group_members(group, [f"bob@{DOMAIN}"])
@@ -544,21 +543,19 @@ class TestMembers(SuiteCloudTestCase):
         create_account.assert_not_called()
         self.assertEqual(self.fake.accounts[f"grace@{DOMAIN}"]["display_name"], "Grace of old")
 
-    def test_unset_quota_takes_the_mail_settings_default(self) -> None:
-        with self.change_settings("Mail Settings", default_disk_quota_gb=7):
-            frappe.local.request_cache.clear()
-            admin.add_member(
-                "dave",
-                DOMAIN,
-                is_admin=False,
-                send_invite=False,
-                backup_email="dave@backup.test",
-                first_name="Dave",
-                last_name="Doe",
-                password="a-strong-password-9",
-            )
-        frappe.local.request_cache.clear()
-        self.assertEqual(self.fake.accounts[f"dave@{DOMAIN}"]["disk_quota_gb"], 7)
+    def test_unset_quota_means_no_limit(self) -> None:
+        admin.add_member(
+            "dave",
+            DOMAIN,
+            is_admin=False,
+            send_invite=False,
+            backup_email="dave@backup.test",
+            first_name="Dave",
+            last_name="Doe",
+            password="a-strong-password-9",
+        )
+        self.assertEqual(self.fake.accounts[f"dave@{DOMAIN}"]["disk_quota_gb"], 0)
+        self.assertEqual(admin.get_member(f"dave@{DOMAIN}")["quota"]["total"], 0)
 
     def test_an_account_can_be_created_unable_to_receive(self) -> None:
         for username, disable_receiving in (("noreply", True), ("heidi", False)):
@@ -760,7 +757,7 @@ class TestMembers(SuiteCloudTestCase):
             (overview["domains"], overview["groups"], overview["limits"]["max_domains"]), (1, 1, 10)
         )
         self.assertEqual(overview["site"]["cluster"], "mail.c1.example.test")
-        self.assertEqual(overview["storage"]["max_gb"], 100)
+        self.assertEqual((overview["storage"]["used_bytes"], overview["storage"]["max_gb"]), (4096, 100))
         self.assertEqual(overview["domains_needing_attention"], [])
         self.assertEqual(overview["invites"], {"pending": 0, "expiring_soon": 0, "expired": 0})
         self.assertEqual(overview["recent_accounts"][0]["name"], self.email)
