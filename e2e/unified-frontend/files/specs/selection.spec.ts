@@ -44,7 +44,7 @@ test("Space selects, Shift+Space extends the range and Escape clears", async ({ 
 
 	await page.keyboard.press("Escape");
 	await expect(page.getByText("selected")).toHaveCount(0);
-	await expect(page.getByRole("searchbox", { name: "Search files" })).toBeVisible();
+	await expect(page.getByRole("searchbox", { name: "Search all files" })).toBeVisible();
 });
 
 test("Ctrl-click enters selection and the bulk bar carries two actions", async ({ page }) => {
