@@ -172,17 +172,12 @@
                   </template>
                 </Button>
               </Dropdown>
-              <Dropdown v-if="showAddTo" :options="addToOptions">
-                <Button variant="ghost" :tooltip="__('Add To')">
+              <!-- Where the selection is filed, as ticks — the thread toolbar's Folders menu, for
+                   every ticked thread at once. Stays open, to file them in several. -->
+              <Dropdown v-if="folderOptions.length" :options="folderOptions">
+                <Button variant="ghost" :tooltip="__('Folders')">
                   <template #icon>
-                    <component :is="FolderPlus" class="icon" />
-                  </template>
-                </Button>
-              </Dropdown>
-              <Dropdown v-if="showRemoveFrom" :options="removeFromOptions">
-                <Button variant="ghost" :tooltip="__('Remove From')">
-                  <template #icon>
-                    <component :is="FolderMinus" class="icon" />
+                    <component :is="Folders" class="icon" />
                   </template>
                 </Button>
               </Dropdown>
@@ -368,7 +363,7 @@
 </template>
 <script setup lang="ts">
 import { Breadcrumbs, Button, Checkbox, Dialog, Dropdown, usePageMeta } from 'frappe-ui'
-import { FolderInput, FolderMinus, FolderPlus, LoaderCircle } from 'lucide-vue-next'
+import { FolderInput, Folders, LoaderCircle } from 'lucide-vue-next'
 import { computed, inject, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -572,11 +567,8 @@ const folderSelectionOptions = computed(() => [
   ...(showMoveTo.value
     ? [{ label: __('Move To'), icon: FolderInput, options: moveToOptions.value }]
     : []),
-  ...(showAddTo.value
-    ? [{ label: __('Add To'), icon: FolderPlus, options: addToOptions.value }]
-    : []),
-  ...(showRemoveFrom.value
-    ? [{ label: __('Remove From'), icon: FolderMinus, options: removeFromOptions.value }]
+  ...(folderOptions.value.length
+    ? [{ label: __('Folders'), icon: Folders, options: folderOptions.value }]
     : []),
 ])
 // Selecting doesn't force a collapsed date group or stack open: ticking either one is how you act on
@@ -1094,11 +1086,8 @@ const {
   setFlaggedSubmit,
   selectedRows,
   moveToOptions,
-  addToOptions,
-  removeFromOptions,
+  folderOptions,
   showMoveTo,
-  showAddTo,
-  showRemoveFrom,
   showJunkOrDeleteThreads,
   junkOrDeleteThreadsOptions,
 } = useThreadActions({

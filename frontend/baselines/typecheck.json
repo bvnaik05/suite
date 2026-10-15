@@ -67,7 +67,7 @@
   "src/apps/mail/utils/index.ts": 1,
   "src/apps/mail/utils/mentionSuggestion.ts": 1,
   "src/apps/mail/utils/quotedContentExtension.ts": 1,
-  "src/apps/mail/utils/useThreadActions.ts": 15,
+  "src/apps/mail/utils/useThreadActions.ts": 10,
   "src/apps/meet/components/AudioIndicator.vue": 7,
   "src/apps/meet/components/ChatPanel.vue": 1,
   "src/apps/meet/components/FloatingReactions.vue": 3,

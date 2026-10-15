@@ -271,7 +271,7 @@ const fileableFolders = computed(() =>
 const folderOptions = computed(() => {
   const mails = (thread ?? []).filter((mail: Mail) => mail.id)
   const ticks = folderTicks(
-    mails,
+    [mails],
     fileableFolders.value.map((m) => m.id),
   )
   return fileableFolders.value.map((mailbox, i) => {

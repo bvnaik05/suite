@@ -1,4 +1,4 @@
-// Where a thread is filed, as the ticks of a folder menu. A thread can sit in several folders at
+// Where threads are filed, as the ticks of a folder menu. A thread can sit in several folders at
 // once, so one list of boxes says where it is and changes it, instead of separate Add To and Remove
 // From menus that each showed only half of it.
 
@@ -8,18 +8,25 @@ interface Filed {
 
 export interface FolderTick {
   id: string
-  /** In it whole, in part (some of the thread's mail), or not at all. */
+  /** Every thread in it, some of them, or none. */
   ticked: 'all' | 'some' | 'none'
   /** Whether it can be unticked: taking a message out of its only folder would leave it nowhere. */
   removable: boolean
 }
 
-export const folderTicks = (mails: Filed[], folders: string[]): FolderTick[] =>
+const isIn = (mail: Filed, id: string) => mail.mailboxes.some((m) => m.mailbox_id === id)
+
+/**
+ * The ticks for `threads`, each given as its messages. A thread is in a folder while any of its
+ * messages is, as a conversation is read: one you have answered has its replies in Sent, not the
+ * Inbox, and asking for all of them left the Inbox half-ticked on every thread you had replied to.
+ */
+export const folderTicks = (threads: Filed[][], folders: string[]): FolderTick[] =>
   folders.map((id) => {
-    const inIt = mails.filter((mail) => mail.mailboxes.some((m) => m.mailbox_id === id))
+    const filed = threads.filter((mails) => mails.some((mail) => isIn(mail, id))).length
     return {
       id,
-      ticked: !inIt.length ? 'none' : inIt.length === mails.length ? 'all' : 'some',
-      removable: inIt.every((mail) => mail.mailboxes.length > 1),
+      ticked: !filed ? 'none' : filed === threads.length ? 'all' : 'some',
+      removable: threads.flat().every((mail) => !isIn(mail, id) || mail.mailboxes.length > 1),
     }
   })
