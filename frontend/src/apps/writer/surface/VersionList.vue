@@ -171,7 +171,11 @@ function actions(version: DocumentVersion): DropdownOptions {
       >
         Current version
       </button>
-      <div v-if="canSaveVersion" class="flex shrink-0 items-center" :class="currentActionsClass">
+      <div
+        v-if="canSaveVersion"
+        class="flex shrink-0 items-center pr-1.5"
+        :class="currentActionsClass"
+      >
         <Tooltip text="Save version">
           <button
             type="button"
@@ -214,7 +218,7 @@ function actions(version: DocumentVersion): DropdownOptions {
           <p class="truncate text-sm" :class="titleClass(version)">{{ title(version) }}</p>
           <p class="truncate text-xs text-ink-gray-5">{{ byline(version) }}</p>
         </button>
-        <div class="flex shrink-0 items-center" :class="actionsClass(version)">
+        <div class="flex shrink-0 items-center pr-1.5" :class="actionsClass(version)">
           <Tooltip v-if="canRestore" text="Restore this version">
             <button
               type="button"

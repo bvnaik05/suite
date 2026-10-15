@@ -82,7 +82,7 @@ function noteMenu(isShown: boolean) {
         <p class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
           <CommentText :content="draft.text" />
         </p>
-        <div v-if="isNotPosted" class="absolute -top-1 right-0" :class="menuClass">
+        <div v-if="isNotPosted" class="absolute -right-1.5 -top-1" :class="menuClass">
           <Dropdown :options="actions" align="end" @update:open="noteMenu">
             <button
               type="button"

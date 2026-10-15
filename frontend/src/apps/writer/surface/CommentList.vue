@@ -657,7 +657,7 @@ function rowClass(thread: DocumentThread) {
           </button>
           <div
             v-if="canComment"
-            class="absolute right-1 top-1 flex items-center"
+            class="absolute right-1.5 top-1 flex items-center"
             :class="actionsClass(row.thread)"
           >
             <Button
@@ -722,7 +722,7 @@ function rowClass(thread: DocumentThread) {
                 </p>
                 <div
                   v-if="hasMenu(comment)"
-                  class="absolute -top-1 right-0"
+                  class="absolute -right-1.5 -top-1"
                   :class="menuClass(comment)"
                 >
                   <Dropdown
@@ -756,10 +756,11 @@ function rowClass(thread: DocumentThread) {
                     @focus="showReplyHint"
                     @blur="hideReplyHint"
                   />
+                  <!-- 3px puts the glyph at the textarea's 9px text inset, border included -->
                   <Button
                     v-if="hasReplyText"
                     type="submit"
-                    class="absolute bottom-1 right-1"
+                    class="absolute bottom-1 right-[3px]"
                     size="sm"
                     variant="ghost"
                     icon="lucide-arrow-up"
