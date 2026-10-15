@@ -9,11 +9,13 @@ here, so the lists, All Inboxes and the open thread can't each grow their own.
 
 | Action      | Mail you received                        | Your sent mail        | A draft   |
 |-------------|------------------------------------------|-----------------------|-----------|
-| archive     | Inbox → Archive (Archive added if not)   | stays in Sent         | untouched |
+| archive     | Inbox → Archive (Archive added if not)*  | stays in Sent         | untouched |
 | move        | leaves every folder for the target       | target, keeps Sent    | untouched |
 | junk        | leaves every folder for Junk, marked     | stays in Sent         | untouched |
 | not_junk    | Junk → Inbox, mark cleared               | untouched             | untouched |
 | trash       | Trash                                    | Trash                 | untouched |
+
+* Archived from Junk or Trash, it leaves those too, and loses the junk mark.
 """
 
 from typing import Literal, TypedDict
@@ -72,11 +74,15 @@ def plan(action: Action, emails: list[dict], roles: Roles, target: str | None = 
         if action == "archive":
             if own:
                 continue
-            update = {f"mailboxIds/{roles['archive']}": True}
-            if roles["inbox"] in boxes:
-                update[f"mailboxIds/{roles['inbox']}"] = None
-            elif roles["archive"] in boxes:
+            # Out of the Inbox; and out of Junk or Trash too, mark and all, or it would gain Archive
+            # and still be shown only where it was.
+            leaving = [roles[box] for box in ("inbox", "junk", "trash") if roles[box] in boxes]
+            if not leaving and roles["archive"] in boxes:
                 continue
+            update = {f"mailboxIds/{roles['archive']}": True}
+            update |= {f"mailboxIds/{box}": None for box in leaving}
+            if junked:
+                update |= {"keywords/$junk": None, "keywords/$notjunk": True}
         elif action == "move":
             if own:
                 update = {"mailboxIds": {roles["sent"]: True, target: True}}

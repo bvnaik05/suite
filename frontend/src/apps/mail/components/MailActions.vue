@@ -77,6 +77,7 @@ import {
 import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useFilterBySender, useScreenSize, useUndo } from '@/apps/mail/utils/composables'
 import { mailCopyIds } from '@/apps/mail/utils/mailCopies'
+import { isReceived } from '@/apps/mail/utils/receivedMail'
 import { UNIFIED_ROUTE, UNIFIED_THREAD_ROUTE } from '@/apps/mail/utils/unifiedFolders'
 import AdaptiveDropdown from '@/components/AdaptiveDropdown.vue'
 
@@ -241,7 +242,11 @@ const moreActions = (mail: Mail): GroupedAction[] => [
         label: __('Mark as Junk'),
         onClick: () => emit('markMailSpam', mail, true),
         icon: CircleAlert,
-        condition: () => mailbox !== mailboxIds.value.drafts && mail.junk === 0,
+        // Only mail you received is junked: your own sent message stays in Sent (see receivedMail).
+        condition: () =>
+          mailbox !== mailboxIds.value.drafts &&
+          mail.junk === 0 &&
+          isReceived(mail, mailboxIds.value.sent),
       },
       {
         label: __('Mark as Not Junk'),

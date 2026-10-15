@@ -42,6 +42,22 @@ class TestArchive(UnitTestCase):
     def test_mail_already_archived_is_left_alone(self):
         self.assertEqual(plan("archive", [email("a", "archive")], ROLES), {})
 
+    def test_junked_or_trashed_mail_comes_out_into_archive(self):
+        junked = email("j", "junk", **{"$junk": True})
+        trashed = email("t", "trash")
+        self.assertEqual(
+            plan("archive", [junked, trashed], ROLES),
+            {
+                "j": {
+                    "mailboxIds/archive": True,
+                    "mailboxIds/junk": None,
+                    "keywords/$junk": None,
+                    "keywords/$notjunk": True,
+                },
+                "t": {"mailboxIds/archive": True, "mailboxIds/trash": None},
+            },
+        )
+
     def test_says_whether_the_conversation_left_the_inbox(self):
         from_inbox = plan("archive", CONVERSATION, ROLES)
         self.assertTrue(left_inbox(from_inbox, CONVERSATION, ROLES))
