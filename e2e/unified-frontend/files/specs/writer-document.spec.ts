@@ -155,7 +155,7 @@ test("adding a comment keeps the panel open and shows the comment", async ({ pag
 	await openDocument(page);
 	await page.getByRole("button", { name: "Comments" }).click();
 	await page.getByRole("button", { name: "Add a comment…" }).click();
-	await page.getByLabel("New comment").fill("Looks good to me");
+	await page.getByLabel("Add a comment", { exact: true }).fill("Looks good to me");
 	await page.getByRole("button", { name: "Comment", exact: true }).click();
 
 	await expect(page.getByRole("heading", { name: "Comments" })).toBeVisible();

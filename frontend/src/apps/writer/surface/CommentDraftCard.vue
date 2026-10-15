@@ -14,7 +14,9 @@ const field = ref<InstanceType<typeof MentionTextarea> | null>(null)
 const quote = computed(() => anchorQuote(props.draft.anchor))
 const isPostDisabled = computed(() => !props.draft.text.trim())
 const isOnDocument = computed(() => props.draft.anchor === DOCUMENT_ANCHOR)
-const boxLabel = computed(() => (isOnDocument.value ? 'New comment' : 'Comment on the text'))
+const boxLabel = computed(() =>
+  isOnDocument.value ? 'Add a comment' : 'Add a comment on the text',
+)
 
 function focus() {
   field.value?.focus()

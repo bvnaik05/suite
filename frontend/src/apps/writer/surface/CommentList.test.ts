@@ -846,7 +846,7 @@ describe('replying in an open thread', () => {
 
 describe('commenting on the whole document', () => {
   function documentBox() {
-    return document.querySelector<HTMLTextAreaElement>('textarea[aria-label="New comment"]')
+    return document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Add a comment"]')
   }
 
   async function type(text: string) {
@@ -939,7 +939,7 @@ describe('commenting on the whole document', () => {
 
     await start()
 
-    const boxes = host.querySelectorAll('textarea[aria-label="New comment"]').length
+    const boxes = host.querySelectorAll('textarea[aria-label="Add a comment"]').length
     const isFocused = document.activeElement === documentBox()
     expect([boxes, list.drafts.value.length, isFocused, documentBox()?.value]).toEqual([
       1,
@@ -958,8 +958,8 @@ describe('commenting on the whole document', () => {
       box.placeholder,
     ])
     expect(boxes).toEqual([
-      ['New comment', 'Add a comment'],
-      ['Comment on the text', 'Add a comment'],
+      ['Add a comment', 'Add a comment'],
+      ['Add a comment on the text', 'Add a comment'],
     ])
   })
 
@@ -1375,7 +1375,7 @@ describe('comments not yet posted', () => {
       { text: 'Refused', isSent: true },
     ])
     const { host } = showList({ threads: [WHOLE], drafts: list })
-    const box = host.querySelector('textarea[aria-label="Comment on the text"]')!
+    const box = host.querySelector('textarea[aria-label="Add a comment on the text"]')!
     const isBoxFirst = !!(
       box.compareDocumentPosition(host.querySelector('ul')!) & Node.DOCUMENT_POSITION_FOLLOWING
     )

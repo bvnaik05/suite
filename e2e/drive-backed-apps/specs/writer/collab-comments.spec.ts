@@ -18,7 +18,7 @@ async function openComments(page: Page) {
 async function commentOnDocument(page: Page, text: string) {
 	const panel = await openComments(page);
 	await panel.getByRole("button", { name: "Add a comment…" }).click();
-	await panel.getByLabel("New comment").fill(text);
+	await panel.getByLabel("Add a comment", { exact: true }).fill(text);
 	await panel.getByRole("button", { name: "Comment", exact: true }).click();
 	return panel;
 }
@@ -44,7 +44,7 @@ async function startCommentOnLastWord(page: Page, line: string) {
 
 	await page.locator('[data-slot="bubble-menu"]').getByRole("button", { name: "Comment" }).click();
 	const panel = page.getByRole("complementary", { name: "Comments" });
-	await expect(panel.getByLabel("Comment on the text")).toBeVisible();
+	await expect(panel.getByLabel("Add a comment on the text")).toBeVisible();
 	await expect(panel).toContainText(word);
 	return panel;
 }
@@ -177,7 +177,7 @@ test.describe("Writer collaboration comments", () => {
 		await openWriterDocument(page, node);
 		const panel = await openComments(page);
 		await panel.getByRole("button", { name: "Add a comment…" }).click();
-		const box = panel.getByLabel("New comment");
+		const box = panel.getByLabel("Add a comment", { exact: true });
 		await box.pressSequentially(`Ask @${handle}`);
 		const option = panel.getByRole("option");
 		await expect(option).toHaveCount(1);
@@ -203,13 +203,13 @@ test.describe("Writer collaboration comments", () => {
 		await openWriterDocument(page, node);
 		const drafts = await startCommentOnLastWord(page, "the commented sentence");
 
-		await drafts.getByLabel("Comment on the text").fill("About this word");
+		await drafts.getByLabel("Add a comment on the text").fill("About this word");
 		await drafts.getByRole("button", { name: "Comment", exact: true }).click();
 
 		const panel = page.getByRole("complementary", { name: "Comments" });
 		const row = threadRow(panel, "About this word");
 		await expect(row).not.toContainText("Text deleted");
-		await expect(drafts.getByLabel("Comment on the text")).toHaveCount(0);
+		await expect(drafts.getByLabel("Add a comment on the text")).toHaveCount(0);
 		await expect(writerEditor(page).locator("[data-thread]")).toHaveText("sentence");
 
 		await writerEditor(page).locator("[data-thread]").dblclick();
@@ -224,7 +224,7 @@ test.describe("Writer collaboration comments", () => {
 		const { page } = owner;
 		await openWriterDocument(page, node);
 		const drafts = await startCommentOnLastWord(page, "the commented sentence");
-		await drafts.getByLabel("Comment on the text").fill("About this word");
+		await drafts.getByLabel("Add a comment on the text").fill("About this word");
 		await drafts.getByRole("button", { name: "Comment", exact: true }).click();
 		const panel = page.getByRole("complementary", { name: "Comments" });
 		await expect(threadRow(panel, "About this word")).not.toContainText("Text deleted");
@@ -254,15 +254,15 @@ test.describe("Writer collaboration comments", () => {
 		const { page } = owner;
 		await openWriterDocument(page, node);
 		const drafts = await startCommentOnLastWord(page, "kept for later");
-		await drafts.getByLabel("Comment on the text").fill("Not sent yet");
+		await drafts.getByLabel("Add a comment on the text").fill("Not sent yet");
 
 		await page.reload();
 		const reopened = await openComments(page);
-		await expect(reopened.getByLabel("Comment on the text")).toHaveValue("Not sent yet");
+		await expect(reopened.getByLabel("Add a comment on the text")).toHaveValue("Not sent yet");
 
 		await reopened.getByRole("button", { name: "Cancel" }).click();
 		await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
-		await expect(reopened.getByLabel("Comment on the text")).toHaveCount(0);
+		await expect(reopened.getByLabel("Add a comment on the text")).toHaveCount(0);
 		await page.reload();
 		await expect((await openComments(page)).getByText("No open comments.", { exact: false })).toBeVisible();
 	});
@@ -272,7 +272,7 @@ test.describe("Writer collaboration comments", () => {
 		await openWriterDocument(page, node);
 		const drafts = await startCommentOnLastWord(page, "the refused sentence");
 		await page.route("**/api/suite/drive/nodes/*/threads", refuseNewThreads);
-		await drafts.getByLabel("Comment on the text").fill("Sent while offline");
+		await drafts.getByLabel("Add a comment on the text").fill("Sent while offline");
 		await drafts.getByRole("button", { name: "Comment", exact: true }).click();
 		await expect(drafts).toContainText("Not posted ·");
 
@@ -280,7 +280,7 @@ test.describe("Writer collaboration comments", () => {
 		await page.reload();
 		const reopened = await openComments(page);
 		await expect(reopened).toContainText("Not posted ·");
-		await expect(reopened.getByLabel("Comment on the text")).toHaveCount(0);
+		await expect(reopened.getByLabel("Add a comment on the text")).toHaveCount(0);
 		await reopened.getByRole("button", { name: "Retry" }).click();
 
 		const row = threadRow(reopened, "Sent while offline");

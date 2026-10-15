@@ -1158,7 +1158,7 @@ describe('commenting from the editor', () => {
   }
 
   function draftCount(root: Element) {
-    return root.querySelectorAll('textarea[aria-label="Comment on the text"]').length
+    return root.querySelectorAll('textarea[aria-label="Add a comment on the text"]').length
   }
 
   it('starts exactly one comment on the selected text on Ctrl+Alt+M', async () => {
@@ -1181,7 +1181,7 @@ describe('commenting from the editor', () => {
     pressCommentKeys(editor)
     await settled()
 
-    const box = root.querySelector('aside textarea[aria-label="New comment"]')
+    const box = root.querySelector('aside textarea[aria-label="Add a comment"]')
     expect([box !== null, document.activeElement === box, draftCount(root)]).toEqual([
       true,
       true,
