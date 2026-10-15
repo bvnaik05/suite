@@ -3,13 +3,13 @@ import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import type { DocumentThread } from '@/apps/drive'
 
 import { encodeAnchor } from './anchors'
-import { redrawThreads, ThreadHighlights, type ThreadPlaces } from './highlights'
+import { redrawThreads, showThread, ThreadHighlights, type ThreadPlaces } from './highlights'
 
 const editors: Editor[] = []
 afterEach(() => {
@@ -18,10 +18,17 @@ afterEach(() => {
   }
 })
 
+interface Panel {
+  open: string | null
+  lit: string | null
+  opened: string[]
+}
+
 function openEditor(
   doc: Y.Doc,
   threads: { list: DocumentThread[] },
   placed: (places: ThreadPlaces) => void = () => {},
+  panel: Panel = { open: null, lit: null, opened: [] },
 ) {
   const editor = new Editor({
     element: document.createElement('div'),
@@ -30,7 +37,13 @@ function openEditor(
       Paragraph,
       Text,
       Collaboration.configure({ document: doc }),
-      ThreadHighlights.configure({ threads: () => threads.list, placed }),
+      ThreadHighlights.configure({
+        threads: () => threads.list,
+        placed,
+        open: () => panel.open,
+        lit: () => panel.lit,
+        opened: (name) => panel.opened.push(name),
+      }),
     ],
   })
   editors.push(editor)
@@ -104,5 +117,77 @@ describe('thread highlights', () => {
     editor.commands.deleteRange({ from: 7, to: 12 })
 
     expect(told).toEqual([[], [], ['open:text'], ['open:deleted']])
+  })
+})
+
+describe('the text of the thread the panel points at', () => {
+  // An editor on "hello world" with a thread on each word
+  function twoThreads() {
+    const doc = new Y.Doc()
+    const threads = { list: [] as DocumentThread[] }
+    const panel: Panel = { open: null, lit: null, opened: [] }
+    const editor = openEditor(doc, threads, () => {}, panel)
+    editor.commands.setContent('<p>hello world</p>')
+    threads.list = [threadOn(doc, 'first', 0, 5), threadOn(doc, 'second', 6, 11)]
+    redrawThreads(editor.view)
+    return { editor, panel }
+  }
+
+  function shown(editor: Editor) {
+    const spans = editor.view.dom.querySelectorAll('[data-thread]')
+    return [...spans].map((span) => `${span.textContent}:${span.className}`)
+  }
+
+  it('shows the open thread darker and a pointed-at one lighter, once redrawn', () => {
+    const { editor, panel } = twoThreads()
+
+    panel.open = 'first'
+    panel.lit = 'second'
+    redrawThreads(editor.view)
+
+    expect([shown(editor), editor.state.selection.empty]).toEqual([
+      ['hello:is-open', 'world:is-lit'],
+      true,
+    ])
+  })
+
+  it('opens the thread whose highlighted text is clicked, and nothing for plain text', () => {
+    const { editor, panel } = twoThreads()
+    const world = editor.view.dom.querySelector('[data-thread="second"]')!
+
+    editor.view.someProp('handleClick', (click) =>
+      click(editor.view, 8, { target: world } as never),
+    )
+    const paragraph = editor.view.dom.querySelector('p')!
+    editor.view.someProp('handleClick', (click) =>
+      click(editor.view, 1, { target: paragraph } as never),
+    )
+
+    expect(panel.opened).toEqual(['second'])
+  })
+
+  // The editor's scroll area spans 0-500px; `top` is where the thread's text sits in it
+  function placeText(editor: Editor, top: number) {
+    const frame = document.createElement('div')
+    frame.id = 'editor-scroll-container'
+    frame.append(editor.view.dom)
+    document.body.append(frame)
+    frame.getBoundingClientRect = () => ({ top: 0, bottom: 500 }) as DOMRect
+    const text = editor.view.dom.querySelector<HTMLElement>('[data-thread="first"]')!
+    text.getBoundingClientRect = () => ({ top, bottom: top + 20 }) as DOMRect
+    text.scrollIntoView = vi.fn()
+    return text
+  }
+
+  it('scrolls to the text only when none of it is in view', () => {
+    const { editor } = twoThreads()
+    const scrolled: unknown[] = []
+    for (const top of [100, -15, -40, 600]) {
+      const text = placeText(editor, top)
+      showThread(editor.view, 'first')
+      scrolled.push(vi.mocked(text.scrollIntoView).mock.calls)
+    }
+
+    expect(scrolled).toEqual([[], [], [[{ block: 'center' }]], [[{ block: 'center' }]]])
   })
 })

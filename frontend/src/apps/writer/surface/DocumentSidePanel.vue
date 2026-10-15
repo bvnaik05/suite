@@ -35,6 +35,8 @@ const emit = defineEmits<{
 const previewedVersion = defineModel<DocumentVersion | null>('previewedVersion', {
   required: true,
 })
+const openThread = defineModel<string | null>('openThread', { default: null })
+const litThread = defineModel<string | null>('litThread', { default: null })
 
 const { lists, load, loadMoreVersions, saveVersion, renameVersion, ...threadActions } =
   useDocumentPanel(props.session, props.refreshThreads)
@@ -43,6 +45,7 @@ const isSavingVersion = ref(false)
 const isNamingVersion = ref(false)
 const versionName = ref('')
 const versionNameInput = ref<{ focus(): void } | null>(null)
+const commentList = ref<InstanceType<typeof CommentList> | null>(null)
 
 const isCommentsPanel = computed(() => panel.value === 'comments')
 const title = computed(() => (isCommentsPanel.value ? 'Comments' : 'Versions'))
@@ -122,7 +125,14 @@ async function renameShownVersion(version: DocumentVersion, label: string) {
   return !!renamed
 }
 
-defineExpose({ reloadVersions: () => load('versions'), startNamingVersion })
+// Opens the comments panel with the whole-document box ready to type in
+async function startDocumentComment() {
+  panel.value = 'comments'
+  await nextTick()
+  await commentList.value?.startDocumentComment()
+}
+
+defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, startDocumentComment })
 </script>
 
 <template>
@@ -162,6 +172,9 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion })
           <p v-if="lists.isLoading" class="text-sm text-ink-gray-5">Loading…</p>
           <CommentList
             v-else-if="isCommentsPanel"
+            ref="commentList"
+            v-model:open-thread="openThread"
+            v-model:lit-thread="litThread"
             :threads
             :places
             :can-comment

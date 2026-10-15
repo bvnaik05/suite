@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createApp, h, nextTick, type App } from 'vue'
+import { createApp, h, nextTick, ref, type App } from 'vue'
 
 import type { DocumentThread } from '@/apps/drive'
 import type { ThreadPlace } from '@/apps/writer/collab/places'
@@ -138,6 +138,9 @@ const PLACES = new Map<string, ThreadPlace>([
 
 let mounted: App | null = null
 
+// jsdom lays nothing out, so has nothing to scroll
+Element.prototype.scrollIntoView = () => {}
+
 afterEach(() => {
   mounted?.unmount()
   document.body.replaceChildren()
@@ -145,9 +148,21 @@ afterEach(() => {
   confirmed.answer = true
 })
 
-// The list over the three threads, recording each change it asks for
-function showList({ canComment = true, threads = [ON_TEXT, WHOLE, DONE] } = {}) {
+// The list over the three threads, recording each change it asks for and each thread it opens or lights
+function showList({
+  canComment = true,
+  threads = [ON_TEXT, WHOLE, DONE],
+  openThread = null as string | null,
+} = {}) {
   const asked: string[] = []
+  const opened: (string | null)[] = []
+  const lit: (string | null)[] = []
+  const shown = ref(openThread)
+  function open(name: string | null) {
+    opened.push(name)
+    shown.value = name
+  }
+
   function record(change: string) {
     asked.push(change)
     return Promise.resolve(true)
@@ -161,10 +176,20 @@ function showList({ canComment = true, threads = [ON_TEXT, WHOLE, DONE] } = {}) 
   }
   const host = document.createElement('div')
   document.body.append(host)
-  const app = createApp(() => h(CommentList, { threads, places: PLACES, canComment, actions }))
+  const app = createApp(() =>
+    h(CommentList, {
+      threads,
+      places: PLACES,
+      canComment,
+      actions,
+      openThread: shown.value,
+      'onUpdate:openThread': open,
+      'onUpdate:litThread': (name: string | null) => lit.push(name),
+    }),
+  )
   app.mount(host)
   mounted = app
-  return { host, asked }
+  return { host, asked, opened, lit }
 }
 
 // Each row's words, one piece of text after another
@@ -292,6 +317,22 @@ describe('commenting on the whole document', () => {
     expect([isFocused, asked, documentBox()]).toEqual([true, ['add "Ship it"'], null])
   })
 
+  it('opens the box under the Open tab when asked from elsewhere', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const list = ref<{ startDocumentComment(): Promise<void> } | null>(null)
+    const actions = {} as ThreadActions
+    const props = { ref: list, threads: [DONE], places: PLACES, canComment: true, actions }
+    mounted = createApp(() => h(CommentList, props))
+    mounted.mount(host)
+    await click(buttonNamed(host, 'Resolved 1'))
+
+    await list.value!.startDocumentComment()
+
+    const selected = host.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+    expect([selected, document.activeElement === documentBox()]).toEqual(['Open 0', true])
+  })
+
   it('closes an empty box without asking, and asks before dropping typed words', async () => {
     const { host } = showList()
 
@@ -339,5 +380,39 @@ describe('an empty tab and a reader who can’t comment', () => {
     const { host } = showList({ canComment: false, threads: [] })
 
     expect(host.querySelector('p')?.textContent).toBe('No open comments.')
+  })
+})
+
+describe('the list and the editor', () => {
+  function point(host: Element, text: string, event: 'mouseenter' | 'mouseleave') {
+    rowButton(host, text).parentElement!.dispatchEvent(new MouseEvent(event))
+  }
+
+  it('lights a thread’s text while its row is pointed at, and clears it after', () => {
+    const { host, lit } = showList()
+
+    point(host, 'Is this right?', 'mouseenter')
+    point(host, 'Is this right?', 'mouseleave')
+
+    expect(lit).toEqual(['on-text', null])
+  })
+
+  it('shows a thread opened from its text under its own tab', async () => {
+    const { host } = showList({ openThread: 'done' })
+    await settled()
+
+    const selected = host.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+    const isOpen = rowButton(host, 'Fixed the title').getAttribute('aria-expanded')
+    expect([selected, isOpen]).toEqual(['Resolved 1', 'true'])
+  })
+
+  it('leaves no text lit once the panel closes', () => {
+    const { host, opened, lit } = showList({ openThread: 'on-text' })
+    point(host, 'Looks good overall', 'mouseenter')
+
+    mounted!.unmount()
+    mounted = null
+
+    expect([opened, lit]).toEqual([[null], ['whole', null]])
   })
 })

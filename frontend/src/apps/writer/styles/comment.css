@@ -28,6 +28,14 @@ span[data-thread] {
   background: rgba(250, 204, 21, 0.25);
 }
 
+span[data-thread].is-lit {
+  background: rgba(250, 204, 21, 0.4);
+}
+
+span[data-thread].is-open {
+  background: rgba(250, 204, 21, 0.55);
+}
+
 span[data-comment-name]:hover,
 span[data-comment-name].active {
   background: rgba(250, 204, 21, 0.5);

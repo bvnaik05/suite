@@ -27,7 +27,13 @@ import * as Y from 'yjs'
 
 import type { DocumentThread } from '@/apps/drive'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
-import { redrawThreads, ThreadHighlights, type ThreadPlaces } from '@/apps/writer/collab/highlights'
+import { CommentShortcut } from '@/apps/writer/collab/commentShortcut'
+import {
+  redrawThreads,
+  showThread,
+  ThreadHighlights,
+  type ThreadPlaces,
+} from '@/apps/writer/collab/highlights'
 import { peopleOf, presenceColours } from '@/apps/writer/collab/peers'
 import { anchorSelection } from '@/apps/writer/collab/places'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
@@ -47,10 +53,14 @@ const props = defineProps<{
   settings: WriterSettings
   editable: boolean
   threads: DocumentThread[]
+  /** The thread whose row is pointed at in the comments panel. */
+  litThread?: string | null
 }>()
 
 const showSettings = defineModel('showSettings')
-const emit = defineEmits<{ comment: [anchor: string] }>()
+/** The thread open in the comments panel; clicking its highlighted text opens it. */
+const openThread = defineModel<string | null>('openThread', { default: null })
+const emit = defineEmits<{ comment: [anchor: string]; commentOnDocument: [] }>()
 
 const edited = ref(false)
 const textEditor = ref<InstanceType<typeof CoreEditor> | null>(null)
@@ -91,17 +101,29 @@ const extensions = [
     placed: (placed) => {
       places.value = placed
     },
+    open: () => openThread.value,
+    lit: () => props.litThread ?? null,
+    opened: (name) => {
+      openThread.value = name
+    },
+  }),
+  CommentShortcut.configure({
+    onText: commentOnSelection,
+    onDocument: () => emit('commentOnDocument'),
   }),
 ]
 
-watch(
-  () => props.threads,
-  () => {
-    if (editor.value) {
-      redrawThreads(editor.value.view)
-    }
-  },
-)
+watch([() => props.threads, openThread, () => props.litThread], () => {
+  if (editor.value) {
+    redrawThreads(editor.value.view)
+  }
+})
+
+watch(openThread, (name) => {
+  if (name && editor.value) {
+    showThread(editor.value.view, name)
+  }
+})
 
 function commentOnSelection() {
   const anchor = editor.value && anchorSelection(editor.value.state)

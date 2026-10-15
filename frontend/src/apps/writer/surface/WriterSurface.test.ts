@@ -6,9 +6,11 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-import type { DocumentSession } from '@/apps/drive'
+import type { DocumentSession, DocumentThread } from '@/apps/drive'
+import { encodeAnchor } from '@/apps/writer/collab/anchors'
 
 type Versions = DocumentSession['versions']
+type Comments = DocumentSession['comments']
 
 // The editor element's tiptap editor, as tiptap hangs it on the element
 type EditorElement = HTMLElement & { editor: TiptapEditor }
@@ -46,6 +48,14 @@ vi.mock('frappe-ui', async () => {
           render('button', { onClick: () => emit('click') }, props.label),
     }),
     Skeleton: emptyComponent,
+    TabButtons: emptyComponent,
+    Textarea: define({
+      setup(_, { expose }) {
+        const box = state<HTMLTextAreaElement | null>(null)
+        expose({ focus: () => box.value?.focus() })
+        return () => render('textarea', { ref: box })
+      },
+    }),
     TextInput: define({
       props: { modelValue: String },
       emits: ['update:modelValue'],
@@ -85,7 +95,15 @@ vi.mock('@/apps/drive', async () => {
           'data-open-versions': '',
           onClick: () => emit('update:panel', 'versions'),
         }
-        return () => [render('button', openVersions), slots.actions?.()]
+        const openComments = {
+          'data-open-comments': '',
+          onClick: () => emit('update:panel', 'comments'),
+        }
+        return () => [
+          render('button', openVersions),
+          render('button', openComments),
+          slots.actions?.(),
+        ]
       },
     }),
     DriveCommentAuthor: define({ setup: () => () => null }),
@@ -108,6 +126,9 @@ const stored = vi.hoisted(() => ({ html: '', content: '', collab: 0, isRefusingS
 const oldEditor = vi.hoisted(() => ({ forgetStoredEdits: vi.fn(async () => {}), isFrozen: false }))
 // Mounts the real editors, over a stand-in for CoreEditor, in place of the fakes below
 const realEditors = vi.hoisted(() => ({ isOn: false }))
+
+// jsdom lays nothing out, so has nothing to scroll
+Element.prototype.scrollIntoView = () => {}
 
 vi.mock('y-webrtc', async () => {
   const { Awareness: MockAwareness } = await import('y-protocols/awareness')
@@ -133,13 +154,17 @@ vi.mock('@/apps/writer/components/CoreEditor.vue', async () => {
   return {
     default: define({
       props: { extensions: Array },
-      setup(props, { expose }) {
+      setup(props, { expose, slots }) {
         const extensions = [Document, Paragraph, Text, ...(props.extensions as [])]
         const editor = shallowRef(new Editor({ extensions }))
         expose({ editor })
         onBeforeUnmount(() => editor.value.destroy())
-        return () =>
-          render('div', { 'data-editor': '' }, [render(EditorContent, { editor: editor.value })])
+        return () => [
+          render('div', { 'data-editor': '', id: 'editor-scroll-container' }, [
+            render(EditorContent, { editor: editor.value }),
+          ]),
+          slots.aside?.(),
+        ]
       },
     }),
   }
@@ -335,9 +360,10 @@ async function serverMinBuilds(minBuilds: Record<string, string>, body = '{}') {
   await window.fetch('/api/method/ping')
 }
 
-async function openedSurface(versions?: Versions, path = '/d/node-1') {
+async function openedSurface(versions?: Versions, path = '/d/node-1', comments?: Comments) {
   const session = {
     nodeId: 'node-1',
+    comments,
     title: ref('Quarterly plan'),
     state: ref('Active'),
     access: ref({ role: 50 }),
@@ -962,3 +988,118 @@ describe('Writer surface', () => {
     await discardCopy(copy)
   })
 })
+
+describe('commenting from the editor', () => {
+  // Drafts are kept on the device between opens
+  afterEach(() => localStorage.clear())
+
+  // The real collab editor over "hello world", with Drive holding `threads`
+  async function openedOnText(threads: (doc: Y.Doc) => DocumentThread[] = () => []) {
+    realEditors.isOn = true
+    const room = liveRoom()
+    const paragraph = new Y.XmlElement('paragraph')
+    paragraph.insert(0, [new Y.XmlText('hello world')])
+    room.doc.getXmlFragment('default').insert(0, [paragraph])
+    const presence = { awareness: new Awareness(room.doc), peers: [], onChange: () => () => {} }
+    Object.assign(room, { presence, restoreRev: 0 })
+    const comments = { list: async () => ({ threads: threads(room.doc) }) } as unknown as Comments
+    const root = await openedSurface(undefined, '/d/node-1', comments)
+    const element = root.querySelector<EditorElement>('[data-editor] .ProseMirror')!
+    return { root, editor: element.editor }
+  }
+
+  function pressCommentKeys(editor: TiptapEditor) {
+    const keys = { key: 'm', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }
+    editor.view.dom.dispatchEvent(new KeyboardEvent('keydown', keys))
+  }
+
+  function draftCount(root: Element) {
+    return root.querySelectorAll('[aria-label="Not posted yet"] form').length
+  }
+
+  it('starts exactly one comment on the selected text on Ctrl+Alt+M', async () => {
+    const { root, editor } = await openedOnText()
+
+    editor.commands.setTextSelection({ from: 1, to: 6 })
+    pressCommentKeys(editor)
+    await settled()
+
+    expect([draftCount(root), root.querySelector('aside')?.getAttribute('aria-label')]).toEqual([
+      1,
+      'Comments',
+    ])
+  })
+
+  it('opens the whole-document box, ready to type in, on Ctrl+Alt+M with nothing selected', async () => {
+    const { root, editor } = await openedOnText()
+
+    editor.commands.setTextSelection(3)
+    pressCommentKeys(editor)
+    await settled()
+
+    const box = root.querySelector('aside textarea[aria-label="New comment"]')
+    expect([box !== null, document.activeElement === box, draftCount(root)]).toEqual([
+      true,
+      true,
+      0,
+    ])
+  })
+
+  it('lights the text of a pointed-at row, then shows it darker and in view once opened', async () => {
+    const { root, editor } = await openedOnText((doc) => [threadOnWorld(doc)])
+    root.querySelector<HTMLElement>('[data-open-comments]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('aside li')).not.toBeNull())
+    const row = root.querySelector('aside li')!
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView')
+    function textClass() {
+      return editor.view.dom.querySelector('[data-thread]')?.className
+    }
+
+    row.dispatchEvent(new MouseEvent('mouseenter'))
+    await nextTick()
+    const pointed = textClass()
+    row.querySelector('button')!.click()
+    await nextTick()
+    const textScrolls = scrolled.mock.contexts.filter(
+      (element) => element instanceof HTMLSpanElement,
+    )
+
+    expect([pointed, textClass(), textScrolls.length]).toEqual(['is-lit', 'is-open', 1])
+  })
+
+  it('opens the comments panel on the thread whose highlighted text is clicked', async () => {
+    const { root, editor } = await openedOnText((doc) => [threadOnWorld(doc)])
+    await vi.waitFor(() => expect(editor.view.dom.querySelector('[data-thread]')).not.toBeNull())
+
+    const world = editor.view.dom.querySelector('[data-thread]')!
+    editor.view.someProp('handleClick', (click) =>
+      click(editor.view, 8, { target: world } as never),
+    )
+    await settled()
+
+    const expanded = root.querySelector('aside li > button[aria-expanded="true"]')
+    expect(expanded?.textContent).toContain('About the world')
+  })
+})
+
+// A thread on "world" in a document reading "hello world"
+function threadOnWorld(doc: Y.Doc) {
+  const text = (doc.getXmlFragment('default').get(0) as Y.XmlElement).get(0) as Y.XmlText
+  const from = Y.createRelativePositionFromTypeIndex(text, 6, 0)
+  const to = Y.createRelativePositionFromTypeIndex(text, 11, -1)
+  const comment = {
+    name: 'c1',
+    author: 'ann@example.com',
+    author_name: null,
+    person: { full_name: 'Ann' },
+    content: 'About the world',
+    creation: new Date().toISOString(),
+  }
+  const anchor = encodeAnchor(from, to, 'world')
+  return {
+    name: 'world',
+    anchor,
+    resolved: false,
+    comments: [comment],
+  } as unknown as DocumentThread
+}

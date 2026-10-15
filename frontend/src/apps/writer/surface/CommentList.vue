@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Avatar, Button, TabButtons, Textarea, TextInput } from 'frappe-ui'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import {
   DriveCommentAuthor,
@@ -35,8 +35,13 @@ const props = defineProps<{
   drafts?: ReturnType<typeof useCommentDrafts>
 }>()
 
+/** The thread shown open; its text in the editor stays lit. */
+const openThread = defineModel<string | null>('openThread', { default: null })
+/** The closed thread whose row is pointed at, whose text lights faintly. */
+const litThread = defineModel<string | null>('litThread', { default: null })
+
 const tab = ref<CommentTab>('open')
-const openThread = ref<string | null>(null)
+const rowItems = ref<HTMLElement[]>([])
 const isWritingOnDocument = ref(false)
 const documentText = ref('')
 const documentBox = ref<{ focus(): void } | null>(null)
@@ -110,6 +115,35 @@ function closeThread() {
   openThread.value = null
 }
 
+function lightThread(thread: DocumentThread) {
+  litThread.value = thread.name
+}
+
+function dimThread() {
+  litThread.value = null
+}
+
+// A thread opened from its text shows under its own tab, in view
+async function showOpenThread(name: string | null) {
+  const row = rows.value.find(({ thread }) => thread.name === name)
+  if (!row) {
+    return
+  }
+
+  tab.value = row.thread.resolved ? 'resolved' : 'open'
+  await nextTick()
+  const item = rowItems.value.find((element) => element.dataset.thread === name)
+  item?.scrollIntoView({ block: 'nearest' })
+}
+
+watch(openThread, showOpenThread, { immediate: true })
+
+// A closed panel leaves no text lit
+onBeforeUnmount(() => {
+  closeThread()
+  dimThread()
+})
+
 // Asks only when words would be lost
 async function canDiscard(text: string) {
   if (!text.trim()) {
@@ -125,6 +159,7 @@ async function canDiscard(text: string) {
 }
 
 async function startDocumentComment() {
+  tab.value = 'open'
   isWritingOnDocument.value = true
   await nextTick()
   documentBox.value?.focus()
@@ -235,6 +270,8 @@ function repliesLabel(thread: DocumentThread) {
   return `${count} replies`
 }
 
+defineExpose({ startDocumentComment })
+
 function rowClass(thread: DocumentThread) {
   if (isOpen(thread)) {
     return 'bg-surface-gray-1'
@@ -304,9 +341,13 @@ function rowClass(thread: DocumentThread) {
     <ul class="space-y-1">
       <li
         v-for="{ thread, quote, where } in shownRows"
+        ref="rowItems"
         :key="thread.name"
+        :data-thread="thread.name"
         class="relative rounded"
         :class="rowClass(thread)"
+        @mouseenter="lightThread(thread)"
+        @mouseleave="dimThread"
       >
         <button
           type="button"

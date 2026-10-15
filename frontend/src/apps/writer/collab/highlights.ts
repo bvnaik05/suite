@@ -20,6 +20,17 @@ interface HighlightOptions {
   threads: () => readonly DocumentThread[]
   // Told each time the threads are placed again
   placed: (places: ThreadPlaces) => void
+  // The thread open in the panel, whose text shows darker
+  open: () => string | null
+  // The thread whose row is pointed at, whose text shows a little darker
+  lit: () => string | null
+  // Told the thread whose highlighted text was clicked
+  opened: (name: string) => void
+}
+
+interface Shown {
+  open: string | null
+  lit: string | null
 }
 
 const highlightsKey = new PluginKey<Highlights>('threadHighlights')
@@ -29,21 +40,29 @@ export const ThreadHighlights = Extension.create<HighlightOptions>({
   name: 'threadHighlights',
 
   addOptions() {
-    return { threads: () => [], placed: () => {} }
+    return {
+      threads: () => [],
+      placed: () => {},
+      open: () => null,
+      lit: () => null,
+      opened: () => {},
+    }
   },
 
   addProseMirrorPlugins() {
     const threads = () => this.options.threads()
+    const shown = () => ({ open: this.options.open(), lit: this.options.lit() })
+    const opened = (name: string) => this.options.opened(name)
     const placed = (state: EditorState) =>
       this.options.placed(highlightsKey.getState(state)!.places)
     return [
       new Plugin({
         key: highlightsKey,
         state: {
-          init: (_, state) => highlights(state, threads()),
+          init: (_, state) => highlights(state, threads(), shown()),
           apply: (transaction, previous, _, state) => {
             if (transaction.getMeta(highlightsKey)) {
-              return highlights(state, threads())
+              return highlights(state, threads(), shown())
             }
 
             if (!transaction.docChanged) {
@@ -56,6 +75,15 @@ export const ThreadHighlights = Extension.create<HighlightOptions>({
         },
         props: {
           decorations: (state) => highlightsKey.getState(state)?.decorations,
+          // The cursor still goes where the text was clicked
+          handleClick: (_view, _position, event) => {
+            const name = threadAt(event.target)
+            if (name) {
+              opened(name)
+            }
+
+            return false
+          },
         },
         view: (view) => {
           placed(view.state)
@@ -82,14 +110,57 @@ export function redrawThreads(view: EditorView) {
   view.dispatch(view.state.tr.setMeta(highlightsKey, true))
 }
 
-function highlights(state: EditorState, threads: readonly DocumentThread[]): Highlights {
+/** Scrolls the editor to an open thread's text, only if none of it is in view. */
+export function showThread(view: EditorView, name: string) {
+  const spans = [...view.dom.querySelectorAll('[data-thread]')]
+  const text = spans.find((span) => span.getAttribute('data-thread') === name)
+  const frame = text?.closest('#editor-scroll-container')
+  if (!text || !frame || isInView(text, frame)) {
+    return
+  }
+
+  text.scrollIntoView({ block: 'center' })
+}
+
+function isInView(text: Element, frame: Element) {
+  const box = text.getBoundingClientRect()
+  const view = frame.getBoundingClientRect()
+  return box.bottom > view.top && box.top < view.bottom
+}
+
+function threadAt(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return null
+  }
+
+  return target.closest('[data-thread]')?.getAttribute('data-thread') ?? null
+}
+
+function shownClass(name: string, shown: Shown) {
+  if (name === shown.open) {
+    return 'is-open'
+  }
+
+  if (name === shown.lit) {
+    return 'is-lit'
+  }
+
+  return ''
+}
+
+function highlights(
+  state: EditorState,
+  threads: readonly DocumentThread[],
+  shown: Shown,
+): Highlights {
   const places = new Map<string, ThreadPlace>()
   const decorations: Decoration[] = []
   for (const thread of threads) {
     const place = placeThread(state, thread.anchor)
     places.set(thread.name, place)
     if (!thread.resolved && place.kind === 'text') {
-      decorations.push(Decoration.inline(place.from, place.to, { 'data-thread': thread.name }))
+      const attributes = { 'data-thread': thread.name, class: shownClass(thread.name, shown) }
+      decorations.push(Decoration.inline(place.from, place.to, attributes))
     }
   }
 

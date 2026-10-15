@@ -101,6 +101,10 @@ type EditorView =
         file: EditorFile
         threads: DocumentThread[]
         onComment: (anchor: string) => void
+        onCommentOnDocument: () => void
+        openThread: string | null
+        'onUpdate:openThread': (name: string | null) => void
+        litThread: string | null
       }
     }
   | {
@@ -113,6 +117,9 @@ const editorSurface = shallowRef<EditorSurface | null>(null)
 const dirty = ref(false)
 const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const panel = ref<DocumentPanel | null>(null)
+// The thread open in the comments panel, and the one whose row is pointed at
+const openThread = ref<string | null>(null)
+const litThread = ref<string | null>(null)
 // A version or a recovery copy shown read-only in the editor's place, one at a time
 const preview = shallowRef<
   | { version: DocumentVersion; copy: null }
@@ -219,15 +226,37 @@ const commentDrafts = useCommentDrafts({
   refreshThreads,
 })
 
+function refusesComment() {
+  if (canComment.value) {
+    return false
+  }
+
+  toast.warning("You can't comment on this document.")
+  return true
+}
+
 // A comment on the selected text starts as a draft in the comments panel
 function commentOnText(anchor: string) {
-  if (!canComment.value) {
-    toast.warning("You can't comment on this document.")
+  if (refusesComment()) {
     return
   }
 
   commentDrafts.start(anchor)
   panel.value = 'comments'
+}
+
+function commentOnDocument() {
+  if (!refusesComment()) {
+    void sidePanel.value?.startDocumentComment()
+  }
+}
+
+// Clicking a thread's text opens it in the comments panel
+function openThreadInPanel(name: string | null) {
+  openThread.value = name
+  if (name) {
+    panel.value = 'comments'
+  }
 }
 
 const documentResource = writes.guard(
@@ -304,7 +333,16 @@ function dirtyModel() {
 const editorView = computed<EditorView>(() => {
   const file = editorFile.value
   if (collabLive.value && room.value) {
-    const collabProps = { room: room.value, file, threads: threads.value, onComment: commentOnText }
+    const collabProps = {
+      room: room.value,
+      file,
+      threads: threads.value,
+      onComment: commentOnText,
+      onCommentOnDocument: commentOnDocument,
+      openThread: openThread.value,
+      'onUpdate:openThread': openThreadInPanel,
+      litThread: litThread.value,
+    }
     return { is: CollabTextEditor, props: collabProps }
   }
 
@@ -724,6 +762,8 @@ onBeforeUnmount(() => {
               <DocumentSidePanel
                 ref="sidePanel"
                 v-model:panel="panel"
+                v-model:open-thread="openThread"
+                v-model:lit-thread="litThread"
                 :previewed-version="preview.version"
                 :session="session"
                 :can-comment="canComment"
