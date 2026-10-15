@@ -30,7 +30,7 @@ function shownDrafts(person: string, node: string) {
     </p>
     <ul class="space-y-2">
       <li v-for="draft in drafts" :key="draft.clientId" class="space-y-1">
-        <p v-if="draft.quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
+        <p v-if="draft.quote" class="truncate border-l-2 pl-2 text-sm text-ink-gray-5">
           {{ draft.quote }}
         </p>
         <p class="whitespace-pre-wrap text-p-sm text-ink-gray-8">{{ draft.text }}</p>
