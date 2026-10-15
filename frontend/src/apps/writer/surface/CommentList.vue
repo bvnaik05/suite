@@ -272,8 +272,18 @@ function replyClientId(thread: string, text: string) {
   return clientId
 }
 
+// What was typed after the sent words; all of it when the sent words themselves changed
+function typedSince(now: string, sent: string) {
+  if (!now.startsWith(sent)) {
+    return now
+  }
+
+  return now.slice(sent.length)
+}
+
 async function submitReply(thread: DocumentThread) {
-  const text = replyText.value.trim()
+  const typed = replyTexts.value[thread.name] ?? ''
+  const text = typed.trim()
   if (!text || isSendingReply) {
     return
   }
@@ -282,7 +292,7 @@ async function submitReply(thread: DocumentThread) {
   try {
     const clientId = replyClientId(thread.name, text)
     if (await props.actions.reply(thread.name, text, takeGuestName(), clientId)) {
-      replyTexts.value[thread.name] = ''
+      replyTexts.value[thread.name] = typedSince(replyTexts.value[thread.name] ?? '', typed)
       delete unsentReplies[thread.name]
     }
   } finally {

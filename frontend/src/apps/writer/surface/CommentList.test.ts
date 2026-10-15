@@ -243,6 +243,7 @@ function showList({
   isRefusingResolve = false,
   isRefusingEdit = false,
   refusedReplies = 0,
+  heldReplies = Promise.resolve(),
   canEditDocument = false,
   drafts = fakeDrafts().list,
 } = {}) {
@@ -267,6 +268,7 @@ function showList({
     reply: async (thread, text, _authorName, clientId) => {
       replyIds.push(clientId)
       await record(`reply ${thread} "${text}"`)
+      await heldReplies
       refusalsLeft -= 1
       return refusalsLeft < 0
     },
@@ -523,6 +525,47 @@ describe('replying in an open thread', () => {
       '',
       true,
     ])
+  })
+
+  // Replies that wait until released, as on a slow network
+  function holdReplies() {
+    const held = { release() {} }
+    const heldReplies = new Promise<void>((resolve) => {
+      held.release = resolve
+    })
+    function release() {
+      held.release()
+    }
+
+    return { heldReplies, release }
+  }
+
+  it('keeps the words typed while a reply sends, and empties only what was sent', async () => {
+    const { heldReplies, release } = holdReplies()
+    const { host, asked } = showList({ heldReplies })
+    await click(rowButton(host, 'Is this right?'))
+    await type('Agreed')
+
+    await press({})
+    await type('Agreed. One more thing')
+    release()
+    await settled()
+
+    expect([asked, replyBox()?.value]).toEqual([['reply on-text "Agreed"'], '. One more thing'])
+  })
+
+  it('keeps the whole box when the words being sent are changed while they send', async () => {
+    const { heldReplies, release } = holdReplies()
+    const { host } = showList({ heldReplies })
+    await click(rowButton(host, 'Is this right?'))
+    await type('Agreed')
+
+    await press({})
+    await type('Agree, mostly')
+    release()
+    await settled()
+
+    expect(replyBox()?.value).toBe('Agree, mostly')
   })
 
   it('sends nothing on Shift+Enter or while a word is being composed', async () => {
