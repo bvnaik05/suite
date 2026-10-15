@@ -90,6 +90,8 @@ function threadActions(session: PanelSession, refreshThreads: () => Promise<void
   }
 }
 
+export type ThreadActions = ReturnType<typeof threadActions>
+
 // Whether the version was taken; `saveFirst` saves the tab's edits and throws why it couldn't
 async function saveVersion(
   session: PanelSession,

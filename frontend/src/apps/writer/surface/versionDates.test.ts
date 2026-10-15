@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DocumentVersion } from '@/apps/drive'
 
-import { versionDays, versionTitle } from './versionDates'
+import { dayOrTime, versionDays, versionTitle } from './versionDates'
 
 const NOW = new Date(2026, 9, 15, 18, 0)
 
@@ -57,5 +57,21 @@ describe('version title', () => {
     expect(versionTitle(version(2, new Date(2026, 9, 15, 14, 14)), NOW)).toMatch(
       /^Today, (2:14\s?pm|14:14)$/i,
     )
+  })
+})
+
+describe('comment time', () => {
+  it('is the time for something made today, else its day', () => {
+    const times = [
+      new Date(2026, 9, 15, 14, 14),
+      new Date(2026, 9, 14, 9, 0),
+      new Date(2026, 9, 12),
+    ]
+
+    expect(times.map((made) => dayOrTime({ creation: made.toISOString() }, NOW))).toEqual([
+      expect.stringMatching(/^(2:14\s?pm|14:14)$/i),
+      'Yesterday',
+      expect.stringMatching(/^(Oct 12|12 Oct)$/),
+    ])
   })
 })

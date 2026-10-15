@@ -30,11 +30,11 @@ onMounted(() => field.value?.focus())
       @update:model-value="emit('write', $event)"
     />
     <div class="flex justify-end gap-1">
-      <Button size="sm" variant="ghost" label="Discard" @click="emit('discard')" />
+      <Button size="sm" variant="ghost" label="Cancel" @click="emit('discard')" />
       <Button
         type="submit"
         size="sm"
-        variant="solid"
+        variant="outline"
         :label="postLabel"
         :disabled="isPostDisabled"
       />

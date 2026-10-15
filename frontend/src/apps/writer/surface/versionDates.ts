@@ -11,8 +11,13 @@ const THIS_YEAR: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
 const OTHER_YEAR: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }
 const TIME: Intl.DateTimeFormatOptions = { timeStyle: 'short' }
 
+/** Anything Drive stamps with when it was made, such as a version or a comment. */
+interface Dated {
+  creation: string | null
+}
+
 // Null for a version whose time can't be read, which then shows none
-function takenAt(version: DocumentVersion) {
+function takenAt(version: Dated) {
   if (!version.creation) {
     return null
   }
@@ -26,7 +31,7 @@ function startOfDay(date: Date) {
 }
 
 /** "Today", "Yesterday", then the date, with the year once it isn't this year's. */
-function dayLabel(version: DocumentVersion, now: Date) {
+function dayLabel(version: Dated, now: Date) {
   const date = takenAt(version)
   if (!date) {
     return ''
@@ -62,7 +67,7 @@ export function versionDays(versions: DocumentVersion[], now = new Date()): Vers
   return days
 }
 
-export function versionTime(version: DocumentVersion) {
+export function versionTime(version: Dated) {
   const date = takenAt(version)
   if (!date) {
     return ''
@@ -78,4 +83,14 @@ export function versionTitle(version: DocumentVersion, now = new Date()) {
   }
 
   return [dayLabel(version, now), versionTime(version)].filter(Boolean).join(', ')
+}
+
+/** The time for today, else the day: "2:14 PM", "Yesterday", "Oct 12". */
+export function dayOrTime(dated: Dated, now = new Date()) {
+  const day = dayLabel(dated, now)
+  if (day === 'Today') {
+    return versionTime(dated)
+  }
+
+  return day
 }

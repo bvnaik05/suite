@@ -14,10 +14,23 @@ const SIGNED_OUT = { cookies: [], origins: [] };
 const PHONE = { width: 390, height: 844 };
 const RLO = "\u202E";
 
-type Product = { label: string; doctype: string; title: string; post: string };
+// `start` names the line a product shows in place of its comment box until it is clicked
+interface Product {
+	label: string;
+	doctype: string;
+	title: string;
+	post: string;
+	start?: string;
+}
 
 const PRODUCTS: Product[] = [
-	{ label: "Writer", doctype: "Writer Document", title: "Guest names doc", post: "Add" },
+	{
+		label: "Writer",
+		doctype: "Writer Document",
+		title: "Guest names doc",
+		post: "Comment",
+		start: "Comment on the whole document…",
+	},
 	{ label: "Sheets", doctype: "Sheet", title: "Guest names sheet", post: "Comment" },
 	{ label: "Slides", doctype: "Presentation", title: "Guest names deck", post: "Add" },
 ];
@@ -57,10 +70,14 @@ async function storedAuthors(node: string): Promise<Array<{ author: string; auth
 	return data.threads.flatMap((thread) => thread.comments.map(({ author, author_name }) => ({ author, author_name })));
 }
 
-async function openComments(page: Page): Promise<Locator> {
+async function openComments(page: Page, product: Product): Promise<Locator> {
 	// The product's own title bar holds the Comments button. The body may still load behind it.
 	await page.getByRole("button", { name: "Comments" }).click({ timeout: 20_000 });
 	const panel = page.getByRole("complementary", { name: "Comments" });
+	if (product.start) {
+		await panel.getByRole("button", { name: product.start }).click();
+	}
+
 	await expect(panel.getByRole("textbox", { name: "New comment" })).toBeVisible();
 	return panel;
 }
@@ -76,7 +93,7 @@ test.describe("a guest with a comment link", () => {
 			await expect(page).toHaveURL(new RegExp(`/d/${doc.name}`));
 			await expect(page.getByTestId("guest-frame")).toBeVisible();
 
-			const panel = await openComments(page);
+			const panel = await openComments(page, product);
 			const name = panel.getByRole("textbox", { name: "Your name" });
 			const comment = panel.getByRole("textbox", { name: "New comment" });
 			await expect(name).toHaveValue("");
@@ -95,7 +112,7 @@ test.describe("a guest with a comment link", () => {
 			expect(await storedAuthors(doc.name)).toEqual([{ author: "Guest", author_name: "Ravi (Acme)" }]);
 
 			await page.reload();
-			const again = await openComments(page);
+			const again = await openComments(page, product);
 			await expect(again.getByRole("textbox", { name: "Your name" })).toHaveValue("Ravi (Acme)");
 		});
 	}
@@ -106,7 +123,7 @@ test.describe("a guest with a comment link", () => {
 			const doc = await createDocument(api, home.name, `${product.title} on a phone`, product.doctype);
 			await page.goto(`/l/${await commentLink(doc.name)}`);
 
-			const panel = await openComments(page);
+			const panel = await openComments(page, product);
 			await panel.getByRole("textbox", { name: "Your name" }).fill(`${RLO}${"W".repeat(139)}`);
 			await panel.getByRole("textbox", { name: "New comment" }).fill("Long name");
 			await panel.getByRole("button", { name: product.post, exact: true }).click();
@@ -127,7 +144,7 @@ test.describe("a guest with a comment link", () => {
 		const doc = await createDocument(api, home.name, "Unsigned note", product.doctype);
 		await page.goto(`/l/${await commentLink(doc.name)}`);
 
-		const panel = await openComments(page);
+		const panel = await openComments(page, product);
 		await expect(panel.getByRole("textbox", { name: "Your name" })).toHaveValue("");
 		await panel.getByRole("textbox", { name: "New comment" }).fill("Unsigned note");
 		await panel.getByRole("button", { name: product.post, exact: true }).click();
@@ -142,7 +159,7 @@ test.describe("a signed-in user", () => {
 	for (const product of PRODUCTS) {
 		test(`${product.label}: the comment composer has no name field`, async ({ page }) => {
 			await page.goto(`/d/${docs.get(product.label)!.name}`);
-			const panel = await openComments(page);
+			const panel = await openComments(page, product);
 			await expect(panel.getByRole("textbox", { name: "Your name" })).toHaveCount(0);
 		});
 	}

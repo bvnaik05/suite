@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
 import { expectSaved, openForCollab, saveNamedVersion, typeParagraph } from "../../helpers/collab";
@@ -17,9 +17,15 @@ async function openComments(page: Page) {
 
 async function commentOnDocument(page: Page, text: string) {
 	const panel = await openComments(page);
+	await panel.getByRole("button", { name: "Comment on the whole document…" }).click();
 	await panel.getByLabel("New comment").fill(text);
-	await panel.getByRole("button", { name: "Add" }).click();
+	await panel.getByRole("button", { name: "Comment", exact: true }).click();
 	return panel;
+}
+
+// A thread's row in the list, by any of its words
+function threadRow(panel: Locator, text: string) {
+	return panel.getByRole("listitem").filter({ hasText: text });
 }
 
 // Types a line, selects its last word and starts a comment on it from the bubble menu
@@ -52,31 +58,35 @@ test.describe("Writer collaboration comments", () => {
 		await discardNode(owner.context.request, node);
 	});
 
-	test("a comment on the document shows in its group and takes a reply, resolve, reopen and delete", async ({
+	test("a comment on the document shows on its row and takes a reply, resolve, reopen and delete", async ({
 		owner,
 	}) => {
 		const { page } = owner;
 		await openWriterDocument(page, node);
 		const panel = await commentOnDocument(page, "Whole document note");
-		const group = panel.getByRole("region", { name: "Comments on the document" });
-		await expect(group).toContainText("Whole document note");
+		const row = threadRow(panel, "Whole document note");
+		await expect(row).toContainText("Whole document");
 
-		await group.getByRole("button", { name: "Reply" }).click();
-		await group.getByLabel("Reply").fill("A reply");
-		await group.getByRole("button", { name: "Send" }).click();
-		await expect(group).toContainText("A reply");
-		await group.getByRole("button", { name: "Resolve" }).click();
-		await expect(group.getByRole("button", { name: "Reopen" })).toBeVisible();
-		await group.getByRole("button", { name: "Reopen" }).click();
-		await expect(group.getByRole("button", { name: "Resolve" })).toBeVisible();
+		await row.getByRole("button", { name: /Whole document note/ }).click();
+		await row.getByRole("button", { name: "Reply" }).click();
+		await row.getByLabel("Reply").fill("A reply");
+		await row.getByRole("button", { name: "Send" }).click();
+		await expect(row).toContainText("A reply");
+		await row.getByRole("button", { name: "Resolve" }).click();
+		await expect(row).toHaveCount(0);
+		await panel.getByRole("radio", { name: "Resolved 1" }).click();
+		await row.getByRole("button", { name: /Whole document note/ }).click();
+		await row.getByRole("button", { name: "Reopen" }).click();
+		await panel.getByRole("radio", { name: "Open 1" }).click();
+		await row.getByRole("button", { name: /Whole document note/ }).click();
 
 		for (let left = 2; left > 0; left--) {
-			await group.getByRole("button", { name: "Delete comment" }).first().click();
+			await panel.getByRole("button", { name: "Delete comment" }).first().click();
 			await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
 			await expect(panel.getByRole("button", { name: "Delete comment" })).toHaveCount(left - 1);
 		}
 
-		await expect(panel.getByText("No comments yet.")).toBeVisible();
+		await expect(panel.getByText("No open comments.", { exact: false })).toBeVisible();
 	});
 
 	test("another tab's comment shows in an open panel without reopening it", async ({
@@ -86,13 +96,11 @@ test.describe("Writer collaboration comments", () => {
 		await openWriterDocument(owner.page, node);
 		await openWriterDocument(collaborator.page, node);
 		const watching = await openComments(collaborator.page);
-		await expect(watching.getByText("No comments yet.")).toBeVisible();
+		await expect(watching.getByText("No open comments.", { exact: false })).toBeVisible();
 
 		await commentOnDocument(owner.page, "Seen from the other tab");
 
-		await expect(
-			watching.getByRole("region", { name: "Comments on the document" }),
-		).toContainText("Seen from the other tab");
+		await expect(threadRow(watching, "Seen from the other tab")).toContainText("Whole document");
 	});
 
 	test("a comment on selected text shows on its words, and with deleted text once they go", async ({
@@ -106,17 +114,16 @@ test.describe("Writer collaboration comments", () => {
 		await drafts.getByRole("button", { name: "Comment" }).click();
 
 		const panel = page.getByRole("complementary", { name: "Comments" });
-		const onText = panel.getByRole("region", { name: "On the text" });
-		await expect(onText).toContainText("About this word");
-		await expect(onText).toContainText("sentence");
+		const row = threadRow(panel, "About this word");
+		await expect(row).not.toContainText("Text deleted");
 		await expect(drafts).toHaveCount(0);
 		await expect(writerEditor(page).locator("[data-thread]")).toHaveText("sentence");
 
 		await writerEditor(page).locator("[data-thread]").dblclick();
 		await page.keyboard.press("Backspace");
-		const deleted = panel.getByRole("region", { name: "Original text deleted" });
-		await expect(deleted).toContainText("About this word");
-		await expect(deleted).toContainText("sentence");
+		await expect(row).toContainText("Text deleted");
+		await row.getByRole("button", { name: /About this word/ }).click();
+		await expect(row).toContainText("sentence");
 	});
 
 	test("restoring a version puts a comment back on the words it brought back, for good", async ({
@@ -128,11 +135,11 @@ test.describe("Writer collaboration comments", () => {
 		await drafts.getByLabel("Comment on the text").fill("About this word");
 		await drafts.getByRole("button", { name: "Comment" }).click();
 		const panel = page.getByRole("complementary", { name: "Comments" });
-		await expect(panel.getByRole("region", { name: "On the text" })).toContainText("About this word");
+		await expect(threadRow(panel, "About this word")).not.toContainText("Text deleted");
 		await saveNamedVersion(owner.context.request, node, "With the word");
 		await writerEditor(page).locator("[data-thread]").dblclick();
 		await page.keyboard.press("Backspace");
-		await expect(panel.getByRole("region", { name: "Original text deleted" })).toContainText("About this word");
+		await expect(threadRow(panel, "About this word")).toContainText("Text deleted");
 		await expectSaved(page);
 
 		await page.getByRole("button", { name: /versions/i }).first().click();
@@ -145,8 +152,8 @@ test.describe("Writer collaboration comments", () => {
 		await page.reload();
 		await expect(writerEditor(page).locator("[data-thread]")).toHaveText("sentence");
 		const reopened = await openComments(page);
-		await expect(reopened.getByRole("region", { name: "On the text" })).toContainText("About this word");
-		await expect(reopened.getByRole("region", { name: "Original text deleted" })).toHaveCount(0);
+		await expect(threadRow(reopened, "About this word")).toBeVisible();
+		await expect(threadRow(reopened, "About this word")).not.toContainText("Text deleted");
 	});
 
 	test("an unposted comment stays on the device through a reload until discarded", async ({
@@ -161,10 +168,10 @@ test.describe("Writer collaboration comments", () => {
 		const reopened = (await openComments(page)).getByRole("region", { name: "Not posted yet" });
 		await expect(reopened.getByLabel("Comment on the text")).toHaveValue("Not sent yet");
 
-		await reopened.getByRole("button", { name: "Discard" }).click();
+		await reopened.getByRole("button", { name: "Cancel" }).click();
 		await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
 		await expect(reopened).toHaveCount(0);
 		await page.reload();
-		await expect((await openComments(page)).getByText("No comments yet.")).toBeVisible();
+		await expect((await openComments(page)).getByText("No open comments.", { exact: false })).toBeVisible();
 	});
 });
