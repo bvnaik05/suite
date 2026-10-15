@@ -58,9 +58,10 @@ import {
 import { restoreVersion, type VersionRestore } from './restoreVersion'
 import { saveFirst } from './saveFirst'
 import { useCommentDrafts } from './useCommentDrafts'
-import { showError, versionLabel } from './useDocumentPanel'
+import { showError } from './useDocumentPanel'
 import { useDocumentThreads } from './useDocumentThreads'
 import { useWriterCollab } from './useWriterCollab'
+import { versionTitle } from './versionDates'
 import {
   imagesNotice,
   missingImages,
@@ -69,7 +70,7 @@ import {
   type MissingImage,
 } from './versionImages'
 import VersionPreview from './VersionPreview.vue'
-import { fetchVersion, readVersionBody } from './versions'
+import { fetchVersion, readVersionBody, storedVersionHTML } from './versions'
 import { createWriterDocument, editorFileOf, isLocked, type EditorFile } from './writerDocument'
 import WriterDocumentMenu from './WriterDocumentMenu.vue'
 import { createWriteGate, type DocumentWrite } from './writes'
@@ -347,18 +348,10 @@ function showVersion(shown: DocumentVersion | null) {
   preview.value = { version: shown, copy: null }
 }
 
-const versionPreview = shallowRef<InstanceType<typeof VersionPreview> | null>(null)
-
-const isVersionDownloadDisabled = computed(() => !versionPreview.value?.isShown)
-
 async function downloadVersion(shown: DocumentVersion) {
-  const html = versionPreview.value?.versionHTML()
-  if (html == null) {
-    return
-  }
-
   const name = shown.label || `v${shown.seq}`
   try {
+    const html = await storedVersionHTML(props.session, shown.seq, (id) => props.session.media(id))
     await downloadHTML(html, `${props.session.title.value} (${name})`)
   } catch (error) {
     console.error(error)
@@ -373,9 +366,6 @@ const canRestoreVersion = computed(() => {
   const isCollabOff = collabMode.value === 'legacy' && documentResource.doc?.collab === 0
   return editable.value && ((collabLive.value && !!room.value) || isCollabOff)
 })
-const isVersionRestoreDisabled = computed(
-  () => isVersionDownloadDisabled.value || isRestoringVersion.value,
-)
 
 async function confirmRestore(shown: DocumentVersion) {
   isRestoringVersion.value = true
@@ -702,25 +692,15 @@ onBeforeUnmount(() => {
           >
             <template v-if="preview.version" #toolbar>
               <DocumentStrip>
-                <p class="truncate">Viewing {{ versionLabel(preview.version) }}</p>
-                <div class="flex shrink-0 items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    label="Download"
-                    :disabled="isVersionDownloadDisabled"
-                    @click="downloadVersion(preview.version)"
-                  />
-                  <Button
-                    v-if="canRestoreVersion"
-                    size="sm"
-                    variant="ghost"
-                    label="Restore"
-                    :disabled="isVersionRestoreDisabled"
-                    @click="confirmRestore(preview.version)"
-                  />
-                  <Button size="sm" variant="ghost" label="Back to current" @click="closePreview" />
-                </div>
+                <p class="truncate">Viewing {{ versionTitle(preview.version) }}</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon="lucide-x"
+                  tooltip="Back to current"
+                  aria-label="Back to current"
+                  @click="closePreview"
+                />
               </DocumentStrip>
             </template>
             <template v-else-if="preview.copy" #toolbar>
@@ -735,12 +715,7 @@ onBeforeUnmount(() => {
               </DocumentStrip>
             </template>
             <template v-if="preview.version" #cover>
-              <VersionPreview
-                ref="versionPreview"
-                :session="session"
-                :seq="preview.version.seq"
-                :settings="settings"
-              />
+              <VersionPreview :session="session" :seq="preview.version.seq" :settings="settings" />
             </template>
             <template v-else-if="preview.copy" #cover>
               <RecoveryPreview :copy="preview.copy" :settings="settings" />
@@ -752,12 +727,16 @@ onBeforeUnmount(() => {
                 :previewed-version="preview.version"
                 :session="session"
                 :can-comment="canComment"
+                :can-restore-version="canRestoreVersion"
+                :is-restoring-version="isRestoringVersion"
                 :threads="threads"
                 :places="threadPlaces"
                 :refresh-threads="refreshThreads"
                 :drafts="commentDrafts"
                 :save-first="saveBeforeVersion"
                 @update:previewed-version="showVersion"
+                @restore-version="confirmRestore"
+                @download-version="downloadVersion"
                 @closed="header?.focusPanelToggle($event)"
               />
             </template>

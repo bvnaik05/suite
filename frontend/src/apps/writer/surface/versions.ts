@@ -5,7 +5,9 @@ import * as Y from 'yjs'
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
 import { loadVersion } from '@/apps/writer/collab/old-media'
-import { storedFirstTabLabel } from '@/apps/writer/extensions/tabs'
+import type { DocumentMedia } from '@/apps/writer/extensions/drive-media'
+import { orderedHTML, storedFirstTabLabel } from '@/apps/writer/extensions/tabs'
+import { previewEditor } from '@/apps/writer/utils/preview-editor'
 
 /** What one stored version shows: HTML, or a document read from its Yjs state, and its first tab's label. */
 export interface StoredVersion {
@@ -41,6 +43,28 @@ export async function readVersion(bytes: Uint8Array): Promise<StoredVersion> {
     return { content, firstTabLabel: storedFirstTabLabel(ydoc) }
   } finally {
     ydoc.destroy()
+  }
+}
+
+/** Version `seq` as the live document's "All tabs" export writes it. Throws on a version that can't be shown. */
+export async function storedVersionHTML(
+  session: DocumentSession,
+  seq: number,
+  media: DocumentMedia | null,
+): Promise<string> {
+  const version = await readVersion(await fetchVersion(session, seq))
+  let isBroken = false
+  const editor = previewEditor(version.content, media, () => {
+    isBroken = true
+  })
+  try {
+    if (isBroken) {
+      throw new Error("This version can't be shown.")
+    }
+
+    return orderedHTML(editor.state.doc, version.firstTabLabel)
+  } finally {
+    editor.destroy()
   }
 }
 

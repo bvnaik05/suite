@@ -173,7 +173,7 @@ test.describe("Writer collaboration", () => {
 
 			await expect(page.getByText("Version restored")).toBeVisible();
 			await expect(writerEditor(page)).toHaveText("Kept in the version");
-			await panel.getByRole("button", { name: /^Version \d+/ }).first().click();
+			await panel.getByRole("button", { name: AUTOMATIC_VERSION }).first().click();
 			await expect(page.getByLabel("Version preview")).toContainText("Kept in the version and typed after");
 			await page.getByRole("button", { name: "Back to current" }).click();
 			// Past the editor's five-second autosave
@@ -231,7 +231,7 @@ test.describe("Writer collaboration", () => {
 			.click();
 		const versions = owner.page
 			.getByRole("complementary", { name: "Versions" })
-			.getByRole("button", { name: /^Version \d+/ });
+			.getByRole("button", { name: AUTOMATIC_VERSION });
 		await expect(versions).toHaveCount(1);
 		await versions.click();
 
@@ -259,7 +259,8 @@ test.describe("Writer collaboration", () => {
 		const panel = page.getByRole("complementary", { name: "Versions" });
 		async function download() {
 			const downloaded = page.waitForEvent("download");
-			await page.getByRole("button", { name: "Download", exact: true }).click();
+			await panel.getByRole("button", { name: "More version actions" }).click();
+			await page.getByRole("menuitem", { name: "Download" }).click();
 			const file = await downloaded;
 			return [file.suggestedFilename(), await readFile((await file.path())!, "utf8")];
 		}
@@ -271,12 +272,14 @@ test.describe("Writer collaboration", () => {
 		expect(namedHTML).toContain("<p>Kept in the version</p>");
 		expect(namedHTML).not.toContain("Typed after the version");
 
-		const automatic = panel.getByRole("button", { name: /^Version \d+/ }).first();
-		const seq = (await automatic.innerText()).match(/^Version (\d+)/)![1];
+		const automatic = panel.getByRole("button", { name: AUTOMATIC_VERSION }).first();
 		await automatic.click();
-		await expect(page.getByText(`Viewing Version ${seq}`)).toBeVisible();
+		await expect(page.getByText(/^Viewing Today, \d{1,2}:\d{2}/)).toBeVisible();
 		const [automaticFile] = await download();
-		expect(automaticFile).toBe(`${title} (v${seq}).html`);
+		expect([automaticFile.startsWith(title), automaticFile.slice(title.length)]).toEqual([
+			true,
+			expect.stringMatching(/^ \(v\d+\)\.html$/),
+		]);
 	});
 
 	test("Save version saves the typing first and keeps it in the named version", async ({
@@ -527,6 +530,9 @@ async function saveByShortcut(page: Page) {
 	await saved;
 }
 
+// An automatic version's row goes by the time it was taken
+const AUTOMATIC_VERSION = /^\d{1,2}:\d{2}/;
+
 async function openVersions(page: Page) {
 	await page
 		.getByRole("button", { name: /versions/i })
@@ -560,13 +566,13 @@ async function pictureInVersion(page: Page, node: string): Promise<string> {
 async function openRestoreDialog(page: Page): Promise<Locator> {
 	const panel = await openVersions(page);
 	await panel.getByRole("button", { name: /^With a picture/ }).click();
-	await page.getByRole("button", { name: "Restore", exact: true }).click();
+	await panel.getByRole("button", { name: "Restore this version" }).click();
 	return page.getByRole("dialog");
 }
 
 async function restoreFromPreview(page: Page, panel: Locator, label: string) {
 	await panel.getByRole("button", { name: new RegExp(`^${label}`) }).click();
 	await expect(page.getByText(`Viewing ${label}`)).toBeVisible();
-	await page.getByRole("button", { name: "Restore", exact: true }).click();
+	await panel.getByRole("button", { name: "Restore this version" }).click();
 	await page.getByRole("dialog").getByRole("button", { name: "Restore", exact: true }).click();
 }

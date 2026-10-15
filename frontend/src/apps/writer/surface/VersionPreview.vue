@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import type { Editor } from '@tiptap/vue-3'
 import { Skeleton } from 'frappe-ui'
-import { computed, inject, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { inject, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
 import PreviewPane from '@/apps/writer/components/PreviewPane.vue'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
-import { orderedHTML } from '@/apps/writer/extensions/tabs'
 import type { LayoutSettings } from '@/apps/writer/utils/editor-layout'
 import { previewEditor } from '@/apps/writer/utils/preview-editor'
 
@@ -23,9 +22,6 @@ const media = inject(DOCUMENT_MEDIA, null)
 const editor = shallowRef<Editor | null>(null)
 const loading = ref(true)
 const failed = ref(false)
-/** The version the editor holds, which lags `seq` while the next one loads. */
-const shown = shallowRef<{ seq: number; firstTabLabel: string | null } | null>(null)
-const isShown = computed(() => !failed.value && shown.value?.seq === props.seq)
 
 let latestRequest = 0
 
@@ -39,7 +35,6 @@ async function showVersion(seq: number) {
 
     const previousEditor = editor.value
     failed.value = false
-    shown.value = { seq, firstTabLabel: version.firstTabLabel }
     editor.value = previewEditor(version.content, media, () => {
       failed.value = true
     })
@@ -57,17 +52,6 @@ async function showVersion(seq: number) {
 }
 
 watch(() => props.seq, showVersion, { immediate: true })
-
-/** The shown version as the live document's "All tabs" export writes it, or null while none is shown. */
-function versionHTML() {
-  if (!isShown.value || !editor.value) {
-    return null
-  }
-
-  return orderedHTML(editor.value.state.doc, shown.value!.firstTabLabel)
-}
-
-defineExpose({ isShown, versionHTML })
 
 onBeforeUnmount(() => {
   latestRequest++

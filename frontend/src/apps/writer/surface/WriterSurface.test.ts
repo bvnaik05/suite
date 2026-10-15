@@ -47,6 +47,12 @@ vi.mock('frappe-ui', async () => {
     }),
     Skeleton: emptyComponent,
     TextInput: emptyComponent,
+    Tooltip: define({
+      setup:
+        (_, { slots }) =>
+        () =>
+          slots.default?.(),
+    }),
     dialog: { confirm: (options: { onConfirm: () => void }) => options.onConfirm() },
     toast: {
       info: () => {},
@@ -277,15 +283,16 @@ vi.mock('@/apps/writer/components/TextEditor.vue', async (importOriginal) => {
 })
 vi.mock('@/apps/writer/components/UsersBar.vue', () => ({ default: { render: () => null } }))
 vi.mock('./WriterDocumentMenu.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/apps/writer/composables/useUsers', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/apps/writer/composables/useUsers')>()),
+  fullName: (user: string) => user,
+}))
 vi.mock('./VersionPreview.vue', async () => {
   const { defineComponent: define, h: render } = await import('vue')
   return {
     default: define({
       props: { seq: Number },
-      setup: (props, { expose }) => {
-        expose({ isShown: true, versionHTML: () => '' })
-        return () => render('div', { 'data-preview': props.seq })
-      },
+      setup: (props) => () => render('div', { 'data-preview': props.seq }),
     }),
   }
 })
@@ -343,7 +350,9 @@ async function openedEditor() {
 }
 
 function buttonLabelled(root: Element, label: string) {
-  return [...root.querySelectorAll('button')].find((button) => button.textContent === label)
+  return [...root.querySelectorAll('button')].find(
+    (button) => button.textContent === label || button.getAttribute('aria-label') === label,
+  )
 }
 
 // The row in the versions list whose text starts with `label`
@@ -507,7 +516,7 @@ describe('Writer surface', () => {
     expect(buttonLabelled(root, 'Load more')).toBeUndefined()
   })
 
-  it('shows who took a version and its exact date and time', async () => {
+  it('shows who took a version and when, under the day it was taken', async () => {
     vi.stubEnv('TZ', 'UTC')
     const list = async () => ({
       rows: [
@@ -526,10 +535,9 @@ describe('Writer surface', () => {
     root.querySelector<HTMLElement>('[data-open-versions]')!.click()
     await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
     const row = versionRow(root, 'Before review')
-    expect(row.textContent).toMatch(
-      /ana@example\.com · (Mar 4, 2025|4 Mar 2025), 10:41(\s(AM|am))?$/,
-    )
-    expect(row.textContent).not.toContain('2025-03-04T10:41:00Z')
+    const day = row.closest('section')!.querySelector('h3')!
+    expect(row.textContent).toMatch(/ana@example\.com · 10:41(\s(AM|am))?$/)
+    expect(day.textContent).toMatch(/^(Mar 4, 2025|4 Mar 2025)$/)
     vi.unstubAllEnvs()
   })
 
@@ -580,7 +588,7 @@ describe('Writer surface', () => {
     await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
     versionRow(root, 'Before review').click()
     await nextTick()
-    buttonLabelled(root, 'Restore')!.click()
+    buttonLabelled(root, 'Restore this version')!.click()
 
     await vi.waitFor(() => expect(editor().textContent).toBe('<p>Back then</p>'))
     expect(restore).toHaveBeenCalledWith('3')

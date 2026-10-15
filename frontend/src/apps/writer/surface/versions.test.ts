@@ -3,8 +3,11 @@ import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
+import type { DocumentSession } from '@/apps/drive'
+import { BODY_FIELD } from '@/apps/writer/collab'
+
 import { writerSchema } from '../schema'
-import { readVersion } from './versions'
+import { readVersion, storedVersionHTML } from './versions'
 
 const schema = getSchema(writerSchema())
 
@@ -41,6 +44,11 @@ async function collabVersion(firstTabLabel?: string) {
   if (firstTabLabel) {
     ydoc.getMap('meta').set('firstTabLabel', firstTabLabel)
   }
+
+  return stateVersion(ydoc)
+}
+
+async function stateVersion(ydoc: Y.Doc) {
   const update = Y.encodeStateAsUpdate(ydoc)
   const state = await gzipBase64(update)
   return {
@@ -133,5 +141,84 @@ describe('readVersion', () => {
 
   it('refuses bytes that are not UTF-8', async () => {
     await expect(readVersion(new Uint8Array([0xff, 0xfe, 0x00]))).rejects.toThrow()
+  })
+})
+
+function paragraph(text: string) {
+  return { type: 'paragraph', content: [{ type: 'text', text }] }
+}
+
+// A version whose first tab is renamed and whose tabs are stored out of display order
+async function tabbedVersion() {
+  const content = [
+    paragraph('first'),
+    { type: 'tab', attrs: { id: 'b', label: 'Later', order: 1 }, content: [paragraph('bee')] },
+    { type: 'tab', attrs: { id: 'a', label: 'Sooner', order: 0 }, content: [paragraph('ay')] },
+  ]
+  const ydoc = prosemirrorJSONToYDoc(schema, { type: 'doc', content }, 'default')
+  ydoc.getMap('meta').set('firstTabLabel', 'Intro')
+  return stateVersion(ydoc)
+}
+
+// A version holding elements of the given names, in the order given
+function elementsVersion(...names: string[]) {
+  const ydoc = new Y.Doc()
+  const elements = names.map((name) => {
+    const element = new Y.XmlElement(name)
+    element.insert(0, [new Y.XmlText(name)])
+    return element
+  })
+  ydoc.getXmlFragment(BODY_FIELD).insert(0, elements)
+  return stateVersion(ydoc)
+}
+
+// A version the old editor saved, holding an image of the kind only it had
+function oldImageVersion() {
+  const ydoc = new Y.Doc()
+  const image = new Y.XmlElement('resizableMedia')
+  image.setAttribute('src', '/files/chart.png')
+  image.setAttribute('media-type', 'img')
+  ydoc.getXmlFragment(BODY_FIELD).insert(0, [image])
+  return stateVersion(ydoc)
+}
+
+function serving(response: () => Response) {
+  return {
+    versions: { contentUrl: (seq: string) => `/versions/${seq}` },
+    credentials: { fetch: async () => response() },
+  } as unknown as DocumentSession
+}
+
+function servingVersion(stored: object) {
+  return serving(() => new Response(JSON.stringify(stored)))
+}
+
+describe('storedVersionHTML', () => {
+  it('writes a version as the live document exports all its tabs, in display order', async () => {
+    const session = servingVersion(await tabbedVersion())
+
+    expect(await storedVersionHTML(session, 1, null)).toBe(
+      '<div data-tab-id="first-tab" data-tab-label="Intro"><p>first</p></div>' +
+        '<div data-tab-id="a" data-tab-label="Sooner" data-tab-order="0"><p>ay</p></div>' +
+        '<div data-tab-id="b" data-tab-label="Later" data-tab-order="1"><p>bee</p></div>',
+    )
+  })
+
+  it('keeps an image the old editor saved', async () => {
+    const session = servingVersion(await oldImageVersion())
+
+    expect(await storedVersionHTML(session, 1, null)).toContain('<img src="/files/chart.png"')
+  })
+
+  it("refuses a version whose content Writer can't show", async () => {
+    const session = servingVersion(await elementsVersion('paragraph', 'nonsense'))
+
+    await expect(storedVersionHTML(session, 1, null)).rejects.toThrow("can't be shown")
+  })
+
+  it("refuses a version the server won't give", async () => {
+    const session = serving(() => new Response(null, { status: 500 }))
+
+    await expect(storedVersionHTML(session, 1, null)).rejects.toThrow('HTTP 500')
   })
 })

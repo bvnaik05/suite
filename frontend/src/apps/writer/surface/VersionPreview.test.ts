@@ -1,12 +1,9 @@
-import { getSchema } from '@tiptap/core'
-import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createApp, h, nextTick, ref, shallowRef } from 'vue'
+import { createApp, h, nextTick, ref } from 'vue'
 import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
-import { writerSchema } from '@/apps/writer/schema'
 
 import VersionPreview from './VersionPreview.vue'
 
@@ -37,22 +34,6 @@ function storedVersion(html: string) {
     collab: 0,
   }
   return JSON.stringify(stored)
-}
-
-function paragraph(text: string) {
-  return { type: 'paragraph', content: [{ type: 'text', text }] }
-}
-
-// A server version whose first tab is renamed and whose tabs are stored out of display order
-async function tabbedVersion() {
-  const content = [
-    paragraph('first'),
-    { type: 'tab', attrs: { id: 'b', label: 'Later', order: 1 }, content: [paragraph('bee')] },
-    { type: 'tab', attrs: { id: 'a', label: 'Sooner', order: 0 }, content: [paragraph('ay')] },
-  ]
-  const ydoc = prosemirrorJSONToYDoc(getSchema(writerSchema()), { type: 'doc', content }, 'default')
-  ydoc.getMap('meta').set('firstTabLabel', 'Intro')
-  return stateVersion(ydoc)
 }
 
 // A version the old editor saved, holding an image of the kind only it had
@@ -109,7 +90,6 @@ function fakeSession(fetch: (url: string) => Promise<Response>) {
 
 function mountPreview(session: DocumentSession, seq = 1) {
   const shownSeq = ref(seq)
-  const exposed = shallowRef<InstanceType<typeof VersionPreview> | null>(null)
   const root = document.createElement('div')
   document.body.append(root)
   const render = () => {
@@ -118,7 +98,7 @@ function mountPreview(session: DocumentSession, seq = 1) {
       seq: shownSeq.value,
       settings: {},
     }
-    return h(VersionPreview, { ...props, ref: exposed })
+    return h(VersionPreview, props)
   }
   const app = createApp({ setup: () => render })
   app.mount(root)
@@ -126,8 +106,6 @@ function mountPreview(session: DocumentSession, seq = 1) {
   return {
     root,
     shownSeq,
-    versionHTML: () => exposed.value?.versionHTML(),
-    isShown: () => exposed.value?.isShown,
     unmount: () => {
       app.unmount()
       root.remove()
@@ -208,20 +186,6 @@ describe('VersionPreview', () => {
     preview.unmount()
   })
 
-  it('gives the shown version as the live document exports all its tabs', async () => {
-    const stored = await tabbedVersion()
-    const preview = mountPreview(fakeSession(async () => new Response(stored)))
-
-    await vi.waitFor(() => expect(preview.root.textContent).toContain('bee'))
-
-    expect(preview.versionHTML()).toBe(
-      '<div data-tab-id="first-tab" data-tab-label="Intro"><p>first</p></div>' +
-        '<div data-tab-id="a" data-tab-label="Sooner" data-tab-order="0"><p>ay</p></div>' +
-        '<div data-tab-id="b" data-tab-label="Later" data-tab-order="1"><p>bee</p></div>',
-    )
-    preview.unmount()
-  })
-
   it('shows a version holding an old image, so it can be downloaded and restored', async () => {
     const stored = await oldImageVersion()
     const preview = mountPreview(fakeSession(async () => new Response(stored)))
@@ -230,24 +194,7 @@ describe('VersionPreview', () => {
     await settle()
 
     expect(preview.root.textContent).not.toContain("can't be shown")
-    expect(preview.isShown()).toBe(true)
-    expect(preview.versionHTML()).toContain('<img src="/files/chart.png"')
-    preview.unmount()
-  })
-
-  it('gives no version HTML while the next version loads or when it fails', async () => {
-    const requests: ReturnType<typeof deferred>[] = []
-    const preview = mountPreview(heldSession(requests))
-    requests[0].resolve(new Response(storedVersion('<p>First</p>')))
-    await vi.waitFor(() => expect(preview.versionHTML()).toBe('<p>First</p>'))
-
-    preview.shownSeq.value = 2
-    await settle()
-    const whileLoading = preview.versionHTML()
-    requests[1].resolve(new Response(null, { status: 500 }))
-    await vi.waitFor(() => expect(preview.root.textContent).toContain("can't be shown"))
-
-    expect([whileLoading, preview.versionHTML()]).toEqual([null, null])
+    expect(preview.root.querySelector('img')?.getAttribute('src')).toBe('/files/chart.png')
     preview.unmount()
   })
 

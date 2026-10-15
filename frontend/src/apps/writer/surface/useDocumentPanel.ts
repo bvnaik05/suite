@@ -12,10 +12,6 @@ interface PanelLists {
   isLoadingMore: boolean
 }
 
-export function versionLabel(version: DocumentVersion) {
-  return version.label || `Version ${version.seq}`
-}
-
 export function showError(error: unknown, fallback: string) {
   if (error instanceof Error) {
     toast.error(error.message)

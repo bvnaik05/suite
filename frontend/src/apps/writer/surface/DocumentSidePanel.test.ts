@@ -10,7 +10,9 @@ vi.mock('frappe-ui', async () => {
   const emptyComponent = { render: () => null }
   return {
     Avatar: emptyComponent,
+    Dropdown: emptyComponent,
     Textarea: emptyComponent,
+    Tooltip: emptyComponent,
     Button: define({
       props: { label: String },
       emits: ['click'],
@@ -85,6 +87,8 @@ async function openVersionsPanel() {
       previewedVersion: null,
       session,
       canComment: true,
+      canRestoreVersion: false,
+      isRestoringVersion: false,
       threads: [],
       places: null,
       refreshThreads: async () => {},

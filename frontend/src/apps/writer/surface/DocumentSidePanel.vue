@@ -4,7 +4,6 @@ import { computed, nextTick, ref, watch } from 'vue'
 
 import {
   DriveCommentAuthor,
-  formatDriveDateTime,
   GUEST_NAME_LIMIT,
   useDriveGuestName,
   type DocumentPanel,
@@ -18,13 +17,16 @@ import { confirm } from '@/platform/feedback'
 import CommentDraftCard from './CommentDraftCard.vue'
 import { groupThreads, type ThreadGroup } from './threadGroups'
 import type { ShownDraft, useCommentDrafts } from './useCommentDrafts'
-import { useDocumentPanel, versionLabel } from './useDocumentPanel'
+import { useDocumentPanel } from './useDocumentPanel'
+import VersionList from './VersionList.vue'
 
 type ThreadComment = DocumentThread['comments'][number]
 
 const props = defineProps<{
   session: DocumentSession
   canComment: boolean
+  canRestoreVersion: boolean
+  isRestoringVersion: boolean
   threads: DocumentThread[]
   /** Where each thread shows in the editor; null when the editor can't tell. */
   places: ThreadPlaces | null
@@ -36,7 +38,11 @@ const props = defineProps<{
 }>()
 
 const panel = defineModel<DocumentPanel | null>('panel', { required: true })
-const emit = defineEmits<{ closed: [panel: DocumentPanel] }>()
+const emit = defineEmits<{
+  closed: [panel: DocumentPanel]
+  restoreVersion: [version: DocumentVersion]
+  downloadVersion: [version: DocumentVersion]
+}>()
 const previewedVersion = defineModel<DocumentVersion | null>('previewedVersion', {
   required: true,
 })
@@ -236,24 +242,7 @@ async function saveNamedVersion() {
   }
 }
 
-function isPreviewed(version: DocumentVersion) {
-  return previewedVersion.value?.seq === version.seq
-}
-
-function versionClass(version: DocumentVersion) {
-  return isPreviewed(version) ? 'bg-surface-gray-3' : 'bg-surface-gray-1 hover:bg-surface-gray-2'
-}
-
-function preview(version: DocumentVersion) {
-  previewedVersion.value = version
-}
-
 defineExpose({ reloadVersions: () => load('versions'), startNamingVersion })
-
-function versionByline(version: DocumentVersion) {
-  const created = version.creation && formatDriveDateTime(version.creation)
-  return [version.actor, created].filter(Boolean).join(' · ')
-}
 </script>
 
 <template>
@@ -395,22 +384,19 @@ function versionByline(version: DocumentVersion) {
             <p v-if="hasNoThreads" class="text-sm text-ink-gray-5">No comments yet.</p>
           </template>
           <template v-else>
-            <button
-              v-for="version in lists.versions"
-              :key="version.seq"
-              type="button"
-              class="block w-full rounded-4 p-3 text-left"
-              :class="versionClass(version)"
-              :aria-pressed="isPreviewed(version)"
-              @click="preview(version)"
-            >
-              <p class="text-sm-medium text-ink-gray-8">{{ versionLabel(version) }}</p>
-              <p class="text-p-xs text-ink-gray-5">{{ versionByline(version) }}</p>
-            </button>
-            <p v-if="hasNoVersions" class="text-sm text-ink-gray-5">No versions yet.</p>
+            <VersionList
+              v-model:previewed="previewedVersion"
+              :versions="lists.versions"
+              :can-restore="canRestoreVersion"
+              :is-restoring="isRestoringVersion"
+              @restore="emit('restoreVersion', $event)"
+              @download="emit('downloadVersion', $event)"
+            />
+            <p v-if="hasNoVersions" class="px-3 text-sm text-ink-gray-5">No versions yet.</p>
             <Button
               v-if="lists.versionsCursor"
               class="w-full"
+              variant="ghost"
               label="Load more"
               :loading="lists.isLoadingMore"
               @click="loadMoreVersions"
