@@ -78,7 +78,7 @@ async function openComments(page: Page, product: Product): Promise<Locator> {
 		await panel.getByRole("button", { name: product.start }).click();
 	}
 
-	await expect(panel.getByRole("textbox", { name: "New comment" })).toBeVisible();
+	await expect(panel.getByLabel("New comment", { exact: true })).toBeVisible();
 	return panel;
 }
 
@@ -95,7 +95,7 @@ test.describe("a guest with a comment link", () => {
 
 			const panel = await openComments(page, product);
 			const name = panel.getByRole("textbox", { name: "Your name" });
-			const comment = panel.getByRole("textbox", { name: "New comment" });
+			const comment = panel.getByLabel("New comment", { exact: true });
 			await expect(name).toHaveValue("");
 			await expect(name).toHaveAttribute("maxlength", "140");
 
@@ -125,7 +125,7 @@ test.describe("a guest with a comment link", () => {
 
 			const panel = await openComments(page, product);
 			await panel.getByRole("textbox", { name: "Your name" }).fill(`${RLO}${"W".repeat(139)}`);
-			await panel.getByRole("textbox", { name: "New comment" }).fill("Long name");
+			await panel.getByLabel("New comment", { exact: true }).fill("Long name");
 			await panel.getByRole("button", { name: product.post, exact: true }).click();
 
 			const name = panel.locator('[data-part="name"]');
@@ -146,7 +146,7 @@ test.describe("a guest with a comment link", () => {
 
 		const panel = await openComments(page, product);
 		await expect(panel.getByRole("textbox", { name: "Your name" })).toHaveValue("");
-		await panel.getByRole("textbox", { name: "New comment" }).fill("Unsigned note");
+		await panel.getByLabel("New comment", { exact: true }).fill("Unsigned note");
 		await panel.getByRole("button", { name: product.post, exact: true }).click();
 
 		await expect(panel.getByText("Unsigned note", { exact: true })).toBeVisible();
