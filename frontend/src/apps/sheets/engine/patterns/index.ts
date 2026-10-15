@@ -42,6 +42,8 @@ const DETECTORS: readonly Detector[] = [
 ]
 
 export function detectSeries(values: readonly string[]): Series | null {
+  // No source cells, nothing to continue.
+  if (values.length === 0) return null
   for (const det of DETECTORS) {
     const result = det.detect(values)
     if (result) return result
