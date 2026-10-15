@@ -98,7 +98,7 @@
             variant="ghost"
             :aria-label="__('Close')"
             :tooltip="__('Close')"
-            @click.stop="show = false"
+            @click.stop="closeWindow"
           >
             <template #icon><span class="lucide-x size-4" aria-hidden="true" /></template>
           </Button>
@@ -204,6 +204,14 @@ const restore = (e: KeyboardEvent) => {
   if (!minimised.value || e.target !== e.currentTarget) return
   e.preventDefault()
   minimised.value = false
+}
+
+// Close keeps a draft to come back to — but one with nothing written is not a draft. It had already
+// saved itself (a body that is only the signature saves), so closing it left a "[No subject]" in
+// Drafts for every window opened and shut. Nothing written, it is discarded, quietly.
+const closeWindow = () => {
+  if (editor.value?.isUntouched) void editor.value.discardMail()
+  else show.value = false
 }
 
 // A click on the dimmed page beside an expanded window: with something written, "let me look at
