@@ -1002,7 +1002,12 @@ watch(
 // flight. The server still returns them for a moment, so any re-derive — our own reload, the 30s poll,
 // or the new-mail socket — would otherwise re-add them here. Cleared when the open thread changes.
 const removedMailIds = new Set<string>()
-const { isHeld: isHeldDraft } = useDiscardingDrafts()
+const { isHeld: isHeldDraft, heldDrafts, takeRestoredDraft } = useDiscardingDrafts()
+// A discard undone from this thread puts the draft back here, so the thread is drawn again as soon
+// as the draft is let back — the list it reads from has not changed, only what it leaves out.
+watch(heldDrafts, (now, before) => {
+  if ([...before].some((id) => !now.has(id))) loadThread()
+})
 const transformThreadMails = (mails: Mail[]) =>
   mails
     // Read-only views (the Screener) pass an explicit message list that isn't scoped to a mailbox.
@@ -1481,8 +1486,11 @@ const showReplyAll = (mail: Mail) =>
   mail.groupedRecipients?.to
     ?.concat(mail.groupedRecipients?.cc)
     .filter((m) => !isUserEmail(m.email)).length > 0
-const populateDraftMails = (mail: Mail) =>
-  (draftMails[mail.name] = {
+const populateDraftMails = (mail: Mail) => {
+  // Back from an undone discard: as it was in the editor, which the server may be a save behind.
+  const restored = takeRestoredDraft(mail.id)
+  if (restored) return (draftMails[mail.name] = { ...restored, name: mail.name })
+  draftMails[mail.name] = {
     name: mail.name,
     id: mail.id,
     from_email: mail.from_email,
@@ -1494,7 +1502,8 @@ const populateDraftMails = (mail: Mail) =>
     in_reply_to_id: mail.id,
     attachments: mail.attachments || [],
     ...extractQuotedContent(mail.html_body),
-  })
+  }
+}
 
 const reply = (mail: Mail) => {
   allowOnReply()
@@ -1560,6 +1569,9 @@ const createLocalDraft = (mail: Mail, draftDetails: ComposeMailData) => {
 const discardLocalDraft = (mail: string) => {
   delete draftMails[mail]
   thread.value = thread.value.filter((m: Mail) => m.name !== mail)
+  // Opened from Drafts, the thread was there for its draft: with the last one gone it has left the
+  // folder, and the list has already let it go, so the pane goes with it. Undo puts it back in the list.
+  if (mailbox === mailboxIds.value.drafts && !thread.value.some((m: Mail) => m.draft)) goToMailbox()
 }
 
 // Shortcuts

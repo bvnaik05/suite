@@ -845,11 +845,12 @@ const threads = useInfiniteQuery(api.mail.threads.list, () =>
     : false,
 )
 const activeThreads = computed(() => (mailbox === 'search' ? searchResults : threads))
-const { isDiscarding } = useDiscardingDrafts()
+const { isDiscarding, withoutHeldDrafts } = useDiscardingDrafts()
 const threadRows = computed(() =>
   activeThreads.value.rows
     .map((row) => threadRow(row, store.accountId))
-    .filter((row) => !isDiscarding(row)),
+    .filter((row) => !isDiscarding(row, { inDrafts: mailbox === mailboxIds.drafts }))
+    .map(withoutHeldDrafts),
 )
 watch(
   () => threads.status,

@@ -464,11 +464,17 @@ const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
 // Drafts discarded but still inside their Undo window are off the list, not yet off the server.
 // Held by message id, so only a row made of those drafts goes: the conversation a reply draft
 // belongs to keeps its row in every other folder.
-const { isDiscarding: isDiscardingDraft, holdDraft, releaseDraft } = useDiscardingDrafts()
+const {
+  isDiscarding: isDiscardingDraft,
+  withoutHeldDrafts,
+  holdDraft,
+  releaseDraft,
+} = useDiscardingDrafts()
 const threadRows = computed(() =>
   threads.rows
     .map((row) => threadRow(row, store.accountId))
-    .filter((row) => !isDiscardingDraft(row)),
+    .filter((row) => !isDiscardingDraft(row, { inDrafts: folder === 'drafts' }))
+    .map(withoutHeldDrafts),
 )
 const isLoading = computed(
   () =>

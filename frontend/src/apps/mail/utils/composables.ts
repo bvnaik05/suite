@@ -1,12 +1,12 @@
 import { toast } from 'frappe-ui'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, readonly, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, client } from '@/api'
 import router from '@/apps/mail/router'
 import type { mailSettings } from '@/apps/mail/settings'
 import { userStore } from '@/apps/mail/stores/user'
-import type { ComposeMailData, Identity } from '@/apps/mail/types'
+import type { ComposeMailData, Identity, Thread } from '@/apps/mail/types'
 import { createSwipeGesture } from '@/apps/mail/utils/swipeGesture'
 import {
   INBOX_FOLDER,
@@ -371,16 +371,59 @@ export const useComposeMail = () => ({
 const listReloadRequest = ref(0)
 
 // Drafts discarded from a composer and still inside their Undo window: deleted only once the toast
-// has passed, so the server still lists them. A list leaves out a row made of nothing else — in
-// Drafts a row's messages are its drafts, so a conversation with a reply draft keeps its row
-// everywhere else.
+// has passed, so the server still lists them. A list leaves out a row made of nothing else, so a
+// conversation with a reply draft keeps its row everywhere else. Drafts is the exception: a row
+// there carries the mail its draft answers too, but is listed for the draft alone, so it goes once
+// every draft in it is held.
 const discardingDrafts = ref(new Set<string>())
+// A draft whose discard was undone from a thread, as it stood in the editor: the server may be a
+// keystroke behind it, so the thread reopens it from this rather than from what it reloads.
+const restoredDrafts = new Map<string, ComposeMailData>()
 export const useDiscardingDrafts = () => ({
+  /** The drafts being held, for a view that has to redraw as one comes back. */
+  heldDrafts: readonly(discardingDrafts),
+  /** Undo a discard in place: the draft is let back onto the lists, as it was in the editor. */
+  restoreDraft: (id: string, draft: ComposeMailData) => {
+    restoredDrafts.set(id, draft)
+    discardingDrafts.value = new Set([...discardingDrafts.value].filter((held) => held !== id))
+  },
+  /** The editor's copy of a draft just brought back, once; nothing if none is waiting. */
+  takeRestoredDraft: (id: string) => {
+    const draft = restoredDrafts.get(id)
+    // Kept under each id the draft has had; whichever the thread found it by, the rest go too.
+    for (const [key, value] of restoredDrafts) if (value === draft) restoredDrafts.delete(key)
+    return draft
+  },
   holdDraft: (id: string) => (discardingDrafts.value = new Set([...discardingDrafts.value, id])),
   releaseDraft: (id: string) =>
     (discardingDrafts.value = new Set([...discardingDrafts.value].filter((held) => held !== id))),
-  isDiscarding: (row: { messages?: { id: string }[] }) =>
-    !!row.messages?.length && row.messages.every((m) => discardingDrafts.value.has(m.id)),
+  isDiscarding: (
+    row: { messages?: { id: string; draft?: number | boolean }[] },
+    { inDrafts = false } = {},
+  ) => {
+    const counted = inDrafts ? row.messages?.filter((m) => m.draft) : row.messages
+    return !!counted?.length && counted.every((m) => discardingDrafts.value.has(m.id))
+  },
+  /**
+   * The row as it reads with its held drafts gone. A conversation keeps its row outside Drafts, but
+   * one led by the discarded draft took its Draft tag, preview and sender from it — those now come
+   * from the message before.
+   */
+  withoutHeldDrafts: <T extends Thread>(row: T): T => {
+    const kept = row.messages.filter((m) => !discardingDrafts.value.has(m.id))
+    if (kept.length === row.messages.length || !kept.length) return row
+    const latest = kept.at(-1)!
+    if (!discardingDrafts.value.has(row.messages.at(-1)!.id)) return { ...row, messages: kept }
+    return {
+      ...row,
+      messages: kept,
+      draft: latest.draft,
+      preview: latest.preview,
+      from_name: latest.from_name,
+      from_email: latest.from_email,
+      recipients: latest.recipients,
+    }
+  },
   /** Whether this one message is a draft waiting out its discard's Undo. */
   isHeld: (id: string) => discardingDrafts.value.has(id),
 })

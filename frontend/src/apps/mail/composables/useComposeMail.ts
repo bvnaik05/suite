@@ -95,7 +95,7 @@ export const useComposeMail = (options: ComposeMailOptions) => {
   let disposed = false
   const { requestCompose } = useComposeRequest()
   const { requestListReload } = useListReload()
-  const { holdDraft, releaseDraft } = useDiscardingDrafts()
+  const { holdDraft, releaseDraft, restoreDraft } = useDiscardingDrafts()
   onScopeDispose(() => (disposed = true))
   const router = useRouter()
   const route = useRoute()
@@ -286,6 +286,9 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     listOwesReload = false
     reloadMails()
   }
+  // A draft is not edited in place: each save replaces it, under a new id. A list that has not
+  // reloaded since still shows it by an earlier one, so a discard has to hold all of them.
+  const formerIds = new Set<string>()
   let pendingSave: Promise<void> | undefined
   const saveDraft = async () => {
     if (discarded || !isDraftUpdated.value || isLoading.value || isDiscarding.value) return
@@ -379,6 +382,10 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     }
     const draft: ComposeMailData = JSON.parse(JSON.stringify(mail))
     const account = scopeAccountId.value
+    // Discarded from a thread, it comes back to that thread on Undo — not into a composer window.
+    // Read before the composer closes: the last draft in Drafts takes the pane back to the list,
+    // and Undo returns it here.
+    const thread = isInThread && draft.id ? router.currentRoute.value.fullPath : undefined
     discarded = true
     options.onDiscardUnsaved?.()
     options.onDiscardStarted?.()
@@ -394,7 +401,8 @@ export const useComposeMail = (options: ComposeMailOptions) => {
       return
     }
     // Off every list now, like a discard from the list itself; back on Undo.
-    if (draft.id) holdDraft(draft.id)
+    const heldIds = draft.id ? [draft.id, ...formerIds] : []
+    heldIds.forEach(holdDraft)
     commitAfterUndo({
       message: __('Draft discarded.'),
       // A draft never saved has nothing on the server to remove: only Undo's reopening matters.
@@ -403,7 +411,16 @@ export const useComposeMail = (options: ComposeMailOptions) => {
         : { kind: 'messages', names: [] },
       onSent: requestListReload,
       restore: () => {
-        if (draft.id) releaseDraft(draft.id)
+        if (thread) {
+          // Under whichever id the list still has it, it reopens as the editor had it — and the
+          // list is brought up to date, off the ids the saves have since replaced.
+          const copy = { ...draft, account }
+          heldIds.forEach((id) => restoreDraft(id, copy))
+          requestListReload()
+          if (router.currentRoute.value.fullPath !== thread) void router.push(thread)
+          return
+        }
+        heldIds.forEach(releaseDraft)
         requestCompose({ ...draft, account })
       },
       // Reopening a draft needs no particular list on screen, so its Cmd/Ctrl+Z outlives the view.
@@ -500,6 +517,7 @@ export const useComposeMail = (options: ComposeMailOptions) => {
     send_at,
     undo_send_period,
   }: OutputOf<typeof api.mail.messages.create>) => {
+    if (id && mail.id && mail.id !== id) formerIds.add(mail.id)
     if (id) mail.id = id
     updateOriginalMail()
     if (error) {
