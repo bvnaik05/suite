@@ -269,8 +269,11 @@ export const useListRows = ({
   const toggleGroupCollapse = (key: string) => {
     // The cursor follows the click, as it does when you open a mail: Enter and a click are the same
     // gesture on the same row, and Enter can only mean that if the cursor is already there. Above the
-    // last-group guard, so clicking a header that can't fold still takes the cursor.
-    focusedRowKey.value = `group:${key}`
+    // last-group guard, so clicking a header that can't fold still takes the cursor. Not while a
+    // thread is open, though: the open row's bar already says where you are, and the cursor drawn on
+    // the header as well put a second bar in the list. (From the keyboard the cursor is on the
+    // header already, so Enter there is unchanged.)
+    if (!openThreadID()) focusedRowKey.value = `group:${key}`
     if (isLastGroup(key)) return
 
     if (collapsedGroups.value.includes(key))
