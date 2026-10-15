@@ -2,7 +2,7 @@ import type { Peer } from '@suite/collab-client'
 import { describe, expect, it, vi } from 'vitest'
 
 import { assignColours, PALETTE } from './colours'
-import { peopleOf, roomColours } from './peers'
+import { peopleOf, personIdleSince, roomColours } from './peers'
 
 const searchUsers = vi.hoisted(() => vi.fn())
 vi.mock('@/apps/writer/drive', () => ({ searchUsers }))
@@ -56,6 +56,20 @@ function seenFrom(own: Peer, everyone: Peer[]) {
 }
 
 describe('Writer peers', () => {
+  it('reads a person as idle only once every tab of theirs is, from the last to go', () => {
+    const cyIdle = tab(PEER_ID, 'cy@x.com', 1, 100)
+    const cyInUse = tab(PEER_ID + 1, 'cy@x.com', 2)
+    const cyIdleLater = tab(PEER_ID + 1, 'cy@x.com', 2, 400)
+    const dee = tab(PEER_ID + 2, 'dee@x.com', 3, 50)
+
+    const whileOneTabIsInUse = personIdleSince([cyIdle, cyInUse, dee], PEER_ID)
+    const onceBothAreIdle = personIdleSince([cyIdle, cyIdleLater, dee], PEER_ID)
+    const people = peopleOf([cyIdle, cyIdleLater, dee], new Map())
+
+    expect([whileOneTabIsInUse, onceBothAreIdle]).toEqual([null, 400])
+    expect(people.map((person) => person.idleSince)).toEqual([400, 50])
+  })
+
   it('lists each signed-in person once and every guest tab apart', () => {
     searchUsers.mockResolvedValue([])
 

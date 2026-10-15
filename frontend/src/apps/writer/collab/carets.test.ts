@@ -3,6 +3,7 @@ import { Editor, type EditorOptions } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { absolutePositionToRelativePosition, ySyncPluginKey } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness'
@@ -16,6 +17,7 @@ const searchUsers = vi.hoisted(() => vi.fn())
 vi.mock('@/apps/writer/drive', () => ({ searchUsers }))
 
 const PEER_ID = 2 ** 31 + 7
+const NAME_SHOWN_MS = 3000
 const editors: Editor[] = []
 
 afterEach(() => {
@@ -332,6 +334,44 @@ describe('Writer carets', () => {
     await tick()
 
     expect([isNamedOnArrival, isNamed(editor)]).toEqual([true, true])
+  })
+
+  it('dims a caret, its flag and dot with it, while its person is idle, and not before', async () => {
+    const { editor, awareness, roomChanges } = openEditor()
+    const peerSays = remotePeer(awareness)
+    focus(editor)
+    function isDimmed() {
+      const caret = editor.view.dom.querySelector('.collaboration-carets__caret')
+      return caret?.classList.contains('collaboration-carets__caret--idle')
+    }
+
+    peerSays({ user: { id: BEA.user }, cursor: caretAt(editor, 3) })
+    await tick()
+    const isDimmedInUse = isDimmed()
+    roomChanges([{ ...BEA, idleSince: 1 }])
+    await tick()
+    const isDimmedIdle = isDimmed()
+    roomChanges([BEA])
+    await tick()
+
+    expect([isDimmedInUse, isDimmedIdle, isDimmed()]).toEqual([false, true, false])
+  })
+
+  it('names a person who moves after another plugin joined the editor', async () => {
+    vi.useFakeTimers()
+    searchUsers.mockResolvedValue([])
+    const { editor, awareness } = openEditor()
+    const peerSays = remotePeer(awareness)
+    const user = { id: BEA.user }
+    focus(editor)
+
+    peerSays({ user, cursor: caretAt(editor, 3) })
+    await vi.advanceTimersByTimeAsync(NAME_SHOWN_MS)
+    editor.registerPlugin(new Plugin({ key: new PluginKey('late') }))
+    peerSays({ user, cursor: caretAt(editor, 2) })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(isNamed(editor)).toBe(true)
   })
 
   it('counts this tab’s own typing for other tabs, and not another person’s edits', () => {

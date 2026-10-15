@@ -82,10 +82,18 @@ async function openEditor(scrollTop: number, line = LINE) {
   return { editor, scroller }
 }
 
-function othersAddLineAtTop(editor: Editor) {
+function addLineAtTop(editor: Editor, sync: object | null) {
   const paragraph = editor.schema.nodes.paragraph.create(null, editor.schema.text('new'))
   const transaction = editor.state.tr.insert(0, paragraph)
-  editor.view.dispatch(transaction.setMeta(ySyncPluginKey, { isChangeOrigin: true }))
+  if (sync) {
+    transaction.setMeta(ySyncPluginKey, sync)
+  }
+
+  editor.view.dispatch(transaction)
+}
+
+function othersAddLineAtTop(editor: Editor) {
+  addLineAtTop(editor, { isChangeOrigin: true })
 }
 
 function ownLineTop(editor: Editor) {
@@ -121,5 +129,15 @@ describe('SteadyCaret', () => {
     }
 
     expect(Math.abs(ownLineTop(editor) - before)).toBeLessThanOrEqual(HALF_PIXEL)
+  })
+
+  it('leaves the scroll alone for this tab’s own edits and its undo', async () => {
+    const { editor, scroller } = await openEditor(START_SCROLL)
+
+    addLineAtTop(editor, null)
+    const afterOwnEdit = scroller.scrollTop
+    addLineAtTop(editor, { isChangeOrigin: true, isUndoRedoOperation: true })
+
+    expect([afterOwnEdit, scroller.scrollTop]).toEqual([START_SCROLL, START_SCROLL])
   })
 })

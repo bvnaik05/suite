@@ -9,15 +9,20 @@ const OWN_ARRIVAL = 5
 
 const presences: Presence[] = []
 
+interface Emitted {
+  rooms: string[]
+  state: Record<string, unknown>
+}
+
 function setup({ sends = true, at = 4 } = {}) {
   type Handler = (message: unknown) => void
   const handlers = new Map<string, Handler>()
-  const emitted: { rooms: string[]; state: Record<string, unknown> }[] = []
+  const emitted: Emitted[] = []
   const ahead: number[] = []
   const socket = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
     off: (event: string) => handlers.delete(event),
-    emit: (_: string, payload: (typeof emitted)[number]) => emitted.push(payload),
+    emit: (_: string, payload: Emitted) => emitted.push(payload),
   }
   const hooks = {
     isOwnRoom: (room: string) => OWN_ROOMS.includes(room),
@@ -71,7 +76,19 @@ afterEach(() => {
   }
 
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
+
+const IDLE_MS = 5 * 60_000
+const HIDDEN_IDLE_MS = 60_000
+const CARET_KEPT_MS = 30_000
+const RENEW_MS = 15_000
+const SEND_WAIT_MS = 200
+
+function turn(visibility: 'hidden' | 'visible') {
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(visibility)
+  document.dispatchEvent(new Event('visibilitychange'))
+}
 
 describe('collab presence', () => {
   it('lists the other tabs the realtime service answers with, by the user it verified', () => {
@@ -237,6 +254,99 @@ describe('collab presence', () => {
     visibility.mockRestore()
 
     expect([viewer.emitted, outside.emitted, hidden.emitted]).toEqual([[], [], []])
+  })
+
+  it('sends one message when a tab goes idle and one when it is back, a viewer’s too', async () => {
+    vi.useFakeTimers()
+    const { answer, emitted } = setup({ sends: false })
+    answer()
+
+    await vi.advanceTimersByTimeAsync(IDLE_MS - 1)
+    const beforeIdle = emitted.length
+    await vi.advanceTimersByTimeAsync(1)
+    const idle = emitted.at(-1)?.state
+    await vi.advanceTimersByTimeAsync(IDLE_MS)
+    window.dispatchEvent(new Event('pointermove'))
+    window.dispatchEvent(new Event('keydown'))
+
+    expect(beforeIdle).toBe(0)
+    expect(emitted.map(({ state }) => state.idleFor)).toEqual([IDLE_MS, null])
+    expect(idle).toMatchObject({ cursor: null, hiddenFor: null })
+  })
+
+  it('sends one message when a tab is hidden, its caret with it, and one when it shows again', async () => {
+    vi.useFakeTimers()
+    const { presence, answer, emitted } = setup()
+    answer()
+    presence.awareness.setLocalStateField('cursor', cursor)
+    await vi.advanceTimersByTimeAsync(SEND_WAIT_MS)
+    emitted.length = 0
+
+    turn('hidden')
+    await vi.advanceTimersByTimeAsync(CARET_KEPT_MS)
+    turn('hidden')
+    turn('visible')
+
+    expect(emitted.map(({ state }) => [state.cursor, state.hiddenFor])).toEqual([
+      [cursor, 0],
+      [cursor, null],
+    ])
+  })
+
+  it('reads a peer as idle once it reports five minutes without input, or a minute after it was hidden', async () => {
+    vi.useFakeTimers()
+    const { presence, hear, answer } = setup()
+    answer([
+      { room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' },
+      { room: OWN_ROOMS[0], pid: PEER_PID + 1, user: 'c@x.com' },
+    ])
+    let changes = 0
+    presence.onChange(() => changes++)
+    const startedAt = Date.now()
+    const hiddenFor = 20_000
+    function idleSince() {
+      return presence.peers.map((peer) => peer.idleSince)
+    }
+
+    hear('', {
+      room: OWN_ROOMS[0],
+      states: [
+        { pid: PEER_PID, user: 'b@x.com', n: 1, state: { idleFor: IDLE_MS } },
+        { pid: PEER_PID + 1, user: 'c@x.com', n: 1, state: { hiddenFor } },
+      ],
+    })
+    const heard = idleSince()
+    await vi.advanceTimersByTimeAsync(HIDDEN_IDLE_MS - hiddenFor - 1)
+    const changesBeforeTheMinute = changes
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(heard).toEqual([startedAt - IDLE_MS, null])
+    expect(changes - changesBeforeTheMinute).toBe(1)
+    expect(idleSince()).toEqual([startedAt - IDLE_MS, startedAt - hiddenFor])
+  })
+
+  it('keeps renewing a shown tab’s caret for others and stops once the tab is hidden', async () => {
+    vi.useFakeTimers()
+    const { presence, answer, emitted } = setup()
+    answer()
+    presence.awareness.setLocalStateField('cursor', cursor)
+    await vi.advanceTimersByTimeAsync(SEND_WAIT_MS)
+    emitted.length = 0
+    // What the awareness does every 15 s so others don't drop the caret after 30 s
+    async function renew() {
+      presence.awareness.setLocalState(presence.awareness.getLocalState())
+      await vi.advanceTimersByTimeAsync(RENEW_MS)
+    }
+
+    await renew()
+    turn('hidden')
+    await renew()
+    await renew()
+
+    expect(emitted.map(({ state }) => [state.cursor, state.hiddenFor])).toEqual([
+      [cursor, null],
+      [cursor, 0],
+    ])
   })
 
   it('a peer that has applied more than this tab asks for a repair', () => {
