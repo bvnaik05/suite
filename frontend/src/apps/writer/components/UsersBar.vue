@@ -3,7 +3,7 @@
     <template #default>
       <button
         type="button"
-        class="flex items-center gap-0.5 rounded-4 cursor-pointer"
+        class="flex h-7 min-w-7 items-center justify-center gap-0.5 rounded-4 px-1 cursor-pointer"
         :aria-label="
           users.length === 1 ? `${users[0].name} is here` : `${users.length} other people here`
         "
