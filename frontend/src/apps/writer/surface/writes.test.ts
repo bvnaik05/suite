@@ -67,6 +67,19 @@ describe('Writer write gate', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('logs a failing close rather than leaving its rejection unhandled', async () => {
+    const session = fakeSession(40)
+    const failure = new Error('Copy not kept')
+    const onClose = vi.fn(async () => Promise.reject(failure))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    createWriteGate(session, onClose)
+
+    session.access.value = { role: 30 }
+
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith(failure))
+    vi.restoreAllMocks()
+  })
+
   it('stops writes to a trashed document even when the role still allows EDIT', async () => {
     const session = fakeSession(50)
     const onClose = vi.fn()

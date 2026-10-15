@@ -990,6 +990,22 @@ describe('Writer surface', () => {
     ])
   })
 
+  it('still shows the read-only notice when the room fails to settle the lost access', async () => {
+    const room = liveRoom()
+    room.loseAccess.mockRejectedValue(new Error('Copy not kept'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const access = ref({ role: 50 })
+    await openedSurface(undefined, '/d/node-1', undefined, access)
+    const warning = vi.spyOn(toast, 'warning')
+
+    access.value = { role: 30 }
+
+    await vi.waitFor(() => expect(warning).toHaveBeenCalled())
+    expect(warning.mock.calls).toEqual([
+      ['Editing access changed. This document is now read-only.'],
+    ])
+  })
+
   it("shows the freeze strip with Reload when the document holds text the editor can't show", async () => {
     frozenRoom()
     const root = await openedSurface()

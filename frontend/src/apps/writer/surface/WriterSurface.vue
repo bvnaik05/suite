@@ -164,7 +164,12 @@ const writes = createWriteGate(props.session, async () => {
   }
   editorSurface.value?.editor?.setEditable(false)
   const html = editorSurface.value?.editor?.getHTML()
-  await loseAccess(readable.value ? 'lost_edit' : 'lost_read')
+  try {
+    await loseAccess(readable.value ? 'lost_edit' : 'lost_read')
+  } catch (error) {
+    console.error(error)
+  }
+
   if (!dirty.value && !room.value?.unsent) {
     toast.warning('Editing access changed. This document is now read-only.')
     return

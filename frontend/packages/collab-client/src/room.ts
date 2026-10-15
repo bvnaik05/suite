@@ -60,9 +60,9 @@ export class Room implements CollabRoom {
   closed = false
   // Set once this tab's work can never be committed; the reason it was kept as a recovery copy
   stopReason: string | null = null
-  // The device write of that copy, which no lock may be released before
+  // Waits for the device write of that copy, whatever stopped the tab; no lock may be released before it
   private recovering: Promise<boolean> | null = null
-  // The app shut the tab for a lost right; closing waits until its work is sent or kept
+  // Waits for the bounded flush after the app shut the tab for a lost right; closing waits on it too
   private losingAccess: Promise<void> | null = null
   copiesKept = 0
   copyFailed = false
