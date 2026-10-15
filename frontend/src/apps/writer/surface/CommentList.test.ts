@@ -1489,7 +1489,7 @@ describe('comments not yet posted', () => {
     ])
   })
 
-  it('opens a refused comment to its quote and words on a click, and closes it on another', async () => {
+  it('opens a refused comment to its words on a click, and closes it on another', async () => {
     const content = new Y.XmlText()
     new Y.Doc().getXmlFragment('default').insert(0, [content])
     content.insert(0, 'the quoted words')
