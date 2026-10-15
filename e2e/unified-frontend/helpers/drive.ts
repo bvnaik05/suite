@@ -58,7 +58,7 @@ export function roots(api: APIRequestContext): Promise<DriveRoots> {
 }
 
 export function createFolder(api: APIRequestContext, parent: string, title: string): Promise<DriveNode> {
-	return data<DriveNode>(api, "post", `${DRIVE}/nodes`, { parent, title, kind: "folder" });
+	return data<DriveNode>(api, "post", `${DRIVE}/nodes`, { parent_node: parent, title, kind: "folder" });
 }
 
 export function createDocument(
@@ -68,7 +68,7 @@ export function createDocument(
 	contentDoctype: string,
 ): Promise<DriveNode> {
 	return data<DriveNode>(api, "post", `${DRIVE}/nodes`, {
-		parent,
+		parent_node: parent,
 		title,
 		kind: "document",
 		content_doctype: contentDoctype,
@@ -76,7 +76,7 @@ export function createDocument(
 }
 
 export function createLink(api: APIRequestContext, parent: string, title: string, url: string): Promise<DriveNode> {
-	return data<DriveNode>(api, "post", `${DRIVE}/nodes`, { parent, title, kind: "link", url });
+	return data<DriveNode>(api, "post", `${DRIVE}/nodes`, { parent_node: parent, title, kind: "link", url });
 }
 
 /** Upload one small file through the three upload routes. */
@@ -88,7 +88,7 @@ export async function uploadFile(
 	mime = "application/octet-stream",
 ): Promise<DriveNode> {
 	const session = await data<{ upload_id: string }>(api, "post", `${DRIVE}/uploads`, {
-		parent,
+		parent_node: parent,
 		filename: title,
 		size: bytes.length,
 		mime,
@@ -98,7 +98,8 @@ export async function uploadFile(
 		headers: { "Content-Type": "application/octet-stream" },
 	});
 	if (!chunk.ok()) throw new Error(`upload chunk failed with ${chunk.status()}`);
-	return data<DriveNode>(api, "post", `${DRIVE}/uploads/${session.upload_id}/finish`, { parent, title });
+
+	return data<DriveNode>(api, "post", `${DRIVE}/uploads/${session.upload_id}/finish`, { parent_node: parent, title });
 }
 
 export function getNode(api: APIRequestContext, node: string, expand?: string): Promise<DriveNode & Record<string, unknown>> {
