@@ -190,60 +190,62 @@ function actions(version: DocumentVersion): DropdownOptions {
     </div>
     <section v-for="day in days" :key="day.label">
       <h3 v-if="day.label" class="px-3 pb-1 pt-2 text-sm text-ink-gray-5">{{ day.label }}</h3>
-      <div
-        v-for="version in day.versions"
-        :key="version.seq"
-        class="group flex items-center rounded-4"
-        :class="versionRowClass(version)"
-      >
-        <div v-if="isRenaming(version)" class="min-w-0 flex-1 space-y-1 py-1.5 pl-3 pr-1">
-          <TextInput
-            ref="renameInputs"
-            v-model="newName"
-            placeholder="Version name"
-            aria-label="New version name"
-            :disabled="isSavingName"
-            @keydown.enter.prevent="saveName(version)"
-            @keydown.esc.prevent="stopRenaming"
-          />
-          <p class="text-p-xs text-ink-gray-5">Enter to save · Esc to cancel</p>
-        </div>
-        <button
-          v-else
-          type="button"
-          class="min-w-0 flex-1 py-1.5 pl-3 pr-1 text-left"
-          :aria-pressed="isViewed(version)"
-          @click="view(version)"
+      <div class="space-y-1">
+        <div
+          v-for="version in day.versions"
+          :key="version.seq"
+          class="group flex items-center rounded-4"
+          :class="versionRowClass(version)"
         >
-          <p class="truncate text-sm" :class="titleClass(version)">{{ title(version) }}</p>
-          <p class="truncate text-xs text-ink-gray-5">{{ byline(version) }}</p>
-        </button>
-        <div class="flex shrink-0 items-center pr-1.5" :class="actionsClass(version)">
-          <Tooltip v-if="canRestore" text="Restore this version">
-            <button
-              type="button"
-              class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8 disabled:opacity-50"
-              aria-label="Restore this version"
-              :disabled="isRestoring"
-              @click="emit('restore', version)"
-            >
-              <span class="lucide-undo-2 size-4" aria-hidden="true" />
-            </button>
-          </Tooltip>
-          <Dropdown
-            :options="actions(version)"
-            align="end"
-            @update:open="noteMenu(version, $event)"
+          <div v-if="isRenaming(version)" class="min-w-0 flex-1 space-y-1 py-1.5 pl-3 pr-1">
+            <TextInput
+              ref="renameInputs"
+              v-model="newName"
+              placeholder="Version name"
+              aria-label="New version name"
+              :disabled="isSavingName"
+              @keydown.enter.prevent="saveName(version)"
+              @keydown.esc.prevent="stopRenaming"
+            />
+            <p class="text-p-xs text-ink-gray-5">Enter to save · Esc to cancel</p>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="min-w-0 flex-1 py-1.5 pl-3 pr-1 text-left"
+            :aria-pressed="isViewed(version)"
+            @click="view(version)"
           >
-            <button
-              type="button"
-              class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
-              aria-label="More version actions"
-              @focus="passFocusToNameBox"
+            <p class="truncate text-sm" :class="titleClass(version)">{{ title(version) }}</p>
+            <p class="truncate text-xs text-ink-gray-5">{{ byline(version) }}</p>
+          </button>
+          <div class="flex shrink-0 items-center pr-1.5" :class="actionsClass(version)">
+            <Tooltip v-if="canRestore" text="Restore this version">
+              <button
+                type="button"
+                class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8 disabled:opacity-50"
+                aria-label="Restore this version"
+                :disabled="isRestoring"
+                @click="emit('restore', version)"
+              >
+                <span class="lucide-undo-2 size-4" aria-hidden="true" />
+              </button>
+            </Tooltip>
+            <Dropdown
+              :options="actions(version)"
+              align="end"
+              @update:open="noteMenu(version, $event)"
             >
-              <span class="lucide-ellipsis size-4" aria-hidden="true" />
-            </button>
-          </Dropdown>
+              <button
+                type="button"
+                class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
+                aria-label="More version actions"
+                @focus="passFocusToNameBox"
+              >
+                <span class="lucide-ellipsis size-4" aria-hidden="true" />
+              </button>
+            </Dropdown>
+          </div>
         </div>
       </div>
     </section>

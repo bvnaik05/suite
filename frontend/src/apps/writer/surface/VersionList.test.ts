@@ -121,7 +121,7 @@ function mountList({
 }
 
 function rowOf(host: Element, seq: number) {
-  const rows = [...host.querySelectorAll('section > div')]
+  const rows = [...host.querySelectorAll('section > div > div')]
   return rows[VERSIONS.findIndex((each) => each.seq === seq)]
 }
 
