@@ -23,6 +23,6 @@ export const writerFault: Fault = (doc) => {
 
     return 'text'
   })
-  const names = lostNames.join(', ')
+  const names = [...new Set(lostNames)].join(', ')
   return `schema: cannot place ${names}`
 }

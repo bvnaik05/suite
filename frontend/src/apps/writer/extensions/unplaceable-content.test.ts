@@ -86,6 +86,12 @@ function open(state: Uint8Array): Tab {
   return { ydoc, editor, freezes }
 }
 
+function storedBody(state: Uint8Array) {
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, state)
+  return doc.getXmlFragment(BODY_FIELD).toString()
+}
+
 function body(tab: Tab) {
   return tab.ydoc.getXmlFragment(BODY_FIELD).toString()
 }
@@ -241,6 +247,16 @@ function undoManager(tab: Tab): Y.UndoManager {
 
 function leftover() {
   return element('bulletList')
+}
+
+function textPosition(tab: Tab, text: string) {
+  let position = -1
+  tab.editor.state.doc.descendants((node, pos) => {
+    if (node.text === text) {
+      position = pos
+    }
+  })
+  return position
 }
 
 function blockTexts(tab: Tab) {
@@ -922,6 +938,11 @@ const judgedBodies = [
     isLost: false,
   },
   {
+    name: 'a tab holding a paragraph',
+    blocks: () => [element('tab', paragraph('x'))],
+    isLost: false,
+  },
+  {
     name: 'a table of only a row with no cells',
     blocks: () => [paragraph('a'), element('table', element('tableRow'))],
     isLost: false,
@@ -941,15 +962,17 @@ describe('the judge and the editor', () => {
   })
 })
 
+// ReceivedContentGuard is what keeps fixTables from padding the row on open or after an edit elsewhere
 describe('a table row with no cells', () => {
   it.each([
     { name: 'beside a row with cells', table: tableWithEmptyRow, texts: ['a', 'x'] },
     { name: 'as the only row', table: () => element('table', element('tableRow')), texts: ['a'] },
   ])(
-    'opens $name without freezing, and an edit beside it writes only that edit',
+    'opens $name without freezing or writing, and an edit beside it writes only that edit',
     ({ table, texts }) => {
-      const tab = open(stored(paragraph('a'), table()))
-      const asStored = body(tab)
+      const state = stored(paragraph('a'), table())
+      const asStored = storedBody(state)
+      const tab = open(state)
 
       expect([tab.freezes, blockTexts(tab), body(tab)]).toEqual([[], texts, asStored])
 
@@ -959,4 +982,18 @@ describe('a table row with no cells', () => {
       expect([tab.freezes, body(tab)]).toEqual([[], edited])
     },
   )
+
+  it('writes an edit typed in a cell of its table and the default spans of that cell only', () => {
+    const state = stored(paragraph('a'), tableWithEmptyRow())
+    const asStored = storedBody(state)
+    const tab = open(state)
+
+    type(tab, 'Y', textPosition(tab, 'x'))
+
+    const edited = asStored.replace(
+      '<tablecell><paragraph>x<',
+      '<tablecell colspan="1" rowspan="1"><paragraph>Yx<',
+    )
+    expect([tab.freezes, body(tab)]).toEqual([[], edited])
+  })
 })

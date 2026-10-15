@@ -11,6 +11,12 @@ function paragraph(text: string) {
   return node
 }
 
+function wrappedParagraph(name: string) {
+  const node = new Y.XmlElement(name)
+  node.insert(0, [paragraph(name)])
+  return node
+}
+
 function docWithBody(build: (fragment: Y.XmlFragment) => void) {
   const doc = new Y.Doc()
   build(doc.getXmlFragment(BODY_FIELD))
@@ -39,7 +45,26 @@ describe('writerFault', () => {
 
   it('refuses text straight in the body', () => {
     const doc = docWithBody((fragment) => fragment.insert(0, [new Y.XmlText('loose')]))
-    expect(writerFault(doc)).toMatch(/^schema: /)
+    expect(writerFault(doc)).toBe('schema: cannot place text')
+  })
+
+  it('names each kind it cannot place once', () => {
+    function cellsInBody(fragment: Y.XmlFragment) {
+      const cells = ['tableCell', 'tableCell', 'tableHeader'].map(wrappedParagraph)
+      fragment.insert(0, [paragraph('abc'), ...cells])
+    }
+
+    const doc = docWithBody(cellsInBody)
+    expect(writerFault(doc)).toBe('schema: cannot place tableCell, tableHeader')
+  })
+
+  it('passes a body holding a tab', () => {
+    function tabInBody(fragment: Y.XmlFragment) {
+      fragment.insert(0, [wrappedParagraph('tab')])
+    }
+
+    const doc = docWithBody(tabInBody)
+    expect(writerFault(doc)).toBeNull()
   })
 
   it('passes an empty row on a body with content', () => {
