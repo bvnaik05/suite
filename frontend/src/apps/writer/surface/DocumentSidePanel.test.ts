@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref, type App } from 'vue'
 
-import type { DocumentSession, DocumentVersion } from '@/apps/drive'
+import type { DocumentPanel, DocumentSession, DocumentVersion } from '@/apps/drive'
 
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import type { useCommentDrafts } from './useCommentDrafts'
@@ -286,9 +286,9 @@ describe('renaming a version in the Versions panel', () => {
 })
 
 // The side panel, showing `kind`, over a session whose versions never finish loading
-function panelWhileVersionsLoad(kind: 'comments' | 'versions') {
+function panelWhileVersionsLoad(kind: DocumentPanel) {
   const started: string[] = []
-  const shown = ref<string | null>(kind)
+  const shown = ref<DocumentPanel | null>(kind)
   const panel = ref<{ startDocumentComment(): Promise<void>; reloadVersions(): void } | null>(null)
   const session = {
     nodeId: 'doc-1',
@@ -305,7 +305,7 @@ function panelWhileVersionsLoad(kind: 'comments' | 'versions') {
     h(DocumentSidePanel, {
       ref: panel,
       panel: shown.value,
-      'onUpdate:panel': (opened: string | null) => {
+      'onUpdate:panel': (opened: DocumentPanel | null) => {
         shown.value = opened
       },
       previewedVersion: null,
