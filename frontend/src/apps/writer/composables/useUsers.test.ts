@@ -96,7 +96,7 @@ describe('people for mentions and names', () => {
     ])
   })
 
-  it('a failed search keeps the menu as it was', async () => {
+  it('a failed search answers its query with no one, so the menu stops waiting', async () => {
     vi.useFakeTimers()
     const server = heldServer()
     const people = createUsers(server.search)
@@ -108,7 +108,28 @@ describe('people for mentions and names', () => {
     server.asked[1].fail()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(people.users.value.map((user) => user.name)).toEqual(['ann'])
+    expect([people.answeredQuery.value, people.users.value]).toEqual(['z', []])
+  })
+
+  it('a query whose search failed is asked again the next time it is typed', async () => {
+    vi.useFakeTimers()
+    const server = heldServer()
+    const people = createUsers(server.search)
+    people.start()
+    server.asked[0].fail()
+    await vi.advanceTimersByTimeAsync(0)
+    people.searchMentions('')
+    await vi.advanceTimersByTimeAsync(250)
+    server.asked[1].answer([person('ann')])
+    people.searchMentions('z')
+    await vi.advanceTimersByTimeAsync(250)
+    server.asked[2].fail()
+    await vi.advanceTimersByTimeAsync(0)
+    people.searchMentions('z')
+    await vi.advanceTimersByTimeAsync(250)
+
+    const queries = server.asked.map((asked) => asked.query)
+    expect(queries).toEqual(['', '', 'z', 'z'])
   })
 
   it('a name reads as the user id until one lookup answers, and then as the full name', async () => {

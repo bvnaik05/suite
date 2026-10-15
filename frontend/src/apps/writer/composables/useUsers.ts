@@ -73,18 +73,25 @@ function createMenu(search: Search, remember: (people: WriterUser[]) => void) {
   let firstPage: WriterUser[] = []
   let latest = 0
 
+  /** False when the search failed. */
   async function run(query: string) {
     const id = ++latest
     const found = await search(query).catch(() => null)
-    // A failed search, or an answer older than the latest, leaves the menu as it was
-    if (id !== latest || !found) {
-      return
+    const isFound = found !== null
+    // An answer older than the latest leaves the menu as it was
+    if (id !== latest) {
+      return isFound
     }
 
-    remember(found)
-    users.value = found
+    // A failed search answers with no one, so the menu stops waiting on it
+    users.value = found ?? []
     answeredQuery.value = query
-    firstPage = query.trim() ? firstPage : found
+    if (found) {
+      remember(found)
+      firstPage = query.trim() ? firstPage : found
+    }
+
+    return isFound
   }
 
   /** Shows the first page again without asking, once it has loaded. */
@@ -104,10 +111,18 @@ function createMenu(search: Search, remember: (people: WriterUser[]) => void) {
 
 // Narrows the menu as the user types after `@`, once the typing pauses
 function createMentionSearch(menu: ReturnType<typeof createMenu>) {
-  let lastQuery = ''
+  let lastQuery: string | null = ''
   let timer: ReturnType<typeof setTimeout> | undefined
 
-  return function searchMentions(query: string): void {
+  // A failed search does not count as asked, so the same query asks again
+  async function ask(query: string) {
+    const isFound = await menu.run(query)
+    if (!isFound && lastQuery === query) {
+      lastQuery = null
+    }
+  }
+
+  function searchMentions(query: string): void {
     if (query === lastQuery) {
       return
     }
@@ -118,31 +133,33 @@ function createMentionSearch(menu: ReturnType<typeof createMenu>) {
       return
     }
 
-    timer = setTimeout(() => void menu.run(query), SEARCH_DELAY_MS)
+    timer = setTimeout(() => void ask(query), SEARCH_DELAY_MS)
   }
+
+  return { ask, searchMentions }
 }
 
 export function createUsers(search: Search = searchUsers) {
   const directory = createDirectory()
   const menu = createMenu(search, directory.remember)
+  const mentionSearch = createMentionSearch(menu)
   let isStarted = false
 
   /** Loads the first page once. */
   function start() {
     if (!isStarted) {
       isStarted = true
-      void menu.run('')
+      void mentionSearch.ask('')
     }
   }
 
   const names = createNames(search, directory)
-  const searchMentions = createMentionSearch(menu)
   return {
     ...directory,
     ...names,
     users: menu.users,
     answeredQuery: menu.answeredQuery,
-    searchMentions,
+    searchMentions: mentionSearch.searchMentions,
     start,
   }
 }
