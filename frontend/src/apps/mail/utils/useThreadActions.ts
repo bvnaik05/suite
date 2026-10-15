@@ -1,3 +1,4 @@
+import { Checkbox } from 'frappe-ui'
 import { Icon } from 'frappe-ui/experimental'
 import { computed, h, ref, type ComputedRef, type Ref } from 'vue'
 
@@ -8,10 +9,16 @@ import { useScreener } from '@/apps/mail/composables/useScreener'
 import { FOLDER_ICON_COLOR_MAP } from '@/apps/mail/constants'
 import { userStore, type MailboxRole } from '@/apps/mail/stores/user'
 import type { Mail, Mailbox, MailCopy, Thread } from '@/apps/mail/types'
-import { getIcon, raiseOptimisticToast, raisePromiseToast } from '@/apps/mail/utils'
-import { useUndo } from '@/apps/mail/utils/composables'
+import {
+  commitAfterUndo,
+  getIcon,
+  raiseOptimisticToast,
+  raisePromiseToast,
+} from '@/apps/mail/utils'
+import { useDiscardingDrafts, useUndo } from '@/apps/mail/utils/composables'
+import { folderTicks } from '@/apps/mail/utils/folderTicks'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
-import { mailCopies, mailCopyIds, mailCopyNames, rowMailIds } from '@/apps/mail/utils/mailCopies'
+import { mailCopies, mailCopyIds, mailCopyNames, threadStarIds } from '@/apps/mail/utils/mailCopies'
 
 type SetSeenParams = {
   0?: string[]
@@ -66,7 +73,8 @@ export function useThreadActions(deps: {
   } = deps
   const store = userStore()
   const { mailboxes, mailboxIds } = store
-  const { setUndoAction, undo } = useUndo()
+  const { setUndoAction, retireUndoAction, undo } = useUndo()
+  const { holdDraft, releaseDraft } = useDiscardingDrafts()
   const screener = useScreener()
 
   // The loaded rows behind the current selection. In Search each row is itself a mail rather than
@@ -202,37 +210,50 @@ export function useThreadActions(deps: {
     }
     await setMailsMailboxes.run(input)
   }
-  const showAddTo = computed(
-    () =>
-      selections.value.length &&
-      addToOptions.value.length &&
-      !['search', 'starred', mailboxIds.junk, mailboxIds.trash].includes(mailbox.value),
-  )
-
-  // Removable when any selected mail is in more than one mailbox (so removing one keeps it elsewhere).
-  const showRemoveFrom = computed(
+  // The selection's Folders menu: a box per folder it can be filed in (the Inbox, Archive and your
+  // own), ticked where every selected thread is, half-ticked where some are, greyed where unticking
+  // would leave a message in no folder. Not offered where filing is not what a list is for: search
+  // and Starred are queries, and mail comes out of Junk and Trash by a move.
+  const showFolders = computed(
     () =>
       !!selections.value.length &&
-      threadMails(selections.value).some((m) => m.mailboxes.length > 1),
+      !['search', 'starred', mailboxIds.junk, mailboxIds.trash].includes(mailbox.value),
   )
-  const addToOptions = computed(() =>
-    mailboxes.data
-      ?.filter((m) => !m.role || ['inbox', 'archive'].includes(m.role))
-      .filter(
-        (m) =>
-          !selectedRows.value.every((t: Thread) =>
-            t.mailboxes.some((mb) => mb.mailbox_id === m.id),
-          ),
-      )
-      .map((m) => ({
+  const folderOptions = computed(() => {
+    if (!showFolders.value) return []
+    const folders = (mailboxes.data ?? []).filter(
+      (m) => !m.role || ['inbox', 'archive'].includes(m.role),
+    )
+    const ticks = folderTicks(
+      selections.value.map((id) => threadMails([id])),
+      folders.map((m) => m.id),
+    )
+    return folders.map((m, i) => {
+      const { ticked, removable } = ticks[i]
+      const blocked = ticked === 'all' && !removable
+      return {
         label: m._name,
-        icon: h(Icon, {
-          name: getIcon(m),
-          class: FOLDER_ICON_COLOR_MAP[m.color],
-        }),
-        onClick: () => handleAddThreadsToMailbox(m.id, selections.value),
-      })),
-  )
+        slots: {
+          prefix: () =>
+            h(Checkbox, {
+              modelValue: ticked === 'all',
+              indeterminate: ticked === 'some',
+              disabled: blocked,
+              class: 'pointer-events-none',
+            }),
+        },
+        disabled: blocked,
+        keepOpen: true,
+        onClick: (event?: Event) => {
+          event?.preventDefault()
+          if (blocked) return
+          // A half-ticked folder takes the whole selection; a ticked one lets it go.
+          if (ticked === 'all') handleRemoveThreadsFromMailbox(m.id, selections.value)
+          else void handleAddThreadsToMailbox(m.id, selections.value)
+        },
+      }
+    })
+  })
   const mailboxEntry = (mailboxId: string): Mailbox | null => {
     const mb = mailboxes.data?.find((m) => m.id === mailboxId)
     return mb
@@ -365,23 +386,6 @@ export function useThreadActions(deps: {
       () => false,
     )
   }
-  const removeFromOptions = computed(() => {
-    const mailboxIdsInUse = new Set(
-      threadMails(selections.value).flatMap((m) => m.mailboxes.map((mb) => mb.mailbox_id)),
-    )
-    return mailboxes.data
-      ?.filter(
-        (m) => mailboxIdsInUse.has(m.id) && ![mailboxIds.sent, mailboxIds.drafts].includes(m.id),
-      )
-      .map((m) => ({
-        label: m._name,
-        icon: h(Icon, {
-          name: getIcon(m),
-          class: FOLDER_ICON_COLOR_MAP[m.color],
-        }),
-        onClick: () => handleRemoveThreadsFromMailbox(m.id, selections.value),
-      }))
-  })
   const handleRemoveThreadsFromMailbox = (
     mailboxId: string,
     threadIds: string[],
@@ -479,6 +483,9 @@ export function useThreadActions(deps: {
   const showJunkOrDeleteThreads = ref(false)
   const threadsToBeDeleted = ref<string[]>([])
 
+  // In Drafts the bin discards: a draft is one's own unsent text, let go for good rather than filed
+  // in Trash, and taken back with Undo rather than confirmed up front (see discardDrafts).
+  const isDraftsList = computed(() => mailbox.value === mailboxIds.drafts)
   // Marking as Junk is reversible (and may still prompt to block per the account setting), so it
   // runs inline with no confirmation; only the destructive delete keeps a confirmation dialog.
   const junkOrDeleteThreads = (threadIDs: string[], isJunk: boolean) => {
@@ -487,6 +494,7 @@ export function useThreadActions(deps: {
       return handleSetSpamStatus({
         1: threadIDs,
       })
+    if (isDraftsList.value) return discardDrafts(threadIDs)
     threadsToBeDeleted.value = threadIDs
     showJunkOrDeleteThreads.value = true
   }
@@ -629,7 +637,7 @@ export function useThreadActions(deps: {
   const setFlaggedByThreadIDs = (threadIDs: string[], flagged: boolean) => {
     setUndoAction(undefined)
     const touched = rows.value.filter((t: Thread) => threadIDs.includes(t.thread_id))
-    const ids = touched.flatMap(rowMailIds)
+    const ids = touched.flatMap((thread: Thread) => threadStarIds(thread, flagged))
     void setFlaggedSubmit({
       ids,
       flagged,
@@ -1007,6 +1015,33 @@ export function useThreadActions(deps: {
     )
   }
 
+  // Drafts leave the list at once and are deleted once the toast's Undo has passed; Undo puts the
+  // rows back and sends nothing. Only the copies in Drafts go: a reply draft's conversation stays.
+  const discardDrafts = (thread_ids: string[]) => {
+    if (!thread_ids?.length) return
+    closeComposeWindowHolding(thread_ids)
+    const names = currentMailboxMails(thread_ids).map((m) => m.name)
+    const removed = handleSuccessAndRemoveFromList(thread_ids, false)
+    // Removing from the list only names the rows; the list hides them because their drafts are held
+    // as discarding, until the delete lands or Undo lets them go. Only the drafts: the mail they
+    // answer is not being discarded, and held too it took the conversation off every other list.
+    const held = removed.flatMap((thread) =>
+      thread.messages.filter((m) => m.draft).map((m) => m.id),
+    )
+    held.forEach(holdDraft)
+    const restore = () => {
+      held.forEach(releaseDraft)
+      if (removed.length) restoreThreadsToList(removed)
+    }
+    commitAfterUndo({
+      message: thread_ids.length === 1 ? __('Draft discarded.') : __('Drafts discarded.'),
+      removal: { kind: 'messages', names },
+      onSent: refillIfEmpty,
+      restore,
+      undoSlot: { set: (action) => setUndoAction(action), retire: retireUndoAction },
+    })
+  }
+
   // ── Per-message (single mail) actions from the reading pane ─────────────────────────────────────
   // The orchestration is shared with the merged All Inboxes list (see useMailRemoval); what differs is
   // where the pane goes when a thread empties, and how a removed row is put back — Sent and Drafts
@@ -1171,11 +1206,9 @@ export function useThreadActions(deps: {
     // Toolbar option lists
     selectedRows,
     moveToOptions,
-    addToOptions,
-    removeFromOptions,
+    folderOptions,
     showMoveTo,
-    showAddTo,
-    showRemoveFrom,
+    showFolders,
     // Junk/Delete confirmation dialog
     showJunkOrDeleteThreads,
     junkOrDeleteThreadsOptions,

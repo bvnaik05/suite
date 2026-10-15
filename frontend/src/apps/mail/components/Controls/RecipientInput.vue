@@ -40,9 +40,10 @@
       @dragend="handleDragEnd"
     >
       <Avatar :image="v.image" :label="v.display_name || v.email" size="xs" />
-      <!-- Capped on mobile whether or not the field is focused: a name too long for the
-			     row wraps the chip onto two lines otherwise, which reads as a broken box. -->
-      <span :class="{ 'max-w-40 truncate': isMobile }">
+      <!-- Capped whether or not the field is focused: a name too long for the row wraps the
+			     chip onto two lines otherwise, which reads as a broken box. The whole name and
+			     address are in the menu the chip opens. -->
+      <span class="truncate" :class="isMobile ? 'max-w-40' : 'max-w-60'">
         {{ v.display_name || v.email }}
       </span>
       <!-- Desktop only: on a phone the chip itself is the trigger, and Remove is in the
@@ -147,7 +148,7 @@
           <Avatar
             :image="menuRecipient.image"
             :label="menuRecipient.display_name || menuRecipient.email"
-            :size="isMobile ? 'xl' : 'lg'"
+            size="xl"
           />
           <ContactOption :contact="menuRecipient" size="md" />
         </div>

@@ -10,7 +10,9 @@
   <!-- Stretched, the padding inside, so a split Inbox's tabs can run the header's full height and
        underline on its border — as the mailbox list's header is. -->
   <header class="hidden items-stretch border-b px-3 sm:flex sm:px-5">
-    <div class="flex min-w-0 flex-1 items-center space-x-2 py-2.5">
+    <!-- h-12: one height with or without the Inbox's tabs. The title's crumb stands a little taller
+         than the tabs and the actions, and the bar grew with it. -->
+    <div class="flex h-12 min-w-0 flex-1 items-center space-x-2 py-2.5">
       <!-- -ml-0.5 cancels the crumb's own padding so the title sits on the px-5 axis -->
       <Breadcrumbs
         v-if="!inboxTab"
@@ -26,7 +28,7 @@
         :route-for="routeForTab"
       />
     </div>
-    <div class="flex shrink-0 items-center py-2.5">
+    <div class="flex h-12 shrink-0 items-center py-2.5">
       <HeaderActions view-menu :inbox="folder === INBOX_FOLDER" />
     </div>
   </header>
@@ -77,7 +79,11 @@
           >
             <template v-if="!isMobile" #lead>
               <div class="mr-5">
-                <SelectAllCheckbox :selected="isAllSelected" @toggle="toggleSelectAll" />
+                <SelectAllCheckbox
+                  :selected="isAllSelected"
+                  :some="selections.length > 0"
+                  @toggle="toggleSelectAll"
+                />
               </div>
             </template>
             <!-- The filters as chips, where the selector would go. -->
@@ -106,7 +112,11 @@
           </MailListToolbar>
 
           <!-- Mail list -->
-          <div ref="mailList" class="h-full overflow-y-auto overscroll-contain max-sm:pb-20">
+          <div
+            ref="mailList"
+            class="h-full overflow-y-auto overscroll-contain max-sm:pb-20"
+            @focusin="onListFocusIn"
+          >
             <!-- An empty tab keeps its tabs, and an empty filtered list its filter, to leave it by.
                  While a new tab or filter loads, the list area spins in its place. -->
             <div v-if="!threadRows.length && threads.isFetching" class="flex justify-center py-10">
@@ -154,6 +164,7 @@
                 <template v-for="row in rows" :key="row.key">
                   <StackListItem
                     v-if="row.type === 'stack'"
+                    :drafts="folder === 'drafts'"
                     :threads="row.threads"
                     :expanded="row.expanded"
                     :is-selected="isStackSelected(row.threads.map(threadKey))"
@@ -173,6 +184,7 @@
                   <MailListItem
                     v-else
                     :mailbox="row.thread.view_mailbox || ''"
+                    :drafts="folder === 'drafts'"
                     :account-id="row.thread.account"
                     :account-label="shortAccountLabel(row.thread.account_name)"
                     :mail="row.thread"
@@ -302,6 +314,7 @@ import { useScreener } from '@/apps/mail/composables/useScreener'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Mail, Mailbox, MailboxData, MailCopy, Thread, UnifiedFolder } from '@/apps/mail/types'
 import {
+  commitAfterUndo,
   isMac,
   raiseError,
   raiseOptimisticToast,
@@ -310,6 +323,7 @@ import {
 } from '@/apps/mail/utils'
 import { useAccountScope } from '@/apps/mail/utils/accountScope'
 import {
+  useDiscardingDrafts,
   useListReload,
   useReadingPane,
   useScreenSize,
@@ -325,7 +339,7 @@ import {
   stepFromKey,
   useGPrefix,
 } from '@/apps/mail/utils/listNavigation'
-import { mailCopies, mailCopyIds, rowMailIds } from '@/apps/mail/utils/mailCopies'
+import { mailCopies, mailCopyIds, threadStarIds } from '@/apps/mail/utils/mailCopies'
 import { selectActions as buildSelectActions } from '@/apps/mail/utils/selectActions'
 import { threadRow } from '@/apps/mail/utils/threadRows'
 import {
@@ -453,7 +467,21 @@ const threads = useInfiniteQuery(api.mail.unified.threads, () => ({
   filter_by: filter.value,
   category: inboxTab.value,
 }))
-const threadRows = computed(() => threads.rows.map((row) => threadRow(row, store.accountId)))
+// Drafts discarded but still inside their Undo window are off the list, not yet off the server.
+// Held by message id, so only a row made of those drafts goes: the conversation a reply draft
+// belongs to keeps its row in every other folder.
+const {
+  isDiscarding: isDiscardingDraft,
+  withoutHeldDrafts,
+  holdDraft,
+  releaseDraft,
+} = useDiscardingDrafts()
+const threadRows = computed(() =>
+  threads.rows
+    .map((row) => threadRow(row, store.accountId))
+    .filter((row) => !isDiscardingDraft(row, { inDrafts: folder === 'drafts' }))
+    .map(withoutHeldDrafts),
+)
 const isLoading = computed(
   () =>
     threads.status === 'pending' && !(tabSwitched.value && inboxTab.value) && !filterChanged.value,
@@ -518,6 +546,7 @@ const {
   visibleThreadCount,
   navigableRows,
   focusedRowKey,
+  onListFocusIn,
   focusedRow,
   focusRow,
   focusOnThread,
@@ -615,7 +644,8 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
   // Backspace on Mac, Delete elsewhere.
   if (key === (isMac ? 'backspace' : 'delete')) {
     e.preventDefault()
-    handleTrash(thread)
+    if (folder === 'drafts') confirmDelete([thread])
+    else handleTrash(thread)
     return true
   }
   if (key === 'u') {
@@ -640,7 +670,8 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
 }
 const handleSelectionShortcut = (e: KeyboardEvent, key: string) => {
   const action = {
-    [isMac ? 'backspace' : 'delete']: isTrashFolder.value ? deleteSelected : trashSelected,
+    [isMac ? 'backspace' : 'delete']:
+      isTrashFolder.value || folder === 'drafts' ? deleteSelected : trashSelected,
     u: () => setThreadsSeen(takeSelected(), e.shiftKey),
     e: archiveSelected,
     '!': () => setThreadsSpam(takeSelected(), !isJunkFolder.value),
@@ -977,7 +1008,7 @@ const handleSetSpamStatus = (spam: boolean, target?: Thread) => {
 
 // Per-message actions from a message's own menu, on the shared orchestration (see useMailRemoval).
 // Each row carries the mailbox it was listed from, which is what it is summarised and dated by.
-const { setUndoAction } = useUndo()
+const { setUndoAction, retireUndoAction } = useUndo()
 const { runMailRemoval } = useMailRemoval({
   row: () => openRow.value,
   mailThreadRef: mailThread,
@@ -1085,7 +1116,11 @@ const handleSetSeen = (thread: Thread, seen: boolean, silent = false) => {
 // message, so BOTH have to be told: the pane's star stayed hollow when starring from the list, and
 // the list's star stayed hollow when starring from the pane. Only the ids actually sent to the
 // server are flipped locally, or a refetch would contradict whatever we lit up.
-const handleSetFlagged = (thread: Thread, flagged: boolean, ids: string[] = rowMailIds(thread)) => {
+const handleSetFlagged = (
+  thread: Thread,
+  flagged: boolean,
+  ids: string[] = threadStarIds(thread, flagged),
+) => {
   // The row stands for its representative mail (see serialize_thread), so it takes the star only
   // when that mail is one of the ones being starred.
   const rowChanged = ids.includes(thread.id)
@@ -1285,7 +1320,11 @@ const setThreadsFlagged = (threads: Thread[], flagged: boolean) => {
   const apply = (value: 0 | 1) => changed.forEach((t) => (t.flagged = value))
   apply(flagged ? 1 : 0)
   perAccount(changed, (account, rows) =>
-    client.mutation(api.mail.messages.flag, { account, ids: rows.flatMap(rowMailIds), flagged }),
+    client.mutation(api.mail.messages.flag, {
+      account,
+      ids: rows.flatMap((row) => threadStarIds(row, flagged)),
+      flagged,
+    }),
   ).catch((error) => {
     apply(flagged ? 0 : 1) // revert the optimistic update
     raiseError(error)
@@ -1371,6 +1410,7 @@ const toDelete = ref<Thread[]>([])
 
 const confirmDelete = (rows: Thread[]) => {
   if (!rows.length) return
+  if (folder === 'drafts') return discardDrafts(rows)
   toDelete.value = rows
   showDelete.value = true
 }
@@ -1396,13 +1436,41 @@ const deleteOptions = computed(() => {
   }
 })
 
-const handleDelete = (rows: Thread[]) => {
-  const names = rows.flatMap((thread) =>
+// The copies a removal takes from the folder on screen: in Trash the trashed ones, in Drafts the
+// drafts. The rest of the conversation lives on in the folders it was filed in.
+const copiesHere = (rows: Thread[]) =>
+  rows.flatMap((thread) =>
     (thread.messages ?? [])
       .flatMap(mailCopies)
       .filter((copy) => copy.mailboxes.some((m) => m.mailbox_id === thread.view_mailbox))
       .map((copy) => copy.name),
   )
+
+// Drafts are discarded with an Undo rather than a confirmation: hidden here at once, deleted once
+// the toast has passed. Nothing is sent before then, so Undo only has to show them again.
+const discardDrafts = (rows: Thread[]) => {
+  const names = copiesHere(rows)
+  const keys = rows.map(threadKey)
+  goToNextThreadOrClose(keys)
+  closeComposeWindowFor(rows.flatMap(messageIds))
+  // Only the drafts, as in a single account's list (see useThreadActions).
+  const held = rows.flatMap((row) => row.messages.filter((m) => m.draft).map((m) => m.id))
+  held.forEach(holdDraft)
+  const show = () => held.forEach(releaseDraft)
+  commitAfterUndo({
+    message: rows.length === 1 ? __('Draft discarded.') : __('Drafts discarded.'),
+    removal: { kind: 'messages', names },
+    onSent: () => {
+      refreshCounts()
+      refreshThreads()
+    },
+    restore: show,
+    undoSlot: { set: (action) => setUndoAction(action), retire: retireUndoAction },
+  })
+}
+
+const handleDelete = (rows: Thread[]) => {
+  const names = copiesHere(rows)
   goToNextThreadOrClose(rows.map(threadKey))
   closeComposeWindowFor(rows.flatMap(messageIds))
   raiseOptimisticToast(

@@ -6,7 +6,9 @@
   <!-- Stretched, the padding inside, so a split Inbox's tabs can run the header's full height and
        underline on its border. -->
   <header class="hidden items-stretch border-b px-3 sm:flex sm:px-5">
-    <div class="flex min-w-0 flex-1 items-center space-x-2 py-2.5">
+    <!-- h-12: one height with or without the Inbox's tabs. The title's crumb stands a little taller
+         than the tabs and the actions, and the bar grew with it. -->
+    <div class="flex h-12 min-w-0 flex-1 items-center space-x-2 py-2.5">
       <!-- -ml-0.5 cancels the crumb's own padding so the title sits on the px-5 axis -->
       <Breadcrumbs
         v-if="!inboxTab"
@@ -28,7 +30,7 @@
         :route-for="routeForTab"
       />
     </div>
-    <div class="flex shrink-0 items-center py-2.5">
+    <div class="flex h-12 shrink-0 items-center py-2.5">
       <HeaderActions view-menu :inbox="mailbox === mailboxIds.inbox" />
     </div>
   </header>
@@ -140,7 +142,11 @@
           >
             <template #lead>
               <div v-if="!isAllAccountsSearch" class="mr-5">
-                <SelectAllCheckbox :selected="isAllSelected" @toggle="toggleSelectAll" />
+                <SelectAllCheckbox
+                  :selected="isAllSelected"
+                  :some="selections.length > 0"
+                  @toggle="toggleSelectAll"
+                />
               </div>
             </template>
 
@@ -172,17 +178,12 @@
                   </template>
                 </Button>
               </Dropdown>
-              <Dropdown v-if="showAddTo" :options="addToOptions">
-                <Button variant="ghost" :tooltip="__('Add To')">
+              <!-- Where the selection is filed, as ticks — the thread toolbar's Folders menu, for
+                   every ticked thread at once. Stays open, to file them in several. -->
+              <Dropdown v-if="folderOptions.length" :options="folderOptions">
+                <Button variant="ghost" :tooltip="__('Folders')">
                   <template #icon>
-                    <component :is="FolderPlus" class="icon" />
-                  </template>
-                </Button>
-              </Dropdown>
-              <Dropdown v-if="showRemoveFrom" :options="removeFromOptions">
-                <Button variant="ghost" :tooltip="__('Remove From')">
-                  <template #icon>
-                    <component :is="FolderMinus" class="icon" />
+                    <component :is="Folders" class="icon" />
                   </template>
                 </Button>
               </Dropdown>
@@ -193,6 +194,7 @@
           <div
             v-if="threadRows.length"
             ref="mailList"
+            @focusin="onListFocusIn"
             class="h-full overflow-y-auto overscroll-contain max-sm:pb-20"
           >
             <div v-for="(group, key) in groupedThreads" :key="key">
@@ -228,6 +230,7 @@
 									     rows below they never need the all-accounts cross-account handling. -->
                   <StackListItem
                     v-if="row.type === 'stack'"
+                    :drafts="mailbox === mailboxIds.drafts"
                     :threads="row.threads"
                     :expanded="row.expanded"
                     :is-selected="isStackSelected(row.threads.map((t) => t.thread_id))"
@@ -249,6 +252,7 @@
                   <MailListItem
                     v-else
                     :mailbox
+                    :drafts="mailbox === mailboxIds.drafts"
                     :mail="row.thread"
                     :account-id="isAllAccountsSearch ? row.thread.account : undefined"
                     :account-label="
@@ -365,7 +369,7 @@
 </template>
 <script setup lang="ts">
 import { Breadcrumbs, Button, Checkbox, Dialog, Dropdown, usePageMeta } from 'frappe-ui'
-import { FolderInput, FolderMinus, FolderPlus, LoaderCircle } from 'lucide-vue-next'
+import { FolderInput, Folders, LoaderCircle } from 'lucide-vue-next'
 import { computed, inject, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -405,6 +409,7 @@ import {
   shouldIgnoreKeypress,
 } from '@/apps/mail/utils'
 import {
+  useDiscardingDrafts,
   useListReload,
   useMobileSearch,
   useReadingPane,
@@ -506,6 +511,7 @@ const {
   visibleThreadCount,
   navigableRows,
   focusedRowKey,
+  onListFocusIn,
   focusedRow,
   focusRow,
   focusOnThread,
@@ -567,11 +573,8 @@ const folderSelectionOptions = computed(() => [
   ...(showMoveTo.value
     ? [{ label: __('Move To'), icon: FolderInput, options: moveToOptions.value }]
     : []),
-  ...(showAddTo.value
-    ? [{ label: __('Add To'), icon: FolderPlus, options: addToOptions.value }]
-    : []),
-  ...(showRemoveFrom.value
-    ? [{ label: __('Remove From'), icon: FolderMinus, options: removeFromOptions.value }]
+  ...(folderOptions.value.length
+    ? [{ label: __('Folders'), icon: Folders, options: folderOptions.value }]
     : []),
 ])
 // Selecting doesn't force a collapsed date group or stack open: ticking either one is how you act on
@@ -640,7 +643,9 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
   // Delete/Trash (Backspace on Mac, Delete on Windows)
   if (key === (isMac ? 'backspace' : 'delete')) {
     e.preventDefault()
-    if (e.shiftKey || mailbox === mailboxIds.trash) return junkOrDeleteThreads(thread_ids, false)
+    // Trash and Drafts let go for good: a draft is discarded rather than filed in Trash.
+    if (e.shiftKey || mailbox === mailboxIds.trash || mailbox === mailboxIds.drafts)
+      return junkOrDeleteThreads(thread_ids, false)
     return handleMoveThreads({
       [mailboxIds.trash]: thread_ids,
     })
@@ -846,8 +851,12 @@ const threads = useInfiniteQuery(api.mail.threads.list, () =>
     : false,
 )
 const activeThreads = computed(() => (mailbox === 'search' ? searchResults : threads))
+const { isDiscarding, withoutHeldDrafts } = useDiscardingDrafts()
 const threadRows = computed(() =>
-  activeThreads.value.rows.map((row) => threadRow(row, store.accountId)),
+  activeThreads.value.rows
+    .map((row) => threadRow(row, store.accountId))
+    .filter((row) => !isDiscarding(row, { inDrafts: mailbox === mailboxIds.drafts }))
+    .map(withoutHeldDrafts),
 )
 watch(
   () => threads.status,
@@ -1084,11 +1093,8 @@ const {
   setFlaggedSubmit,
   selectedRows,
   moveToOptions,
-  addToOptions,
-  removeFromOptions,
+  folderOptions,
   showMoveTo,
-  showAddTo,
-  showRemoveFrom,
   showJunkOrDeleteThreads,
   junkOrDeleteThreadsOptions,
 } = useThreadActions({

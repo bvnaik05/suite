@@ -2,8 +2,8 @@
   <!-- The decision a screened thread is waiting on, in the thread itself: the rest of the thread view
 	     works as usual, and acting on the thread decides it too. Every sender it waits on is asked
 	     about at once, and Yes / No answer for all of them; the arrow beside Yes can single one out,
-	     or trust a domain they share. Yes lets their images in for good; the images banner below loads
-	     them just this once. Two banners on desktop; on a phone, two full-bleed rows. -->
+	     or trust a domain they share. Yes lets their images in for good; until then each message offers
+	     its own (see HiddenImagesBanner). A banner on desktop; on a phone, a full-bleed row. -->
   <div class="sm:space-y-2" role="region" :aria-label="__('Unknown sender')">
     <div class="bg-surface-gray-1 flex items-center gap-3 px-3 py-2 max-sm:border-b sm:rounded-6">
       <UserRoundSearch class="text-ink-gray-5 size-4 shrink-0" />
@@ -45,12 +45,6 @@
         </div>
       </div>
     </div>
-
-    <HiddenImagesBanner
-      v-if="hiddenImages !== null"
-      :images="hiddenImages"
-      @show="emit('loadImages')"
-    />
   </div>
 </template>
 
@@ -59,26 +53,18 @@ import { Button, Dropdown } from 'frappe-ui'
 import { ChevronDown, UserRoundSearch } from 'lucide-vue-next'
 import { computed } from 'vue'
 
-import HiddenImagesBanner from '@/apps/mail/components/HiddenImagesBanner.vue'
-
 type Sender = { email: string; name?: string }
 
 /**
  * `senders`: who the thread is waiting on, in the order they first wrote. `domains`: the '@domain's
- * among them worth offering to trust. `hiddenImages`: how many remote images the thread is holding
- * back, or null when it holds nothing back.
+ * among them worth offering to trust.
  */
-const {
-  senders,
-  domains = [],
-  hiddenImages = null,
-} = defineProps<{ senders: Sender[]; domains?: string[]; hiddenImages?: number | null }>()
+const { senders, domains = [] } = defineProps<{ senders: Sender[]; domains?: string[] }>()
 const emit = defineEmits<{
   allow: []
   allowOne: [email: string]
   allowDomain: [domain: string]
   deny: []
-  loadImages: []
 }>()
 
 const nameOf = (sender: Sender) => sender.name || sender.email

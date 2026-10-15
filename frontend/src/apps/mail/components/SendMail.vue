@@ -11,7 +11,8 @@
 	     a composer opened from inside a thread would otherwise lose to the thread pane, which
 	     teleports out itself. Nothing traps focus or locks scrolling — docked, the page behind is
 	     simply live; expanded, a click on the dimmed page minimises the window: clicking away from a
-	     draft means "let me look at that", not "throw this out". Restoring brings it back expanded. -->
+	     draft means "let me look at that", not "throw this out". Restoring brings it back expanded.
+	     An empty one closes instead (see leaveExpanded). -->
   <Teleport :to="overlayLayer ?? 'body'">
     <Transition
       enter-from-class="opacity-0"
@@ -22,7 +23,7 @@
       <div
         v-if="show && expanded && !minimised"
         class="bg-black-overlay-200 dark:bg-black-overlay-700 fixed inset-0 z-40"
-        @click="minimised = true"
+        @click="leaveExpanded"
       />
     </Transition>
     <!-- Rises and fades in from the corner, and sinks back out a little faster than it came. -->
@@ -83,7 +84,7 @@
             variant="ghost"
             :aria-label="expanded ? __('Shrink') : __('Expand')"
             :tooltip="expanded ? __('Shrink') : __('Expand')"
-            @click="expanded = !expanded"
+            @click="setExpanded(!expanded)"
           >
             <template #icon>
               <span
@@ -97,7 +98,7 @@
             variant="ghost"
             :aria-label="__('Close')"
             :tooltip="__('Close')"
-            @click.stop="show = false"
+            @click.stop="closeWindow"
           >
             <template #icon><span class="lucide-x size-4" aria-hidden="true" /></template>
           </Button>
@@ -121,16 +122,31 @@
 </template>
 
 <script setup lang="ts">
+import { useStorage } from '@vueuse/core'
 import { Button, usePortalTarget } from 'frappe-ui'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 
 import ComposeMailEditor from '@/apps/mail/components/ComposeMailEditor.vue'
 import { claimComposeWindow } from '@/apps/mail/composables/useComposeWindow'
 import type { ComposeMailData } from '@/apps/mail/types'
+import { provideAccountScope } from '@/apps/mail/utils/accountScope'
 
 const show = defineModel<boolean>()
 
-const { mailDetails } = defineProps<{ mailDetails?: ComposeMailData }>()
+// `startExpanded`: open over the page rather than docked — a draft popped out of a thread was
+// already being written, and leaving the thread for it asks for room.
+const {
+  mailDetails,
+  startExpanded = false,
+  account,
+} = defineProps<{
+  mailDetails?: ComposeMailData
+  startExpanded?: boolean
+  // The account to write in, when not the one around the window: the layout's window otherwise
+  // writes in the active account, and a draft from another one would save against the wrong one.
+  account?: string
+}>()
+if (account) provideAccountScope(() => account)
 
 const emit = defineEmits(['reloadMails', 'discardMail', 'discardStarted'])
 
@@ -146,12 +162,21 @@ claimComposeWindow(show, () => editor.value?.mail?.id)
 // come from the composer rather than from the copy the thread still remembers.
 defineExpose({ mail: computed(() => editor.value?.mail) })
 
-// Each compose starts docked: a request to write is not a request to resume whatever the last
-// draft's window happened to be doing.
-const expanded = ref(false)
+// The first compose opens docked; after that, each opens the size the reader last chose for one —
+// docked or expanded, remembered in this browser as the size of a screen is — or expanded when the
+// host asks for room. Never minimised: a request to write wants the window in front. Only a choice
+// made with Expand/Shrink (or Esc) is remembered; a pop-out opening large is the host's call.
+const prefersExpanded = useStorage('mail-compose-expanded', false)
+const expanded = ref(startExpanded || prefersExpanded.value)
 const minimised = ref(false)
+const setExpanded = (value: boolean) => {
+  expanded.value = value
+  prefersExpanded.value = value
+}
 watch(show, (open) => {
-  if (open) expanded.value = minimised.value = false
+  if (!open) return
+  expanded.value = startExpanded || prefersExpanded.value
+  minimised.value = false
 })
 
 // What the window is for: a reply or a forward popped out of a thread (or reopened from Drafts)
@@ -181,6 +206,23 @@ const restore = (e: KeyboardEvent) => {
   minimised.value = false
 }
 
+// Close keeps a draft to come back to — but one with nothing written is not a draft. It had already
+// saved itself (a body that is only the signature saves), so closing it left a "[No subject]" in
+// Drafts for every window opened and shut. Nothing written, it is discarded, quietly.
+const closeWindow = () => {
+  if (editor.value?.isUntouched) void editor.value.discardMail()
+  else show.value = false
+}
+
+// A click on the dimmed page beside an expanded window: with something written, "let me look at
+// that", so it folds away to come back to. With nothing written there is nothing to come back to,
+// and a folded bar left behind for an empty message was clutter — it closes, quietly, as Discard
+// closes an untouched one.
+const leaveExpanded = () => {
+  if (editor.value?.isUntouched) void editor.value.discardMail()
+  else minimised.value = true
+}
+
 // Esc docks an expanded window. Ignored while a popover is open,
 // or a dialog above this window — the contacts picker, Send later — which reka closes on the same
 // key without marking it handled.
@@ -189,7 +231,7 @@ const onEscape = (e: KeyboardEvent) => {
   if (!expanded.value || minimised.value) return
   if (document.querySelector('[data-reka-popper-content-wrapper]')) return
   if (document.querySelector('.dialog-content[data-state="open"]')) return
-  expanded.value = false
+  setExpanded(false)
 }
 
 onMounted(() => window.addEventListener('keydown', onEscape))

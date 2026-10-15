@@ -32,14 +32,17 @@
     @drop.prevent="handleDrop"
   >
     <template #top>
-      <!-- The composer window: one row per field, each led by its name in a column of its own, so
-           the values line up down the page; the window pads nothing, so every row carries its own
-           inset. -->
-      <template v-if="windowed">
+      <!-- Desktop, in the composer window and in a thread alike: one row per field, each led by its
+           name in a column of its own, so the values line up down the page; neither host pads the
+           composer, so every row carries its own inset. A reply in a thread leaves From and
+           Subject out — the conversation around it says both — and switches between reply, reply
+           all and forward from the To row. -->
+      <template v-if="!isMobile">
         <!-- Scrolls rather than pushing the window's header off screen when enough recipients
              wrap that the fields outgrow a capped window. -->
         <div class="max-h-[40vh] min-h-0 shrink-0 overflow-y-auto">
           <div
+            v-if="showsFromAndSubject"
             class="flex items-center gap-2 border-b px-4 py-2"
             :class="{ 'border-transparent': isDragging }"
           >
@@ -57,11 +60,29 @@
               variant="ghost"
               class="-ml-[9px] min-w-0 max-w-full !text-ink-gray-8"
             />
+            <!-- Unsaved text is no reason to withhold this: the draft is handed to the window as
+                 it stands, in memory, rather than fetched back from the server. Only a save
+                 actually in flight holds it up — see popOut. -->
+            <Button
+              v-if="isInThread"
+              variant="ghost"
+              class="ml-auto shrink-0"
+              :tooltip="__('Open in a window')"
+              :disabled="isLoading"
+              @click="popOut()"
+            >
+              <template #icon>
+                <component :is="ExternalLink" class="text-ink-gray-5 h-4 w-4" />
+              </template>
+            </Button>
           </div>
           <div
             class="flex items-start gap-2 border-b px-4 py-2"
             :class="{ 'border-transparent': isDragging }"
           >
+            <Dropdown v-if="isInThread && mailDetails?.type" :options="localDraftActions">
+              <Button variant="ghost" class="-ml-1.5" :icon="TYPE_ICON_MAP[mailDetails.type]" />
+            </Dropdown>
             <Tooltip :text="__('Select from contacts')">
               <button
                 type="button"
@@ -127,6 +148,7 @@
           </template>
         </div>
         <input
+          v-if="showsFromAndSubject"
           ref="subjectInput"
           v-model="mail.subject"
           :placeholder="__('Subject')"
@@ -137,15 +159,8 @@
       </template>
       <div
         v-else
-        class="flex flex-col gap-2.5 border-b pb-2.5 max-sm:px-3 max-sm:pt-2.5"
-        :class="[
-          isDragging ? 'border-transparent' : '',
-          // Bleed the rule to the message card's edges while the fields stay on the content
-          // axis: the card pads this block by 5, so without cancelling that the separator stops
-          // short of both sides and reads as underlining the fields rather than dividing the
-          // composer.
-          'sm:-mx-5 sm:px-5',
-        ]"
+        class="flex flex-col gap-2.5 border-b px-3 py-2.5"
+        :class="{ 'border-transparent': isDragging }"
       >
         <!-- A reply inside a thread leaves From and Subject out: the conversation around it
 				     says both. Detached into a window there is no conversation around it, so a
@@ -257,13 +272,11 @@
 			     the conversation up out of view. Given the pane to itself it has no conversation
 			     to protect and takes whatever height the fields and toolbar leave. -->
       <div
-        class="relative flex cursor-text flex-col border-2 border-transparent text-sm sm:overflow-y-auto"
+        class="relative flex cursor-text flex-col border-2 border-transparent px-3 py-2.5 text-sm sm:overflow-y-auto sm:px-4 sm:py-3"
         :class="{
           // Docked, the body is its own height and gives way only at the window's cap; anywhere
           // else it fills what the fields and toolbar leave.
           'flex-1': !windowed || expanded,
-          'px-4 py-3': windowed,
-          'py-2.5 max-sm:px-3': !windowed,
           // Docked, the window is as tall as its fields and a fixed page; expanded, the page
           // takes whatever the window's fixed height leaves.
           // Shrinks (and scrolls) when the window meets its height cap on a short screen.
@@ -337,17 +350,14 @@
     <!-- Last child of the scroller, so `sticky bottom-0` (mobile, in the toolbar itself) pins it to
 		     the bottom of the scrollport while the fields and body scroll under it. The sheet ends where
 		     the keyboard begins, so that bottom edge is the top of the keyboard. -->
+    <!-- Neither the window nor a thread's draft card pads the composer, so the fields, the body
+         and the bar each carry their own inset. The phone's sticky bar insets itself. -->
     <template #bottom>
       <ComposeMailToolbar
         :is-recipients-empty
         :is-uploading
-        class="border-t"
-        :class="[
-          isDragging ? 'border-transparent' : '',
-          // The window pads nothing, so the bar carries its own inset there; in a thread the rule
-          // bleeds to the message card's edges while the buttons stay on the content axis.
-          windowed ? 'px-4 pb-2.5' : 'sm:-mx-5 sm:px-5',
-        ]"
+        class="border-t sm:px-4 sm:pb-2.5"
+        :class="{ 'border-transparent': isDragging }"
         @select-files="(files: File[]) => uploadFiles(files)"
         @append-emoji="(emoji: string) => appendEmoji(emoji)"
         @discard-mail="discardMail"
@@ -431,6 +441,8 @@ const emit = defineEmits([
 const { isMobile } = useScreenSize()
 // In the desktop composer window (SendMail) rather than a thread or the phone's page.
 const windowed = computed(() => !isInThread && !isMobile.value)
+// A reply in a thread has the conversation around it to say who it is from and what it is about.
+const showsFromAndSubject = computed(() => !isInThread || !mailDetails?.type)
 const textEditor = useTemplateRef('textEditor')
 const toInput = useTemplateRef('toInput')
 const ccInput = useTemplateRef('ccInput')
@@ -492,6 +504,7 @@ const {
   payListDebt,
   sendMail,
   discardMail,
+  isUntouched,
   onClosed,
   showScheduleModal,
   openScheduleModal,
@@ -608,6 +621,8 @@ defineExpose({
   mail,
   sendMail,
   discardMail,
+  // Nothing written yet: the window has nothing to keep, so leaving it closes it (see SendMail).
+  isUntouched,
   openScheduleModal,
 })
 

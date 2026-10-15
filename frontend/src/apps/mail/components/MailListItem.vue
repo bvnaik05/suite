@@ -51,6 +51,7 @@
       <MailRowActions
         :is-hovered
         :threads="[mail]"
+        :drafts
         @set-seen="(seen: boolean) => emit('setSeen', seen)"
         @archive="emit('archiveThread')"
         @trash="emit('trashThread')"
@@ -188,6 +189,7 @@ const {
   accountLabel,
   selectable = true,
   hideSender = false,
+  drafts = false,
   selectionMode = false,
   threadRouteName = 'mail-mail',
   hideAvatar = false,
@@ -206,6 +208,8 @@ const {
   selectable?: boolean
   // Set on the members of an expanded stack, whose stack row already names the sender.
   hideSender?: boolean
+  // The list is Drafts, so the row's bin discards (see MailRowActions).
+  drafts?: boolean
   // Whether the row can be dragged onto a folder; the view decides, since only it
   // knows whether a selection is riding along.
   draggable?: boolean

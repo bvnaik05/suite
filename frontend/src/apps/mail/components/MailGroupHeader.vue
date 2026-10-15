@@ -2,14 +2,14 @@
   <!-- The tooltip names the fold, since the chevron alone doesn't say which way it goes. It is
 	     empty — and so not shown — on the last group, which never folds. -->
   <Tooltip :text="collapsible ? __(collapsed ? 'Expand' : 'Collapse') : ''">
-    <!-- A quiet label: a short tinted row, the date, with the day's checkbox and the
-         fold's chevron. -->
+    <!-- A quiet label: a short tinted row, the date, with the day's checkbox and the fold's
+         chevron. -->
     <div
-      class="text-ink-gray-5 group flex h-9 items-center border-b border-l-transparent bg-surface-gray-1 px-3.5 text-xs-semibold sm:border-l sm:px-5"
+      class="text-ink-gray-5 group flex h-9 items-center border-b bg-surface-gray-1 px-3.5 text-xs-semibold sm:px-5"
       :class="{
-        '!bg-surface-blue-1': selected,
-        'sm:hover:bg-surface-gray-2': collapsible,
-        '!border-l-outline-blue-5': focused,
+        'sm:hover:bg-surface-gray-1': collapsible,
+        '!bg-surface-gray-1': selected,
+        [CURSOR_BAR_CLASS]: focused,
       }"
       :data-row-key="`group:${dateKey}`"
       @click="emit('toggle')"
@@ -37,6 +37,7 @@
 import { Tooltip } from 'frappe-ui'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 
+import { CURSOR_BAR_CLASS } from '@/apps/mail/constants'
 import { dateGroupLabel } from '@/apps/mail/utils/dateGroups'
 
 /**

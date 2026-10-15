@@ -9,13 +9,41 @@ import { useSession } from '@/platform/session'
 export type MailboxRole = 'inbox' | 'sent' | 'drafts' | 'trash' | 'junk' | 'archive' | 'important'
 
 /** Destinations rather than places mail is read — the folder lists (desktop sidebar,
- * mobile folder sheet) render these in their own "More" section below the custom folders,
- * in this order. Typed wide (string) because mailbox data carries role as a string. */
+ * mobile folder sheet) keep these behind their More row, in this order: the mail kept first,
+ * the mail thrown out last, Trash at the very end. Typed wide (string) because mailbox data
+ * carries role as a string. */
 export const SECONDARY_MAILBOX_ROLES: readonly string[] = [
-  'junk',
   'archive',
+  'junk',
   'trash',
 ] satisfies readonly MailboxRole[]
+
+/** The system folders the folder lists lead with, in this order; a role not named here follows
+ * them. Starred, which is no mailbox, goes in after the Inbox (see withStarred). */
+export const PRIMARY_MAILBOX_ROLES: readonly string[] = [
+  'inbox',
+  'drafts',
+  'sent',
+] satisfies readonly MailboxRole[]
+
+const primaryRank = (role?: string | null) => {
+  const rank = PRIMARY_MAILBOX_ROLES.indexOf(role ?? '')
+  return rank === -1 ? PRIMARY_MAILBOX_ROLES.length : rank
+}
+
+/** The lead folders in reading order — Inbox, Starred, Drafts, Sent, then the rest. */
+export const withStarred = <T, S>(
+  folders: T[],
+  roleOf: (folder: T) => string | null | undefined,
+  starred: S,
+): (T | S)[] => {
+  const sorted: (T | S)[] = [...folders].sort(
+    (a, b) => primaryRank(roleOf(a)) - primaryRank(roleOf(b)),
+  )
+  const afterInbox = folders.length ? sorted.findIndex((f) => roleOf(f as T) === 'inbox') + 1 : 0
+  sorted.splice(afterInbox, 0, starred)
+  return sorted
+}
 
 /** Role → mailbox id map for a mailbox list. Shared with utils/accountScope, which derives the
  * same map for a non-active account's list. */

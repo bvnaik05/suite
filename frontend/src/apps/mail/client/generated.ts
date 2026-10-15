@@ -1612,6 +1612,41 @@ const operationGetCalendarClientConfig: QueryRef<
   loadValidators: async () => (await import('./validators')).operationGetCalendarClientConfig,
 }
 
+export type GetRecentThreadsWithOutputRecentThread = {
+  thread_id: string
+  subject: string | null
+  received_at: string
+  mailboxes: Array<GetRecentThreadsWithOutputRecentThreadMailbox>
+}
+
+export type GetRecentThreadsWithOutputRecentThreadMailbox = { mailbox_id: string }
+
+export type GetRecentThreadsWithInput = { account: string; email: string; limit?: number }
+
+export type GetRecentThreadsWithOutput = Array<GetRecentThreadsWithOutputRecentThread>
+
+export type GetRecentThreadsWithError = 'PermissionError'
+
+const operationGetRecentThreadsWith: QueryRef<
+  GetRecentThreadsWithInput,
+  GetRecentThreadsWithOutput,
+  GetRecentThreadsWithError
+> = {
+  id: 'get_recent_threads_with',
+  owner: 'mail',
+  kind: 'query',
+  publicName: 'messages.recentWith',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.get_recent_threads_with',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError'],
+  loadValidators: async () => (await import('./validators')).operationGetRecentThreadsWith,
+}
+
 export type GetEmailSuggestionsOutputEmailSuggestion = {
   name: string | null
   email: string
@@ -5579,6 +5614,7 @@ export type SearchMailsInputSearchFilter = {
   to?: string
   cc?: string
   bcc?: string
+  with?: string
   subject?: string
   body?: string
   before?: string
@@ -6932,6 +6968,25 @@ export const api = {
     export: operationCreateCalendarExport,
     ongoingExchange: operationOngoingCalendarExchange,
   },
+  messages: {
+    recentWith: operationGetRecentThreadsWith,
+    clearList: operationClearList,
+    search: operationSearchMails,
+    mime: operationGetMimeMessage,
+    deliveryStatus: operationGetDeliveryStatus,
+    create: operationCreateMail,
+    updateDraft: operationUpdateDraftMail,
+    deleteDraft: operationDeleteMail,
+    flag: operationSetFlagged,
+    seen: operationSetMailsSeen,
+    move: operationMoveMails,
+    addToFolder: operationAddMailsToMailbox,
+    removeFromFolder: operationRemoveMailsFromMailbox,
+    setFolders: operationSetMailsMailboxes,
+    spam: operationSetMailsSpamStatus,
+    delete: operationDeleteMessages,
+    download: operationFetchMailAsEml,
+  },
   public: {
     branding: operationGetBranding,
     signupSettings: operationGetSignupSettings,
@@ -6960,24 +7015,6 @@ export const api = {
   },
   tabs: {
     counts: operationGetTabCounts,
-  },
-  messages: {
-    clearList: operationClearList,
-    search: operationSearchMails,
-    mime: operationGetMimeMessage,
-    deliveryStatus: operationGetDeliveryStatus,
-    create: operationCreateMail,
-    updateDraft: operationUpdateDraftMail,
-    deleteDraft: operationDeleteMail,
-    flag: operationSetFlagged,
-    seen: operationSetMailsSeen,
-    move: operationMoveMails,
-    addToFolder: operationAddMailsToMailbox,
-    removeFromFolder: operationRemoveMailsFromMailbox,
-    setFolders: operationSetMailsMailboxes,
-    spam: operationSetMailsSpamStatus,
-    delete: operationDeleteMessages,
-    download: operationFetchMailAsEml,
   },
   screener: {
     allow: operationAllowScreeningSenders,

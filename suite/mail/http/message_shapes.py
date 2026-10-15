@@ -137,6 +137,7 @@ SearchFilter = TypedDict(
         "to": str,
         "cc": str,
         "bcc": str,
+        "with": str,
         "subject": str,
         "body": str,
         "before": str,

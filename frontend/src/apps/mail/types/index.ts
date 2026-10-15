@@ -144,6 +144,12 @@ export interface ComposeMailData {
   in_reply_to_id?: string
   forwarded_from_id?: string
   type?: 'reply' | 'replyAll' | 'forward'
+  // The account the draft belongs to, when it is reopened somewhere that is not that account's own
+  // pane — a discard undone from another account's thread. Not saved: the composer acts in it.
+  account?: string
+  // The draft has been in a composer already — a reply popped out of its thread, handed over as
+  // it stood — so its body is what was written there, signature and all.
+  composed?: boolean
 }
 export interface Thread {
   name: string
