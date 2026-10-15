@@ -18,50 +18,71 @@
       </Dropdown>
       <SidebarItem v-else :label="subtitle || __('Account')" icon="lucide-circle-user-round" />
     </SidebarSection>
-    <SidebarSection
-      v-for="section in sidebarItems"
-      :key="section.key ?? section.label"
-      :label="section.label"
-      :collapsible="section.collapsible"
-      :collapsed="isSectionCollapsed(section)"
-      class="!mt-4"
-      @update:collapsed="(collapsed) => setSectionCollapsed(section.key, collapsed)"
-    >
-      <SidebarItem
-        v-for="item in section.items"
-        :key="item.label"
-        :label="item.label"
-        :icon="item.icon"
-        :route="item.to"
-        :class="
-          threadDrag.overMailbox.value === item.mailboxId && 'ring-2 ring-outline-gray-3 ring-inset'
-        "
-        :active="item.activeFor?.includes(activeKey)"
-        :on-click="item.onClick"
-        class="group"
-        @dragover="onFolderDragOver($event, item)"
-        @dragleave="onFolderDragLeave(item)"
-        @drop="onFolderDrop($event, item)"
+    <!-- A section's own action (the folders' "+") sits over the right end of its heading:
+	     SidebarSection draws the heading itself and leaves no place in it for one. -->
+    <div v-for="section in sidebarItems" :key="section.key ?? section.label" class="relative mt-4">
+      <!-- Small and muted, lined up with the folders' counts below it. -->
+      <Tooltip v-if="sectionAction(section)" :text="sectionAction(section)!.label">
+        <button
+          type="button"
+          class="text-ink-gray-5 hover:text-ink-gray-8 absolute right-2 top-1.5 z-10 flex size-4 items-center justify-center"
+          :aria-label="sectionAction(section)!.label"
+          @click="sectionAction(section)!.onClick()"
+        >
+          <span class="lucide-plus size-3.5" aria-hidden="true" />
+        </button>
+      </Tooltip>
+      <SidebarSection
+        :label="section.label"
+        :collapsible="section.collapsible"
+        :collapsed="isSectionCollapsed(section)"
+        class="!mt-0"
+        @update:collapsed="(collapsed) => setSectionCollapsed(section.key, collapsed)"
       >
-        <template #suffix>
-          <div class="flex items-center">
-            <Dropdown v-if="item.menuOptions" :options="item.menuOptions">
-              <Button variant="ghost" class="!bg-transparent" @click.stop>
-                <template #icon>
-                  <Ellipsis class="text-ink-gray-6 invisible h-4 w-4 group-hover:visible" />
-                </template>
-              </Button>
-            </Dropdown>
+        <SidebarItem
+          v-for="item in section.items"
+          :key="item.label"
+          :label="item.label"
+          :icon="item.icon"
+          :route="item.to"
+          :class="
+            threadDrag.overMailbox.value === item.mailboxId &&
+            'ring-2 ring-outline-gray-3 ring-inset'
+          "
+          :active="item.activeFor?.includes(activeKey)"
+          :on-click="item.onClick"
+          class="group"
+          @dragover="onFolderDragOver($event, item)"
+          @dragleave="onFolderDragLeave(item)"
+          @drop="onFolderDrop($event, item)"
+        >
+          <template #suffix>
+            <!-- More opens in place, so it says which way it will go. -->
             <span
-              class="text-ink-gray-4 mr-2 text-sm"
-              :class="{ 'group-hover:hidden': item.menuOptions }"
-            >
-              {{ item.suffix }}
-            </span>
-          </div>
-        </template>
-      </SidebarItem>
-    </SidebarSection>
+              v-if="isMoreToggle(item)"
+              class="lucide-chevron-right mr-2 size-4 text-ink-gray-5 transition-transform"
+              :class="{ 'rotate-90': moreOpen }"
+              aria-hidden="true"
+            />
+            <div v-else class="flex items-center">
+              <Dropdown v-if="item.menuOptions" :options="item.menuOptions">
+                <Button variant="ghost" class="!bg-transparent" @click.stop>
+                  <template #icon>
+                    <Ellipsis class="text-ink-gray-6 invisible h-4 w-4 group-hover:visible" />
+                  </template>
+                </Button>
+              </Dropdown>
+              <span
+                class="text-ink-gray-4 mr-2 text-sm"
+                :class="{ 'group-hover:hidden': item.menuOptions }"
+              >
+                {{ item.suffix }}
+              </span>
+            </div>
+          </template>
+        </SidebarItem>
+      </SidebarSection>
+    </div>
 
     <!-- Personal widgets (quota) are meaningless while administering the
 		     server, and the phone's sheet is a folder switcher, not a dashboard. -->
@@ -85,24 +106,24 @@ import Globe from '~icons/lucide/globe'
 import House from '~icons/lucide/house'
 import Lock from '~icons/lucide/lock'
 import Megaphone from '~icons/lucide/megaphone'
-import Plus from '~icons/lucide/plus'
 import Settings from '~icons/lucide/settings'
 import ShieldCheck from '~icons/lucide/shield-check'
 import Star from '~icons/lucide/star'
 import Trash2 from '~icons/lucide/trash-2'
 import Users from '~icons/lucide/users'
 import UsersRound from '~icons/lucide/users-round'
-import { Button, Dropdown, SidebarItem, SidebarSection } from 'frappe-ui'
+import { Button, Dropdown, SidebarItem, SidebarSection, Tooltip } from 'frappe-ui'
 import { Icon } from 'frappe-ui/experimental'
-import { computed, h, ref } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { api, useQuery } from '@/api'
 import DeleteFolderModal from '@/apps/mail/components/Modals/DeleteFolderModal.vue'
 import FolderModal from '@/apps/mail/components/Modals/FolderModal.vue'
 import QuotaBar from '@/apps/mail/components/QuotaBar.vue'
 import { useThreadDrag } from '@/apps/mail/composables/useThreadDrag'
 import { FOLDER_ICON_COLOR_MAP } from '@/apps/mail/constants'
-import { SECONDARY_MAILBOX_ROLES, userStore } from '@/apps/mail/stores/user'
+import { SECONDARY_MAILBOX_ROLES, userStore, withStarred } from '@/apps/mail/stores/user'
 import type { MailboxData, UnifiedFolder } from '@/apps/mail/types'
 import { getIcon, getMailboxName } from '@/apps/mail/utils'
 import { useAccountSwitch, useScreenSize } from '@/apps/mail/utils/composables'
@@ -134,11 +155,33 @@ const setSectionCollapsed = (key: string | undefined, collapsed: boolean) => {
 }
 const isSectionCollapsed = (section: { key?: string }) =>
   !!section.key && !!collapsedSections.value[section.key]
+
+// Junk and Trash, and Outbox while it holds only history, wait behind a More row at the foot of the
+// lead folders: a row like theirs that opens in place, rather than a section heading of its own.
+const moreOpen = computed(() => !collapsedSections.value.more)
+const moreToggle = {
+  label: __('More'),
+  icon: Ellipsis,
+  to: undefined,
+  onClick: () => setSectionCollapsed('more', moreOpen.value),
+  activeFor: [] as string[],
+  moreToggle: true,
+}
+const isMoreToggle = (item: object) => 'moreToggle' in item
+const withMore = <T, M>(items: T[], more: M[]) =>
+  more.length ? [...items, moreToggle, ...(moreOpen.value ? more : [])] : items
 const store = userStore()
 const { mailboxes, unifiedFolders } = store
 
 // "All accounts": the folder list is every account's, merged (see utils/unifiedFolders).
 const isUnified = computed(() => isUnifiedRoute(route.name))
+// How many sends are waiting to go, which decides where Outbox sits (see sidebarItems). One row is
+// enough to be told the total.
+const queuedSends = useQuery(api.mail.scheduled.list, () =>
+  store.accountId && !isUnified.value
+    ? { account: store.accountId, undo_status: 'pending', start: 0, page_length: 1 }
+    : false,
+)
 
 // What an item's `activeFor` is matched against: the open mailbox in an account, the open folder
 // across all of them, and the route itself everywhere else.
@@ -167,7 +210,33 @@ const canDrop = (item: { mailboxId?: string }) =>
   !!mailboxes.data?.some((m: MailboxData) => m.id === item.mailboxId) &&
   canMoveToMailbox(item.mailboxId, threadDrag.filedIn.value, store.mailboxIds)
 
+// A thread dragged onto More and held there opens it, so it can go on into Junk, Archive or Trash.
+// Held, not passed over: on the way to a folder below, More opening would push the folder down
+// under the pointer. Opened this way, it closes again once the drag is over.
+const SPRING_OPEN_MS = 500
+let springTimer: ReturnType<typeof setTimeout> | undefined
+const springOpened = ref(false)
+const cancelSpring = () => {
+  clearTimeout(springTimer)
+  springTimer = undefined
+}
+watch(threadDrag.isDragging, (dragging) => {
+  if (dragging) return
+  cancelSpring()
+  if (springOpened.value) setSectionCollapsed('more', true)
+  springOpened.value = false
+})
+
 const onFolderDragOver = (e: DragEvent, item: { mailboxId?: string }) => {
+  if (isMoreToggle(item)) {
+    if (!threadDrag.isDragging.value || moreOpen.value || springTimer) return
+    springTimer = setTimeout(() => {
+      springTimer = undefined
+      springOpened.value = true
+      setSectionCollapsed('more', false)
+    }, SPRING_OPEN_MS)
+    return
+  }
   if (!canDrop(item)) return
   // Without preventDefault the browser refuses the drop and shows the "no" cursor.
   e.preventDefault()
@@ -176,6 +245,7 @@ const onFolderDragOver = (e: DragEvent, item: { mailboxId?: string }) => {
 }
 
 const onFolderDragLeave = (item: { mailboxId?: string }) => {
+  if (isMoreToggle(item)) cancelSpring()
   if (threadDrag.overMailbox.value === item.mailboxId) threadDrag.overMailbox.value = ''
 }
 
@@ -281,6 +351,11 @@ const dashboardItems = [
   },
 ]
 
+// What's unread, where that means something: the mail you sent is yours, and "unread" there is
+// only a flag left over from somewhere else.
+const unreadSuffix = (role: string | null | undefined, unread?: number | null) =>
+  role !== 'sent' && unread ? String(unread) : ''
+
 const mailboxItems = computed(
   () =>
     mailboxes.data
@@ -300,7 +375,8 @@ const mailboxItems = computed(
               mailbox: mailboxParam(mailbox.id, mailboxes.data),
             },
           },
-          suffix: mailbox.unread_threads ? String(mailbox.unread_threads) : '',
+          role: mailbox.role,
+          suffix: unreadSuffix(mailbox.role, mailbox.unread_threads),
           activeFor: [mailbox.id],
           menuOptions: [
             {
@@ -338,7 +414,8 @@ const unifiedSidebarItems = computed(() => {
     }),
     to: unifiedFolderRoute(folder.slug),
     activeFor: [`unified:${folder.slug}`],
-    suffix: folder.unread_threads ? String(folder.unread_threads) : '',
+    role: folder.role,
+    suffix: unreadSuffix(folder.role, folder.unread_threads),
   })
   const starredItem = {
     label: __('Starred'),
@@ -349,13 +426,24 @@ const unifiedSidebarItems = computed(() => {
   const { primary, custom, secondary } = groupUnifiedFolders(folders)
 
   return [
-    { label: __('Default'), items: [...primary.map(toItem), starredItem] },
-    ...(custom.length ? [{ label: __('Custom'), items: custom.map(toItem) }] : []),
-    ...(secondary.length
-      ? [{ label: __('More'), key: 'more', items: secondary.map(toItem), collapsible: true }]
+    {
+      label: '',
+      key: 'lead',
+      items: withMore(
+        withStarred(primary.map(toItem), (item) => item.role, { ...starredItem, role: null }),
+        secondary.map(toItem),
+      ),
+    },
+    ...(custom.length
+      ? [{ label: __('Your folders'), key: 'folders', items: custom.map(toItem) }]
       : []),
   ]
 })
+
+// The one thing a section's heading offers to do, if anything (only the folders' "New Folder").
+type SectionAction = { label: string; onClick: () => void }
+const sectionAction = (section: object): SectionAction | undefined =>
+  'action' in section ? (section.action as SectionAction) : undefined
 
 const sidebarItems = computed(() => {
   if (isUnified.value) return unifiedSidebarItems.value
@@ -385,56 +473,61 @@ const sidebarItems = computed(() => {
     return [{ label: '', items: pinned }, ...dashboardItems]
   }
 
-  const roleOf = (item: { mailboxId?: string }) =>
-    mailboxes.data?.find((m) => m.id === item.mailboxId)?.role
-
-  const defaultMailboxes = mailboxItems.value.filter((item) => {
-    const role = roleOf(item)
-    return role && !SECONDARY_MAILBOX_ROLES.includes(role)
-  })
+  const leadMailboxes = mailboxItems.value.filter(
+    (item) => item.role && !SECONDARY_MAILBOX_ROLES.includes(item.role),
+  )
   const starredItem = {
     label: __('Starred'),
     icon: Star,
     to: { name: 'mail-mailbox', params: { accountId: store.accountId, mailbox: 'starred' } },
     activeFor: ['starred'],
+    role: null,
   }
   // Synthetic like Starred, but backed by the server's held (FUTURERELEASE)
-  // EmailSubmissions rather than a mailbox, so it opens a dedicated page.
+  // EmailSubmissions rather than a mailbox, so it opens a dedicated page. It leads, with its count,
+  // only while something is waiting to go; otherwise it is history, and waits under More.
+  const queued = queuedSends.data?.total ?? 0
   const outboxItem = {
     label: __('Outbox'),
     icon: CalendarClock,
     to: { name: 'mail-outbox', params: { accountId: store.accountId } },
     activeFor: ['mail-outbox', 'mail-submission'],
+    suffix: queued ? String(queued) : '',
   }
-  const defaultItems = [...defaultMailboxes, starredItem, outboxItem]
+  const leadItems = [
+    ...withStarred(leadMailboxes, (item) => item.role, starredItem),
+    ...(queued ? [outboxItem] : []),
+  ]
 
-  const secondaryItems = mailboxItems.value
-    .filter((item) => {
-      const role = roleOf(item)
-      return role && SECONDARY_MAILBOX_ROLES.includes(role)
-    })
-    .sort(
-      (a, b) =>
-        SECONDARY_MAILBOX_ROLES.indexOf(roleOf(a)!) - SECONDARY_MAILBOX_ROLES.indexOf(roleOf(b)!),
+  const secondaryItems: ((typeof mailboxItems.value)[number] | typeof outboxItem)[] =
+    mailboxItems.value
+      .filter((item) => item.role && SECONDARY_MAILBOX_ROLES.includes(item.role))
+      .sort(
+        (a, b) =>
+          SECONDARY_MAILBOX_ROLES.indexOf(a.role!) - SECONDARY_MAILBOX_ROLES.indexOf(b.role!),
+      )
+  // Outbox's history is your own mail, so it follows Archive, ahead of Junk and Trash.
+  if (!queued)
+    secondaryItems.splice(
+      secondaryItems.findIndex((item) => 'role' in item && item.role === 'archive') + 1,
+      0,
+      outboxItem,
     )
 
-  const customMailboxes = mailboxItems.value.filter((item) => !roleOf(item))
-  const addMailboxItem = {
-    label: __('New Folder'),
-    icon: Plus,
-    onClick: () => {
-      selectedMailbox.value = undefined
-      showFolderModal.value = true
-    },
-  }
-  const customItems = [...customMailboxes, addMailboxItem]
-
   const groups = [
-    { label: __('Default'), items: defaultItems },
-    { label: __('Custom'), items: customItems },
-    ...(secondaryItems.length
-      ? [{ label: __('More'), key: 'more', items: secondaryItems, collapsible: true }]
-      : []),
+    { label: '', key: 'lead', items: withMore(leadItems, secondaryItems) },
+    {
+      label: __('Your folders'),
+      key: 'folders',
+      items: mailboxItems.value.filter((item) => !item.role),
+      action: {
+        label: __('New Folder'),
+        onClick: () => {
+          selectedMailbox.value = undefined
+          showFolderModal.value = true
+        },
+      },
+    },
   ]
 
   // Admins reach the dashboard from its own row, last in the sidebar.
