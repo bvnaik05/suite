@@ -142,7 +142,11 @@
           >
             <template #lead>
               <div v-if="!isAllAccountsSearch" class="mr-5">
-                <SelectAllCheckbox :selected="isAllSelected" @toggle="toggleSelectAll" />
+                <SelectAllCheckbox
+                  :selected="isAllSelected"
+                  :some="selections.length > 0"
+                  @toggle="toggleSelectAll"
+                />
               </div>
             </template>
 
