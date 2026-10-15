@@ -10,7 +10,9 @@
   <!-- Stretched, the padding inside, so a split Inbox's tabs can run the header's full height and
        underline on its border — as the mailbox list's header is. -->
   <header class="hidden items-stretch border-b px-3 sm:flex sm:px-5">
-    <div class="flex min-w-0 flex-1 items-center space-x-2 py-2.5">
+    <!-- h-12: one height with or without the Inbox's tabs. The title's crumb stands a little taller
+         than the tabs and the actions, and the bar grew with it. -->
+    <div class="flex h-12 min-w-0 flex-1 items-center space-x-2 py-2.5">
       <!-- -ml-0.5 cancels the crumb's own padding so the title sits on the px-5 axis -->
       <Breadcrumbs
         v-if="!inboxTab"
@@ -26,7 +28,7 @@
         :route-for="routeForTab"
       />
     </div>
-    <div class="flex shrink-0 items-center py-2.5">
+    <div class="flex h-12 shrink-0 items-center py-2.5">
       <HeaderActions view-menu :inbox="folder === INBOX_FOLDER" />
     </div>
   </header>
