@@ -7,10 +7,12 @@ const OWN_PID = 2 ** 31 + 1
 const PEER_PID = 2 ** 31 + 2
 const OWN_ARRIVAL = 5
 
+const presences: Presence[] = []
+
 function setup({ sends = true, at = 4 } = {}) {
   type Handler = (message: unknown) => void
   const handlers = new Map<string, Handler>()
-  const emitted: { rooms: string[]; state: { cursor: unknown; typed: number; at: number } }[] = []
+  const emitted: { rooms: string[]; state: Record<string, unknown> }[] = []
   const ahead: number[] = []
   const socket = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
@@ -29,6 +31,7 @@ function setup({ sends = true, at = 4 } = {}) {
     },
   }
   const presence = new Presence(socket, hooks)
+  presences.push(presence)
   const hear = (event: string, message: object) =>
     handlers.get(`suite_collab_presence${event}`)!(message)
   const answer = (roster: object[] = [], carets: object[] = [], rooms = OWN_ROOMS) => {
@@ -62,7 +65,13 @@ const cursor = {
   head: caret.anchor,
 }
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  for (const presence of presences.splice(0)) {
+    presence.close()
+  }
+
+  vi.useRealTimers()
+})
 
 describe('collab presence', () => {
   it('lists the other tabs the realtime service answers with, by the user it verified', () => {
@@ -75,7 +84,9 @@ describe('collab presence', () => {
       { room: 'sc:other-document', pid: PEER_PID + 1, user: 'c@x.com', arrival: 4 },
     ])
 
-    expect(presence.peers).toEqual([{ pid: PEER_PID, user: 'b@x.com', arrival: 3 }])
+    expect(presence.peers).toEqual([
+      { pid: PEER_PID, user: 'b@x.com', arrival: 3, idleSince: null },
+    ])
     expect([presence.ownPid, presence.ownArrival]).toEqual([OWN_PID, OWN_ARRIVAL])
   })
 
@@ -126,7 +137,9 @@ describe('collab presence', () => {
     hear('_join', { room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com', arrival: 2 })
 
     expect(beforeStamp).toBeNull()
-    expect(presence.peers).toEqual([{ pid: PEER_PID, user: 'b@x.com', arrival: 7 }])
+    expect(presence.peers).toEqual([
+      { pid: PEER_PID, user: 'b@x.com', arrival: 7, idleSince: null },
+    ])
   })
 
   it('draws a peer’s position only as the app reads it', () => {
@@ -179,7 +192,7 @@ describe('collab presence', () => {
     expect(emitted.length).toBeLessThanOrEqual(6)
     expect(emitted.at(-1)).toEqual({
       rooms: OWN_ROOMS,
-      state: { cursor: { step: 49 }, typed: 0, at: 12 },
+      state: { cursor: { step: 49 }, typed: 0, at: 12, idleFor: null, hiddenFor: null },
     })
   })
 
@@ -195,7 +208,13 @@ describe('collab presence', () => {
       states: [{ pid: PEER_PID, user: 'b@x.com', n: 1, state: { cursor, typed: 4 } }],
     })
 
-    expect(emitted.at(-1)?.state).toEqual({ cursor: null, typed: 3, at: 4 })
+    expect(emitted.at(-1)?.state).toEqual({
+      cursor: null,
+      typed: 3,
+      at: 4,
+      idleFor: null,
+      hiddenFor: null,
+    })
     expect(remoteStates().get(PEER_PID)?.typed).toBe(4)
   })
 

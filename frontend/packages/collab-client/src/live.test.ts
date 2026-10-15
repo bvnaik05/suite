@@ -250,7 +250,7 @@ describe('collab room live', () => {
     expect([reader.live, text(reader), reader.presence?.peers]).toEqual([
       'live',
       'unheard',
-      [{ pid, user: 'b@x.com', arrival: null }],
+      [{ pid, user: 'b@x.com', arrival: null, idleSince: null }],
     ])
   })
 

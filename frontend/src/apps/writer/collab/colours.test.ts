@@ -28,14 +28,10 @@ describe('Writer peer colours', () => {
   })
 
   it.each(PALETTE)(
-    'names on $light.tint read at 4.5:1 or better, in light and dark mode',
+    'names and initials on $light.tint read at 4.5:1 or better, in light and dark mode',
     (colour) => {
       expect(contrast(colour.light.ink, colour.light.tint)).toBeGreaterThanOrEqual(4.5)
       expect(contrast(colour.dark.ink, colour.dark.tint)).toBeGreaterThanOrEqual(4.5)
     },
   )
-
-  it.each(PALETTE)('white initials on a $light.ink avatar read at 4.5:1 or better', (colour) => {
-    expect(contrast('#FFFFFF', colour.light.ink)).toBeGreaterThanOrEqual(4.5)
-  })
 })

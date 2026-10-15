@@ -51,76 +51,90 @@ b {
   border-radius: 3px;
 }
 
+/* A 2px bar as tall as the text, square on top where its dot joins it */
 .collaboration-carets__caret {
-  border-left: 1px solid var(--peer-solid);
-  border-right: 1px solid var(--peer-solid);
-  margin-left: -1px;
-  margin-right: -1px;
+  background-color: var(--peer-solid);
+  border-radius: 0 0 1px 1px;
+  display: inline-block;
+  height: 1.25em;
+  margin: 0 -1px;
   pointer-events: none;
   position: relative;
+  vertical-align: -0.22em;
+  width: 2px;
   word-break: normal;
-}
-
-/* Render the username above the caret */
-.collaboration-carets__label {
-  background-color: var(--peer-tint);
-  border-radius: 3px 3px 3px 0;
-  box-shadow: inset 0 0 0 1px var(--peer-solid);
-  color: var(--peer-ink);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 600;
-  left: -1px;
-  line-height: normal;
-  padding: 0.15rem 0.3rem;
-  pointer-events: none;
-  position: absolute;
-  top: -1.4em;
-  transition: opacity 0.2s;
-  user-select: none;
-  white-space: nowrap;
-}
-
-/* Two seconds after its person stops, the name shrinks to a dot on top of the caret, clear of the text */
-.collaboration-carets__caret::before {
-  background-color: var(--peer-solid);
-  border-radius: 50%;
-  content: '';
-  height: 6px;
-  left: -3px;
-  opacity: 0;
-  position: absolute;
-  top: -3px;
-  transition: opacity 0.2s;
-  width: 6px;
 }
 
 /* Room to hover a caret, which brings its name back */
 .collaboration-carets__caret::after {
   bottom: 0;
   content: '';
-  left: -3px;
+  left: -2px;
   pointer-events: auto;
   position: absolute;
-  top: -3px;
+  top: 0;
   width: 6px;
 }
 
-.collaboration-carets__caret--quiet::before {
-  opacity: 1;
+/* The name in a flag on top of the caret; it shows at once */
+.collaboration-carets__label {
+  align-items: center;
+  background-color: var(--peer-tint);
+  border-radius: 6px 6px 6px 1px;
+  bottom: calc(100% - 1px);
+  box-shadow: inset 0 0 0 1px var(--peer-solid);
+  color: var(--peer-ink);
+  cursor: default;
+  display: flex;
+  font:
+    500 11px/16px ui-sans-serif,
+    -apple-system,
+    sans-serif;
+  left: 0;
+  padding: 0 6px;
+  pointer-events: auto;
+  position: absolute;
+  user-select: none;
+  white-space: nowrap;
 }
 
+/* Three seconds after its person stops, the flag shrinks to a dot clear of the text. The dot sinks 2px into
+   the caret so the two read as one shape, and at 8px it centres on the 2px bar to the whole pixel */
 .collaboration-carets__caret--quiet .collaboration-carets__label {
-  opacity: 0;
+  background-color: var(--peer-solid);
+  border-radius: 50%;
+  bottom: calc(100% - 2px);
+  box-shadow: none;
+  font-size: 0;
+  height: 8px;
+  left: -3px;
+  padding: 0;
+  transition-duration: 0.2s;
+  transition-property: background-color, border-radius, bottom, font-size, height, left, padding;
+  transition-timing-function: ease-out;
+  width: 8px;
 }
 
-.collaboration-carets__caret:hover .collaboration-carets__label {
-  opacity: 1;
+.collaboration-carets__caret--quiet:hover .collaboration-carets__label {
+  background-color: var(--peer-tint);
+  border-radius: 6px 6px 6px 1px;
+  bottom: calc(100% - 1px);
+  box-shadow: inset 0 0 0 1px var(--peer-solid);
+  font-size: 11px;
+  height: 16px;
+  left: 0;
+  padding: 0 6px;
+  transition: none;
+  width: auto;
+}
+
+/* Dimmed, flag and dot with it, while its person is idle */
+.collaboration-carets__caret--idle {
+  opacity: 0.45;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .collaboration-carets__label,
-  .collaboration-carets__caret::before {
+  .collaboration-carets__caret--quiet .collaboration-carets__label {
     transition: none;
   }
 }

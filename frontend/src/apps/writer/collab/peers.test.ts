@@ -40,8 +40,13 @@ function apart(...others: string[]) {
   }
 }
 
-function tab(pid: number, user: string, arrival: number | null): Peer {
-  return { pid, user, arrival }
+function tab(
+  pid: number,
+  user: string,
+  arrival: number | null,
+  idleSince: number | null = null,
+): Peer {
+  return { pid, user, arrival, idleSince }
 }
 
 // What one tab computes: itself as own, everyone else as peers in the order it heard them

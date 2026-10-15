@@ -68,8 +68,26 @@ export function presenceColours(presence: RoomPresence) {
     pid: presence.ownPid,
     user: useSession().user.value?.id ?? 'Guest',
     arrival: presence.ownArrival,
+    idleSince: null,
   }
   return roomColours(presence.peers, own)
+}
+
+// When a tab's person went idle: once every tab of theirs is, from the last to go; null while any is in use
+export function personIdleSince(peers: Peer[], pid: number) {
+  const tab = peers.find((peer) => peer.pid === pid)
+  if (!tab) {
+    return null
+  }
+
+  const person = personKey(tab.user, tab.pid)
+  const tabs = peers.filter((peer) => personKey(peer.user, peer.pid) === person)
+  const starts = tabs.map((peer) => peer.idleSince)
+  if (starts.includes(null)) {
+    return null
+  }
+
+  return Math.max(...(starts as number[]))
 }
 
 // One entry per person
@@ -87,6 +105,7 @@ export function peopleOf(peers: Peer[], colours: Map<number, PeerColour>) {
       id: peer.user,
       name: peerName(peer.user, peer.pid),
       colour: colours.get(peer.pid),
+      idleSince: personIdleSince(peers, peer.pid),
     }
     return [person]
   }

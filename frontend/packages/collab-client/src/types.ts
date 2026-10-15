@@ -84,11 +84,13 @@ export interface LiveSocket {
 export type LiveState = 'joining' | 'live' | 'polling'
 
 // Another tab in the document, named by the user the realtime service verified. `arrival` ranks when
-// it connected, the same for every tab; null from a service that doesn't count arrivals
+// it connected, the same for every tab; null from a service that doesn't count arrivals. `idleSince` is
+// when the tab went idle, on this tab's clock, or null while it is in use
 export interface Peer {
   pid: number
   user: string
   arrival: number | null
+  idleSince: number | null
 }
 
 export interface RoomPresence {

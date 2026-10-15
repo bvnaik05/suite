@@ -13,7 +13,7 @@ import type { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
 import { colourStyle, type PeerColour } from './colours'
-import { peerName, presenceColours, whenNamed } from './peers'
+import { peerName, personIdleSince, presenceColours, whenNamed } from './peers'
 
 interface CaretUser {
   id: string
@@ -75,6 +75,7 @@ function caretDrawer(flags: NameFlags, colourOf: ColourOf) {
     const caret = document.createElement('span')
     caret.classList.add('collaboration-carets__caret', 'peer-colour')
     caret.classList.toggle(QUIET, !flags.isNamed(peerId))
+    caret.classList.toggle(IDLE, flags.isIdle(peerId))
     caret.dataset.peer = String(peerId)
     paint(caret, colourOf(peerId))
 
@@ -132,10 +133,15 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
     const editor = this.editor
     const presence = this.options.presence
     const awareness = presence.awareness
-    const flags = new NameFlags(awareness)
     function colourOf(peerId: number) {
       return presenceColours(presence).get(peerId)
     }
+
+    function isIdle(peerId: number) {
+      return personIdleSince(presence.peers, peerId) !== null
+    }
+
+    const flags = new NameFlags(awareness, isIdle)
 
     const cursorOptions = {
       awarenessStateFilter: (_: number, id: number) => id !== 0,
@@ -164,8 +170,9 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
   },
 })
 
-const NAME_SHOWN_MS = 2000
+const NAME_SHOWN_MS = 3000
 const QUIET = 'collaboration-carets__caret--quiet'
+const IDLE = 'collaboration-carets__caret--idle'
 
 type Box = ReturnType<EditorView['coordsAtPos']>
 
@@ -178,35 +185,63 @@ function ownCaretBox(view: EditorView) {
   return view.coordsAtPos(view.state.selection.head)
 }
 
-// Whether a caret's flag would sit over this tab's own caret
+// The flag as it shows named: its height, the space either side of the name, and how far it reaches down
+// over the top of its caret
+const FLAG_HEIGHT = 16
+const FLAG_PADDING = 12
+const FLAG_TUCK = 1
+const FLAG_FONT = '500 11px ui-sans-serif, -apple-system, sans-serif'
+// The point of this tab's own caret that decides, as a share of its height from the top
+const CARET_MIDDLE = 0.5
+
+let nameRuler: CanvasRenderingContext2D | null = null
+
+function nameWidth(name: string) {
+  nameRuler ??= document.createElement('canvas').getContext('2d')
+  if (!nameRuler) {
+    return 0
+  }
+
+  nameRuler.font = FLAG_FONT
+  return nameRuler.measureText(name).width
+}
+
+// Whether a caret's flag, named, would cover the middle of this tab's own caret. The flag is worked out
+// from its caret, since a quiet one is drawn as a dot
 function isOverOwnCaret(caret: HTMLElement, own: Box | null) {
-  const label = caret.querySelector('.collaboration-carets__label')
-  if (!own || !label) {
+  if (!own) {
     return false
   }
 
-  const flag = label.getBoundingClientRect()
-  const isWithin = own.left >= flag.left && own.left <= flag.right
-  return isWithin && own.top < flag.bottom && own.bottom > flag.top
+  const { left, top } = caret.getBoundingClientRect()
+  const right = left + nameWidth(caret.textContent ?? '') + FLAG_PADDING
+  const bottom = top + FLAG_TUCK
+  const middle = own.top + (own.bottom - own.top) * CARET_MIDDLE
+  const isWithin = own.left >= left && own.left <= right
+  return isWithin && middle > bottom - FLAG_HEIGHT && middle < bottom
 }
 
-// A caret's flag names its peer while they act and for two seconds after, then shrinks to a dot; it gives
-// way at once when it would sit over this tab's own caret. Hovering a caret brings its name back, in CSS
+// A caret's flag names its peer while they act and for three seconds after, then shrinks to a dot; it gives
+// way at once when it would sit over this tab's own caret, and hovering a caret brings its name back in CSS;
+// the caret of a person who is idle is dimmed
 class NameFlags {
   private actions = new Map<number, string>()
   private timers = new Map<number, ReturnType<typeof setTimeout>>()
   private shownIn: EditorView | null = null
 
-  constructor(private readonly awareness: Awareness) {
-    awareness.on('change', this.onAwarenessChange)
-  }
+  constructor(
+    private readonly awareness: Awareness,
+    readonly isIdle: (peerId: number) => boolean,
+  ) {}
 
   isNamed(peerId: number) {
     return this.timers.has(peerId)
   }
 
+  // The editor rebuilds its plugin views whenever a plugin is added, so each new view listens again
   showIn(view: EditorView) {
     this.shownIn = view
+    this.awareness.on('change', this.onAwarenessChange)
   }
 
   settle() {
@@ -216,12 +251,15 @@ class NameFlags {
     const ownCaret = ownCaretBox(view)
     const carets = view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__caret')
     for (const caret of carets) {
-      const isNamed = this.isNamed(Number(caret.dataset.peer)) && !isOverOwnCaret(caret, ownCaret)
+      const peerId = Number(caret.dataset.peer)
+      const isNamed = this.isNamed(peerId) && !isOverOwnCaret(caret, ownCaret)
       caret.classList.toggle(QUIET, !isNamed)
+      caret.classList.toggle(IDLE, this.isIdle(peerId))
     }
   }
 
   destroy() {
+    this.shownIn = null
     this.awareness.off('change', this.onAwarenessChange)
     for (const peerId of [...this.timers.keys()]) {
       this.forget(peerId)

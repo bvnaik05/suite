@@ -14,6 +14,11 @@ import type { LiveSocket, Peer } from './types'
 
 // Carets go out trailing-edge, at most ten a second
 const SEND_MS = 100
+// A tab without input for five minutes is idle, and one hidden a minute counts as idle from when it was hidden;
+// a hidden tab sends nothing more, so the awareness drops its caret 30 s after the last message
+const IDLE_MS = 300_000
+const HIDDEN_IDLE_MS = 60_000
+const INPUTS = ['keydown', 'pointerdown', 'pointermove', 'wheel', 'touchstart']
 
 export interface PresenceHooks {
   // Whether a room is one of this document's
@@ -33,6 +38,9 @@ interface Member {
   user: string
   arrival: number | null
   rooms: Set<string>
+  // On this tab's clock, from the durations the tab last sent
+  idleSince: number | null
+  hiddenSince: number | null
 }
 
 // A peer's pid, its count and the state the cursor plugin draws
@@ -50,6 +58,11 @@ export class Presence {
   private sendTimer: ReturnType<typeof setTimeout> | null = null
   private lastSentAt = 0
   private closed = false
+  private lastInputAt = Date.now()
+  private hiddenAt: number | null = null
+  private isIdle = false
+  private idleTimer: ReturnType<typeof setTimeout> | null = null
+  private wakeTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private readonly socket: LiveSocket,
@@ -62,11 +75,27 @@ export class Presence {
     socket.on('suite_collab_presence', this.onCaretBatch)
     socket.on('suite_collab_presence_join', this.onJoin)
     socket.on('suite_collab_presence_gone', this.onGone)
+    for (const input of INPUTS) {
+      window.addEventListener(input, this.onInput, { capture: true, passive: true })
+    }
+
+    document.addEventListener('visibilitychange', this.onVisibilityChange)
+    if (document.visibilityState === 'hidden') {
+      this.hiddenAt = Date.now()
+    }
+
+    this.armIdleTimer()
   }
 
   // Everyone else in the document now, one entry per tab
   get peers(): Peer[] {
-    return [...this.members].map(([pid, { user, arrival }]): Peer => ({ pid, user, arrival }))
+    const now = Date.now()
+    return [...this.members].map(([pid, member]): Peer => ({
+      pid,
+      user: member.user,
+      arrival: member.arrival,
+      idleSince: tabIdleSince(member, now),
+    }))
   }
 
   get ownPid() {
@@ -102,7 +131,7 @@ export class Presence {
     this.removeCarets(departed)
 
     this.applyCarets(answer.carets)
-    this.sendCaret()
+    this.announce()
     this.notifyListeners()
   }
 
@@ -118,9 +147,17 @@ export class Presence {
     if (this.closed) return
 
     this.closed = true
-    if (this.sendTimer) {
-      clearTimeout(this.sendTimer)
+    for (const timer of [this.sendTimer, this.idleTimer, this.wakeTimer]) {
+      if (timer) {
+        clearTimeout(timer)
+      }
     }
+
+    for (const input of INPUTS) {
+      window.removeEventListener(input, this.onInput, { capture: true })
+    }
+
+    document.removeEventListener('visibilitychange', this.onVisibilityChange)
     this.socket.off('suite_collab_presence', this.onCaretBatch)
     this.socket.off('suite_collab_presence_join', this.onJoin)
     this.socket.off('suite_collab_presence_gone', this.onGone)
@@ -181,6 +218,8 @@ export class Presence {
       user,
       arrival,
       rooms: new Set<string>(),
+      idleSince: null,
+      hiddenSince: null,
     }
     member.arrival ??= arrival
     member.rooms.add(room)
@@ -192,14 +231,18 @@ export class Presence {
   private applyCarets(states: object[]) {
     const accepted: Clocked[] = []
     const carets = states.map(parseCaret).filter((caret): caret is HeardCaret => !!caret)
-    for (const { pid, clock, cursor, typed, at } of carets) {
-      if (!this.members.has(pid)) continue
+    const now = Date.now()
+    for (const { pid, clock, cursor, typed, at, idleFor, hiddenFor } of carets) {
+      const member = this.members.get(pid)
+      if (!member) continue
 
       if (at !== null) {
         this.hooks.peerAhead(at)
       }
 
-      const user = { id: this.members.get(pid)!.user }
+      member.idleSince = startOf(idleFor, now)
+      member.hiddenSince = startOf(hiddenFor, now)
+      const user = { id: member.user }
       const shown = {
         user,
         cursor: this.hooks.position(cursor),
@@ -207,10 +250,33 @@ export class Presence {
       }
       accepted.push([pid, clock, shown])
     }
+
+    this.wakeWhenHiddenTurnsIdle()
     if (!accepted.length) return
 
     const update = encodeStates(accepted)
     applyAwarenessUpdate(this.awareness, update, 'remote')
+  }
+
+  // A hidden tab sends nothing more, so this tab wakes itself when one has been hidden long enough to be idle
+  private wakeWhenHiddenTurnsIdle() {
+    if (this.wakeTimer) {
+      clearTimeout(this.wakeTimer)
+      this.wakeTimer = null
+    }
+
+    const now = Date.now()
+    const turns = [...this.members.values()]
+      .map(({ hiddenSince }) => (hiddenSince ?? -Infinity) + HIDDEN_IDLE_MS)
+      .filter((turnsAt) => turnsAt > now)
+    if (!turns.length) return
+
+    const wake = () => {
+      this.wakeTimer = null
+      this.notifyListeners()
+    }
+
+    this.wakeTimer = setTimeout(wake, Math.min(...turns) - now)
   }
 
   private removeCarets(pids: number[]) {
@@ -233,21 +299,87 @@ export class Presence {
   }
 
   private sendCaret() {
-    if (this.closed || !this.joinedRooms.length || !this.hooks.showsCaret()) return
-    if (document.visibilityState !== 'visible') return
+    if (!this.hooks.showsCaret() || document.visibilityState !== 'visible') return
+
+    this.sendState()
+  }
+
+  // A tab that is away says so on joining, even one that shows no caret
+  private announce() {
+    if (this.isIdle || this.hiddenAt !== null) {
+      this.sendState()
+      return
+    }
+
+    this.sendCaret()
+  }
+
+  // Every tab, viewers and hidden tabs too, sends its state once when it goes idle or hidden and once when it
+  // comes back
+  private sendState() {
+    if (this.closed || !this.joinedRooms.length) return
 
     const local = this.awareness.getLocalState()
-    this.lastSentAt = Date.now()
+    const now = Date.now()
+    this.lastSentAt = now
+    let cursor = null
+    if (this.hooks.showsCaret()) {
+      cursor = local?.cursor ?? null
+    }
+
     const state = {
-      cursor: local?.cursor ?? null,
+      cursor,
       typed: local?.typed ?? 0,
       at: this.hooks.appliedThrough(),
+      idleFor: durationSince(this.idleStart, now),
+      hiddenFor: durationSince(this.hiddenAt, now),
     }
-    const caretMessage = {
-      rooms: this.joinedRooms,
-      state,
+    this.socket.emit('suite_collab_presence', { rooms: this.joinedRooms, state })
+  }
+
+  private get idleStart() {
+    if (!this.isIdle) {
+      return null
     }
-    this.socket.emit('suite_collab_presence', caretMessage)
+
+    return this.lastInputAt
+  }
+
+  private onInput = () => {
+    this.lastInputAt = Date.now()
+    if (!this.isIdle) return
+
+    this.isIdle = false
+    this.armIdleTimer()
+    this.sendState()
+  }
+
+  private armIdleTimer() {
+    const wait = this.lastInputAt + IDLE_MS - Date.now()
+    this.idleTimer = setTimeout(this.onIdleCheck, Math.max(0, wait))
+  }
+
+  private onIdleCheck = () => {
+    this.idleTimer = null
+    if (Date.now() - this.lastInputAt < IDLE_MS) {
+      this.armIdleTimer()
+      return
+    }
+
+    this.isIdle = true
+    this.sendState()
+  }
+
+  private onVisibilityChange = () => {
+    const isHidden = document.visibilityState === 'hidden'
+    if (isHidden === (this.hiddenAt !== null)) return
+
+    this.hiddenAt = null
+    if (isHidden) {
+      this.hiddenAt = Date.now()
+    }
+
+    this.sendState()
   }
 
   private notifyListeners() {
@@ -255,6 +387,37 @@ export class Presence {
       listener()
     }
   }
+}
+
+// When a tab went idle: once its person stopped, or once it had been hidden a minute, counted from hiding
+function tabIdleSince({ idleSince, hiddenSince }: Member, now: number) {
+  const starts = [idleSince]
+  if (hiddenSince !== null && now - hiddenSince >= HIDDEN_IDLE_MS) {
+    starts.push(hiddenSince)
+  }
+
+  const known = starts.filter((start): start is number => start !== null)
+  if (!known.length) {
+    return null
+  }
+
+  return Math.min(...known)
+}
+
+function startOf(duration: number | null, now: number) {
+  if (duration === null) {
+    return null
+  }
+
+  return now - duration
+}
+
+function durationSince(start: number | null, now: number) {
+  if (start === null) {
+    return null
+  }
+
+  return now - start
 }
 
 // One awareness update carrying every accepted state

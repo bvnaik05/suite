@@ -44,6 +44,9 @@ export interface HeardCaret {
   // How many edits the tab has made, so a peer sees it typing while its caret's stored position stays put
   typed: number
   at: number | null
+  // How long the tab has been without input once it went idle, and how long it has been hidden
+  idleFor: number | null
+  hiddenFor: number | null
 }
 
 // A tab leaving one room
@@ -143,14 +146,25 @@ export function parseCaret(heard: unknown): HeardCaret | null {
     return null
   }
 
-  const { cursor, typed, at } = fieldsOf(state)
+  const { cursor, typed, at, idleFor, hiddenFor } = fieldsOf(state)
   return {
     pid,
     clock,
     cursor,
     typed: Number(typed) || 0,
     at: typeof at === 'number' ? at : null,
+    idleFor: durationOf(idleFor),
+    hiddenFor: durationOf(hiddenFor),
   }
+}
+
+function durationOf(heard: unknown) {
+  const isDuration = typeof heard === 'number' && Number.isFinite(heard) && heard >= 0
+  if (!isDuration) {
+    return null
+  }
+
+  return heard
 }
 
 export function parseDeparture(heard: unknown): Departure | null {

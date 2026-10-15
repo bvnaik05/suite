@@ -1,4 +1,4 @@
-import type { CollabRoom } from '@suite/collab-client'
+import type { CollabRoom, Peer } from '@suite/collab-client'
 import { Editor, type EditorOptions } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -24,7 +24,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const BEA = { pid: PEER_ID, user: 'bea@x.com', arrival: 5 }
+const BEA: Peer = { pid: PEER_ID, user: 'bea@x.com', arrival: 5, idleSince: null }
 
 function openEditor() {
   const doc = new Y.Doc()
@@ -42,7 +42,7 @@ function openEditor() {
       return () => listeners.delete(listener)
     },
   }
-  function roomChanges(peers: (typeof BEA)[]) {
+  function roomChanges(peers: Peer[]) {
     presence.peers = peers
     for (const listener of listeners) {
       listener()
@@ -119,7 +119,7 @@ function earlierRival() {
   for (let index = 0; ; index++) {
     const user = `rival${index}@x.com`
     if (assignColours([user]).get(user) === beaColour) {
-      return { pid: PEER_ID + 1, user, arrival: 1 }
+      return { pid: PEER_ID + 1, user, arrival: 1, idleSince: null }
     }
   }
 }
@@ -129,22 +129,45 @@ function isNamed(editor: Editor) {
   return !caret?.classList.contains('collaboration-carets__caret--quiet')
 }
 
-// Lays this tab's caret either under Bea's flag or well clear of it
-function ownCaretUnderFlag(editor: Editor) {
-  const flag = { left: 100, right: 160, top: 50, bottom: 64 }
-  const box = { ...flag, x: 0, y: 0, width: 0, height: 0, toJSON: () => ({}) }
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(box)
+// Bea's caret is drawn at left 100, top 50, and her name is 48px wide, so her named flag spans 100 to 160
+// across and 35 to 51 down, its foot just over the top of her line; this tab's own caret sits on the line
+// above, under her flag, on her line just after her caret, or well clear of both
+const OWN_CARETS = {
+  underFlag: { left: 120, right: 120, top: 30, bottom: 46 },
+  afterHers: { left: 104, right: 104, top: 50, bottom: 66 },
+  clear: { left: 120, right: 120, top: 200, bottom: 216 },
+}
+
+function box(edges: { left: number; right: number; top: number; bottom: number }) {
+  const width = edges.right - edges.left
+  const height = edges.bottom - edges.top
+  return { ...edges, x: edges.left, y: edges.top, width, height, toJSON: () => ({}) }
+}
+
+function ownCaretAt(editor: Editor) {
+  const caret = box({ left: 100, right: 102, top: 50, bottom: 70 })
+  const flag = box({ left: 100, right: 160, top: 35, bottom: 51 })
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.classList.contains('collaboration-carets__label')) {
+      return flag
+    }
+
+    return caret
+  })
+  const ruler = { font: '', measureText: () => ({ width: 48 }) }
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ruler as never)
   vi.spyOn(editor.view, 'hasFocus').mockReturnValue(true)
   const coords = vi.spyOn(editor.view, 'coordsAtPos')
-  return (isUnder: boolean) => {
-    const top = isUnder ? 52 : 200
-    coords.mockReturnValue({ left: 120, right: 120, top, bottom: top + 16 })
+  return (place: keyof typeof OWN_CARETS) => {
+    coords.mockReturnValue(OWN_CARETS[place])
   }
 }
 
 // A focused editor, its caret clear of every flag; the test page lays nothing out
 function focus(editor: Editor) {
-  ownCaretUnderFlag(editor)(false)
+  ownCaretAt(editor)('clear')
 }
 
 const labelTexts = (editor: Editor) =>
@@ -245,7 +268,7 @@ describe('Writer carets', () => {
     expect(shadedSelections(editor)).toEqual([['ell', moved]])
   })
 
-  it('names a person while they move, select or type, and shrinks the name to a dot two seconds after', async () => {
+  it('names a person while they move, select or type, and shrinks the name to a dot three seconds after', async () => {
     vi.useFakeTimers()
     searchUsers.mockResolvedValue([])
     const { editor, awareness } = openEditor()
@@ -259,39 +282,54 @@ describe('Writer carets', () => {
     }
 
     peerSays({ user, cursor })
-    await after(1900)
+    await after(2900)
     await after(100)
     peerSays({ user, cursor, typed: 1 })
     await after(0)
-    await after(2000)
+    await after(3000)
     peerSays({ user, cursor, typed: 1 })
     await after(0)
     peerSays({ user, cursor: caretAt(editor, 2, 4), typed: 1 })
-    await after(1900)
+    await after(2900)
     await after(100)
 
     expect(seen).toEqual([true, false, true, false, false, true, false])
   })
 
   it('drops a flag to its dot at once while it would sit over this tab’s own caret', async () => {
-    searchUsers.mockResolvedValue([])
     const { editor, awareness } = openEditor()
     const peerSays = remotePeer(awareness)
     const user = { id: 'bea@x.com' }
-    const placeOwnCaret = ownCaretUnderFlag(editor)
+    const placeOwnCaret = ownCaretAt(editor)
 
-    placeOwnCaret(true)
+    placeOwnCaret('underFlag')
     editor.commands.setTextSelection(5)
     peerSays({ user, cursor: caretAt(editor, 3) })
     await tick()
     const isNamedOnArrival = isNamed(editor)
-    placeOwnCaret(false)
+    placeOwnCaret('clear')
     editor.commands.setTextSelection(1)
     const isNamedWhenClear = isNamed(editor)
-    placeOwnCaret(true)
+    placeOwnCaret('underFlag')
     editor.commands.setTextSelection(4)
 
     expect([isNamedOnArrival, isNamedWhenClear, isNamed(editor)]).toEqual([false, true, false])
+  })
+
+  it('keeps a flag named while this tab’s own caret sits just after theirs on the same line', async () => {
+    const { editor, awareness } = openEditor()
+    const peerSays = remotePeer(awareness)
+    const user = { id: 'bea@x.com' }
+    ownCaretAt(editor)('afterHers')
+    editor.commands.setTextSelection(4)
+
+    peerSays({ user, cursor: caretAt(editor, 3) })
+    await tick()
+    const isNamedOnArrival = isNamed(editor)
+    peerSays({ user, cursor: caretAt(editor, 3), typed: 1 })
+    await tick()
+
+    expect([isNamedOnArrival, isNamed(editor)]).toEqual([true, true])
   })
 
   it('counts this tab’s own typing for other tabs, and not another person’s edits', () => {
