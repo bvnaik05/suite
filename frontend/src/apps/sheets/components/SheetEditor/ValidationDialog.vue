@@ -95,6 +95,8 @@
           />
         </div>
 
+        <p v-if="missing" class="sn-vd-missing">{{ missing }}</p>
+
         <!-- Custom error message -->
         <FormControl
           v-model="validationDialog.message"
@@ -117,7 +119,9 @@
     </template>
     <template #actions>
       <div class="flex flex-row-reverse gap-2">
-        <Button variant="solid" @click="confirmValidation">Apply</Button>
+        <Button variant="solid" :disabled="Boolean(missing)" @click="confirmValidation">
+          Apply
+        </Button>
         <Button variant="ghost" theme="red" @click="removeValidation">Remove rule</Button>
         <Button @click="validationDialog.open = false">Cancel</Button>
       </div>
@@ -128,7 +132,9 @@
 <script setup lang="ts">
 import { Button, Dialog, FormControl } from 'frappe-ui'
 import { Icon as FeatherIcon } from 'frappe-ui/experimental'
-import { nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
+
+import { translate as __ } from '@/platform/translation'
 
 import { chipPaletteColor } from '../../canvas/chip-geometry'
 import ColorPicker from './ColorPicker.vue'
@@ -295,7 +301,26 @@ function buildRule(): ValidationRule {
     severity,
   }
 }
+// What the form still needs before it can be applied, or '' when complete.
+// A rule saved without its value(s) rejected, or accepted, every input
+// (ISSUES #26), so Apply waits for them, as in Google Sheets.
+const missing = computed(() => {
+  const { type, operator, val1, val2 } = validationDialog
+  if (type === 'list') {
+    return validationDialog.listItems.some((it) => it.label.trim())
+      ? ''
+      : __('Add at least one item.')
+  }
+  if (type !== 'number' && type !== 'text_length') return ''
+  const filled = (v: string) => !isNaN(parseFloat(v))
+  if (['between', 'not_between'].includes(operator)) {
+    return filled(val1) && filled(val2) ? '' : __('Enter both Min and Max.')
+  }
+  return filled(val1) ? '' : __('Enter a value.')
+})
+
 function confirmValidation() {
+  if (missing.value) return
   const rule = buildRule()
   validationDialog.open = false
   emit('apply', rule)
@@ -319,6 +344,13 @@ function removeValidation() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* Why Apply is disabled */
+.sn-vd-missing {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-gray-5);
 }
 
 /* Validation "List of items" per-item editor: swatch · label · remove */
