@@ -1,8 +1,8 @@
 """Draw's content adapter for Drive (§10.1).
 
 Drive owns identity and lifecycle. Draw copies and versions only the scene.
-Registration waits until existing drawings have nodes. Their title column
-stays available for adoption and becomes frozen when the spec is activated.
+The adoption patch binds existing drawings before registry validation. Their
+legacy title column remains frozen while the node owns the current title.
 """
 
 import io

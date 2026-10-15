@@ -20,11 +20,10 @@
  "module": "Draw",
  "name": "Drawing",
  "permissions": [
-  {"role": "All", "if_owner": 1, "read": 1, "write": 1, "create": 1, "delete": 1},
-  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1}
+  {"role": "All", "read": 1, "write": 1, "create": 1, "delete": 1}
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
  "title_field": "title",
- "track_changes": 1
+ "track_changes": 0
 }

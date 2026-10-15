@@ -13,20 +13,40 @@ lifecycle, and versions after adoption.
 
 ## Adoption status
 
-This branch prepares the content adapter in `drive.py`. It does not register
-`SPEC` in `drive_content_types` or enable Drive permission hooks for Drawing yet.
-The `DriveContent` mixin supports this expand phase (§10.3).
+This branch registers `SPEC` and applies Drive's point and list permission hooks
+to Drawing. `suite.drive.patches.adopt_drawings` runs between Drive Build and
+Cleanup. It binds existing drawings before registry validation. The current
+development site has not run these changes.
 
-Existing drawings retain their content, names, titles, and owner permissions.
-Their node link remains empty until an explicit adoption migration. The legacy
-title field stays available for that migration. Once activated, the adapter's
-`legacy_fields` declaration freezes it. New titles then belong to Drive alone.
+The migration preserves drawing names, bodies, owners, timestamps, and legacy
+titles. The new node has the same name as the Drawing. It lives in the owner's
+personal root. Duplicate sibling titles use Drive's numbered suffixes. Invalid
+owners, conflicting identities, and ambiguous shares stop adoption. They do not
+cause drawings to be skipped or deleted.
 
-Activation must follow a migration that preserves drawing identities, binds
-every drawing to its own node, carries titles and access across, and verifies
-reciprocal links. The current public Drive facade has no operation to bind an
-existing content document. Do not import private Drive modules to work around
-that missing operation.
+Existing System Managers receive Manage grants on the legacy drawings they could
+previously administer. These grants capture access at migration time. Later role
+changes do not remove or add those grants. New drawings follow Drive's normal
+grant rules. No user is promoted to Suite Admin.
+
+Anonymous sharing is not enabled in this step. Drawing's baseline permissions
+remain for authenticated users, narrowed by Drive's grants.
+
+Existing DocShares become Drive grants. Their full rows are journaled under the
+site's private directory before removal. Adoption does not commit. A failure
+rolls the patch back, and completed links are verified rather than recreated on
+a rerun. The legacy title column remains, frozen by `legacy_fields`. New titles
+belong to Drive alone. Frappe's body change tracking is disabled in favor of
+Drive versions.
+
+Adoption belongs to the Drive migration package. Draw does not import private
+Drive modules, and the runtime Drive facade does not gain a migration operation.
+
+Before migrating a site with existing drawings, take a database and file backup.
+Record its path in the `draw_adoption_backup` site config value. Suite's separate
+Drive Cleanup backup requirement still applies. Keep the site in maintenance
+mode during the upgrade. A fresh site with no drawings or shares needs no Draw
+adoption backup marker.
 
 ## Content and lifecycle
 
@@ -59,4 +79,4 @@ Use two ordinary users and an isolated Suite site with a recorded backup.
    disposable drawing and verify its body has no Deleted Document copy.
 
 These journeys have not run. The current development Bench still serves the
-original Draw checkout. Do not migrate that site to test this preparation.
+original Draw checkout. Rehearse on an isolated site before upgrading that site.
