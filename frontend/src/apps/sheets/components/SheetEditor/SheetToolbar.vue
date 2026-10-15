@@ -106,7 +106,6 @@
     <Button
       aria-label="Bold"
       :variant="activeFormat.bold ? 'subtle' : 'ghost'"
-      :class="{ 'sn-fmt-active': activeFormat.bold }"
       :aria-pressed="!!activeFormat.bold"
       size="sm"
       icon="lucide-bold"
@@ -116,7 +115,6 @@
     <Button
       aria-label="Italic"
       :variant="activeFormat.italic ? 'subtle' : 'ghost'"
-      :class="{ 'sn-fmt-active': activeFormat.italic }"
       :aria-pressed="!!activeFormat.italic"
       size="sm"
       icon="lucide-italic"
@@ -126,7 +124,6 @@
     <Button
       aria-label="Underline"
       :variant="activeFormat.underline ? 'subtle' : 'ghost'"
-      :class="{ 'sn-fmt-active': activeFormat.underline }"
       :aria-pressed="!!activeFormat.underline"
       size="sm"
       icon="lucide-underline"
@@ -137,7 +134,6 @@
       <Button
         aria-label="Strikethrough"
         :variant="activeFormat.strikethrough ? 'subtle' : 'ghost'"
-        :class="{ 'sn-fmt-active': activeFormat.strikethrough }"
         :aria-pressed="!!activeFormat.strikethrough"
         size="sm"
         icon="lucide-strikethrough"
@@ -557,18 +553,6 @@ const IncreaseDecimalIcon = _decimalsIcon([
   background: var(--outline-gray-2);
   margin: 0 6px;
   flex-shrink: 0;
-}
-
-/* Active-format pip — toolbar buttons (Bold / Italic / Underline /
-   Strikethrough) flip from the default subtle gray to brand cyan-50 when
-   their format is applied on the selected cell. Same hex as the active
-   selection wash, so the eye learns "cyan = applied here". */
-.sn-fmt-active :deep(button) {
-  background: #ecf8fb !important;
-  color: #0d7490 !important;
-}
-.sn-fmt-active :deep(button:hover) {
-  background: #d8f1f6 !important;
 }
 
 /* Toolbar overflow — `.sn-tool-extra` groups stay inline at wide widths and
