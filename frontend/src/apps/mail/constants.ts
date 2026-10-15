@@ -66,3 +66,10 @@ export const SPLIT_LIST_CLASS = 'w-[28vw] min-w-64 shrink-0 border-r lg:min-w-80
 
 /** The pane takes whatever the column leaves, down to its own floor. */
 export const SPLIT_PANE_CLASS = 'min-w-56 flex-1 lg:min-w-64'
+
+/**
+ * The mail list's "you are here": a thin dark bar down a row's left side, over the 1px border it
+ * keeps for one — the keyboard's cursor, the open thread, a date header the cursor is on.
+ */
+export const CURSOR_BAR_CLASS =
+  "relative sm:before:absolute sm:before:inset-y-0 sm:before:-left-px sm:before:w-0.5 sm:before:rounded-r-full sm:before:bg-[var(--ink-gray-6)] sm:before:content-['']"

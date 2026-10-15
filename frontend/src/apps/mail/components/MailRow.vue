@@ -3,7 +3,8 @@
     :is="to ? RouterLink : 'div'"
     :to="to"
     class="sm:hover:bg-surface-gray-1 group flex cursor-default select-none space-x-2.5 border-b px-3.5 py-2.5 sm:py-2 [-webkit-touch-callout:none] sm:space-x-5 sm:px-5"
-    :class="{ '!bg-surface-blue-1': isSelected || isTouching, '!py-1': isFullWidth }"
+    :class="{ '!bg-surface-gray-2': isSelected || isTouching, '!py-1': isFullWidth }"
+    :draggable="draggable || undefined"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
     @touchstart="onTouchStart"
@@ -11,7 +12,6 @@
     @touchcancel="clearTouchTimer"
     @contextmenu="onContextMenu"
     @click.capture="onRowClick"
-    :draggable="draggable || undefined"
     @dragstart="onDragStart"
     @dragend="emit('dragEnd')"
   >
