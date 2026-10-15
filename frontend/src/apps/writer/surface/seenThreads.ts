@@ -9,15 +9,22 @@ import type { DocumentThread } from '@/apps/drive'
  * throws, so what was opened lasts only as long as the tab.
  */
 interface SeenMarks {
-  [thread: string]: string
+  [thread: string]: SeenMark
+}
+
+interface SeenMark {
+  /** The thread as it was seen, from `threadMark`. */
+  mark: string
+  /** When the read of its threads was sent, so a tab with older threads never wins. */
+  at: number
 }
 
 interface SeenOptions {
   user: string
   node: string
   threads: () => DocumentThread[]
-  /** Whether Drive's threads have been read; until then nothing shows as changed. */
-  hasLoaded: () => boolean
+  /** When the shown threads' read was sent; until one answers, nothing shows as changed. */
+  readAt: () => number | null
   openThread: () => string | null
 }
 
@@ -44,8 +51,17 @@ function parseSeen(value: string | null): SeenMarks | null {
     return null
   }
 
-  const marks = Object.entries(stored).filter(([, mark]) => typeof mark === 'string')
+  const marks = Object.entries(stored).filter(([, mark]) => isSeenMark(mark))
   return Object.fromEntries(marks)
+}
+
+function isSeenMark(value: unknown): value is SeenMark {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const { mark, at } = value as Partial<SeenMark>
+  return typeof mark === 'string' && typeof at === 'number'
 }
 
 export function keepSeen(user: string, node: string, marks: SeenMarks) {
@@ -69,30 +85,51 @@ export function threadMark(thread: DocumentThread) {
   return `${thread.comments.length}:${latest}:${thread.resolved}`
 }
 
-function marksOf(threads: DocumentThread[]) {
-  return Object.fromEntries(threads.map((thread) => [thread.name, threadMark(thread)]))
+function marksOf(threads: DocumentThread[], at: number): SeenMarks {
+  return Object.fromEntries(
+    threads.map((thread) => [thread.name, { mark: threadMark(thread), at }]),
+  )
 }
 
 // A document first opened on this device starts with every thread seen, once they load
-function startingMarks(user: string, node: string, threads: DocumentThread[], isLoaded: boolean) {
+function startingMarks(user: string, node: string, threads: DocumentThread[], at: number | null) {
   const kept = readSeen(user, node)
-  if (kept || !isLoaded) {
+  if (kept || at === null) {
     return kept
   }
 
-  const marks = marksOf(threads)
+  const marks = marksOf(threads, at)
   keepSeen(user, node, marks)
   return marks
 }
 
+// The mark seen in later threads; the first wins a tie
+function later(mark: SeenMark, other: SeenMark | undefined) {
+  if (other && other.at > mark.at) {
+    return other
+  }
+
+  return mark
+}
+
+// Both tabs' marks, the later of the two kept for each thread
+function merged(marks: SeenMarks, incoming: SeenMarks) {
+  const kept = { ...marks }
+  for (const [name, mark] of Object.entries(incoming)) {
+    kept[name] = later(mark, kept[name])
+  }
+
+  return kept
+}
+
 // The marks with the named thread seen as it is now, when it is listed
-function withSeen(marks: SeenMarks, threads: DocumentThread[], name: string | null) {
+function withSeen(marks: SeenMarks, threads: DocumentThread[], name: string | null, at: number) {
   const thread = threads.find((listed) => listed.name === name)
   if (!thread) {
     return marks
   }
 
-  return { ...marks, [thread.name]: threadMark(thread) }
+  return { ...marks, [thread.name]: later({ mark: threadMark(thread), at }, marks[thread.name]) }
 }
 
 // Another tab on this device opening a thread clears it here too
@@ -110,29 +147,36 @@ function followOtherTabs(key: string, follow: (marks: SeenMarks) => void) {
 }
 
 /** The threads changed since last opened here; the open thread stays seen as it changes. */
-export function useSeenThreads({ user, node, threads, hasLoaded, openThread }: SeenOptions) {
+export function useSeenThreads({ user, node, threads, readAt, openThread }: SeenOptions) {
   const marks = ref<SeenMarks | null>(null)
 
   function markSeen(name: string | null) {
-    marks.value ??= startingMarks(user, node, threads(), hasLoaded())
-    if (!marks.value) {
+    const at = readAt()
+    marks.value ??= startingMarks(user, node, threads(), at)
+    if (!marks.value || at === null) {
       return
     }
 
     // Read again, since another tab may have marked threads since
-    marks.value = withSeen(readSeen(user, node) ?? marks.value, threads(), name)
+    const kept = merged(marks.value, readSeen(user, node) ?? {})
+    marks.value = withSeen(kept, threads(), name, at)
     keepSeen(user, node, marks.value)
   }
 
-  watch([threads, hasLoaded, openThread], ([, , open]) => markSeen(open), { immediate: true })
-  // The thread open here stays seen here alone; writing it back would fight a tab with older threads
+  watch([threads, readAt, openThread], ([, , open]) => markSeen(open), { immediate: true })
+  // Not written back: this tab writes the later marks the next time it marks a thread
   followOtherTabs(keyOf(user, node), (incoming) => {
-    marks.value = withSeen(incoming, threads(), openThread())
+    marks.value = merged(marks.value ?? {}, incoming)
   })
 
-  return {
-    isUnread: (thread: DocumentThread) =>
-      marks.value !== null && marks.value[thread.name] !== threadMark(thread),
-    markSeen,
+  // The thread open here stays seen, though a tab with later threads saw it as changed
+  function isUnread(thread: DocumentThread) {
+    if (!marks.value || thread.name === openThread()) {
+      return false
+    }
+
+    return marks.value[thread.name]?.mark !== threadMark(thread)
   }
+
+  return { isUnread, markSeen }
 }

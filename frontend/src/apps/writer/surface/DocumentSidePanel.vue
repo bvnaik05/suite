@@ -18,8 +18,8 @@ const props = defineProps<{
   canRenameVersion: boolean
   isRestoringVersion: boolean
   threads: DocumentThread[]
-  /** Whether Drive's threads have been read once. */
-  hasLoadedThreads: boolean
+  /** When Drive's threads were read; null before the first read. */
+  threadsReadAt: number | null
   /** Where each thread shows in the editor; null when the editor can't tell. */
   places: ThreadPlaces | null
   refreshThreads: () => Promise<void>
@@ -178,7 +178,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             v-model:open-thread="openThread"
             v-model:lit-thread="litThread"
             :threads
-            :has-loaded="hasLoadedThreads"
+            :read-at="threadsReadAt"
             :node="session.nodeId"
             :places
             :can-comment

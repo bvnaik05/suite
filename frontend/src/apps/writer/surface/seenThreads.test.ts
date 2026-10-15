@@ -32,7 +32,7 @@ const FIRST = thread('first')
 const SECOND = thread('second')
 
 // The threads as this person sees them on this device, with one open or none
-function watchThreads(listed: DocumentThread[], hasLoaded = ref(true)) {
+function watchThreads(listed: DocumentThread[], readAt = ref<number | null>(1)) {
   const threads = shallowRef(listed)
   const open = ref<string | null>(null)
   const scope = effectScope()
@@ -42,7 +42,7 @@ function watchThreads(listed: DocumentThread[], hasLoaded = ref(true)) {
       user: 'ann',
       node: 'doc-1',
       threads: () => threads.value,
-      hasLoaded: () => hasLoaded.value,
+      readAt: () => readAt.value,
       openThread: () => open.value,
     }),
   )!
@@ -53,26 +53,30 @@ function watchThreads(listed: DocumentThread[], hasLoaded = ref(true)) {
   return { threads, open, seen, unread }
 }
 
+const KEY = 'suite:writer-seen-threads:ann:doc-1'
+const REPLIED = thread('first', [...FIRST.comments, said('first-2', '2026-10-01 10:00:00')])
+
 describe('the marks kept on this device', () => {
   it('reads back what was kept, per person and document', () => {
-    keepSeen('ann', 'doc-1', { first: '1::false' })
+    keepSeen('ann', 'doc-1', { first: { mark: '1::false', at: 1 } })
 
     expect([readSeen('ann', 'doc-1'), readSeen('ann', 'doc-2'), readSeen('ben', 'doc-1')]).toEqual([
-      { first: '1::false' },
+      { first: { mark: '1::false', at: 1 } },
       null,
       null,
     ])
   })
 
-  it('reads nothing from words that are not marks, and drops marks that are not text', () => {
-    const key = 'suite:writer-seen-threads:ann:doc-1'
+  it('reads nothing from words that are not marks, and drops marks of another shape, older plain ones too', () => {
+    const marks =
+      '{"first":{"mark":"1::false","at":1},"second":"1::false","third":{"mark":"1::false"}}'
     const read: unknown[] = []
-    for (const stored of ['{broken', '[]', '"text"', '{"first":"1::false","second":2}']) {
-      localStorage.setItem(key, stored)
+    for (const stored of ['{broken', '[]', '"text"', marks]) {
+      localStorage.setItem(KEY, stored)
       read.push(readSeen('ann', 'doc-1'))
     }
 
-    expect(read).toEqual([null, null, null, { first: '1::false' }])
+    expect(read).toEqual([null, null, null, { first: { mark: '1::false', at: 1 } }])
   })
 
   it('keeps nothing, without throwing, when storage is blocked, and follows this tab alone', () => {
@@ -83,7 +87,7 @@ describe('the marks kept on this device', () => {
       throw new Error('blocked')
     })
 
-    keepSeen('ann', 'doc-1', { first: '1::false' })
+    keepSeen('ann', 'doc-1', { first: { mark: '1::false', at: 1 } })
     const { unread, threads, seen } = watchThreads([FIRST, SECOND])
     threads.value = [thread('first', [said('first-1', '2026-10-02 09:00:00')]), SECOND]
     const changed = unread()
@@ -104,13 +108,13 @@ describe('which threads changed since last opened', () => {
   })
 
   it('keeps nothing while the threads load or fail to, then starts with every thread seen', async () => {
-    const hasLoaded = ref(false)
-    const { threads, unread } = watchThreads([], hasLoaded)
+    const readAt = ref<number | null>(null)
+    const { threads, unread } = watchThreads([], readAt)
     await nextTick()
     const whileLoading = readSeen('ann', 'doc-1')
 
     threads.value = [FIRST, SECOND]
-    hasLoaded.value = true
+    readAt.value = 1
     await nextTick()
 
     expect([whileLoading, unread(), Object.keys(readSeen('ann', 'doc-1') ?? {})]).toEqual([
@@ -244,5 +248,55 @@ describe('which threads changed since last opened', () => {
     )
 
     expect(unread()).toEqual([])
+  })
+
+  it('keeps the mark from threads read later, though a tab with older threads opens the thread after', async () => {
+    const stale = watchThreads([FIRST], ref<number | null>(1000))
+    const newer = watchThreads([REPLIED], ref<number | null>(2000))
+    newer.open.value = 'first'
+    await nextTick()
+
+    stale.open.value = 'first'
+    await nextTick()
+    const { unread } = watchThreads([REPLIED], ref<number | null>(3000))
+
+    expect(unread()).toEqual([])
+  })
+
+  it('keeps its later mark when a tab with older threads overwrites it, not having read it yet', async () => {
+    const stale = watchThreads([FIRST], ref<number | null>(1000))
+    const before = localStorage.getItem(KEY)
+    const newer = watchThreads([REPLIED], ref<number | null>(2000))
+    newer.open.value = 'first'
+    await nextTick()
+    newer.open.value = null
+    await nextTick()
+
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(before)
+    stale.open.value = 'first'
+    await nextTick()
+    getItem.mockRestore()
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: KEY, newValue: localStorage.getItem(KEY) }),
+    )
+
+    expect(newer.unread()).toEqual([])
+  })
+
+  it('keeps the open thread seen when a tab with later threads saw it as changed', async () => {
+    const { open, unread } = watchThreads([FIRST], ref<number | null>(1000))
+    open.value = 'first'
+    await nextTick()
+    const newer = watchThreads([REPLIED], ref<number | null>(2000))
+
+    newer.seen.markSeen('first')
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: KEY, newValue: localStorage.getItem(KEY) }),
+    )
+
+    expect([unread(), readSeen('ann', 'doc-1')?.first.mark]).toEqual([
+      [],
+      '2:2026-10-01 10:00:00:false',
+    ])
   })
 })

@@ -37,8 +37,8 @@ const RESOLVED_MESSAGE_MS = 5000
  */
 const props = defineProps<{
   threads: DocumentThread[]
-  /** Whether Drive's threads have been read once. */
-  hasLoaded: boolean
+  /** When Drive's threads were read; null before the first read. */
+  readAt: number | null
   /** The document the threads are on. */
   node: string
   /** Where each thread shows in the editor; null when the editor can't tell. */
@@ -78,7 +78,7 @@ const { isUnread, markSeen } = useSeenThreads({
   user: user.value ?? 'Guest',
   node: props.node,
   threads: () => props.threads,
-  hasLoaded: () => props.hasLoaded,
+  readAt: () => props.readAt,
   openThread: () => openThread.value,
 })
 

@@ -10,6 +10,8 @@ afterEach(() => {
   for (const scope of scopes.splice(0)) {
     scope.stop()
   }
+
+  vi.useRealTimers()
 })
 
 // Drive's thread list, answered by hand so a test decides when each read returns
@@ -70,19 +72,27 @@ describe('document threads', () => {
     expect(names(threads.value)).toEqual(['kept'])
   })
 
-  it('has loaded once a read succeeds, and not after a failed one', async () => {
+  it('stamps the threads with when their read was sent, which a failed read leaves alone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(1000)
     const drive = driveThreads()
-    const { hasLoaded, refresh } = openThreads(drive.session)
-    const hasLoadedAtFirst = hasLoaded.value
+    const { readAt, refresh } = openThreads(drive.session)
     drive.reads[0].fail()
     await settled()
-    const hasLoadedAfterFailing = hasLoaded.value
-
-    const read = refresh()
+    const afterFirstFailing = readAt.value
+    vi.setSystemTime(2000)
+    const answered = refresh()
+    vi.setSystemTime(5000)
     drive.reads[1].answer([])
-    await read
+    await answered
+    const afterAnswer = readAt.value
 
-    expect([hasLoadedAtFirst, hasLoadedAfterFailing, hasLoaded.value]).toEqual([false, false, true])
+    vi.setSystemTime(6000)
+    const failed = refresh()
+    drive.reads[2].fail()
+    await failed
+
+    expect([afterFirstFailing, afterAnswer, readAt.value]).toEqual([null, 2000, 2000])
   })
 
   it('reads again when the window gets focus', async () => {
