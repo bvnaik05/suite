@@ -498,15 +498,15 @@ class FakeSuiteCloud:
         emails = self._matching(self.groups, search, ("email", "description"))
         return {"items": [self._group(e) for e in emails[start : start + limit]], "total": len(emails)}
 
-    def groups__add_group_alias(self, email, alias, description=None) -> dict:
+    def groups__add_alias(self, email, alias, description=None) -> dict:
         self._alias_add(self.groups, email, alias, description)
         return self._group(email)
 
-    def groups__remove_group_alias(self, email, alias) -> dict:
+    def groups__remove_alias(self, email, alias) -> dict:
         self._alias_remove(self.groups, email, alias)
         return self._group(email)
 
-    def groups__set_group_alias_enabled(self, email, alias, enabled) -> dict:
+    def groups__set_alias_enabled(self, email, alias, enabled) -> dict:
         self._alias_set_enabled(self.groups, email, alias, enabled)
         return self._group(email)
 
@@ -536,11 +536,11 @@ class FakeSuiteCloud:
         self._require(self.groups, email).update({k: v for k, v in changes.items() if v is not None})
         return self._group(email)
 
-    def groups__set_group_aliases(self, email, aliases=None) -> dict:
+    def groups__set_aliases(self, email, aliases=None) -> dict:
         self._require(self.groups, email)["aliases"] = self._alias_rows(aliases)
         return self._group(email)
 
-    def groups__set_group_members(self, email, members=None) -> dict:
+    def groups__set_members(self, email, members=None) -> dict:
         group = self._require(self.groups, email)
         group["members"] = list(members or [])
         for account in self.accounts.values():
@@ -568,15 +568,15 @@ class FakeSuiteCloud:
         emails = self._matching(self.lists, search, ("email", "description"))
         return {"items": [self._list(e) for e in emails[start : start + limit]], "total": len(emails)}
 
-    def mailing_lists__add_mailing_list_alias(self, email, alias, description=None) -> dict:
+    def mailing_lists__add_alias(self, email, alias, description=None) -> dict:
         self._alias_add(self.lists, email, alias, description)
         return self._list(email)
 
-    def mailing_lists__remove_mailing_list_alias(self, email, alias) -> dict:
+    def mailing_lists__remove_alias(self, email, alias) -> dict:
         self._alias_remove(self.lists, email, alias)
         return self._list(email)
 
-    def mailing_lists__set_mailing_list_alias_enabled(self, email, alias, enabled) -> dict:
+    def mailing_lists__set_alias_enabled(self, email, alias, enabled) -> dict:
         self._alias_set_enabled(self.lists, email, alias, enabled)
         return self._list(email)
 
@@ -602,7 +602,7 @@ class FakeSuiteCloud:
             self._require(self.lists, email)["description"] = description
         return self._list(email)
 
-    def mailing_lists__set_mailing_list_aliases(self, email, aliases=None) -> dict:
+    def mailing_lists__set_aliases(self, email, aliases=None) -> dict:
         self._require(self.lists, email)["aliases"] = self._alias_rows(aliases)
         return self._list(email)
 

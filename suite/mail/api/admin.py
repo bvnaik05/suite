@@ -1016,23 +1016,12 @@ def set_member_receiving_enabled(member_id: str, enabled: bool) -> None:
 
 # Suite Cloud changes one alias at a time under a row lock, so two admins editing the same
 # object never drop each other's rows.
-_ALIAS_CALLS = {
-    "accounts": ("add_alias", "remove_alias", "set_alias_enabled"),
-    "groups": ("add_group_alias", "remove_group_alias", "set_group_alias_enabled"),
-    "mailing_lists": (
-        "add_mailing_list_alias",
-        "remove_mailing_list_alias",
-        "set_mailing_list_alias_enabled",
-    ),
-}
-
-
 def _add_alias(kind: str, email_id: str, alias: str, description: str | None) -> None:
     alias = (alias or "").strip().lower()
     validate_email_address(alias, throw=True)
     is_subaddressed_email(alias, raise_exception=True)
     get_client().call(
-        f"mail.{kind}.{_ALIAS_CALLS[kind][0]}",
+        f"mail.{kind}.add_alias",
         email=email_id,
         alias=alias,
         description=(description or "").strip() or None,
@@ -1040,14 +1029,12 @@ def _add_alias(kind: str, email_id: str, alias: str, description: str | None) ->
 
 
 def _remove_alias(kind: str, email_id: str, alias: str) -> None:
-    get_client().call(
-        f"mail.{kind}.{_ALIAS_CALLS[kind][1]}", email=email_id, alias=(alias or "").strip().lower()
-    )
+    get_client().call(f"mail.{kind}.remove_alias", email=email_id, alias=(alias or "").strip().lower())
 
 
 def _set_alias_enabled(kind: str, email_id: str, alias: str, enabled: bool) -> None:
     get_client().call(
-        f"mail.{kind}.{_ALIAS_CALLS[kind][2]}",
+        f"mail.{kind}.set_alias_enabled",
         email=email_id,
         alias=(alias or "").strip().lower(),
         enabled=bool(enabled),
@@ -1273,7 +1260,7 @@ def add_group_members(group_id: str, account_ids: list) -> None:
     check_admin_permission("update groups", group_id)
     group = get_client().call("mail.groups.get_group", email=group_id)
     members = list(dict.fromkeys([*(group.get("members") or []), *_listify(account_ids)]))
-    get_client().call("mail.groups.set_group_members", email=group_id, members=members)
+    get_client().call("mail.groups.set_members", email=group_id, members=members)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1281,7 +1268,7 @@ def remove_group_member(group_id: str, account_id: str) -> None:
     check_admin_permission("update groups", f"{group_id} ({account_id})")
     group = get_client().call("mail.groups.get_group", email=group_id)
     members = [m for m in group.get("members") or [] if m != account_id]
-    get_client().call("mail.groups.set_group_members", email=group_id, members=members)
+    get_client().call("mail.groups.set_members", email=group_id, members=members)
 
 
 @frappe.whitelist(methods=["POST"])

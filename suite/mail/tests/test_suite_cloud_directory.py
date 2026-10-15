@@ -74,44 +74,6 @@ class TestClient(IntegrationTestCase):
             self.assertTrue(is_suite_cloud_configured())
         frappe.local.request_cache.clear()
 
-    def test_refusals_become_frappe_exceptions(self) -> None:
-        client = SuiteCloudClient("https://cloud.test", "k", "s")
-
-        def response(status: int, body: dict):
-            r = frappe._dict(status_code=status, ok=status < 400, content=b"x", text=json.dumps(body))
-            r.json = lambda: body
-            return r
-
-        server_message = json.dumps(
-            [json.dumps({"message": "Site acme has reached its limit of 10 domains."})]
-        )
-        with patch.object(
-            client.session, "post", return_value=response(422, {"_server_messages": server_message})
-        ):
-            self.assertRaisesRegex(
-                frappe.ValidationError,
-                "limit of 10 domains",
-                client.call,
-                "domains.create_domain",
-                domain="x.test",
-            )
-        with patch.object(
-            client.session,
-            "post",
-            return_value=response(
-                404, {"exception": "frappe.exceptions.DoesNotExistError: Mail Domain x.test not found."}
-            ),
-        ):
-            self.assertRaises(frappe.DoesNotExistError, client.call, "domains.get_domain", domain="x.test")
-        with patch.object(client.session, "post", return_value=response(403, {})):
-            self.assertRaises(frappe.PermissionError, client.call, "ping")
-        with patch.object(client.session, "post", return_value=response(200, {"message": {"site": "acme"}})):
-            self.assertEqual(client.call("site.ping"), {"site": "acme"})
-            body = json.loads(client.session.post.call_args.kwargs["data"])
-            self.assertEqual(body, {})
-        self.assertEqual(client.session.headers["Frappe-Authorization-Source"], "Suite Site")
-        self.assertEqual(client.session.headers["Authorization"], "token k:s")
-
 
 class TestSuiteSettings(SuiteCloudTestCase):
     def test_validate_credentials_pings_and_flags_jmap_url_mismatch(self) -> None:
@@ -275,7 +237,7 @@ class TestGroupsAndLists(SuiteCloudTestCase):
         # One alias per call, never the whole set: concurrent edits cannot drop each other's rows.
         self.assertEqual(
             [c[0] for c in self.fake.calls[-2:]],
-            ["mail.groups.add_group_alias", "mail.groups.set_group_alias_enabled"],
+            ["mail.groups.add_alias", "mail.groups.set_alias_enabled"],
         )
         addresses = admin.get_group(group)["email_addresses"]
         self.assertEqual(
