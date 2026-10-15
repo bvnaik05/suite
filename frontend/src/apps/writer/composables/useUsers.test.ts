@@ -69,6 +69,33 @@ describe('people for mentions and names', () => {
     ])
   })
 
+  it('the menu names the query its people answer, and not one still being asked', async () => {
+    vi.useFakeTimers()
+    const server = heldServer()
+    const people = createUsers(server.search)
+    const before = people.answeredQuery.value
+    people.start()
+    server.asked[0].answer([person('ann'), person('bob')])
+    await vi.advanceTimersByTimeAsync(0)
+    const firstPage = people.answeredQuery.value
+
+    people.searchMentions('b')
+    await vi.advanceTimersByTimeAsync(250)
+    const asking = people.answeredQuery.value
+    server.asked[1].answer([person('bob')])
+    await vi.advanceTimersByTimeAsync(0)
+    const answered = people.answeredQuery.value
+    people.searchMentions('')
+
+    expect([before, firstPage, asking, answered, people.answeredQuery.value]).toEqual([
+      null,
+      '',
+      '',
+      'b',
+      '',
+    ])
+  })
+
   it('a failed search keeps the menu as it was', async () => {
     vi.useFakeTimers()
     const server = heldServer()

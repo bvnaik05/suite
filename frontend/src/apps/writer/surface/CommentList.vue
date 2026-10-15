@@ -16,6 +16,7 @@ import { confirm, toast } from '@/platform/feedback'
 
 import CommentDraftCard from './CommentDraftCard.vue'
 import CommentDraftRow from './CommentDraftRow.vue'
+import { isComposing } from './commentMentions'
 import CommentText from './CommentText.vue'
 import MentionTextarea from './MentionTextarea.vue'
 import { useSeenThreads } from './seenThreads'
@@ -310,7 +311,7 @@ function hideReplyHint() {
 
 // Shift+Enter and a word still being composed stay in the box
 function sendOnEnter(event: KeyboardEvent, thread: DocumentThread) {
-  if (event.shiftKey || event.isComposing) {
+  if (event.shiftKey || isComposing(event)) {
     return
   }
 

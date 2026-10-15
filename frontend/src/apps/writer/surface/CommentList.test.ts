@@ -33,7 +33,7 @@ vi.mock('@/apps/writer/composables/useUsers', async () => {
   const { shallowRef } = await import('vue')
   const names: Record<string, string> = { 'ben@x.com': 'Ben Roy' }
   return {
-    useUsers: () => ({ users: shallowRef([]) }),
+    useUsers: () => ({ users: shallowRef([]), answeredQuery: shallowRef('') }),
     searchMentions: () => {},
     fullName: (user: string) => names[user] ?? user,
     lookUp: async () => {},
@@ -573,9 +573,23 @@ describe('replying in an open thread', () => {
     await click(rowButton(host, 'Is this right?'))
 
     await type('Agreed')
-    const pressed = [await press({ shiftKey: true }), await press({ isComposing: true })]
+    const pressed = [
+      await press({ shiftKey: true }),
+      await press({ isComposing: true }),
+      await press({ keyCode: 229 }),
+    ]
 
-    expect([asked, pressed]).toEqual([[], [false, false]])
+    expect([asked, pressed]).toEqual([[], [false, false, false]])
+  })
+
+  it('sends nothing on Enter while the people list is open', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+
+    await type('Ask @z')
+    const isKeptOutOfBox = await press({})
+
+    expect([asked, replyBox()?.value, isKeptOutOfBox]).toEqual([[], 'Ask @z', true])
   })
 
   it('sends one reply for two quick presses of Enter', async () => {

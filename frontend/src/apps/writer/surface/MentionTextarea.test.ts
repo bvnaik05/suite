@@ -7,6 +7,8 @@ import MentionTextarea from './MentionTextarea.vue'
 
 const people = vi.hoisted(() => ({
   isLoggedIn: true,
+  /** While true, searches get no answer until the test gives one. */
+  isHeld: false,
   /** Names known now; a lookup learns the rest, once let through. */
   known: {} as Record<string, string>,
   later: {} as Record<string, string>,
@@ -22,9 +24,15 @@ vi.mock('@/boot/session', async () => {
 vi.mock('@/apps/writer/composables/useUsers', async () => {
   const { shallowRef } = await import('vue')
   const users = shallowRef<WriterUser[]>([])
+  const answeredQuery = shallowRef<string | null>('')
   return {
-    useUsers: () => ({ users }),
-    searchMentions: (query: string) => people.searched.push(query),
+    useUsers: () => ({ users, answeredQuery }),
+    searchMentions: (query: string) => {
+      people.searched.push(query)
+      if (!people.isHeld) {
+        answeredQuery.value = query
+      }
+    },
     fullName: (user: string) => people.known[user] ?? user,
     lookUp: (user: string) =>
       new Promise<void>((resolve) => {
@@ -36,6 +44,7 @@ vi.mock('@/apps/writer/composables/useUsers', async () => {
         }
       }),
     offered: users,
+    answered: answeredQuery,
   }
 })
 
@@ -65,8 +74,9 @@ vi.mock('frappe-ui', async () => {
   }
 })
 
-const { offered } = (await import('@/apps/writer/composables/useUsers')) as unknown as {
+const { offered, answered } = (await import('@/apps/writer/composables/useUsers')) as unknown as {
   offered: { value: WriterUser[] }
+  answered: { value: string | null }
 }
 
 function person(name: string, fullName: string) {
@@ -81,6 +91,8 @@ let mounted: App | null = null
 
 beforeEach(() => {
   people.isLoggedIn = true
+  people.isHeld = false
+  answered.value = ''
   people.known = { 'ann@x.com': 'Ann Lee', 'ben@x.com': 'Ben Roy' }
   people.later = {}
   people.letLookupsThrough = () => {}
@@ -202,7 +214,7 @@ describe('picking a person with @ in a comment box', () => {
     ])
   })
 
-  it('closes the list on Esc, keeping the box, and lets Enter and Shift+Enter reach the box', async () => {
+  it('closes the list on Esc, keeping the box; Shift+Enter reaches the box, Enter with no one listed does not', async () => {
     const { box, keys } = openBox()
 
     await type(box, '@')
@@ -215,12 +227,48 @@ describe('picking a person with @ in a comment box', () => {
     const noOne = listed()
     await press(box, 'Enter')
 
-    expect([afterEsc, box.value, keys, noOne]).toEqual([
-      null,
-      '@b',
-      ['Enter', 'Enter'],
-      ['No people found'],
+    expect([afterEsc, box.value, keys, noOne]).toEqual([null, '@b', ['Enter'], ['No people found']])
+  })
+
+  it('picks no one with Enter while the list still shows an older answer, then picks once it arrives', async () => {
+    const { box, text, keys } = openBox()
+    await type(box, '@')
+    people.isHeld = true
+
+    await type(box, 'be')
+    const list = document.querySelector('[role="listbox"]')
+    const [busy, isFaded] = [
+      list?.getAttribute('aria-busy'),
+      list?.innerHTML.includes('opacity-60'),
+    ]
+    await press(box, 'Enter')
+    const [held, heldKeys] = [box.value, [...keys]]
+    answered.value = 'be'
+    offered.value = [BEN]
+    await nextTick()
+    await press(box, 'Enter')
+
+    expect([busy, isFaded, held, heldKeys, box.value, text.value, keys]).toEqual([
+      'true',
+      true,
+      '@be',
+      [],
+      '@Ben Roy ',
+      '@[ben@x.com] ',
+      [],
     ])
+  })
+
+  it('picks the first row with Enter once the list narrows past the row moved to', async () => {
+    const { box, text, keys } = openBox()
+
+    await type(box, '@')
+    await press(box, 'ArrowDown')
+    offered.value = [BEN]
+    await nextTick()
+    await press(box, 'Enter')
+
+    expect([text.value, keys]).toEqual(['@[ben@x.com] ', []])
   })
 
   it('offers no one to a guest, whose @ stays text', async () => {
@@ -342,5 +390,14 @@ describe('the caret while the stored text changes under the box', () => {
       12,
       '@[ann@x.com] @日本',
     ])
+  })
+
+  it('picks no one with an Enter sent as the composition key code', async () => {
+    const { box, text } = openBox()
+    await type(box, '@')
+
+    await press(box, 'Enter', { keyCode: 229 })
+
+    expect([box.value, text.value, listed()]).toEqual(['@', '@', ['Ann Lee', 'Ben Roy']])
   })
 })

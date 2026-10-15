@@ -8,6 +8,7 @@ import { useCurrentUser } from '@/boot/session'
 
 import {
   fromTokens,
+  isComposing,
   labelFor,
   mentionQuery,
   pickedIn,
@@ -27,7 +28,7 @@ defineOptions({ inheritAttrs: false })
 const text = defineModel<string>({ required: true })
 
 const field = ref<{ focus(): void; inputElement: HTMLTextAreaElement | null } | null>(null)
-const { users } = useUsers()
+const { users, answeredQuery } = useUsers()
 const { isLoggedIn } = useCurrentUser()
 const listId = useId()
 const shown = ref('')
@@ -40,6 +41,9 @@ let written: string | null = null
 const offered = computed(() => users.value.slice(0, MAX_SHOWN))
 const isListOpen = computed(() => isLoggedIn.value && query.value !== null)
 const isListEmpty = computed(() => !offered.value.length)
+// Rows from an older query stay shown, faded, until the answer to this one arrives
+const isAnswerCurrent = computed(() => answeredQuery.value === query.value?.query)
+const isListBusy = computed(() => !isAnswerCurrent.value)
 const activeOption = computed(() => {
   if (!isListOpen.value || !offered.value.length) {
     return undefined
@@ -76,6 +80,10 @@ watch(
   },
   { immediate: true },
 )
+
+watch(users, () => {
+  active.value = 0
+})
 
 function write(value: string) {
   shown.value = value
@@ -133,8 +141,10 @@ function takeListKey(key: string) {
   const step = STEPS[key]
   if (step) {
     moveActive(step)
-  } else if ((key === 'Enter' || key === 'Tab') && person) {
-    void pick(person)
+  } else if (key === 'Enter' || key === 'Tab') {
+    if (person && isAnswerCurrent.value) {
+      void pick(person)
+    }
   } else if (key === 'Escape') {
     closeList()
   } else {
@@ -145,7 +155,7 @@ function takeListKey(key: string) {
 }
 
 function onKey(event: KeyboardEvent) {
-  if (!isListOpen.value || event.isComposing || event.shiftKey) {
+  if (!isListOpen.value || isComposing(event) || event.shiftKey) {
     return
   }
 
@@ -164,11 +174,12 @@ function isActive(index: number) {
 }
 
 function optionClass(index: number) {
-  if (isActive(index)) {
-    return 'bg-surface-gray-3'
+  const tint = isActive(index) ? 'bg-surface-gray-3' : 'hover:bg-surface-gray-2'
+  if (isAnswerCurrent.value) {
+    return tint
   }
 
-  return 'hover:bg-surface-gray-2'
+  return `${tint} opacity-60`
 }
 
 function imageOf(person: WriterUser) {
@@ -192,7 +203,9 @@ defineExpose({ focus })
       ref="field"
       v-bind="$attrs"
       :model-value="shown"
+      role="combobox"
       aria-autocomplete="list"
+      :aria-controls="listId"
       :aria-expanded="isListOpen"
       :aria-activedescendant="activeOption"
       @update:model-value="onInput"
@@ -203,6 +216,7 @@ defineExpose({ focus })
       :id="listId"
       role="listbox"
       aria-label="People"
+      :aria-busy="isListBusy"
       class="absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-6 border border-outline-gray-2 bg-surface-elevation-2 p-1 shadow-lg"
     >
       <button
@@ -221,7 +235,14 @@ defineExpose({ focus })
         <Avatar size="sm" :image="imageOf(person)" :label="person.label" />
         <span class="truncate text-ink-gray-8">{{ person.label }}</span>
       </button>
-      <p v-if="isListEmpty" class="px-2 py-1.5 text-sm text-ink-gray-5">No people found</p>
+      <p
+        v-if="isListEmpty"
+        role="option"
+        aria-disabled="true"
+        class="px-2 py-1.5 text-sm text-ink-gray-5"
+      >
+        No people found
+      </p>
     </div>
   </div>
 </template>

@@ -67,6 +67,8 @@ function createNames(search: Search, directory: ReturnType<typeof createDirector
 // The people the `@` menu offers, from the latest answer the server gave
 function createMenu(search: Search, remember: (people: WriterUser[]) => void) {
   const users = shallowRef<WriterUser[]>([])
+  /** The query `users` answers; null before the first answer. */
+  const answeredQuery = shallowRef<string | null>(null)
   /** The answer to the empty query, shown the moment `@` is typed. */
   let firstPage: WriterUser[] = []
   let latest = 0
@@ -81,6 +83,7 @@ function createMenu(search: Search, remember: (people: WriterUser[]) => void) {
 
     remember(found)
     users.value = found
+    answeredQuery.value = query
     firstPage = query.trim() ? firstPage : found
   }
 
@@ -92,10 +95,11 @@ function createMenu(search: Search, remember: (people: WriterUser[]) => void) {
 
     latest++
     users.value = firstPage
+    answeredQuery.value = ''
     return true
   }
 
-  return { users, run, showFirstPage }
+  return { users, answeredQuery, run, showFirstPage }
 }
 
 // Narrows the menu as the user types after `@`, once the typing pauses
@@ -133,7 +137,14 @@ export function createUsers(search: Search = searchUsers) {
 
   const names = createNames(search, directory)
   const searchMentions = createMentionSearch(menu)
-  return { ...directory, ...names, users: menu.users, searchMentions, start }
+  return {
+    ...directory,
+    ...names,
+    users: menu.users,
+    answeredQuery: menu.answeredQuery,
+    searchMentions,
+    start,
+  }
 }
 
 const people = createUsers()
@@ -150,5 +161,5 @@ export function useUsers() {
     people.start()
   }
 
-  return { users: people.users, getUser: people.getUser }
+  return { users: people.users, answeredQuery: people.answeredQuery, getUser: people.getUser }
 }

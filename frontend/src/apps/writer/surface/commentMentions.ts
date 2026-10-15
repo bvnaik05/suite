@@ -25,6 +25,13 @@ const QUERY_BEFORE_CARET = /(?:^|[\s(])@([^\s@]*)$/
 // The mention form Drive reads, at the user id lengths it accepts
 const TOKEN = /@\[([^\]\r\n]{1,140})\]/g
 const SPECIAL = /[.*+?^${}()|[\]\\]/g
+// Some browsers send the Enter that ends a composition as this key code, without isComposing
+const IME_KEY_CODE = 229
+
+/** True for a key that belongs to a word still being composed. */
+export function isComposing(event: KeyboardEvent) {
+  return event.isComposing || event.keyCode === IME_KEY_CODE
+}
 
 /** The text typed after an `@` that starts a word, up to the caret; null outside one. */
 export function mentionQuery(text: string, caret: number): MentionQuery | null {
