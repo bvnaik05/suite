@@ -431,11 +431,20 @@ test.describe("Writer collaboration", () => {
 			.first()
 			.click();
 		const comments = page.getByRole("complementary", { name: "Comments" });
-		const tabsBox = (await comments.getByRole("radiogroup", { name: "Show comments" }).boundingBox())!;
 		const commentsHeading = (await comments
 			.getByRole("heading", { name: "Comments" })
 			.boundingBox())!;
-		expect(tabsBox.y - commentsHeading.y).toBe(tocGap);
+		expect(
+			await comments.getByRole("button", { name: "Add a comment…" }).evaluate((button) => {
+				const range = document.createRange();
+				range.selectNodeContents(button);
+				return range.getBoundingClientRect().x;
+			}),
+		).toBe(commentsHeading.x);
+		expect(
+			(await comments.getByRole("button", { name: "Add a comment…" }).boundingBox())!.y -
+				commentsHeading.y,
+		).toBe(tocGap);
 
 		const closing = sampleMotion();
 		await page.getByRole("button", { name: "Close panel" }).click();

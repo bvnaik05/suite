@@ -87,27 +87,6 @@ vi.mock('frappe-ui', async () => {
             props.label,
           ),
     }),
-    TabButtons: define({
-      props: { modelValue: String, options: Array as () => { label: string; value: string }[] },
-      emits: ['update:modelValue'],
-      setup:
-        (props, { emit }) =>
-        () =>
-          render(
-            'div',
-            props.options?.map((option) =>
-              render(
-                'button',
-                {
-                  role: 'tab',
-                  'aria-selected': props.modelValue === option.value,
-                  onClick: () => emit('update:modelValue', option.value),
-                },
-                option.label,
-              ),
-            ),
-          ),
-    }),
     // Shows the menu's items beside its button, as if it were open; a pick reports closing a tick later
     Dropdown: define({
       props: { options: Array as () => { label: string; onClick: () => void }[] },
@@ -328,7 +307,7 @@ function showList({
 
 // Each row's words, one piece of text after another
 function rows(host: Element) {
-  return [...host.querySelectorAll('li')].map((row) => {
+  return [...host.querySelectorAll('li:not([role="none"])')].map((row) => {
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
     const pieces: string[] = []
     while (walker.nextNode()) {
@@ -364,7 +343,7 @@ async function settled() {
 }
 
 function openRows(host: Element) {
-  return [...host.querySelectorAll('li > button[aria-expanded="true"]')].map(
+  return [...host.querySelectorAll('li:not([role="none"]) > button[aria-expanded="true"]')].map(
     (button) => button.closest('li')!.dataset.thread ?? '',
   )
 }
@@ -384,16 +363,34 @@ describe('the comments list', () => {
     ])
   })
 
-  it('counts the threads in the Open and Resolved tabs and shows resolved ones only under Resolved', async () => {
+  it('shows open threads, then resolved ones folded under Resolved · n', async () => {
     const { host } = showList()
-    const tabs = [...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)
+    const atFirst = [
+      rows(host).length,
+      buttonNamed(host, 'Resolved · 1')?.getAttribute('aria-expanded'),
+    ]
 
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(buttonNamed(host, 'Resolved · 1'))
 
-    expect([tabs, rows(host)]).toEqual([
-      ['Open 2', 'Resolved 1'],
-      [expect.stringMatching(/^Asha Rao Text deleted \S.* Fixed the title · 1 reply$/)],
+    expect([
+      atFirst,
+      buttonNamed(host, 'Resolved · 1')?.getAttribute('aria-expanded'),
+      rows(host),
+    ]).toEqual([
+      [2, 'false'],
+      'true',
+      [
+        expect.stringMatching(/^Ben Ito \S.* Looks good overall$/),
+        expect.stringMatching(/^Asha Rao \S.* Is this right\? · 2 replies$/),
+        expect.stringMatching(/^Asha Rao Text deleted \S.* Fixed the title · 1 reply$/),
+      ],
     ])
+  })
+
+  it('shows no Resolved line when nothing is resolved', () => {
+    const { host } = showList({ threads: [ON_TEXT, WHOLE] })
+
+    expect(host.textContent).not.toContain('Resolved')
   })
 
   it('keeps one thread open at a time, and closes it on a second click or Esc', async () => {
@@ -424,23 +421,38 @@ describe('the comments list', () => {
     expect(opened).toEqual(['on-text', null])
   })
 
-  it('closes the open thread once another tab resolves it, staying under Open', async () => {
+  it('closes the open thread once another tab resolves it', async () => {
     const { host, opened, listed } = showList()
 
     await click(rowButton(host, 'Is this right?'))
     listed.value = [{ ...ON_TEXT, resolved: true }, WHOLE, DONE]
     await nextTick()
 
-    expect([opened, !!buttonNamed(host, 'Open 1')]).toEqual([['on-text', null], true])
+    expect([opened, buttonNamed(host, 'Resolved · 2')?.getAttribute('aria-expanded')]).toEqual([
+      ['on-text', null],
+      'false',
+    ])
   })
 
-  it('closes the open thread when the person turns to the other tab', async () => {
+  it('closes the open thread when it is resolved with Resolved unfolded', async () => {
     const { host, opened } = showList()
 
+    await click(buttonNamed(host, 'Resolved · 1'))
     await click(rowButton(host, 'Is this right?'))
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(labelled(rowButton(host, 'Is this right?').parentElement!, 'Resolve'))
+    await settled()
 
     expect(opened).toEqual(['on-text', null])
+  })
+
+  it('closes an open resolved thread when Resolved is folded', async () => {
+    const { host, opened } = showList()
+
+    await click(buttonNamed(host, 'Resolved · 1'))
+    await click(rowButton(host, 'Fixed the title'))
+    await click(buttonNamed(host, 'Resolved · 1'))
+
+    expect(opened).toEqual(['done', null])
   })
 
   it('keeps open a thread the list has not caught up with yet', async () => {
@@ -510,7 +522,7 @@ describe('resolving and reopening a thread', () => {
   it('closes the open thread when it is reopened from Resolved', async () => {
     const { host, asked, opened } = showList()
 
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(buttonNamed(host, 'Resolved · 1'))
     await click(rowButton(host, 'Fixed the title'))
     await click(labelled(host, 'Reopen'))
     await settled()
@@ -568,8 +580,8 @@ describe('resolving and reopening a thread', () => {
   it('reopens a resolved thread from ↺ in the same spot, with no message', async () => {
     const { host, asked } = showList()
 
-    await click(buttonNamed(host, 'Resolved 1'))
-    const hasResolve = !!labelled(host, 'Resolve')
+    await click(buttonNamed(host, 'Resolved · 1'))
+    const hasResolve = !!labelled(rowButton(host, 'Fixed the title').parentElement!, 'Resolve')
     await click(labelled(host, 'Reopen'))
     await settled()
 
@@ -837,7 +849,7 @@ describe('replying in an open thread', () => {
   it('offers no reply box in a resolved thread', async () => {
     const { host } = showList()
 
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(buttonNamed(host, 'Resolved · 1'))
     await click(rowButton(host, 'Fixed the title'))
 
     expect(replyBox()).toBeNull()
@@ -920,14 +932,13 @@ describe('commenting on the whole document', () => {
     ])
   })
 
-  it('opens the box under the Open tab when asked from elsewhere', async () => {
+  it('opens the box at the top when asked from elsewhere, with Resolved unfolded', async () => {
     const { host, start } = showStartableList()
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(buttonNamed(host, 'Resolved · 1'))
 
     await start()
 
-    const selected = host.querySelector('[role="tab"][aria-selected="true"]')?.textContent
-    expect([selected, document.activeElement === documentBox()]).toEqual(['Open 0', true])
+    expect(document.activeElement === documentBox()).toBe(true)
   })
 
   it('keeps one box, putting the cursor back in it with its words when asked again', async () => {
@@ -1000,7 +1011,7 @@ describe('commenting on the whole document', () => {
   })
 })
 
-describe('an empty tab and a reader who can’t comment', () => {
+describe('an empty list and a reader who can’t comment', () => {
   it('says how to start a comment when nothing is open', () => {
     const { host } = showList({ threads: [DONE] })
 
@@ -1009,25 +1020,30 @@ describe('an empty tab and a reader who can’t comment', () => {
     )
   })
 
-  it('offers a reader no top line, reply, resolve or delete, in either tab', async () => {
+  it('offers a reader no top line, reply, resolve or delete, open or resolved', async () => {
     const { host } = showList({ canComment: false, threads: [ON_TEXT, DONE] })
     function extras() {
       const labels = [...host.querySelectorAll('button:not([aria-expanded])')].map(
         (button) => button.textContent?.trim() || button.getAttribute('aria-label'),
       )
-      const rest = labels.filter((label) => !/^(Open|Resolved) \d$/.test(label ?? ''))
-      return [host.querySelector('textarea'), rest]
+      return [host.querySelector('textarea'), labels]
     }
 
     await click(rowButton(host, 'Is this right?'))
     const inOpen = extras()
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(buttonNamed(host, 'Resolved · 1'))
     await click(rowButton(host, 'Fixed the title'))
 
     expect([inOpen, extras()]).toEqual([
       [null, []],
       [null, []],
     ])
+  })
+
+  it('shows No open comments, then Resolved · n, when every thread is resolved', () => {
+    const { host } = showList({ threads: [DONE] })
+
+    expect(host.textContent).toMatch(/No open comments\..*Resolved · 1/)
   })
 
   it('tells a reader only that nothing is open', () => {
@@ -1051,13 +1067,15 @@ describe('the list and the editor', () => {
     expect(lit).toEqual(['on-text', null])
   })
 
-  it('shows a thread opened from its text under its own tab', async () => {
+  it('unfolds Resolved for a resolved thread opened from its text', async () => {
     const { host } = showList({ openThread: 'done' })
     await settled()
 
-    const selected = host.querySelector('[role="tab"][aria-selected="true"]')?.textContent
     const isOpen = rowButton(host, 'Fixed the title').getAttribute('aria-expanded')
-    expect([selected, isOpen]).toEqual(['Resolved 1', 'true'])
+    expect([buttonNamed(host, 'Resolved · 1')?.getAttribute('aria-expanded'), isOpen]).toEqual([
+      'true',
+      'true',
+    ])
   })
 
   it('leaves no text lit once the panel closes', () => {
@@ -1476,15 +1494,20 @@ describe('comments not yet posted', () => {
     ])
   })
 
-  it('shows no unposted comments under Resolved', async () => {
+  it('keeps unposted comments at the top, above Resolved', async () => {
     const { list } = fakeDrafts([{ text: 'Still writing' }, { text: 'Refused', isSent: true }])
     const { host } = showList({ drafts: list })
 
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(buttonNamed(host, 'Resolved · 1'))
 
-    expect([host.querySelector('textarea'), rows(host)]).toEqual([
-      null,
-      [expect.stringMatching(/^Asha Rao Text deleted .* Fixed the title · 1 reply$/)],
+    expect([!!host.querySelector('textarea'), rows(host)]).toEqual([
+      true,
+      [
+        'You Not posted · Retry Refused',
+        expect.stringMatching(/^Ben Ito \S.* Looks good overall$/),
+        expect.stringMatching(/^Asha Rao \S.* Is this right\? · 2 replies$/),
+        expect.stringMatching(/^Asha Rao Text deleted .* Fixed the title · 1 reply$/),
+      ],
     ])
   })
 })
@@ -1499,7 +1522,7 @@ describe('threads changed since last opened', () => {
     return { ...thread, comments: [...thread.comments, reply] } as DocumentThread
   }
 
-  it('dots a row changed since, in either tab, and clears it once opened, never dotting drafts', async () => {
+  it('dots a row changed since, open or resolved, and clears it once opened, never dotting drafts', async () => {
     const { list } = fakeDrafts([{ text: 'Refused', isSent: true }])
     const { host, listed } = showList({ drafts: list })
     const atFirst = unreadRows(host)
@@ -1509,7 +1532,7 @@ describe('threads changed since last opened', () => {
     const changed = unreadRows(host)
     await click(rowButton(host, 'Looks good overall'))
     const opened = unreadRows(host)
-    await click(buttonNamed(host, 'Resolved 1'))
+    await click(buttonNamed(host, 'Resolved · 1'))
     const resolved = unreadRows(host)
 
     expect([atFirst, changed, opened, resolved]).toEqual([
@@ -1526,13 +1549,12 @@ describe('threads changed since last opened', () => {
 
     await click(labelled(host, 'Resolve'))
     await settled()
-    await click(buttonNamed(host, 'Resolved 2'))
+    await click(buttonNamed(host, 'Resolved · 2'))
     const afterResolve = [rows(host).length, unreadRows(host)]
     toasts[0].action.onClick()
     await settled()
-    await click(buttonNamed(host, 'Open 2'))
 
-    expect([afterResolve, rows(host).length, unreadRows(host)]).toEqual([[2, []], 2, []])
+    expect([afterResolve, rows(host).length, unreadRows(host)]).toEqual([[3, []], 3, []])
   })
 })
 

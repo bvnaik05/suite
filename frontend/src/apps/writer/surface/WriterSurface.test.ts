@@ -49,7 +49,6 @@ vi.mock('frappe-ui', async () => {
           render('button', { onClick: () => emit('click') }, props.label),
     }),
     Skeleton: emptyComponent,
-    TabButtons: emptyComponent,
     Textarea: define({
       setup(_, { expose }) {
         const box = state<HTMLTextAreaElement | null>(null)

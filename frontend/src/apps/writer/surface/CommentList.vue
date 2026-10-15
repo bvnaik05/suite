@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Avatar, Button, Dropdown, TabButtons, TextInput, type DropdownOptions } from 'frappe-ui'
+import { Avatar, Button, Dropdown, TextInput, type DropdownOptions } from 'frappe-ui'
 import { v4 } from 'uuid'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -26,16 +26,15 @@ import type { ThreadActions } from './useDocumentPanel'
 import { dayOrTime } from './versionDates'
 
 type ThreadComment = DocumentThread['comments'][number]
-type CommentTab = 'open' | 'resolved'
 
 const RESOLVED_MESSAGE_MS = 5000
 // The most a comment holds, in UTF-8 bytes, as Drive counts them
 const MAX_COMMENT_BYTES = 65_535
 
 /**
- * The document's comment threads under Open and Resolved tabs, one row each and
- * one open at a time. A closed row shows who started the thread, where it is,
- * when, its first comment and how many replies it has.
+ * The document's comment threads, open ones first and resolved ones folded below,
+ * one row each and one open at a time. A closed row shows who started the thread,
+ * where it is, when, its first comment and how many replies it has.
  */
 const props = defineProps<{
   threads: DocumentThread[]
@@ -58,7 +57,7 @@ const openThread = defineModel<string | null>('openThread', { default: null })
 /** The closed thread whose row is pointed at, whose text lights faintly. */
 const litThread = defineModel<string | null>('litThread', { default: null })
 
-const tab = ref<CommentTab>('open')
+const isResolvedShown = ref(false)
 const rowItems = ref<HTMLElement[]>([])
 const documentCard = ref<{ focus(): void } | null>(null)
 const replyBoxes = ref<{ focus(): void }[]>([])
@@ -67,7 +66,7 @@ const replyTexts = ref<Record<string, string>>({})
 /** The replies sent to each thread that Drive hasn't confirmed, by words, with the client id each went under. */
 const unsentReplies = new Map<string, Map<string, string>>()
 const isReplyFocused = ref(false)
-/** Threads being resolved or reopened, faded until they leave the tab. */
+/** Threads being resolved or reopened, faded until they leave their part of the list. */
 const leavingThreads = ref(new Set<string>())
 let isSendingReply = false
 const editingComment = ref<string | null>(null)
@@ -96,38 +95,21 @@ const {
 const rows = computed(() => threadRows(props.threads, props.places))
 const openRows = computed(() => rows.value.filter(({ thread }) => !thread.resolved))
 const resolvedRows = computed(() => rows.value.filter(({ thread }) => thread.resolved))
-const isOpenTab = computed(() => tab.value === 'open')
-const tabs = computed(() => [
-  { label: `Open ${openRows.value.length}`, value: 'open' },
-  { label: `Resolved ${resolvedRows.value.length}`, value: 'resolved' },
-])
-const shownRows = computed(() => {
-  if (isOpenTab.value) {
-    return openRows.value
+const shownResolvedRows = computed(() => {
+  if (!isResolvedShown.value) {
+    return []
   }
 
   return resolvedRows.value
 })
-const shownDrafts = computed(() => {
-  if (!isOpenTab.value) {
-    return []
-  }
-
-  return props.drafts.drafts.value
-})
-const boxDrafts = computed(() => shownDrafts.value.filter((draft) => !draft.isSent))
+const boxDrafts = computed(() => props.drafts.drafts.value.filter((draft) => !draft.isSent))
 // The whole-document box takes the place of the line that starts it
 const documentDraft = computed(() => boxDrafts.value.find(isOnDocument))
 const textDrafts = computed(() => boxDrafts.value.filter((draft) => !isOnDocument(draft)))
-const sentDrafts = computed(() => shownDrafts.value.filter((draft) => draft.isSent))
-const canStartComment = computed(() => isOpenTab.value && props.canComment)
-const hasShownDrafts = computed(() => !!shownDrafts.value.length)
-const isEmpty = computed(() => !shownRows.value.length && !hasShownDrafts.value)
+const sentDrafts = computed(() => props.drafts.drafts.value.filter((draft) => draft.isSent))
+const hasShownDrafts = computed(() => !!props.drafts.drafts.value.length)
+const isEmpty = computed(() => !openRows.value.length && !hasShownDrafts.value)
 const emptyText = computed(() => {
-  if (!isOpenTab.value) {
-    return 'No resolved comments.'
-  }
-
   if (!props.canComment) {
     return 'No open comments.'
   }
@@ -144,7 +126,6 @@ const replyText = computed({
 })
 const hasReplyText = computed(() => !!replyText.value.trim())
 const isReplyHintShown = computed(() => isReplyFocused.value && !replyText.value)
-const canReply = computed(() => isOpenTab.value && props.canComment)
 const isEditBlank = computed(() => !editText.value.trim())
 const guestNameHint = computed(() => {
   if (guestNameAtLimit.value) {
@@ -153,6 +134,23 @@ const guestNameHint = computed(() => {
 
   return 'Optional. Shown with your comments.'
 })
+
+function canReply(thread: DocumentThread) {
+  return !thread.resolved && props.canComment
+}
+
+// The Resolved line sits before the first resolved row
+function startsResolved(index: number) {
+  return index === openRows.value.length
+}
+
+function isRowShown(thread: DocumentThread) {
+  return !thread.resolved || isResolvedShown.value
+}
+
+function toggleResolvedShown() {
+  isResolvedShown.value = !isResolvedShown.value
+}
 
 function isOpen(thread: DocumentThread) {
   return openThread.value === thread.name
@@ -186,14 +184,17 @@ function dimThread() {
   litThread.value = null
 }
 
-// A thread opened from its text shows under its own tab, in view
+// A thread opened from its text shows in view, unfolding Resolved for a resolved one
 async function showOpenThread(name: string | null) {
   const row = rows.value.find(({ thread }) => thread.name === name)
   if (!row) {
     return
   }
 
-  tab.value = row.thread.resolved ? 'resolved' : 'open'
+  if (row.thread.resolved) {
+    isResolvedShown.value = true
+  }
+
   await nextTick()
   const item = rowItems.value.find((element) => element.dataset.thread === name)
   item?.scrollIntoView({ block: 'nearest' })
@@ -205,9 +206,14 @@ function hasThread(shown: ThreadRow[], name: string | null) {
   return shown.some(({ thread }) => thread.name === name)
 }
 
-// The open thread closes once it leaves the list: resolved or deleted elsewhere, or behind the other tab
-watch(shownRows, (shown, before) => {
-  if (hasThread(before, openThread.value) && !hasThread(shown, openThread.value)) {
+// The open thread closes once it leaves its part of the list: resolved, reopened, deleted or folded away
+watch([openRows, shownResolvedRows], (shown, before) => {
+  if (
+    shown.some(
+      (part, index) =>
+        hasThread(before[index], openThread.value) && !hasThread(part, openThread.value),
+    )
+  ) {
     closeThread()
   }
 })
@@ -238,7 +244,6 @@ function isOnDocument(draft: ShownDraft) {
 
 // One whole-document box at a time; asking again puts the cursor back in it
 async function startDocumentComment() {
-  tab.value = 'open'
   if (!documentDraft.value) {
     props.drafts.start(DOCUMENT_ANCHOR)
   }
@@ -364,7 +369,7 @@ async function setResolved(thread: string, isResolved: boolean) {
   return isChanged
 }
 
-// A thread leaves the tab it is in, so it closes and fades until it has gone
+// A thread leaves its part of the list, so it closes and fades until it has gone
 async function toggleResolved(thread: DocumentThread) {
   if (leavingThreads.value.has(thread.name)) {
     return
@@ -552,8 +557,7 @@ function rowClass(thread: DocumentThread) {
 
 <template>
   <div class="space-y-3" @keydown.esc="closeThread">
-    <TabButtons v-model="tab" :options="tabs" aria-label="Show comments" />
-    <template v-if="canStartComment">
+    <template v-if="canComment">
       <TextInput
         v-if="showGuestName"
         v-model="guestName"
@@ -589,6 +593,7 @@ function rowClass(thread: DocumentThread) {
       @post="postDraft(draft)"
       @discard="discardDraft(draft)"
     />
+    <p v-if="isEmpty" class="px-3 text-p-sm text-ink-gray-5">{{ emptyText }}</p>
     <ul class="space-y-1">
       <CommentDraftRow
         v-for="draft in sentDrafts"
@@ -597,160 +602,181 @@ function rowClass(thread: DocumentThread) {
         @retry="postDraft(draft)"
         @discard="discardSentDraft(draft)"
       />
-      <li
-        v-for="{ thread, quote, where } in shownRows"
-        ref="rowItems"
+      <template
+        v-for="({ thread, quote, where }, index) in [...openRows, ...resolvedRows]"
         :key="thread.name"
-        :data-thread="thread.name"
-        class="group relative rounded-4 transition-opacity duration-200"
-        :class="rowClass(thread)"
-        @mouseenter="lightThread(thread)"
-        @mouseleave="dimThread"
       >
-        <button
-          type="button"
-          class="block w-full space-y-1 px-3 py-2 text-left"
-          :aria-expanded="isOpen(thread)"
-          @click="toggleThread(thread)"
+        <li v-if="startsResolved(index)" role="none" class="pt-2 first:pt-0">
+          <button
+            type="button"
+            class="group flex w-full items-center rounded-4 px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
+            :aria-expanded="isResolvedShown"
+            @click="toggleResolvedShown"
+          >
+            Resolved · {{ resolvedRows.length }}
+            <span
+              class="lucide-chevron-right ml-auto size-4 transition-transform duration-200 group-aria-expanded:rotate-90"
+              aria-hidden="true"
+            />
+          </button>
+        </li>
+        <li
+          v-if="isRowShown(thread)"
+          ref="rowItems"
+          :data-thread="thread.name"
+          class="group relative rounded-4 transition-opacity duration-200"
+          :class="rowClass(thread)"
+          @mouseenter="lightThread(thread)"
+          @mouseleave="dimThread"
         >
-          <span class="flex items-center gap-1.5 pr-8 text-xs text-ink-gray-5">
-            <span class="min-w-0 text-sm-medium text-ink-gray-8">
-              <DriveCommentAuthor
-                :author="firstComment(thread).author"
-                :author-name="firstComment(thread).author_name"
-                >{{ authorLabel(firstComment(thread)) }}</DriveCommentAuthor
-              >
+          <button
+            type="button"
+            class="block w-full space-y-1 px-3 py-2 text-left"
+            :aria-expanded="isOpen(thread)"
+            @click="toggleThread(thread)"
+          >
+            <span class="flex items-center gap-1.5 pr-8 text-xs text-ink-gray-5">
+              <span class="min-w-0 text-sm-medium text-ink-gray-8">
+                <DriveCommentAuthor
+                  :author="firstComment(thread).author"
+                  :author-name="firstComment(thread).author_name"
+                  >{{ authorLabel(firstComment(thread)) }}</DriveCommentAuthor
+                >
+              </span>
+              <span v-if="where" class="shrink-0">{{ where }}</span>
+              <span v-if="isUnread(thread)" class="flex shrink-0 items-center">
+                <span class="size-1.5 rounded-full bg-surface-amber-7" aria-hidden="true" />
+                <span class="sr-only">Unread</span>
+              </span>
+              <span class="shrink-0">{{ dayOrTime(firstComment(thread)) }}</span>
             </span>
-            <span v-if="where" class="shrink-0">{{ where }}</span>
-            <span v-if="isUnread(thread)" class="flex shrink-0 items-center">
-              <span class="size-1.5 rounded-full bg-surface-amber-7" aria-hidden="true" />
-              <span class="sr-only">Unread</span>
-            </span>
-            <span class="shrink-0">{{ dayOrTime(firstComment(thread)) }}</span>
-          </span>
-          <span v-if="isClosed(thread)" class="flex gap-1 text-p-sm">
-            <span class="truncate text-ink-gray-7">
-              <CommentText
-                :content="firstComment(thread).content"
-                :mentions="firstComment(thread).mentions"
-              />
-            </span>
-            <span v-if="replies(thread).length" class="shrink-0 text-ink-gray-5">
-              · {{ repliesLabel(thread) }}
-            </span>
-          </span>
-        </button>
-        <div
-          v-if="canComment"
-          class="absolute right-1 top-1 flex items-center"
-          :class="actionsClass(thread)"
-        >
-          <Button
-            size="sm"
-            variant="ghost"
-            :icon="resolveIcon(thread)"
-            :aria-label="resolveLabel(thread)"
-            @click="toggleResolved(thread)"
-          />
-        </div>
-        <template v-if="isOpen(thread)">
-          <div class="space-y-2 px-3 pb-3">
-            <p v-if="quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
-              {{ quote }}
-            </p>
-            <div
-              v-for="comment in thread.comments"
-              :key="comment.name"
-              class="group/comment relative space-y-1"
-            >
-              <p
-                v-if="isReply(thread, comment)"
-                class="flex items-center gap-2 pr-8 text-sm-medium text-ink-gray-8"
-              >
-                <Avatar
-                  v-if="comment.person"
-                  :image="authorImage(comment)"
-                  :label="comment.person.full_name"
-                  size="sm"
-                  shape="circle"
+            <span v-if="isClosed(thread)" class="flex gap-1 text-p-sm">
+              <span class="truncate text-ink-gray-7">
+                <CommentText
+                  :content="firstComment(thread).content"
+                  :mentions="firstComment(thread).mentions"
                 />
-                <DriveCommentAuthor :author="comment.author" :author-name="comment.author_name">{{
-                  authorLabel(comment)
-                }}</DriveCommentAuthor>
-                <span class="flex-1 text-xs text-ink-gray-5">{{ dayOrTime(comment) }}</span>
-              </p>
-              <form v-if="isEditing(comment)" class="space-y-2" @submit.prevent="saveEdit(comment)">
-                <MentionTextarea
-                  ref="editBoxes"
-                  v-model="editText"
-                  :rows="2"
-                  aria-label="Edit comment"
-                  @keydown.esc.stop.prevent="stopEdit"
-                />
-                <div class="flex justify-end gap-1">
-                  <Button size="sm" variant="ghost" label="Cancel" @click="stopEdit" />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="outline"
-                    label="Save"
-                    :disabled="isEditBlank"
-                  />
-                </div>
-              </form>
-              <p v-else class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
-                <CommentText :content="comment.content" :mentions="comment.mentions" />
+              </span>
+              <span v-if="replies(thread).length" class="shrink-0 text-ink-gray-5">
+                · {{ repliesLabel(thread) }}
+              </span>
+            </span>
+          </button>
+          <div
+            v-if="canComment"
+            class="absolute right-1 top-1 flex items-center"
+            :class="actionsClass(thread)"
+          >
+            <Button
+              size="sm"
+              variant="ghost"
+              :icon="resolveIcon(thread)"
+              :aria-label="resolveLabel(thread)"
+              @click="toggleResolved(thread)"
+            />
+          </div>
+          <template v-if="isOpen(thread)">
+            <div class="space-y-2 px-3 pb-3">
+              <p v-if="quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
+                {{ quote }}
               </p>
               <div
-                v-if="hasMenu(comment)"
-                class="absolute -top-1 right-0"
-                :class="menuClass(comment)"
+                v-for="comment in thread.comments"
+                :key="comment.name"
+                class="group/comment relative space-y-1"
               >
-                <Dropdown
-                  :options="commentActions(comment)"
-                  align="end"
-                  @update:open="noteMenu(comment, $event)"
+                <p
+                  v-if="isReply(thread, comment)"
+                  class="flex items-center gap-2 pr-8 text-sm-medium text-ink-gray-8"
                 >
-                  <button
-                    type="button"
-                    class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
-                    aria-label="More comment actions"
+                  <Avatar
+                    v-if="comment.person"
+                    :image="authorImage(comment)"
+                    :label="comment.person.full_name"
+                    size="sm"
+                    shape="circle"
+                  />
+                  <DriveCommentAuthor :author="comment.author" :author-name="comment.author_name">{{
+                    authorLabel(comment)
+                  }}</DriveCommentAuthor>
+                  <span class="flex-1 text-xs text-ink-gray-5">{{ dayOrTime(comment) }}</span>
+                </p>
+                <form
+                  v-if="isEditing(comment)"
+                  class="space-y-2"
+                  @submit.prevent="saveEdit(comment)"
+                >
+                  <MentionTextarea
+                    ref="editBoxes"
+                    v-model="editText"
+                    :rows="2"
+                    aria-label="Edit comment"
+                    @keydown.esc.stop.prevent="stopEdit"
+                  />
+                  <div class="flex justify-end gap-1">
+                    <Button size="sm" variant="ghost" label="Cancel" @click="stopEdit" />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="outline"
+                      label="Save"
+                      :disabled="isEditBlank"
+                    />
+                  </div>
+                </form>
+                <p v-else class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
+                  <CommentText :content="comment.content" :mentions="comment.mentions" />
+                </p>
+                <div
+                  v-if="hasMenu(comment)"
+                  class="absolute -top-1 right-0"
+                  :class="menuClass(comment)"
+                >
+                  <Dropdown
+                    :options="commentActions(comment)"
+                    align="end"
+                    @update:open="noteMenu(comment, $event)"
                   >
-                    <span class="lucide-ellipsis size-4" aria-hidden="true" />
-                  </button>
-                </Dropdown>
+                    <button
+                      type="button"
+                      class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
+                      aria-label="More comment actions"
+                    >
+                      <span class="lucide-ellipsis size-4" aria-hidden="true" />
+                    </button>
+                  </Dropdown>
+                </div>
               </div>
+              <form v-if="canReply(thread)" class="space-y-1" @submit.prevent="submitReply(thread)">
+                <div class="relative">
+                  <MentionTextarea
+                    ref="replyBoxes"
+                    v-model="replyText"
+                    :rows="1"
+                    placeholder="Reply"
+                    aria-label="Reply"
+                    @keydown.enter="sendOnEnter($event, thread)"
+                    @focus="showReplyHint"
+                    @blur="hideReplyHint"
+                  />
+                  <Button
+                    v-if="hasReplyText"
+                    type="submit"
+                    class="absolute bottom-1 right-1"
+                    size="sm"
+                    variant="ghost"
+                    icon="lucide-arrow-up"
+                    aria-label="Send reply"
+                  />
+                </div>
+                <p v-if="isReplyHintShown" class="text-p-xs text-ink-gray-5">
+                  Enter to send · Shift+Enter for a new line
+                </p>
+              </form>
             </div>
-            <form v-if="canReply" class="space-y-1" @submit.prevent="submitReply(thread)">
-              <div class="relative">
-                <MentionTextarea
-                  ref="replyBoxes"
-                  v-model="replyText"
-                  :rows="1"
-                  placeholder="Reply"
-                  aria-label="Reply"
-                  @keydown.enter="sendOnEnter($event, thread)"
-                  @focus="showReplyHint"
-                  @blur="hideReplyHint"
-                />
-                <Button
-                  v-if="hasReplyText"
-                  type="submit"
-                  class="absolute bottom-1 right-1"
-                  size="sm"
-                  variant="ghost"
-                  icon="lucide-arrow-up"
-                  aria-label="Send reply"
-                />
-              </div>
-              <p v-if="isReplyHintShown" class="text-p-xs text-ink-gray-5">
-                Enter to send · Shift+Enter for a new line
-              </p>
-            </form>
-          </div>
-        </template>
-      </li>
+          </template>
+        </li>
+      </template>
     </ul>
-    <p v-if="isEmpty" class="px-3 text-p-sm text-ink-gray-5">{{ emptyText }}</p>
   </div>
 </template>

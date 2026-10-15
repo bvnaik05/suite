@@ -25,7 +25,6 @@ vi.mock('frappe-ui', async () => {
           ]),
     }),
     Textarea: emptyComponent,
-    TabButtons: emptyComponent,
     Tooltip: emptyComponent,
     Button: define({
       props: { label: String },

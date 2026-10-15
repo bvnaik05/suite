@@ -109,10 +109,9 @@ test.describe("Writer collaboration comments", () => {
 		await row.hover();
 		await row.getByRole("button", { name: "Resolve" }).click();
 		await expect(row).toHaveCount(0);
-		await panel.getByRole("radio", { name: "Resolved 1" }).click();
+		await panel.getByRole("button", { name: "Resolved · 1" }).click();
 		await threadHeader(row).click();
 		await row.getByRole("button", { name: "Reopen" }).click();
-		await panel.getByRole("radio", { name: "Open 1" }).click();
 		await threadHeader(row).click();
 		await expect(row.getByLabel("Reply", { exact: true })).toBeFocused();
 
