@@ -78,7 +78,7 @@ async function readableState(device: Device, lineage: string, entries: StoredEnt
 // Unsent work other tabs of this document left on the device, once no live tab holds it
 export async function adoptLeftovers(room: LeftoverRoom) {
   const device = room.device
-  if (!device || room.stopReason) return
+  if (!device || room.stopReason || !room.writable) return
 
   const sessions = await device.sessions()
   for (const session of sessions) {
@@ -99,7 +99,7 @@ function isAdoptable(room: LeftoverRoom, session: StoredSession) {
   return !isHeldHere && (session.bound || room.bound)
 }
 
-// One tab's leftover work, once no live tab holds it; false once the room closed meanwhile
+// One tab's leftover work, once no live tab holds it; false once the room closed or shut meanwhile
 async function adoptSession(room: LeftoverRoom, device: Device, session: StoredSession) {
   if (!isAdoptable(room, session)) {
     return true
@@ -110,7 +110,7 @@ async function adoptSession(room: LeftoverRoom, device: Device, session: StoredS
     return true
   }
 
-  if (room.closed) {
+  if (room.closed || !room.writable) {
     release()
     return false
   }
@@ -135,7 +135,7 @@ async function takeOver(
 ) {
   const box = new Outbox(session.sid, session.cid, release, true, entries)
   const claimVerdict = await claimVerdictOf(room, session, box)
-  if (room.closed) {
+  if (room.closed || !room.writable) {
     release()
     return false
   }

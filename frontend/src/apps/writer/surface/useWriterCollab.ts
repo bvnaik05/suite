@@ -153,6 +153,10 @@ export function useWriterCollab(
     await room.value?.loseAccess(lostAccess)
   }
 
+  async function regainAccess() {
+    await room.value?.regainAccess(mayEdit)
+  }
+
   const isLive = computed(() => mode.value === 'live')
   // Whether the person can type: "paused" for a reason that clears, "closed" when they can't (or lost the right to).
   // "editing" while there is no room to ask
@@ -233,5 +237,6 @@ export function useWriterCollab(
     open,
     close,
     loseAccess,
+    regainAccess,
   }
 }

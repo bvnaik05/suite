@@ -443,6 +443,7 @@ function liveRoom() {
     flush: async () => {},
     close: vi.fn(async () => {}),
     loseAccess: vi.fn(async () => {}),
+    regainAccess: vi.fn(async () => {}),
   }
   rooms.next = room
   return room
@@ -1004,6 +1005,23 @@ describe('Writer surface', () => {
     expect(warning.mock.calls).toEqual([
       ['Editing access changed. This document is now read-only.'],
     ])
+  })
+
+  it('gives the room editing back and shows no notice when access returns before the room settles', async () => {
+    const room = liveRoom()
+    const losing = Promise.withResolvers<void>()
+    room.loseAccess.mockReturnValue(losing.promise)
+    const access = ref({ role: 50 })
+    await openedSurface(undefined, '/d/node-1', undefined, access)
+    const warning = vi.spyOn(toast, 'warning')
+
+    access.value = { role: 30 }
+    access.value = { role: 50 }
+    losing.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(room.regainAccess).toHaveBeenCalledTimes(1)
+    expect(warning).not.toHaveBeenCalled()
   })
 
   it("shows the freeze strip with Reload when the document holds text the editor can't show", async () => {

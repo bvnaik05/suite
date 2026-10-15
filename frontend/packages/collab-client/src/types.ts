@@ -177,6 +177,8 @@ export interface CollabRoom {
   close(): Promise<void>
   // The app shut this tab for a lost right: it sends what it can within a bound, then keeps the rest as a recovery copy
   loseAccess(lostAccess: LostAccess): Promise<void>
+  // The app opened the tab again: one shut with nothing kept takes edits once `mayEdit` still holds after the bound
+  regainAccess(mayEdit: () => boolean): Promise<void>
   // Whether the server holds each of these items, as committed text does, so a comment on them can post
   committedCovers(items: readonly Y.ID[]): boolean
 }

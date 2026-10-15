@@ -40,10 +40,12 @@ export interface WriteGate {
  * refresh; it holds until the document is opened again.
  *
  * `onClose` runs once each time the gate shuts; its synchronous part runs before any write the gate refuses.
+ * `onOpen` runs each time it opens again.
  */
 export function createWriteGate(
   session: Pick<DocumentSession, 'state' | 'access' | 'refreshAccess'>,
   onClose: () => Promise<void> | void,
+  onOpen: () => void,
 ): WriteGate {
   const verdict = ref<number | null>(null)
   const role = computed(() => {
@@ -58,6 +60,10 @@ export function createWriteGate(
     (open, wasOpen) => {
       if (wasOpen && !open) {
         void Promise.resolve(onClose()).catch((error) => console.error(error))
+      }
+
+      if (!wasOpen && open) {
+        onOpen()
       }
     },
     { flush: 'sync' },

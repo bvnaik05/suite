@@ -149,6 +149,7 @@ const {
   open: openCollab,
   close: closeCollab,
   loseAccess,
+  regainAccess,
 } = useWriterCollab(
   props.session,
   retainRecovery,
@@ -158,28 +159,37 @@ const {
 )
 
 // Runs before the page drops the editor; only this tab's own work counts, not what other tabs hold
-const writes = createWriteGate(props.session, async () => {
-  if (dirty.value || room.value?.unsent) {
-    retainRecovery()
-  }
-  editorSurface.value?.editor?.setEditable(false)
-  const html = editorSurface.value?.editor?.getHTML()
-  try {
-    await loseAccess(readable.value ? 'lost_edit' : 'lost_read')
-  } catch (error) {
-    console.error(error)
-  }
+const writes = createWriteGate(
+  props.session,
+  async () => {
+    if (dirty.value || room.value?.unsent) {
+      retainRecovery()
+    }
 
-  if (!dirty.value && !room.value?.unsent) {
-    toast.warning('Editing access changed. This document is now read-only.')
-    return
-  }
+    editorSurface.value?.editor?.setEditable(false)
+    const html = editorSurface.value?.editor?.getHTML()
+    try {
+      await loseAccess(readable.value ? 'lost_edit' : 'lost_read')
+    } catch (error) {
+      console.error(error)
+    }
 
-  toast.warning('Editing access changed. Your unsaved changes are kept on this device.', {
-    duration: Number.POSITIVE_INFINITY,
-    action: { label: 'Download my changes', onClick: () => downloadChanges(html) },
-  })
-})
+    if (!dirty.value && !room.value?.unsent) {
+      // Access came back within the bound, so nothing turned read-only
+      if (!writes.writable.value) {
+        toast.warning('Editing access changed. This document is now read-only.')
+      }
+
+      return
+    }
+
+    toast.warning('Editing access changed. Your unsaved changes are kept on this device.', {
+      duration: Number.POSITIVE_INFINITY,
+      action: { label: 'Download my changes', onClick: () => downloadChanges(html) },
+    })
+  },
+  () => void regainAccess(),
+)
 
 const writerDocument = createWriterDocument(props.session)
 

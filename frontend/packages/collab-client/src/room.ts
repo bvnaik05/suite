@@ -306,11 +306,30 @@ export class Room implements CollabRoom {
 
   // A push still on its way when the bound ends may land after the copy, so its work is both saved and kept
   async loseAccess(lostAccess: LostAccess) {
+    if (!this.writable && !this.losingAccess) return
+
     this.writable = false
     this.losingAccess ??= this.boundedFlush()
     await this.losingAccess
-    block(this, lostAccess)
-    await this.recovering
+    if (this.unsent) {
+      block(this, lostAccess)
+      await this.recovering
+    }
+  }
+
+  // A tab shut with nothing left unsent takes edits again, along with the leftovers it held back while shut
+  async regainAccess(mayEdit: () => boolean) {
+    if (!this.losingAccess) return
+
+    await this.losingAccess
+    if (!mayEdit() || this.stopReason || this.closed || this.newerSchema) return
+
+    if (this.blocked && !isRecoverable(this.blocked)) return
+
+    this.losingAccess = null
+    this.writable = true
+    this.notifyListeners()
+    this.refreshDevice()
   }
 
   private async boundedFlush() {
