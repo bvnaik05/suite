@@ -22,7 +22,10 @@ const props = defineProps<{
   settings: Record<string, unknown>
   /** The person may change the body. Importing needs it. */
   editable: boolean
+  canSaveVersion: boolean
 }>()
+
+const emit = defineEmits<{ saveVersion: [] }>()
 
 const DOCX_TYPES = '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
@@ -59,8 +62,29 @@ function downloadOption(label: string, icon: string, save: Download) {
   }
 }
 
+function versionGroups() {
+  if (!props.canSaveVersion) {
+    return []
+  }
+
+  return [
+    {
+      group: __('Version'),
+      hideLabel: true,
+      options: [
+        {
+          label: __('Save version'),
+          icon: 'lucide-bookmark-plus',
+          onClick: () => emit('saveVersion'),
+        },
+      ],
+    },
+  ]
+}
+
 const options = computed<DropdownOptions>(() => {
   const title = props.session.title.value
+  const versions = versionGroups()
   const downloads = {
     group: __('Download'),
     hideLabel: true,
@@ -73,8 +97,12 @@ const options = computed<DropdownOptions>(() => {
       ),
     ],
   }
-  if (!props.editable) return [downloads]
+  if (!props.editable) {
+    return [...versions, downloads]
+  }
+
   return [
+    ...versions,
     downloads,
     {
       group: __('Import'),

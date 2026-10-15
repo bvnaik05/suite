@@ -5,6 +5,7 @@ import WriterDocumentMenu from './WriterDocumentMenu.vue'
 
 interface MenuEntry {
   label?: string
+  onClick?: () => void
   options?: MenuEntry[]
   submenu?: MenuEntry[]
 }
@@ -12,12 +13,15 @@ interface MenuEntry {
 // The menu's own rendering is frappe-ui's. This stand-in lists every item a
 // person could reach, submenus included.
 vi.mock('frappe-ui', () => {
-  const labels = (entries: MenuEntry[]): string[] =>
-    entries.flatMap((entry) => [
-      ...(entry.label ? [entry.label] : []),
-      ...labels(entry.options ?? []),
-      ...labels(entry.submenu ?? []),
+  function items(entries: MenuEntry[]): MenuEntry[] {
+    const reachable = entries.flatMap((entry) => [
+      entry,
+      ...items(entry.options ?? []),
+      ...items(entry.submenu ?? []),
     ])
+    return reachable.filter((entry) => entry.label)
+  }
+
   return {
     Button: defineComponent({
       inheritAttrs: false,
@@ -36,7 +40,9 @@ vi.mock('frappe-ui', () => {
             h(
               'ul',
               { role: 'menu' },
-              labels(props.options).map((label) => h('li', { role: 'menuitem' }, label)),
+              items(props.options).map(({ label, onClick }) =>
+                h('li', { role: 'menuitem', onClick }, label),
+              ),
             ),
           ]),
     }),
@@ -59,11 +65,18 @@ const session = {
 let host: HTMLElement | null = null
 let unmount = () => {}
 
-function mountMenu(editable: boolean) {
+function mountMenu(isEditable: boolean, canSaveVersion = false, onSaveVersion = () => {}) {
   host = document.createElement('div')
   document.body.append(host)
   const app = createApp(() =>
-    h(WriterDocumentMenu, { session, editor: null, settings: {}, editable }),
+    h(WriterDocumentMenu, {
+      session,
+      editor: null,
+      settings: {},
+      editable: isEditable,
+      canSaveVersion,
+      onSaveVersion,
+    }),
   )
   app.mount(host)
   unmount = () => app.unmount()
@@ -83,5 +96,17 @@ describe('Writer document menu', () => {
 
   it('offers an editor Import DOCX as well', () => {
     expect(mountMenu(true)).toEqual(['Download as DOCX', 'Download as Markdown', 'Import DOCX'])
+  })
+
+  it('offers Save version first to someone who can save one, and picking it asks for a name', () => {
+    const onSaveVersion = vi.fn()
+
+    const items = mountMenu(true, true, onSaveVersion)
+    host?.querySelector<HTMLElement>('[role="menuitem"]')?.click()
+
+    expect([items, onSaveVersion.mock.calls.length]).toEqual([
+      ['Save version', 'Download as DOCX', 'Download as Markdown', 'Import DOCX'],
+      1,
+    ])
   })
 })

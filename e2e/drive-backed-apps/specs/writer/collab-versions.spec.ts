@@ -290,7 +290,7 @@ test.describe("Writer collaboration", () => {
 
 		await nameVersion(page, "Right after typing");
 
-		await expect(panel.getByRole("button", { name: "Saving first…" })).toBeVisible();
+		await expect(panel.getByText("Saving first…")).toBeVisible();
 		await panel.getByRole("button", { name: /^Right after typing/ }).click();
 		await expect(page.getByLabel("Version preview")).toContainText("Typed just before saving");
 		await page.unroute(PUSHES, slowPushes);
@@ -536,9 +536,10 @@ async function openVersions(page: Page) {
 }
 
 async function nameVersion(page: Page, label: string) {
-	await page.getByRole("button", { name: "Save version" }).click();
-	await page.getByLabel("Name").fill(label);
-	await page.getByRole("button", { name: "Save", exact: true }).click();
+	await page.getByRole("button", { name: "More document actions" }).click();
+	await page.getByRole("menuitem", { name: "Save version" }).click();
+	await page.getByLabel("Version name").fill(label);
+	await page.keyboard.press("Enter");
 }
 
 // A version holding one picture, then more text so the restore changes something

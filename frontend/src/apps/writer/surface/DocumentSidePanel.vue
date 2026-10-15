@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Avatar, Button, dialog, TextInput } from 'frappe-ui'
-import { computed, ref, watch } from 'vue'
+import { Avatar, Button, TextInput } from 'frappe-ui'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import {
   DriveCommentAuthor,
@@ -25,7 +25,6 @@ type ThreadComment = DocumentThread['comments'][number]
 const props = defineProps<{
   session: DocumentSession
   canComment: boolean
-  canSaveVersion: boolean
   threads: DocumentThread[]
   /** Where each thread shows in the editor; null when the editor can't tell. */
   places: ThreadPlaces | null
@@ -49,6 +48,12 @@ const commentText = ref('')
 const replyingTo = ref<string | null>(null)
 const replyText = ref('')
 const isSavingVersion = ref(false)
+const isNamingVersion = ref(false)
+const versionName = ref('')
+const versionNameInput = ref<{ focus(): void } | null>(null)
+
+// A closing menu hands focus back to its trigger a moment later
+const MENU_FOCUS_RETURN_MS = 250
 
 // Guests may sign their comments. Signed-in users never see the field (spec §10.5)
 const {
@@ -67,8 +72,10 @@ const threadGroups = computed(() => groupThreads(props.threads, props.places))
 const hasNoThreads = computed(() => !props.threads.length && !shownDrafts.value.length)
 const isReplyBlank = computed(() => !replyText.value.trim())
 const hasNoVersions = computed(() => !lists.versions.length)
-const showsSaveVersion = computed(() => panel.value === 'versions' && props.canSaveVersion)
-const saveVersionLabel = computed(() => (isSavingVersion.value ? 'Saving first…' : 'Save version'))
+const showsVersionName = computed(() => isNamingVersion.value && panel.value === 'versions')
+const versionNameHint = computed(() =>
+  isSavingVersion.value ? 'Saving first…' : 'Enter to save · Esc to cancel',
+)
 const guestNameHint = computed(() => {
   if (guestNameAtLimit.value) {
     return `Names can have up to ${GUEST_NAME_LIMIT} characters.`
@@ -82,6 +89,10 @@ watch(
   (kind) => {
     if (kind) {
       void load(kind)
+    }
+
+    if (kind !== 'versions') {
+      stopNamingVersion()
     }
   },
   { immediate: true },
@@ -190,22 +201,39 @@ function authorLabel(comment: ThreadComment) {
   return comment.person?.full_name || comment.author || 'Someone'
 }
 
-async function takeNamedVersion(label: string) {
+// Opens a name box at the top of the list; Enter saves, Esc or an empty name cancels
+async function startNamingVersion() {
+  isNamingVersion.value = true
+  await nextTick()
+  function take() {
+    versionNameInput.value?.focus()
+  }
+
+  take()
+  document.addEventListener('focusin', take, { once: true })
+  setTimeout(() => document.removeEventListener('focusin', take), MENU_FOCUS_RETURN_MS)
+}
+
+function stopNamingVersion() {
+  isNamingVersion.value = false
+  versionName.value = ''
+}
+
+async function saveNamedVersion() {
+  const label = versionName.value.trim()
+  if (!label) {
+    stopNamingVersion()
+    return
+  }
+
   isSavingVersion.value = true
   try {
-    await saveVersion(label, props.saveFirst)
+    if (await saveVersion(label, props.saveFirst)) {
+      stopNamingVersion()
+    }
   } finally {
     isSavingVersion.value = false
   }
-}
-
-function promptVersionName() {
-  dialog.prompt({
-    title: 'Save a version',
-    fields: [{ name: 'label', label: 'Name', required: true, placeholder: 'Before the review' }],
-    confirmLabel: 'Save',
-    onConfirm: ({ values }) => void takeNamedVersion(String(values.label ?? '').trim()),
-  })
 }
 
 function isPreviewed(version: DocumentVersion) {
@@ -220,7 +248,7 @@ function preview(version: DocumentVersion) {
   previewedVersion.value = version
 }
 
-defineExpose({ reloadVersions: () => load('versions') })
+defineExpose({ reloadVersions: () => load('versions'), startNamingVersion })
 
 function versionByline(version: DocumentVersion) {
   const created = version.creation && formatDriveDateTime(version.creation)
@@ -247,19 +275,21 @@ function versionByline(version: DocumentVersion) {
           <h2 class="text-lg-semibold md:text-base-medium md:text-ink-gray-8">
             {{ title }}
           </h2>
-          <div class="flex items-center gap-1">
-            <Button
-              v-if="showsSaveVersion"
-              size="sm"
-              :label="saveVersionLabel"
-              icon-left="lucide-bookmark-plus"
-              :loading="isSavingVersion"
-              @click="promptVersionName"
-            />
-            <Button icon="lucide-x" aria-label="Close panel" variant="ghost" @click="closePanel" />
-          </div>
+          <Button icon="lucide-x" aria-label="Close panel" variant="ghost" @click="closePanel" />
         </div>
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:px-2 md:pb-2 md:pt-0.5">
+          <div v-if="showsVersionName" class="space-y-1">
+            <TextInput
+              ref="versionNameInput"
+              v-model="versionName"
+              placeholder="Version name"
+              aria-label="Version name"
+              :disabled="isSavingVersion"
+              @keydown.enter.prevent="saveNamedVersion"
+              @keydown.esc.prevent="stopNamingVersion"
+            />
+            <p class="text-p-xs text-ink-gray-5">{{ versionNameHint }}</p>
+          </div>
           <p v-if="lists.isLoading" class="text-sm text-ink-gray-5">Loading…</p>
           <template v-else-if="isCommentsPanel">
             <form v-if="canComment" class="space-y-2" @submit.prevent="submitComment">

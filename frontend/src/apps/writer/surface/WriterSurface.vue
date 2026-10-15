@@ -546,6 +546,11 @@ function flush(): Promise<void> {
   return withinTenSeconds(saved)
 }
 
+function nameVersion() {
+  panel.value = 'versions'
+  void sidePanel.value?.startNamingVersion()
+}
+
 // A collab document's version covers what this tab typed; other documents take it as stored
 async function saveBeforeVersion() {
   if (room.value) {
@@ -629,6 +634,8 @@ onBeforeUnmount(() => {
           :editor="editorSurface?.editor ?? null"
           :settings="settings"
           :editable="editable"
+          :can-save-version="canSaveVersion"
+          @save-version="nameVersion"
         />
       </template>
     </DriveDocumentHeader>
@@ -745,7 +752,6 @@ onBeforeUnmount(() => {
                 :previewed-version="preview.version"
                 :session="session"
                 :can-comment="canComment"
-                :can-save-version="canSaveVersion"
                 :threads="threads"
                 :places="threadPlaces"
                 :refresh-threads="refreshThreads"
