@@ -295,7 +295,7 @@ test("a restore whose folder is gone asks for a destination in the same root", a
 	await expect(page.getByText("1 restored · 0 failed")).toBeVisible();
 	await expect(page.getByText("selected")).toHaveCount(0);
 	const restored = await getNode(api, orphan.name);
-	expect(restored.parent).toBe(home.name);
+	expect(restored.parent_node).toBe(home.name);
 	expect(restored.state).toBe("Active");
 });
 

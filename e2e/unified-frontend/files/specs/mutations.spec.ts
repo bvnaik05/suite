@@ -85,7 +85,7 @@ test("Move uses the Drive folder picker and rewrites the parent", async ({ page 
 	await dialog.getByRole("button", { name: "Move", exact: true }).click();
 
 	await expect(dialog).toBeHidden();
-	await expect.poll(async () => (await getNode(api, target.name)).parent).toBe(destination.name);
+	await expect.poll(async () => (await getNode(api, target.name)).parent_node).toBe(destination.name);
 });
 
 test("Star from the row menu reaches the Starred view", async ({ page }) => {

@@ -150,7 +150,7 @@ test("New Document creates a Writer node in the Personal Root and opens it", asy
 	const node = page.url().split("/d/")[1]!.split("/")[0]!;
 	const created = await getNode(api, node);
 	expect(created.content_doctype).toBe("Writer Document");
-	expect(created.parent).toBe((await roots(api)).personal.node);
+	expect(created.parent_node).toBe((await roots(api)).personal.node);
 	await purge(api, node);
 });
 

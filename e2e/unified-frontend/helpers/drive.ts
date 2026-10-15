@@ -8,7 +8,7 @@ export interface DriveNode {
 	name: string;
 	title: string;
 	kind: string;
-	parent: string | null;
+	parent_node: string | null;
 	content_doctype: string | null;
 	content_docname: string | null;
 }

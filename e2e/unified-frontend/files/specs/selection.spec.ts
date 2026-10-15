@@ -120,8 +120,8 @@ test("a mixed bulk move reports both halves and keeps the failures selected", as
 	await expect(page.getByRole("dialog", { name: "Items that failed" })).toBeVisible();
 	await expect(page.getByText(rows[0]!.name, { exact: true })).toBeVisible();
 
-	expect((await getNode(api, rows[1]!.name)).parent).toBe(destination.name);
-	expect((await getNode(api, rows[0]!.name)).parent).toBe(home.name);
+	expect((await getNode(api, rows[1]!.name)).parent_node).toBe(destination.name);
+	expect((await getNode(api, rows[0]!.name)).parent_node).toBe(home.name);
 	expect(clash.name).toBeTruthy();
 });
 
