@@ -73,11 +73,11 @@ function noteMenu(isShown: boolean) {
         </button>
       </template>
     </div>
-    <p v-if="isClosed" class="truncate px-3 pb-2 pt-1 text-p-sm text-ink-gray-7" @click="toggle">
+    <p v-if="isClosed" class="truncate px-3 pb-2 pt-1 text-sm text-ink-gray-7" @click="toggle">
       <CommentText :content="draft.text" />
     </p>
     <div v-else class="space-y-2 px-3 pb-3 pt-1">
-      <p v-if="quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">{{ quote }}</p>
+      <p v-if="quote" class="truncate border-l-2 pl-2 text-sm text-ink-gray-5">{{ quote }}</p>
       <div class="group/comment relative">
         <p class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
           <CommentText :content="draft.text" />
