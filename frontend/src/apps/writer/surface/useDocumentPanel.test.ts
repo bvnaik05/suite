@@ -203,4 +203,34 @@ describe('renaming a version', () => {
       [['You can’t edit this document.']],
     ])
   })
+
+  it('reads the list again and says the version is gone when Drive no longer has it', async () => {
+    const rows = [
+      { seq: 2, kind: 'auto', label: null, pinned: 0 },
+      { seq: 3, kind: 'named', label: 'Draft one', pinned: 0 },
+    ]
+    const session = {
+      comments: {},
+      versions: {
+        list: vi
+          .fn()
+          .mockResolvedValueOnce({ rows, next_cursor: null })
+          .mockResolvedValueOnce({ rows: rows.slice(1), next_cursor: null }),
+        update: () =>
+          Promise.reject(
+            Object.assign(new Error('Drive version 2 was not found'), { type: 'DriveNotFound' }),
+          ),
+      },
+    } as unknown as Pick<DocumentSession, 'comments' | 'versions'>
+    const panel = useDocumentPanel(session, noRefresh)
+    await panel.load('versions')
+
+    const renamed = await panel.renameVersion(panel.lists.versions[0]!, 'Before the review')
+
+    expect([
+      renamed,
+      panel.lists.versions.map((row) => row.seq),
+      vi.mocked(toast.error).mock.calls,
+    ]).toEqual([null, [3], [['This version no longer exists.']]])
+  })
 })

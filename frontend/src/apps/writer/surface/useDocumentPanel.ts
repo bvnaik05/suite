@@ -132,6 +132,13 @@ async function renameVersion(
   try {
     await session.versions.update(String(version.seq), changes)
   } catch (error) {
+    // The daily thinner can remove an automatic version while its name box is open
+    if ((error as { type?: unknown } | null)?.type === 'DriveNotFound') {
+      toast.error('This version no longer exists.')
+      await loadVersions(session, lists)
+      return null
+    }
+
     showError(error, 'Could not rename the version.')
     return null
   }
