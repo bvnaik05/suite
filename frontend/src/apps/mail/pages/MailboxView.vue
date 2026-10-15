@@ -326,6 +326,7 @@
           "
           @sync-unseen="handleSyncUnseen"
           @set-flagged="(ids: string[], flagged: boolean) => setFlaggedSubmit({ ids, flagged })"
+          @archive-thread="handleArchiveThreads([threadID!])"
           @move-thread="
             (moveToMailbox: string) => handleMoveThreads({ [moveToMailbox]: [threadID!] })
           "
@@ -651,6 +652,9 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
     })
   }
 
+  // Drafts offers only Discard: a draft isn't read, archived or junked.
+  if (mailbox === mailboxIds.drafts) return
+
   // Mark as read/unread (u)
   if (key === 'u') {
     e.preventDefault()
@@ -662,11 +666,7 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
   // Archive (e)
   if (key === 'e') {
     e.preventDefault()
-    return mailbox === mailboxIds.sent
-      ? handleAddThreadsToMailbox(mailboxIds.archive, thread_ids)
-      : handleMoveThreads({
-          [mailboxIds.archive]: thread_ids,
-        })
+    return handleArchiveThreads(thread_ids)
   }
 
   // Mark as junk (!)
@@ -713,14 +713,12 @@ const selectActions = buildSelectActions(
     archive: mailbox === mailboxIds.archive,
     trash: mailbox === mailboxIds.trash,
     drafts: mailbox === mailboxIds.drafts,
+    sent: mailboxIds.sent,
   }),
   {
     star: () => setFlaggedByThreadIDs(selections.value, true),
     unstar: () => setFlaggedByThreadIDs(selections.value, false),
-    archive: () =>
-      mailbox === mailboxIds.sent
-        ? handleAddThreadsToMailbox(mailboxIds.archive, selections.value)
-        : handleMoveThreads({ [mailboxIds.archive]: selections.value }),
+    archive: () => handleArchiveThreads(selections.value),
     junk: () => junkOrDeleteThreads(selections.value, true),
     notJunk: () => handleSetSpamStatus({ 0: selections.value }),
     trash: () => handleMoveThreads({ [mailboxIds.trash]: selections.value }),
@@ -1083,6 +1081,7 @@ const {
   handleSyncUnseen,
   setFlaggedByThreadIDs,
   handleMoveThreads,
+  handleArchiveThreads,
   handleSetSpamStatus,
   handleAddThreadsToMailbox,
   handleRemoveThreadsFromMailbox,
@@ -1227,9 +1226,7 @@ const rowArchive = (mail: Thread) => {
       __('Thread archived.'),
       __('No Archive folder for this account.'),
     )
-  return mailbox === mailboxIds.sent
-    ? handleAddThreadsToMailbox(mailboxIds.archive, [mail.thread_id])
-    : handleMoveThreads({ [mailboxIds.archive]: [mail.thread_id] })
+  return handleArchiveThreads([mail.thread_id])
 }
 
 const rowTrash = (mail: Thread) => {
@@ -1254,12 +1251,7 @@ const stackSetSeen = (threads: Thread[], seen: boolean) =>
   handleSetSeen({
     [Number(seen)]: stackIDs(threads),
   })
-const stackArchive = (threads: Thread[]) =>
-  mailbox === mailboxIds.sent
-    ? handleAddThreadsToMailbox(mailboxIds.archive, stackIDs(threads))
-    : handleMoveThreads({
-        [mailboxIds.archive]: stackIDs(threads),
-      })
+const stackArchive = (threads: Thread[]) => handleArchiveThreads(stackIDs(threads))
 const stackTrash = (threads: Thread[]) =>
   handleMoveThreads({
     [mailboxIds.trash]: stackIDs(threads),

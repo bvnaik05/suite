@@ -7,6 +7,7 @@
       :can-go-next="canGoNext"
       @set-flagged="onSetFlagged"
       @set-seen="setThreadSeen"
+      @archive-thread="emit('archiveThread')"
       @move-thread="onMoveThread"
       @add-thread-to-mailbox="(mailboxId: string) => fileThread(mailboxId, true)"
       @remove-thread-from-mailbox="(mailboxId: string) => fileThread(mailboxId, false)"
@@ -71,8 +72,9 @@
 				     than among the toolbar's actions on it — when the conversation is one message.
 				     With more, each message carries its own star and this one could not say which
 				     of them it meant; the list row stars the thread as a whole. -->
+                <!-- Not from Drafts, which offers only Discard. -->
                 <Button
-                  v-if="isSingleMessage"
+                  v-if="isSingleMessage && mailbox !== mailboxIds.drafts"
                   variant="ghost"
                   class="shrink-0"
                   :tooltip="isThreadFlagged ? __('Unstar') : __('Star')"

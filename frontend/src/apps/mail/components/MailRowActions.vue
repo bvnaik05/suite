@@ -6,7 +6,7 @@
       </button>
     </Tooltip>
   </template>
-  <Tooltip v-if="showStar && !isMobile" :text="flagged ? __('Unstar') : __('Star')">
+  <Tooltip v-if="starrable && !isMobile" :text="flagged ? __('Unstar') : __('Star')">
     <button class="action-btn" @click.stop.prevent="emit('setFlagged', !flagged)">
       <Star
         class="icon text-ink-gray-5"
@@ -18,7 +18,7 @@
   <!-- Touch: no Tooltip wrapper (it can eat the first tap and never shows anyway),
 	     and a larger glyph. -->
   <button
-    v-else-if="showStar"
+    v-else-if="starrable"
     class="action-btn"
     :aria-label="flagged ? __('Unstar') : __('Star')"
     @click.stop.prevent="emit('setFlagged', !flagged)"
@@ -40,6 +40,7 @@ import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Thread } from '@/apps/mail/types'
 import { useScreenSize } from '@/apps/mail/utils/composables'
+import { holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
 
 // The hover actions on a row, for one thread or for a whole collapsed run of them.
 //
@@ -86,25 +87,36 @@ const everyIn = (mailboxId: string) =>
 
 const someUnread = computed(() => threads.some((t) => !t.seen))
 
+// Archive is for mail you received (see receivedMail): a conversation of only your own sent mail has
+// nothing to archive. A search result is a message of its own, with no conversation under it.
+const holdsReceived = computed(() =>
+  threads.some((t) => holdsReceivedMail(t.messages?.length ? t.messages : [t], mailboxIds.sent)),
+)
+// A draft is never starred: each save replaced it with one that dropped the star. Drafts' rows, and a
+// search result that is a draft, have none to offer.
+const starrable = computed(
+  () => showStar && !drafts && !threads.every((t) => t.draft && !t.messages?.length),
+)
+
 const actions = computed(() =>
   [
     {
       label: many.value ? __('Mark {0} threads as Unread', [count.value]) : __('Mark as Unread'),
       onClick: () => emit('setSeen', false),
       icon: Mail,
-      condition: !someUnread.value,
+      condition: !drafts && !someUnread.value,
     },
     {
       label: many.value ? __('Mark {0} threads as Read', [count.value]) : __('Mark as Read'),
       onClick: () => emit('setSeen', true),
       icon: MailOpen,
-      condition: someUnread.value,
+      condition: !drafts && someUnread.value,
     },
     {
       label: many.value ? __('Archive {0} threads', [count.value]) : __('Archive'),
       onClick: () => emit('archive'),
       icon: Archive,
-      condition: !everyIn(archiveId.value),
+      condition: !drafts && holdsReceived.value && !everyIn(archiveId.value),
     },
     {
       label: many.value ? __('Move {0} threads to Trash', [count.value]) : __('Move to Trash'),

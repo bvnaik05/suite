@@ -10,6 +10,7 @@ import {
 } from 'lucide-vue-next'
 
 import type { Thread } from '@/apps/mail/types'
+import { holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
 
 export interface SelectAction {
   label: string
@@ -42,38 +43,44 @@ export interface SelectHandlers {
  */
 export const selectActions = (
   selected: () => Thread[],
-  folder: () => { archive: boolean; trash: boolean; drafts: boolean },
+  // `sent`: the account's Sent, where your own mail is kept — Archive and Junk act only on mail you
+  // received (see receivedMail). Left out where the list spans accounts.
+  folder: () => { archive: boolean; trash: boolean; drafts: boolean; sent?: string },
   run: SelectHandlers,
 ): SelectAction[] => {
   const some = (test: (thread: Thread) => boolean) => () => selected().some(test)
+  // Drafts offers only Discard: a draft isn't filed, starred or read.
+  const notDrafts = (test: (thread: Thread) => boolean) => () => !folder().drafts && some(test)()
+  const received = (thread: Thread) =>
+    holdsReceivedMail(thread.messages?.length ? thread.messages : [thread], folder().sent)
   return [
     {
       label: __('Star'),
       shortLabel: __('Star'),
       onClick: run.star,
       icon: Star,
-      condition: some((t) => t.flagged === 0),
+      condition: notDrafts((t) => t.flagged === 0),
     },
     {
       label: __('Unstar'),
       shortLabel: __('Unstar'),
       onClick: run.unstar,
       icon: StarOff,
-      condition: some((t) => t.flagged === 1),
+      condition: notDrafts((t) => t.flagged === 1),
     },
     {
       label: __('Archive (E)'),
       shortLabel: __('Archive'),
       onClick: run.archive,
       icon: Archive,
-      condition: () => !folder().archive,
+      condition: () => !folder().archive && notDrafts(received)(),
     },
     {
       label: __('Mark as Junk (!)'),
       shortLabel: __('Junk'),
       onClick: run.junk,
       icon: CircleAlert,
-      condition: () => !folder().drafts && some((t) => t.junk === 0)(),
+      condition: notDrafts((t) => t.junk === 0 && received(t)),
     },
     {
       label: __('Mark as Not Junk'),
@@ -110,14 +117,14 @@ export const selectActions = (
       shortLabel: __('Read'),
       onClick: run.read,
       icon: MailOpen,
-      condition: some((t) => t.seen === 0),
+      condition: notDrafts((t) => t.seen === 0),
     },
     {
       label: __('Mark as Unread (U)'),
       shortLabel: __('Unread'),
       onClick: run.unread,
       icon: MailIcon,
-      condition: some((t) => t.seen === 1),
+      condition: notDrafts((t) => t.seen === 1),
     },
   ]
 }

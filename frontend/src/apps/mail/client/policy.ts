@@ -366,12 +366,18 @@ function messagePolicy<I, O>(id: string): Policy<I, O> {
             'delete_messages',
             'delete_mail',
             'empty_user_mailbox',
+            'file_mails',
           ].includes(id)
           if (
             !removing ||
             (id === 'move_mails' &&
               (input.mailbox === queryInput.mailbox ||
-                (input.mailbox === 'inbox' && queryInput.folder === 'inbox')))
+                (input.mailbox === 'inbox' && queryInput.folder === 'inbox'))) ||
+            // A filing says which list the conversation leaves; every other list keeps its rows
+            // (an Archive from a folder of yours, a move from Sent) until it is read again.
+            (id === 'file_mails' &&
+              (!input.leaves ||
+                (input.leaves !== queryInput.mailbox && input.leaves !== queryInput.folder)))
           )
             return undefined
           return {
