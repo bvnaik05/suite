@@ -1706,7 +1706,10 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
     if (!isLine(transformed)) replaceRectangle(transformed)
     return
   }
-  if (isText(original)) {
+  if (isFreeDraw(original)) {
+    const transformed = transformShape(original, original, next)
+    if (isFreeDraw(transformed)) replaceRectangle(transformed)
+  } else if (isText(original)) {
     replaceRectangle(selectionGesture.kind === 'resize' ? resizeText(original, next, textCornerResize) : next)
   } else replaceRectangle(resizeLabel(original, next))
 }
