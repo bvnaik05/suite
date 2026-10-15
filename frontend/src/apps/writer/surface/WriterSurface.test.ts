@@ -774,6 +774,46 @@ describe('Writer surface', () => {
     expect(oldEditor.forgetStoredEdits).not.toHaveBeenCalled()
   })
 
+  it('asks to keep the tab open, with no Reload, and warns on leaving, when typing after a lost right is kept nowhere', async () => {
+    Object.assign(stoppedRoom(), { blocked: 'lost_read', stopped: 'lost_access', copyFailed: true })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    })
+    const root = await openedSurface()
+    const leaving = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(leaving)
+
+    expect(stripTexts(root)).toEqual([
+      "You can no longer open this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
+    ])
+    expect([buttonLabelled(root, 'Reload'), leaving.defaultPrevented]).toEqual([undefined, true])
+  })
+
+  it('keeps a page copy of typing after a lost right that the device could not keep', async () => {
+    const listeners: (() => void)[] = []
+    const room = Object.assign(liveRoom(), {
+      blocked: 'lost_read',
+      stopped: 'lost_access',
+      onChange(listener: () => void) {
+        listeners.push(listener)
+        return () => {}
+      },
+    })
+    const root = await openedSurface()
+    Object.assign(room, { saveState: 'failed', unsent: 1, copyFailed: true })
+    for (const listener of listeners) {
+      listener()
+    }
+
+    await nextTick()
+
+    expect(stripTexts(root)).toEqual([
+      'You can no longer open this document. Unsent changes were kept as a recovery copy.',
+    ])
+    expect(await listCopies('node-1')).toHaveLength(1)
+    await discardCopies()
+  })
+
   it("shows the freeze strip with Reload when the document holds text the editor can't show", async () => {
     frozenRoom()
     const root = await openedSurface()

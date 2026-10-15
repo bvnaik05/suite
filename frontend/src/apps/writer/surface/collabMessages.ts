@@ -64,21 +64,25 @@ function recoveryNote(state: BannerState) {
     return ' Unsent changes were kept as a recovery copy.'
   }
 
-  if (state.copyFailed && state.unsent) {
-    return " Unsent changes couldn't be kept on this device, so keep this tab open."
-  }
-
   return ''
 }
 
 // The device store holds the unsent changes, unless its write failed
-function isKeptOnDevice(state: BannerState) {
-  return state.onDevice && !state.copyFailed
+export function isKeptOnDevice(room: Pick<CollabRoom, 'onDevice' | 'copyFailed'>) {
+  return room.onDevice && !room.copyFailed
 }
 
-// Without the device store the unsent changes live only in this tab
-function keepOpenNote(state: BannerState) {
-  return isKeptOnDevice(state) ? '' : ' Keep this tab open.'
+// The one ask for the tab to stay open, while its unsent work is kept nowhere
+function keepOpenAsk(state: BannerState) {
+  if (!isKeptNowhere(state, state.recoveryKept)) {
+    return ''
+  }
+
+  if (state.copyFailed) {
+    return " Unsent changes couldn't be kept on this device, so keep this tab open."
+  }
+
+  return ' Keep this tab open.'
 }
 
 function messageFor(messages: Record<string, string>, reason: string | null) {
@@ -116,10 +120,10 @@ function savingBanner(state: BannerState): Banner | null {
 }
 
 function newerSchemaBanner(state: BannerState): Banner {
-  const isUnsentOnlyHere = isKeptNowhere(state, state.recoveryKept)
-  if (state.isNewerAfterReload && isUnsentOnlyHere) {
+  const keepOpen = keepOpenAsk(state)
+  if (state.isNewerAfterReload && keepOpen) {
     return {
-      text: 'This document needs a newer version of Writer than this site has. Ask your admin, and keep this tab open, since your unsent changes are only here.',
+      text: `This document needs a newer version of Writer than this site has. Ask your admin.${keepOpen}`,
     }
   }
 
@@ -130,10 +134,8 @@ function newerSchemaBanner(state: BannerState): Banner {
     }
   }
 
-  if (isUnsentOnlyHere) {
-    return {
-      text: 'This document was edited in a newer version of Writer. Keep this tab open, since your unsent changes are only here.',
-    }
+  if (keepOpen) {
+    return { text: `This document was edited in a newer version of Writer.${keepOpen}` }
   }
 
   const reloadTo = state.canEdit ? 'edit it' : 'see its latest changes'
@@ -152,7 +154,7 @@ function heldBanner(state: BannerState): Banner {
     }
   }
 
-  const keepOpen = keepOpenNote(state)
+  const keepOpen = keepOpenAsk(state)
   return { text: `${text} Your unsent changes will be added once it's editable again.${keepOpen}` }
 }
 
@@ -162,7 +164,7 @@ function pauseBanner(pauseMessage: string, state: BannerState): Banner {
     return { text: `${text} They're kept on this device.` }
   }
 
-  const keepOpen = keepOpenNote(state)
+  const keepOpen = keepOpenAsk(state)
   return { text: `${text}${keepOpen}` }
 }
 
@@ -173,23 +175,20 @@ function signedOutBanner(state: BannerState): Banner {
     return { text: "You're signed out. ", link: signIn, after: ' to keep editing.' }
   }
 
-  const keepOpen = keepOpenNote(state)
+  const keepOpen = keepOpenAsk(state)
   const after = ` to save them.${keepOpen}`
   return { text: "You're signed out, so changes aren't saved. ", link: signIn, after }
 }
 
 function lockedBanner(state: BannerState): Banner {
   const text = "This document was locked, so changes aren't saved. Unlock it to save them."
-  return { text, after: keepOpenNote(state) }
+  return { text, after: keepOpenAsk(state) }
 }
 
 function offlineBanner(state: BannerState): Banner {
   const text = "You're offline and this browser can't keep changes, so editing is paused."
-  if (!isKeptNowhere(state, state.recoveryKept)) {
-    return { text }
-  }
-
-  return { text: `${text} Keep this tab open.` }
+  const keepOpen = keepOpenAsk(state)
+  return { text: `${text}${keepOpen}` }
 }
 
 function staleSessionBanner(state: BannerState): Banner {
@@ -199,8 +198,7 @@ function staleSessionBanner(state: BannerState): Banner {
     return { text: `You signed in again in another tab.${note}${keepOpen}` }
   }
 
-  const recovery = state.onDevice ? '' : note
-  return { text: `You signed in again in another tab.${recovery} Reload to keep saving.` }
+  return { text: `You signed in again in another tab.${note} Reload to keep saving.` }
 }
 
 function otherUserBanner(state: BannerState): Banner {
@@ -250,15 +248,6 @@ export function isKeptNowhere(
   return room.unsent > 0 && (!room.onDevice || room.copyFailed) && !isRecoveryKept
 }
 
-// Asks for the tab to stay open while work is kept nowhere, unless the failed-copy note already does
-function keepOpenAsk(state: BannerState) {
-  if (!isKeptNowhere(state, state.recoveryKept) || state.copyFailed) {
-    return ''
-  }
-
-  return ' Keep this tab open.'
-}
-
 // A frozen tab freezes again after a reload, so its stop offers the reload for saving only
 function frozenStopBanner(state: BannerState, reason: string, isLasting: boolean): Banner {
   const recovery = recoveryNote(state)
@@ -297,10 +286,10 @@ function stoppedBanner(state: BannerState): Banner {
 export const FROZEN_MESSAGE =
   "Part of this document can't be shown here, so editing is paused to keep it safe."
 
-// `isUnsentOnlyHere`: unsent work is in this tab alone, so a reload would lose it
-export function frozenBanner(isUnsentOnlyHere = false): Banner {
-  if (isUnsentOnlyHere) {
-    return { text: `${FROZEN_MESSAGE} Keep this tab open.` }
+// `keepOpen`: the ask for a tab whose unsent work a reload would lose
+export function frozenBanner(keepOpen = ''): Banner {
+  if (keepOpen) {
+    return { text: `${FROZEN_MESSAGE}${keepOpen}` }
   }
 
   return { text: FROZEN_MESSAGE, canReload: true }
@@ -328,7 +317,7 @@ export function bannerFor(state: BannerState): Banner | null {
   }
 
   if (state.isFrozen) {
-    return frozenBanner(isKeptNowhere(state, state.recoveryKept))
+    return frozenBanner(keepOpenAsk(state))
   }
 
   if (state.held) {

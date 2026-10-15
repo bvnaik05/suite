@@ -46,7 +46,7 @@ import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
 
-import { frozenBanner, refusedSaveBanner } from './collabMessages'
+import { frozenBanner, isKeptOnDevice, refusedSaveBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import { downloadHTML } from './exports'
 import {
@@ -500,7 +500,7 @@ function discardedCopy() {
 
 function retainRecovery(): boolean {
   // The device store keeps a live tab's work, so a page copy would only repeat it
-  if (room.value?.onDevice && !room.value.copyFailed) {
+  if (room.value && isKeptOnDevice(room.value)) {
     return false
   }
 

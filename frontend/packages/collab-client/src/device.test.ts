@@ -389,6 +389,45 @@ describe('collab room on a device', () => {
     expect([room.saveState, room.copiesKept, room.copyFailed]).toEqual(['failed', 0, true])
   })
 
+  it('typing after a lost right that the device could not keep counts as unsent, and nothing is sent', async () => {
+    const server = fakeServer()
+    const endpoints = server.endpoints()
+    const kept = await device()
+    const room = await join(endpoints, { device: kept })
+    server.access.refuse = reply(403, { collab: 'forbidden' })
+    await room.pull()
+    kept.store.recover = () =>
+      Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'))
+    const push = vi.spyOn(endpoints, 'push')
+
+    room.doc.getText('t').insert(0, 'late')
+    await idle()
+    await room.flush()
+
+    expect([room.blocked, room.stopped, room.unsent, room.saveState]).toEqual([
+      'lost_read',
+      'lost_access',
+      1,
+      'failed',
+    ])
+    window.dispatchEvent(new Event('pagehide'))
+    await room.close()
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('typing after a lost right that the device keeps leaves nothing unsent', async () => {
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    server.access.refuse = reply(403, { collab: 'forbidden' })
+    await room.pull()
+
+    room.doc.getText('t').insert(0, 'late')
+    await idle()
+
+    expect([room.blocked, room.unsent, room.saveState]).toEqual(['lost_read', 0, 'clean'])
+  })
+
   it('a change from a session the server closed is kept aside and the tab asks to be rebuilt', async () => {
     const server = fakeServer()
     const kept = await device()

@@ -59,6 +59,8 @@ export class Room implements CollabRoom {
   stopReason: string | null = null
   copiesKept = 0
   copyFailed = false
+  // Typing after the stop that no device copy holds
+  private lateTypingKeptNowhere = 0
   failed = false
   unheard = false
   // Changes other tabs of this document keep on the device and have yet to see committed
@@ -180,7 +182,8 @@ export class Room implements CollabRoom {
   }
 
   get unsent() {
-    return this.outboxes.reduce((sum, box) => sum + box.pending.length, 0)
+    const pending = this.outboxes.reduce((sum, box) => sum + box.pending.length, 0)
+    return pending + this.lateTypingKeptNowhere
   }
 
   // A stopped tab stays failed while it holds work; once a refusal leaves nothing unsent there is nothing to fail
@@ -296,6 +299,7 @@ export class Room implements CollabRoom {
     }
 
     this.notifyListeners()
+    return isKept
   }
 
   // Without a device store nothing typed offline would survive the tab, so editing stops until the server answers
@@ -592,7 +596,7 @@ export class Room implements CollabRoom {
 
     // The editor turns read-only a moment after the verdict, so typing can still arrive
     if (this.stopReason) {
-      this.recoverLateTyping(update, this.stopReason)
+      void this.recoverLateTyping(update, this.stopReason)
       return
     }
 
@@ -618,12 +622,18 @@ export class Room implements CollabRoom {
     }
   }
 
-  private recoverLateTyping(update: Uint8Array, reason: string) {
-    if (!this.device) return
+  // Late typing no device copy holds lives only in the editor, so it counts as unsent and fails the tab
+  private async recoverLateTyping(update: Uint8Array, reason: string) {
+    if (this.device) {
+      const entry = this.ownOutbox.createEntry(update, this.appliedThrough)
+      const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
+      const isKept = await this.keepCopy(this.device, [this.ownOutbox.sid], reason, stored)
+      if (isKept) return
+    }
 
-    const entry = this.ownOutbox.createEntry(update, this.appliedThrough)
-    const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
-    void this.keepCopy(this.device, [this.ownOutbox.sid], reason, stored)
+    this.lateTypingKeptNowhere++
+    this.failed = true
+    this.notifyListeners()
   }
 
   private onVisibilityChange = () => {

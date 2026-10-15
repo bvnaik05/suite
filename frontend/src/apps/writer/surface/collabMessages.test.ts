@@ -95,6 +95,38 @@ describe('collab banner copy', () => {
     )
   })
 
+  it('names a recovery copy kept after the device write failed, on a device store too', () => {
+    expect(bannerText({ blocked: 'stale_session', copyFailed: true, recoveryKept: true })).toBe(
+      'You signed in again in another tab. Unsent changes were kept as a recovery copy. Reload to keep saving.',
+    )
+  })
+
+  it('keeps a lost right in its own words once late typing fails the tab', () => {
+    const failedLate = { failed: true, stopped: 'lost_access', copyFailed: true }
+
+    expect([
+      bannerText({ blocked: 'lost_edit', ...failedLate }),
+      bannerText({ blocked: 'lost_read', ...failedLate }),
+    ]).toEqual([
+      "You can no longer edit this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
+      "You can no longer open this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
+    ])
+  })
+
+  it('asks no one to keep a tab open for nothing unsent', () => {
+    const nothingUnsent = { onDevice: false, unsent: 0 }
+
+    expect([
+      bannerText({ blocked: 'locked', ...nothingUnsent }),
+      bannerText({ paused: 'upload_refused', ...nothingUnsent }),
+      bannerText({ held: 'change', ...nothingUnsent }),
+    ]).toEqual([
+      "This document was locked, so changes aren't saved. Unlock it to save them.",
+      "Your network is refusing uploads, so your latest changes aren't saved.",
+      'This document is read-only while an admin checks it.',
+    ])
+  })
+
   it("tells whether another person's sign-in kept the unsent changes", () => {
     expect(bannerText({ blocked: 'other_user' })).toBe(
       'Someone else is now signed in here. Your unsent changes are kept on this device.',
@@ -160,8 +192,8 @@ describe('collab banner copy', () => {
       bannerText({ ...afterReload, copyFailed: true }),
       bannerText({ ...afterReload, onDevice: false, recoveryKept: true }),
     ]).toEqual([
-      'This document needs a newer version of Writer than this site has. Ask your admin, and keep this tab open, since your unsent changes are only here.',
-      'This document needs a newer version of Writer than this site has. Ask your admin, and keep this tab open, since your unsent changes are only here.',
+      'This document needs a newer version of Writer than this site has. Ask your admin. Keep this tab open.',
+      "This document needs a newer version of Writer than this site has. Ask your admin. Unsent changes couldn't be kept on this device, so keep this tab open.",
       'This document needs a newer version of Writer than this site has. Try again in a few minutes, or ask your admin.',
     ])
   })
@@ -355,7 +387,9 @@ describe('collab stop copy', () => {
       keepOpen,
       keepOpen,
       keepOpen,
-      keepOpen,
+      {
+        text: "Part of this document can't be shown here, so editing is paused to keep it safe. Unsent changes couldn't be kept on this device, so keep this tab open.",
+      },
     ])
   })
 
@@ -369,7 +403,7 @@ describe('collab stop copy', () => {
       bannerFor({ ...stopped, onDevice: false, recoveryKept: true }),
     ]).toEqual([
       {
-        text: `Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open. ${frozenText}`,
+        text: `Saving stopped in this tab. ${frozenText} Unsent changes couldn't be kept on this device, so keep this tab open.`,
       },
       { text: `Saving stopped in this tab. ${frozenText} Keep this tab open.` },
       {
@@ -384,8 +418,8 @@ describe('collab stop copy', () => {
       bannerText({ newerSchema: true, onDevice: false }),
       bannerText({ newerSchema: true, copyFailed: true }),
     ]).toEqual([
-      'This document was edited in a newer version of Writer. Keep this tab open, since your unsent changes are only here.',
-      'This document was edited in a newer version of Writer. Keep this tab open, since your unsent changes are only here.',
+      'This document was edited in a newer version of Writer. Keep this tab open.',
+      "This document was edited in a newer version of Writer. Unsent changes couldn't be kept on this device, so keep this tab open.",
     ])
     expect(bannerText({ newerSchema: true, onDevice: false, recoveryKept: true })).toBe(
       'This document was edited in a newer version of Writer. Reload to edit it.',
