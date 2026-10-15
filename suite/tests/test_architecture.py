@@ -8,8 +8,8 @@ from suite import drive
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SUITE_ROOT = REPOSITORY_ROOT / "suite"
-PRODUCTS = frozenset({"calendar", "drive", "mail", "meet", "sheets", "slides", "writer"})
-CONTENT_PRODUCTS = frozenset({"sheets", "slides", "writer"})
+PRODUCTS = frozenset({"calendar", "draw", "drive", "mail", "meet", "sheets", "slides", "writer"})
+CONTENT_PRODUCTS = frozenset({"draw", "sheets", "slides", "writer"})
 
 
 @dataclass(frozen=True)
