@@ -152,7 +152,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
     >
       <div class="flex h-full w-full flex-col md:w-80 md:p-2">
         <div
-          class="flex min-h-12 items-center justify-between border-b px-4 md:min-h-0 md:border-b-0 md:pb-1 md:pl-2 md:pr-1"
+          class="flex min-h-12 items-center justify-between border-b pl-7 pr-4 md:min-h-0 md:border-b-0 md:pb-1 md:pl-5 md:pr-1"
         >
           <h2 class="text-lg-semibold md:text-base-medium md:text-ink-gray-8">
             {{ title }}

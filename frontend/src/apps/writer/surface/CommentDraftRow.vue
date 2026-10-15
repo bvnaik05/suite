@@ -26,10 +26,10 @@ const rowClass = computed(() => {
   }
 
   if (isOpen.value) {
-    return 'bg-surface-gray-1'
+    return 'bg-surface-elevation-3 shadow-sm'
   }
 
-  return 'hover:bg-surface-gray-1'
+  return 'hover:bg-surface-gray-2'
 })
 const menuClass = computed(() => {
   if (isMenuOpen.value) {
@@ -52,7 +52,7 @@ function noteMenu(isShown: boolean) {
 </script>
 
 <template>
-  <li class="rounded transition-opacity duration-200" :class="rowClass">
+  <li class="rounded-4 transition-opacity duration-200" :class="rowClass">
     <div class="flex items-center gap-1.5 px-3 pt-2 text-xs text-ink-gray-5">
       <button
         type="button"

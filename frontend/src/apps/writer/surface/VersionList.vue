@@ -29,6 +29,9 @@ const emit = defineEmits<{
 
 const days = computed(() => versionDays(props.versions))
 const isCurrentViewed = computed(() => !previewed.value)
+const currentRowClass = computed(() =>
+  isCurrentViewed.value ? 'bg-surface-elevation-3 shadow-sm' : 'hover:bg-surface-gray-2',
+)
 /** The row whose menu is open keeps its actions while the pointer is in the menu. */
 const menuRow = ref<number | null>(null)
 const renamingRow = ref<number | null>(null)
@@ -40,6 +43,10 @@ const focusBack = waitForFocusBack()
 
 function isViewed(version: DocumentVersion) {
   return previewed.value?.seq === version.seq
+}
+
+function versionRowClass(version: DocumentVersion) {
+  return isViewed(version) ? 'bg-surface-elevation-3 shadow-sm' : 'hover:bg-surface-gray-2'
 }
 
 function view(version: DocumentVersion | null) {
@@ -150,12 +157,7 @@ function actions(version: DocumentVersion): DropdownOptions {
 
 <template>
   <div class="space-y-1">
-    <div class="relative rounded hover:bg-surface-gray-1">
-      <span
-        v-if="isCurrentViewed"
-        class="absolute inset-y-2 left-0 w-0.5 rounded-full bg-surface-gray-7"
-        aria-hidden="true"
-      />
+    <div class="rounded-4" :class="currentRowClass">
       <button
         type="button"
         class="block w-full py-2 pl-3 pr-2 text-left text-sm text-ink-gray-8"
@@ -166,17 +168,13 @@ function actions(version: DocumentVersion): DropdownOptions {
       </button>
     </div>
     <section v-for="day in days" :key="day.label">
-      <h3 v-if="day.label" class="px-3 pb-1 pt-2 text-xs text-ink-gray-5">{{ day.label }}</h3>
+      <h3 v-if="day.label" class="px-3 pb-1 pt-2 text-sm text-ink-gray-5">{{ day.label }}</h3>
       <div
         v-for="version in day.versions"
         :key="version.seq"
-        class="group relative flex items-center rounded hover:bg-surface-gray-1"
+        class="group flex items-center rounded-4"
+        :class="versionRowClass(version)"
       >
-        <span
-          v-if="isViewed(version)"
-          class="absolute inset-y-2 left-0 w-0.5 rounded-full bg-surface-gray-7"
-          aria-hidden="true"
-        />
         <div v-if="isRenaming(version)" class="min-w-0 flex-1 space-y-1 py-1.5 pl-3 pr-1">
           <TextInput
             ref="renameInputs"

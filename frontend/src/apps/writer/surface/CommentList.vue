@@ -543,10 +543,10 @@ function rowClass(thread: DocumentThread) {
   }
 
   if (isOpen(thread)) {
-    return 'bg-surface-gray-1'
+    return 'bg-surface-elevation-3 shadow-sm'
   }
 
-  return 'hover:bg-surface-gray-1'
+  return 'hover:bg-surface-gray-2'
 }
 </script>
 
@@ -575,7 +575,7 @@ function rowClass(thread: DocumentThread) {
       <button
         v-else
         type="button"
-        class="block w-full rounded px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-1"
+        class="block w-full rounded-4 px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
         @click="startDocumentComment"
       >
         Comment on the whole document…
@@ -602,7 +602,7 @@ function rowClass(thread: DocumentThread) {
         ref="rowItems"
         :key="thread.name"
         :data-thread="thread.name"
-        class="group relative rounded transition-opacity duration-200"
+        class="group relative rounded-4 transition-opacity duration-200"
         :class="rowClass(thread)"
         @mouseenter="lightThread(thread)"
         @mouseleave="dimThread"

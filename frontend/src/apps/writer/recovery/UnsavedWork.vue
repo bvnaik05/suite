@@ -98,7 +98,7 @@ function details(copy: RecoveryCopy) {
       </div>
       <RecoveryCopyActions :copy="shownCopy" @discarded="discarded" />
     </header>
-    <div class="flex rounded border border-outline-gray-2">
+    <div class="flex rounded-4 border border-outline-gray-2">
       <RecoveryPreview :copy="shownCopy" :settings="null" />
     </div>
   </article>
