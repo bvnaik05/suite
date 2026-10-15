@@ -1,6 +1,6 @@
 import { computed, nextTick, ref, watch, type Ref } from 'vue'
 
-import { CURSOR_BAR_CLASS } from '@/apps/mail/constants'
+import { CURSOR_BAR_CLASS, OPEN_BAR_CLASS } from '@/apps/mail/constants'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Thread } from '@/apps/mail/types'
 import { useScreenSize } from '@/apps/mail/utils/composables'
@@ -228,11 +228,12 @@ export const useListRows = ({
     row.type === 'thread' && threadKey(row.thread) === openThreadID() && !isMobile.value
   const rowClasses = (row: ListRow) => ({
     'border-l-transparent sm:border-l': true,
-    // Monochrome, in steps: hover gray-1, ticked rows gray-2 (MailRow), the open row darkest. "You
-    // are here" is a thin bar down the left side, for the keyboard's cursor and the open row alike
-    // — nearly always the same row; the open row's darker fill tells them apart when not.
-    [CURSOR_BAR_CLASS]: row.key === focusedRowKey.value || isOpenRow(row),
-    '!bg-surface-gray-3': isOpenRow(row),
+    // Monochrome, one gray: hover, the date headers, ticked rows (MailRow) and the open row all take
+    // gray-1. "You are here" is a bar down the left side — 1.5px for the keyboard's cursor, 3px for the open row,
+    // which is how a ticked row under the cursor and the one being read tell apart.
+    [OPEN_BAR_CLASS]: isOpenRow(row),
+    [CURSOR_BAR_CLASS]: row.key === focusedRowKey.value && !isOpenRow(row),
+    '!bg-surface-gray-1': isOpenRow(row),
     '!pl-10 sm:!pl-12': row.type === 'thread' && !!row.inStack,
   })
 

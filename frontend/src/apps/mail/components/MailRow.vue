@@ -2,8 +2,8 @@
   <component
     :is="to ? RouterLink : 'div'"
     :to="to"
-    class="sm:hover:bg-surface-gray-1 group flex cursor-default select-none space-x-2.5 border-b px-3.5 py-2.5 sm:py-2 [-webkit-touch-callout:none] sm:space-x-5 sm:px-5"
-    :class="{ '!bg-surface-gray-2': isSelected || isTouching, '!py-1': isFullWidth }"
+    class="sm:hover:bg-surface-gray-1 group flex cursor-default select-none space-x-2.5 border-b outline-none focus-visible:outline-none px-3.5 py-2.5 sm:py-2 [-webkit-touch-callout:none] sm:space-x-5 sm:px-5"
+    :class="{ '!bg-surface-gray-1': isSelected || isTouching, '!py-1': isFullWidth }"
     :draggable="draggable || undefined"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
