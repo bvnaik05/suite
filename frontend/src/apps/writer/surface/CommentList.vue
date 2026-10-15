@@ -29,6 +29,8 @@ type ThreadComment = DocumentThread['comments'][number]
 type CommentTab = 'open' | 'resolved'
 
 const RESOLVED_MESSAGE_MS = 5000
+// The most a comment holds, in UTF-8 bytes, as Drive counts them
+const MAX_COMMENT_BYTES = 65_535
 
 /**
  * The document's comment threads under Open and Resolved tabs, one row each and
@@ -249,8 +251,22 @@ function writeDraft(draft: ShownDraft, text: string) {
   props.drafts.write(draft, text)
 }
 
+// Words over the limit are kept to shorten, never sent to be refused
+function fitsInComment(text: string) {
+  const isFitting = new TextEncoder().encode(text).length <= MAX_COMMENT_BYTES
+  if (!isFitting) {
+    toast.error('This comment is too long. Shorten it and try again.')
+  }
+
+  return isFitting
+}
+
 // Sending again is a retry: the same words under the same client id
 async function postDraft(draft: ShownDraft) {
+  if (!fitsInComment(draft.text.trim())) {
+    return
+  }
+
   const thread = await props.drafts.post(draft, takeGuestName())
   if (thread) {
     openThread.value = thread
@@ -296,7 +312,7 @@ function typedSince(now: string, sent: string) {
 async function submitReply(thread: DocumentThread) {
   const typed = replyTexts.value[thread.name] ?? ''
   const text = typed.trim()
-  if (!text || isSendingReply) {
+  if (!text || isSendingReply || !fitsInComment(text)) {
     return
   }
 
@@ -460,6 +476,10 @@ async function saveEdit(comment: ThreadComment) {
   const text = editText.value.trim()
   if (text === comment.content) {
     stopEdit()
+    return
+  }
+
+  if (!fitsInComment(text)) {
     return
   }
 

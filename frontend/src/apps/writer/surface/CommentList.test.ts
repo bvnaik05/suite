@@ -20,6 +20,7 @@ interface ShownToast {
 
 const toasts = vi.hoisted(() => [] as ShownToast[])
 const warnings = vi.hoisted(() => [] as string[])
+const errors = vi.hoisted(() => [] as string[])
 const me = vi.hoisted(() => ({ id: 'Asha Rao' }))
 
 vi.mock('@/boot/session', async () => {
@@ -49,6 +50,7 @@ vi.mock('@/platform/feedback', () => ({
     success: (message: string, options: Omit<ShownToast, 'message'>) =>
       toasts.push({ message, ...options }),
     warning: (message: string) => warnings.push(message),
+    error: (message: string) => errors.push(message),
   },
 }))
 
@@ -199,6 +201,7 @@ afterEach(() => {
   confirmed.answer = true
   toasts.length = 0
   warnings.length = 0
+  errors.length = 0
   me.id = 'Asha Rao'
 })
 
@@ -353,6 +356,11 @@ function openRows(host: Element) {
     (button) => button.closest('li')!.dataset.thread ?? '',
   )
 }
+
+// "é" is two bytes, so these sit either side of Drive's 65,535-byte limit on a comment
+const LONGEST = 'é'.repeat(32_767) + 'x'
+const TOO_LONG = 'é'.repeat(32_768)
+const TOO_LONG_MESSAGE = 'This comment is too long. Shorten it and try again.'
 
 describe('the comments list', () => {
   it('shows each open thread on one row: who, where, when, the first comment and the replies', () => {
@@ -740,6 +748,24 @@ describe('replying in an open thread', () => {
     expect([replyIds.length, first === second]).toEqual([2, false])
   })
 
+  it('sends no reply over the limit, keeping its words and saying why, but sends one at it', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+
+    await type(TOO_LONG)
+    await press({})
+    const isKept = replyBox()?.value === TOO_LONG
+    await type(LONGEST)
+    await press({})
+
+    expect([isKept, errors, asked.length, asked[0] === `reply on-text "${LONGEST}"`]).toEqual([
+      true,
+      [TOO_LONG_MESSAGE],
+      1,
+      true,
+    ])
+  })
+
   it('shows the send arrow only once there is text, and sends from it', async () => {
     const { host, asked } = showList()
     await click(rowButton(host, 'Is this right?'))
@@ -856,6 +882,29 @@ describe('commenting on the whole document', () => {
       false,
       ['draft-0'],
       ['document "Ship it"'],
+    ])
+  })
+
+  it('posts no comment over the limit, keeping its box and words and saying why, but posts one at it', async () => {
+    const { list, posted } = fakeDrafts()
+    const { host } = showList({ drafts: list })
+    await click(buttonNamed(host, 'Comment on the whole document…'))
+    await nextTick()
+
+    await type(TOO_LONG)
+    documentBox()!.closest('form')!.requestSubmit()
+    await settled()
+    const isKept = documentBox()?.value === TOO_LONG
+    const postedOverLimit = [...posted]
+    await type(LONGEST)
+    documentBox()!.closest('form')!.requestSubmit()
+    await settled()
+
+    expect([isKept, postedOverLimit, errors, posted]).toEqual([
+      true,
+      [],
+      [TOO_LONG_MESSAGE],
+      ['draft-0'],
     ])
   })
 
@@ -1169,6 +1218,25 @@ describe('editing and deleting a comment', () => {
     await save()
 
     expect([asked, editBox()?.value]).toEqual([['edit c1 "Reworded"'], 'Reworded'])
+  })
+
+  it('saves no edit over the limit, keeping the box and words and saying why, but saves one at it', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+    await pick(host, 'Is this right?', 'Edit')
+
+    await type(TOO_LONG)
+    await save()
+    const isKept = editBox()?.value === TOO_LONG
+    await type(LONGEST)
+    await save()
+
+    expect([isKept, errors, asked.length, asked[0] === `edit c1 "${LONGEST}"`]).toEqual([
+      true,
+      [TOO_LONG_MESSAGE],
+      1,
+      true,
+    ])
   })
 
   it('asks before deleting a comment, and deletes only once confirmed', async () => {

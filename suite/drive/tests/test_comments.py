@@ -180,6 +180,23 @@ class TestCommentWorkflows(IntegrationTestCase):
         listed = threads(self.owner, self.document.name)
         self.assertEqual([len(thread.comments) for thread in listed], [1])
 
+    def test_words_over_64_kb_are_refused_at_post_reply_and_edit(self):
+        longest = "é" * 32_767 + "x"
+        too_long = "é" * 32_768
+        posted = create_thread(self.commenter, self.document.name, "anchor", longest)
+        reply(self.commenter, posted.name, longest)
+        for post in (
+            lambda: create_thread(self.commenter, self.document.name, "anchor", too_long),
+            lambda: reply(self.commenter, posted.name, too_long),
+            lambda: edit_comment(self.commenter, posted.comments[0].name, too_long),
+        ):
+            with self.subTest(post=post), self.assertRaisesRegex(frappe.ValidationError, "64 KB"):
+                post()
+
+        listed = threads(self.owner, self.document.name)
+        self.assertEqual([row.content for row in listed[0].comments], [longest, longest])
+        self.assertEqual(len(listed), 1)
+
     def test_a_reply_id_used_in_another_thread_is_refused(self):
         one = create_thread(self.commenter, self.document.name, "one", "First").name
         two = create_thread(self.commenter, self.document.name, "two", "Second").name

@@ -25,6 +25,8 @@ _BRACKET_MENTION = re.compile(r"@\[([^\]\r\n]{1,140})\]")
 _EMAIL_MENTION = re.compile(r"(?<![\w@])@([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
 _DATA_MENTION = re.compile(r"data-(?:id|user)=[\"']([^\"'\r\n]{1,140})[\"']")
 _CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+# The most a comment holds, in UTF-8 bytes, as the old Text column did
+MAX_COMMENT_BYTES = 65_535
 
 
 def create_thread(
@@ -615,6 +617,9 @@ def validate_client_id(client_id: str | None) -> None:
 def _validate_text(text: str) -> None:
     if not isinstance(text, str) or not text.strip():
         frappe.throw(_("Drive comment text is required"), frappe.ValidationError)
+
+    if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:
+        frappe.throw(_("Drive comment text must be at most 64 KB"), frappe.ValidationError)
 
 
 def _guest_name(principals: Principals, author_name: str | None) -> str | None:
