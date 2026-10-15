@@ -128,7 +128,7 @@ describe('writer collab editing state', () => {
     becomes({ stopped: 'seq', saveState: 'failed', unsent: 1, canWrite: false, copiesKept: 1 })
     becomes({ copyFailed: true })
     expect(collab.banner.value?.text).toBe(
-      "Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open. Reload to keep editing.",
+      "Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open.",
     )
 
     retainRecovery.mockReturnValue(true)
@@ -311,26 +311,32 @@ describe('writer collab rebuild', () => {
     expect(order).toEqual(['kept', 'closed'])
   })
 
-  it('without a device copy or a kept copy, leaves the unsent work on screen until it is sent', async () => {
-    fakeRooms.room = fakeRooms.makeRoom()
-    const collab = await openCollab(() => false)
-    const oldRoom = fakeRooms.room
-    const closeSpy = vi.spyOn(oldRoom, 'close')
-    fakeRooms.room = fakeRooms.makeRoom()
-    const opensBefore = fakeRooms.openCount
+  it.each([
+    { name: 'without a device store', where: { onDevice: false } },
+    { name: 'after the device write failed', where: { onDevice: true, copyFailed: true } },
+  ])(
+    '$name and without a kept copy, leaves the unsent work on screen until it is sent',
+    async ({ where }) => {
+      fakeRooms.room = fakeRooms.makeRoom()
+      const collab = await openCollab(() => false)
+      const oldRoom = fakeRooms.room
+      const closeSpy = vi.spyOn(oldRoom, 'close')
+      fakeRooms.room = fakeRooms.makeRoom()
+      const opensBefore = fakeRooms.openCount
 
-    becomesOn(oldRoom, { needsRebuild: true, unsent: 2, onDevice: false })
-    await nextTick()
-    expect([collab.mode.value, collab.room.value, closeSpy.mock.calls.length]).toEqual([
-      'live',
-      oldRoom,
-      0,
-    ])
+      becomesOn(oldRoom, { needsRebuild: true, unsent: 2, ...where })
+      await nextTick()
+      expect([collab.mode.value, collab.room.value, closeSpy.mock.calls.length]).toEqual([
+        'live',
+        oldRoom,
+        0,
+      ])
 
-    becomesOn(oldRoom, { unsent: 0 })
-    await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
-    expect(fakeRooms.openCount - opensBefore).toBe(1)
-  })
+      becomesOn(oldRoom, { unsent: 0 })
+      await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
+      expect(fakeRooms.openCount - opensBefore).toBe(1)
+    },
+  )
 
   it('still says the last edits were set aside once the room is rebuilt', async () => {
     fakeRooms.room = fakeRooms.makeRoom()

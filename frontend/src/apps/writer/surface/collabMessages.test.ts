@@ -79,6 +79,9 @@ describe('collab banner copy', () => {
 
   it("pauses editing offline when the browser can't keep changes", () => {
     expect(bannerText({ blocked: 'offline', onDevice: false })).toBe(
+      "You're offline and this browser can't keep changes, so editing is paused. Keep this tab open.",
+    )
+    expect(bannerText({ blocked: 'offline', onDevice: false, unsent: 0 })).toBe(
       "You're offline and this browser can't keep changes, so editing is paused.",
     )
   })
@@ -97,7 +100,7 @@ describe('collab banner copy', () => {
       'Someone else is now signed in here. Your unsent changes are kept on this device.',
     )
     expect(bannerText({ blocked: 'other_user', onDevice: false })).toBe(
-      'Someone else is now signed in here. Reload to continue.',
+      'Someone else is now signed in here. Keep this tab open.',
     )
     expect(bannerText({ blocked: 'other_user', onDevice: false, recoveryKept: true })).toBe(
       'Someone else is now signed in here. Unsent changes were kept as a recovery copy. Reload to continue.',
@@ -106,11 +109,106 @@ describe('collab banner copy', () => {
 
   it('never claims a recovery copy the device could not write, and asks to keep the tab open', () => {
     expect(bannerText({ failed: true, stopped: 'seq', copyFailed: true })).toBe(
-      "Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open. Reload to keep editing.",
+      "Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open.",
     )
     expect(bannerText({ blocked: 'lost_edit', copyFailed: true })).toBe(
       "You can no longer edit this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
     )
+  })
+
+  it('asks a signed-out-elsewhere or stopped tab to stay open, with no Reload, while unsent work is kept nowhere', () => {
+    const copyFailedNote = " Unsent changes couldn't be kept on this device, so keep this tab open."
+
+    expect([
+      bannerText({ blocked: 'stale_session', onDevice: false }),
+      bannerText({ blocked: 'stale_session', copyFailed: true }),
+      bannerText({ blocked: 'other_user', copyFailed: true }),
+      bannerText({ failed: true, onDevice: false }),
+      bannerText({ blocked: 'stale_session', onDevice: false, unsent: 0 }),
+      bannerText({ blocked: 'other_user', onDevice: false, unsent: 0 }),
+      bannerText({ failed: true, onDevice: false, unsent: 0 }),
+    ]).toEqual([
+      'You signed in again in another tab. Keep this tab open.',
+      `You signed in again in another tab.${copyFailedNote}`,
+      `Someone else is now signed in here.${copyFailedNote}`,
+      'Saving stopped in this tab. Keep this tab open.',
+      'You signed in again in another tab. Reload to keep saving.',
+      'Someone else is now signed in here. Reload to continue.',
+      'Saving stopped in this tab. Reload to keep editing.',
+    ])
+  })
+
+  it('never claims the failed device write kept the work, nor asks to stay open beside a Reload', () => {
+    const failedWrite = { onDevice: true, copyFailed: true }
+
+    expect([
+      bannerText({ blocked: 'other_user', ...failedWrite, unsent: 0 }),
+      bannerText({ blocked: 'stale_session', ...failedWrite, unsent: 0 }),
+      bannerText({ failed: true, ...failedWrite, unsent: 0 }),
+    ]).toEqual([
+      'Someone else is now signed in here. Reload to continue.',
+      'You signed in again in another tab. Reload to keep saving.',
+      'Saving stopped in this tab. Reload to keep editing.',
+    ])
+  })
+
+  it('asks a tab still behind a newer Writer after a reload to stay open while unsent work is kept nowhere', () => {
+    const afterReload = { newerSchema: true, isNewerAfterReload: true }
+
+    expect([
+      bannerText({ ...afterReload, onDevice: false }),
+      bannerText({ ...afterReload, copyFailed: true }),
+      bannerText({ ...afterReload, onDevice: false, recoveryKept: true }),
+    ]).toEqual([
+      'This document needs a newer version of Writer than this site has. Ask your admin, and keep this tab open, since your unsent changes are only here.',
+      'This document needs a newer version of Writer than this site has. Ask your admin, and keep this tab open, since your unsent changes are only here.',
+      'This document needs a newer version of Writer than this site has. Try again in a few minutes, or ask your admin.',
+    ])
+  })
+
+  it('asks to keep the tab open, and offers no Reload, wherever saving waits while unsent work is kept nowhere', () => {
+    const blocks: BannerState['blocked'][] = [
+      null,
+      'signed_out',
+      'locked',
+      'offline',
+      'stale_session',
+      'other_user',
+      'lost_edit',
+      'lost_read',
+    ]
+    const waits: Partial<BannerState>[] = [
+      { failed: true },
+      { failed: true, stopped: 'seq' },
+      { failed: true, stopped: 'browser' },
+      { newerSchema: true },
+      { newerSchema: true, canEdit: false },
+      { newerSchema: true, isNewerAfterReload: true },
+      { held: 'change' },
+      { paused: 'upload_refused' },
+    ]
+    const conditions = [...waits, {}, { restoring: true }, { atLimit: true }, { polling: true }]
+    const keptNowhere: Partial<BannerState>[] = [{ onDevice: false }, { copyFailed: true }]
+    const states = blocks.flatMap((blocked) =>
+      conditions.flatMap((condition) =>
+        keptNowhere.flatMap((where) =>
+          [false, true].map((isFrozen) => ({
+            condition,
+            changes: { ...condition, ...where, blocked, isFrozen },
+          })),
+        ),
+      ),
+    )
+    const misses = states.filter(({ condition, changes }) => {
+      const text = bannerText(changes) ?? ''
+      const isWaiting = changes.blocked !== null || changes.isFrozen || waits.includes(condition)
+      const isAsked = text.toLowerCase().includes('keep this tab open')
+      const isReloadOffered =
+        bannerFor({ ...defaultState, ...changes })?.canReload || text.includes('Reload')
+      return isReloadOffered || (isWaiting && !isAsked)
+    })
+
+    expect(misses.map(({ changes }) => changes)).toEqual([])
   })
 
   it('names the recovery copy after a lost right or a stop', () => {

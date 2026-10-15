@@ -5,7 +5,7 @@ import type { DocumentSession } from '@/apps/drive'
 import { openWriterRoom } from '@/apps/writer/collab'
 import { TransportError } from '@/platform/transport'
 
-import { bannerFor, isUnsentOffDevice, openFailureFor, type BannerState } from './collabMessages'
+import { bannerFor, isKeptNowhere, openFailureFor, type BannerState } from './collabMessages'
 import { markNewerSchemaShown } from './newerSchemaMark'
 
 export type CollabMode = 'opening' | 'legacy' | 'live' | 'failed'
@@ -96,13 +96,12 @@ export function useWriterCollab(
   // Mirrors the room's state for the page, or rebuilds the room once it asks for that
   function syncRoomStatus(liveRoom: CollabRoom) {
     if (liveRoom.needsRebuild) {
-      const isUnsentNowhereElse = isUnsentOffDevice(liveRoom)
-      if (isUnsentNowhereElse && !recoveryKept.value) {
+      if (isKeptNowhere(liveRoom, recoveryKept.value)) {
         recoveryKept.value = retainRecovery()
       }
 
       // Unsent work held nowhere else stays on screen in the old room until it is sent
-      if (!isUnsentNowhereElse || recoveryKept.value) {
+      if (!isKeptNowhere(liveRoom, recoveryKept.value)) {
         void rebuildRoom(liveRoom)
         return
       }

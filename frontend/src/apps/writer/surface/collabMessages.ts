@@ -64,16 +64,21 @@ function recoveryNote(state: BannerState) {
     return ' Unsent changes were kept as a recovery copy.'
   }
 
-  if (state.copyFailed) {
+  if (state.copyFailed && state.unsent) {
     return " Unsent changes couldn't be kept on this device, so keep this tab open."
   }
 
   return ''
 }
 
-// Without a device store the unsent changes live only in this tab
+// The device store holds the unsent changes, unless its write failed
+function isKeptOnDevice(state: BannerState) {
+  return state.onDevice && !state.copyFailed
+}
+
+// Without the device store the unsent changes live only in this tab
 function keepOpenNote(state: BannerState) {
-  return state.onDevice ? '' : ' Keep this tab open.'
+  return isKeptOnDevice(state) ? '' : ' Keep this tab open.'
 }
 
 function messageFor(messages: Record<string, string>, reason: string | null) {
@@ -111,6 +116,13 @@ function savingBanner(state: BannerState): Banner | null {
 }
 
 function newerSchemaBanner(state: BannerState): Banner {
+  const isUnsentOnlyHere = isKeptNowhere(state, state.recoveryKept)
+  if (state.isNewerAfterReload && isUnsentOnlyHere) {
+    return {
+      text: 'This document needs a newer version of Writer than this site has. Ask your admin, and keep this tab open, since your unsent changes are only here.',
+    }
+  }
+
   // A reload that still loads this Writer can't help, so it isn't offered again
   if (state.isNewerAfterReload) {
     return {
@@ -118,7 +130,7 @@ function newerSchemaBanner(state: BannerState): Banner {
     }
   }
 
-  if (isKeptNowhere(state)) {
+  if (isUnsentOnlyHere) {
     return {
       text: 'This document was edited in a newer version of Writer. Keep this tab open, since your unsent changes are only here.',
     }
@@ -134,7 +146,7 @@ function heldBanner(state: BannerState): Banner {
     return { text }
   }
 
-  if (state.onDevice) {
+  if (isKeptOnDevice(state)) {
     return {
       text: `${text} Your unsent changes are saved on this device and will be added once it's editable again.`,
     }
@@ -145,9 +157,13 @@ function heldBanner(state: BannerState): Banner {
 }
 
 function pauseBanner(pauseMessage: string, state: BannerState): Banner {
+  const text = `${pauseMessage}, so your latest changes aren't saved.`
+  if (isKeptOnDevice(state)) {
+    return { text: `${text} They're kept on this device.` }
+  }
+
   const keepOpen = keepOpenNote(state)
-  const where = state.onDevice ? " They're kept on this device." : keepOpen
-  return { text: `${pauseMessage}, so your latest changes aren't saved.${where}` }
+  return { text: `${text}${keepOpen}` }
 }
 
 function signedOutBanner(state: BannerState): Banner {
@@ -167,35 +183,52 @@ function lockedBanner(state: BannerState): Banner {
   return { text, after: keepOpenNote(state) }
 }
 
-function offlineBanner(): Banner {
-  return { text: "You're offline and this browser can't keep changes, so editing is paused." }
+function offlineBanner(state: BannerState): Banner {
+  const text = "You're offline and this browser can't keep changes, so editing is paused."
+  if (!isKeptNowhere(state, state.recoveryKept)) {
+    return { text }
+  }
+
+  return { text: `${text} Keep this tab open.` }
 }
 
 function staleSessionBanner(state: BannerState): Banner {
   const note = recoveryNote(state)
+  if (isKeptNowhere(state, state.recoveryKept)) {
+    const keepOpen = keepOpenAsk(state)
+    return { text: `You signed in again in another tab.${note}${keepOpen}` }
+  }
+
   const recovery = state.onDevice ? '' : note
   return { text: `You signed in again in another tab.${recovery} Reload to keep saving.` }
 }
 
 function otherUserBanner(state: BannerState): Banner {
-  if (state.onDevice) {
+  const recovery = recoveryNote(state)
+  if (isKeptNowhere(state, state.recoveryKept)) {
+    const keepOpen = keepOpenAsk(state)
+    return { text: `Someone else is now signed in here.${recovery}${keepOpen}` }
+  }
+
+  if (isKeptOnDevice(state)) {
     return {
       text: 'Someone else is now signed in here. Your unsent changes are kept on this device.',
     }
   }
 
-  const recovery = recoveryNote(state)
   return { text: `Someone else is now signed in here.${recovery} Reload to continue.` }
 }
 
 function lostEditBanner(state: BannerState): Banner {
   const recovery = recoveryNote(state)
-  return { text: `You can no longer edit this document.${recovery}` }
+  const keepOpen = keepOpenAsk(state)
+  return { text: `You can no longer edit this document.${recovery}${keepOpen}` }
 }
 
 function lostReadBanner(state: BannerState): Banner {
   const recovery = recoveryNote(state)
-  return { text: `You can no longer open this document.${recovery}` }
+  const keepOpen = keepOpenAsk(state)
+  return { text: `You can no longer open this document.${recovery}${keepOpen}` }
 }
 
 const BLOCKED_BANNERS: Record<Blocked, (state: BannerState) => Banner> = {
@@ -208,23 +241,30 @@ const BLOCKED_BANNERS: Record<Blocked, (state: BannerState) => Banner> = {
   lost_read: lostReadBanner,
 }
 
-// Unsent work no device store holds, so the tab and any recovery copy are all that have it
-export function isUnsentOffDevice(room: Pick<CollabRoom, 'unsent' | 'onDevice' | 'copyFailed'>) {
-  return room.unsent > 0 && (!room.onDevice || room.copyFailed)
+// Unsent work no device store or recovery copy holds, so a reload would lose it and no strip
+// offers one
+export function isKeptNowhere(
+  room: Pick<CollabRoom, 'unsent' | 'onDevice' | 'copyFailed'>,
+  isRecoveryKept: boolean,
+) {
+  return room.unsent > 0 && (!room.onDevice || room.copyFailed) && !isRecoveryKept
 }
 
-// A reload would lose this work, so no strip offers one while it holds
-function isKeptNowhere(state: BannerState) {
-  return isUnsentOffDevice(state) && !state.recoveryKept
+// Asks for the tab to stay open while work is kept nowhere, unless the failed-copy note already does
+function keepOpenAsk(state: BannerState) {
+  if (!isKeptNowhere(state, state.recoveryKept) || state.copyFailed) {
+    return ''
+  }
+
+  return ' Keep this tab open.'
 }
 
 // A frozen tab freezes again after a reload, so its stop offers the reload for saving only
 function frozenStopBanner(state: BannerState, reason: string, isLasting: boolean): Banner {
   const recovery = recoveryNote(state)
   const frozenText = `${reason}${recovery} Part of this document can't be shown here, so editing stays paused.`
-  if (isKeptNowhere(state)) {
-    // The failed-copy note already asks for the tab to stay open
-    const keepOpen = state.copyFailed ? '' : ' Keep this tab open.'
+  if (isKeptNowhere(state, state.recoveryKept)) {
+    const keepOpen = keepOpenAsk(state)
     return { text: `${frozenText}${keepOpen}` }
   }
 
@@ -242,8 +282,13 @@ function stoppedBanner(state: BannerState): Banner {
     return frozenStopBanner(state, reason, isLasting)
   }
 
-  const reloadHint = isLasting ? '' : ' Reload to keep editing.'
   const recovery = recoveryNote(state)
+  if (isKeptNowhere(state, state.recoveryKept)) {
+    const keepOpen = keepOpenAsk(state)
+    return { text: `${reason}${recovery}${keepOpen}` }
+  }
+
+  const reloadHint = isLasting ? '' : ' Reload to keep editing.'
   return { text: `${reason}${recovery}${reloadHint}` }
 }
 
@@ -283,7 +328,7 @@ export function bannerFor(state: BannerState): Banner | null {
   }
 
   if (state.isFrozen) {
-    return frozenBanner(isKeptNowhere(state))
+    return frozenBanner(isKeptNowhere(state, state.recoveryKept))
   }
 
   if (state.held) {
