@@ -30,6 +30,13 @@ const rowClass = computed(() => {
 
   return 'hover:bg-surface-gray-2'
 })
+const openClass = computed(() => {
+  if (quote.value) {
+    return 'pt-2'
+  }
+
+  return 'pt-1'
+})
 const menuClass = computed(() => {
   if (isMenuOpen.value) {
     return ''
@@ -83,7 +90,7 @@ function noteMenu(isShown: boolean) {
     <p v-if="isClosed" class="truncate px-3 pb-2 pt-1 text-sm text-ink-gray-7" @click="toggle">
       <CommentText :content="draft.text" />
     </p>
-    <div v-else class="px-3 pb-3" :class="quote ? 'pt-2' : 'pt-1'">
+    <div v-else class="px-3 pb-3" :class="openClass">
       <div class="group/comment relative">
         <p class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
           <CommentText :content="draft.text" />
