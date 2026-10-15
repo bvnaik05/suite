@@ -103,6 +103,7 @@ import Globe from '~icons/lucide/globe'
 import House from '~icons/lucide/house'
 import Lock from '~icons/lucide/lock'
 import Megaphone from '~icons/lucide/megaphone'
+import Plus from '~icons/lucide/plus'
 import Settings from '~icons/lucide/settings'
 import ShieldCheck from '~icons/lucide/shield-check'
 import Star from '~icons/lucide/star'
@@ -523,19 +524,23 @@ const sidebarItems = computed(() => {
       outboxItem,
     )
 
+  const yourFolders = mailboxItems.value.filter((item) => !item.role)
+  const newFolder = () => {
+    selectedMailbox.value = undefined
+    showFolderModal.value = true
+  }
   const groups = [
     { label: '', key: 'lead', items: withMore(leadItems, secondaryItems) },
+    // With folders of your own, the heading carries the "+". With none, a heading over nothing read
+    // as a list that had failed to load: a New Folder row sits under it instead, and the heading's
+    // "+" would only repeat it.
     {
       label: __('Your folders'),
       key: 'folders',
-      items: mailboxItems.value.filter((item) => !item.role),
-      action: {
-        label: __('New Folder'),
-        onClick: () => {
-          selectedMailbox.value = undefined
-          showFolderModal.value = true
-        },
-      },
+      items: yourFolders.length
+        ? yourFolders
+        : [{ label: __('New Folder'), icon: Plus, to: undefined, onClick: newFolder }],
+      ...(yourFolders.length ? { action: { label: __('New Folder'), onClick: newFolder } } : {}),
     },
   ]
 
