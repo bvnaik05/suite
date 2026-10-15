@@ -2,9 +2,8 @@
 
 The site never talks to Stalwart's management API itself: every directory change (domains,
 accounts, groups, mailing lists) is proxied through Suite Cloud, which checks ownership and
-pushes to the cluster. Authentication is the site's API key and secret, handed out by Frappe
-Cloud when the site was registered, sent as a Frappe token with the ``Suite Tenant``
-authorization source.
+pushes to the cluster. Authentication is the site's tenant id and secret, issued by a Suite
+Cloud operator, sent as ``Authorization: Tenant <id>:<secret>``.
 """
 
 import json
@@ -44,12 +43,12 @@ class SuiteCloudUnavailableError(frappe.ValidationError):
 
 
 class SuiteCloudCredentialsError(frappe.PermissionError):
-    """Suite Cloud did not accept the site's key and secret (a 403, not a 401: the admin's own
-    session with this site is fine)."""
+    """Suite Cloud did not accept the site's tenant id and secret (a 403, not a 401: the admin's
+    own session with this site is fine)."""
 
 
 class SuiteCloudAddressError(frappe.PermissionError):
-    """The key is fine but this server's address is not on the site's allowed list at Suite Cloud."""
+    """The secret is fine but this server's address is not on the tenant's allowed list at Suite Cloud."""
 
 
 # Suite Cloud names the exception it raised (the error's ``type``); the site re-raises the
@@ -85,7 +84,7 @@ _EXCEPTIONS_BY_STATUS = {
 
 class SuiteCloudClient:
     def __init__(
-        self, base_url: str, api_key: str, api_secret: str, verify_ssl: bool = True, timeout=DEFAULT_TIMEOUT
+        self, base_url: str, tenant: str, secret: str, verify_ssl: bool = True, timeout=DEFAULT_TIMEOUT
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -93,8 +92,7 @@ class SuiteCloudClient:
         self.session.verify = verify_ssl
         self.session.headers.update(
             {
-                "Authorization": f"token {api_key}:{api_secret}",
-                "Frappe-Authorization-Source": "Suite Tenant",
+                "Authorization": f"Tenant {tenant}:{secret}",
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             }
@@ -201,6 +199,6 @@ def _error_payload(response: requests.Response) -> tuple[str | None, str | None]
 @request_cache
 def get_client() -> SuiteCloudClient:
     is_suite_cloud_configured(raise_exception=True)
-    url, key, secret = get_suite_cloud_config(SUITE_CLOUD_CONFIG_KEYS)
+    url, tenant, secret = get_suite_cloud_config(SUITE_CLOUD_CONFIG_KEYS)
     # The same Verify SSL as the JMAP URL: Suite Cloud and the cluster share a deployment.
-    return SuiteCloudClient(url, key, secret, verify_ssl=bool(cint(get_config("verify_ssl"))))
+    return SuiteCloudClient(url, tenant, secret, verify_ssl=bool(cint(get_config("verify_ssl"))))

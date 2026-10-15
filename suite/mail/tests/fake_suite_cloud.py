@@ -44,7 +44,7 @@ class FakeSuiteCloud:
 
     def ping(self) -> dict:
         return {
-            "site": "acme.frappe.test",
+            "tenant": "acme.frappe.test",
             "title": self.site_title,
             "status": "Active",
             "enabled": True,

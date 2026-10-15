@@ -266,7 +266,7 @@ const serviceRows = computed(() => {
   const status = site.value?.status
   return [
     { label: __('Workspace'), kind: 'workspace', value: workspace.value?.name },
-    { label: __('Site'), value: site.value?.site },
+    { label: __('Tenant'), value: site.value?.tenant },
     { label: __('Mail Server'), value: site.value?.mail_hostname },
     {
       label: __('Status'),

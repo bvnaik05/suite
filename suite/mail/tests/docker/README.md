@@ -24,8 +24,8 @@ bench --site <site> set-config allow_tests true
 bench --site <site> set-config mute_emails 1  # unless the site has an outgoing Email Account
 bench --site <site> set-config mail "{'server_url': 'https://mail.c1.frappemail.com', 'verify_ssl': 1}" --parse
 bench --site <site> set-config suite_cloud_url 'http://<site>:8000'
-bench --site <site> set-config site_api_key '<key>'
-bench --site <site> set-config site_api_secret '<secret>'
+bench --site <site> set-config suite_cloud_tenant '<tenant id>'
+bench --site <site> set-config suite_cloud_secret '<secret>'
 bench --site <site> clear-cache
 ```
 

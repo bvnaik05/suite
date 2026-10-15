@@ -38,8 +38,8 @@ class SuiteCloudTestCase(IntegrationTestCase):
             self.change_settings(
                 "Suite Settings",
                 suite_cloud_url="https://cloud.example.test",
-                site_api_key="key",
-                site_api_secret="secret",
+                suite_cloud_tenant="key",
+                suite_cloud_secret="secret",
             )
         )
         frappe.local.request_cache.clear()
@@ -63,12 +63,18 @@ class SuiteCloudTestCase(IntegrationTestCase):
 class TestClient(IntegrationTestCase):
     def test_configuration_needs_all_three_values(self) -> None:
         with self.change_settings(
-            "Suite Settings", suite_cloud_url="https://cloud.test", site_api_key="k", site_api_secret=""
+            "Suite Settings",
+            suite_cloud_url="https://cloud.test",
+            suite_cloud_tenant="k",
+            suite_cloud_secret="",
         ):
             frappe.local.request_cache.clear()
             self.assertFalse(is_suite_cloud_configured())
         with self.change_settings(
-            "Suite Settings", suite_cloud_url="https://cloud.test", site_api_key="k", site_api_secret="s"
+            "Suite Settings",
+            suite_cloud_url="https://cloud.test",
+            suite_cloud_tenant="k",
+            suite_cloud_secret="s",
         ):
             frappe.local.request_cache.clear()
             self.assertTrue(is_suite_cloud_configured())
@@ -79,7 +85,7 @@ class TestSuiteSettings(SuiteCloudTestCase):
     def test_validate_credentials_pings_and_flags_jmap_url_mismatch(self) -> None:
         settings = frappe.get_doc("Suite Settings")
         site = settings.validate_suite_cloud_credentials()
-        self.assertEqual(site["site"], "acme.frappe.test")
+        self.assertEqual(site["tenant"], "acme.frappe.test")
         self.assertEqual(self.fake.calls[-1][0], "tenant.ping")
         self.assertNotIn("expects the JMAP URL", frappe.get_message_log()[-1]["message"])
 
@@ -108,7 +114,7 @@ class TestSuiteSettings(SuiteCloudTestCase):
         self.assertEqual([c for c in self.fake.calls[calls:] if c[0] == "tenant.update_tenant_profile"], [])
 
     def test_validate_credentials_needs_configuration(self) -> None:
-        with self.change_settings("Suite Settings", site_api_secret=""):
+        with self.change_settings("Suite Settings", suite_cloud_secret=""):
             frappe.local.request_cache.clear()
             self.assertRaisesRegex(
                 frappe.ValidationError,

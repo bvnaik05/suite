@@ -1461,7 +1461,7 @@ def get_overview() -> dict:
         }
         overview["site"] = {
             k: site.get(k)
-            for k in ("site", "title", "status", "cluster", "mail_hostname", "jmap_url", "contact_email")
+            for k in ("tenant", "title", "status", "cluster", "mail_hostname", "jmap_url", "contact_email")
         }
 
     with suppress(Exception):
