@@ -98,9 +98,15 @@ test("losing edit access freezes the editor and cancels the pending save", async
 	const seen = watchPage(page);
 	const editor = await openDocument(page);
 
+	await page.route(/\/content\/[^/]+\/updates/, (route) => {
+		if (route.request().method() === "POST") {
+			return route.abort("failed");
+		}
+
+		return route.continue();
+	});
 	await editor.click();
 	await page.keyboard.type("Typed before the document was trashed");
-	// The autosave waits five seconds. Trash the document before it fires.
 	await patchNode(api, doc.name, { state: "Trashed" });
 	const trashedAt = seen.requests.length;
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
