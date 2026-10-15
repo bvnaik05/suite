@@ -106,7 +106,11 @@
           </MailListToolbar>
 
           <!-- Mail list -->
-          <div ref="mailList" class="h-full overflow-y-auto overscroll-contain max-sm:pb-20">
+          <div
+            ref="mailList"
+            class="h-full overflow-y-auto overscroll-contain max-sm:pb-20"
+            @focusin="onListFocusIn"
+          >
             <!-- An empty tab keeps its tabs, and an empty filtered list its filter, to leave it by.
                  While a new tab or filter loads, the list area spins in its place. -->
             <div v-if="!threadRows.length && threads.isFetching" class="flex justify-center py-10">
@@ -530,6 +534,7 @@ const {
   visibleThreadCount,
   navigableRows,
   focusedRowKey,
+  onListFocusIn,
   focusedRow,
   focusRow,
   focusOnThread,

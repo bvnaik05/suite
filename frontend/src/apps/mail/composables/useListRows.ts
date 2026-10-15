@@ -194,6 +194,19 @@ export const useListRows = ({
   }
 
   /**
+   * Tab moving through the list moves the cursor with it, so the row Enter will open carries the
+   * cursor's bar — the one mark of where you are. A row of its own beside the cursor's, the focus
+   * stayed on a row the cursor had left, and the list showed two. Only keyboard focus: a click
+   * focuses the row it opens, and the open row is marked already.
+   */
+  const onListFocusIn = (event: FocusEvent) => {
+    const target = event.target as HTMLElement | null
+    if (!target?.matches(':focus-visible')) return
+    const key = target.closest<HTMLElement>('[data-row-key]')?.dataset.rowKey
+    if (key) focusedRowKey.value = key
+  }
+
+  /**
    * The row that stands for a thread on screen: its own row when rendered, the collapsed stack that
    * hides it, or — when its whole day is folded away — that day's header. Callers name a thread ("go
    * to the first mail", "open the thread that just loaded"); this is how that lands somewhere visible.
@@ -227,7 +240,6 @@ export const useListRows = ({
   const isOpenRow = (row: ListRow) =>
     row.type === 'thread' && threadKey(row.thread) === openThreadID() && !isMobile.value
   const rowClasses = (row: ListRow) => ({
-    'border-l-transparent sm:border-l': true,
     // Monochrome, one gray: hover, the date headers, ticked rows (MailRow) and the open row all take
     // gray-1. "You are here" is a bar down the left side — 1.5px for the keyboard's cursor, 3px for the open row,
     // which is how a ticked row under the cursor and the one being read tell apart.
@@ -303,6 +315,7 @@ export const useListRows = ({
     visibleThreadCount,
     navigableRows,
     focusedRowKey,
+    onListFocusIn,
     focusedRow,
     focusRow,
     focusRowKey,

@@ -193,6 +193,7 @@
           <div
             v-if="threadRows.length"
             ref="mailList"
+            @focusin="onListFocusIn"
             class="h-full overflow-y-auto overscroll-contain max-sm:pb-20"
           >
             <div v-for="(group, key) in groupedThreads" :key="key">
@@ -509,6 +510,7 @@ const {
   visibleThreadCount,
   navigableRows,
   focusedRowKey,
+  onListFocusIn,
   focusedRow,
   focusRow,
   focusOnThread,

@@ -1,11 +1,10 @@
 <template>
   <!-- No browser focus ring, whose top and bottom showed as stray lines once the list clipped its
-       sides. Tab focus is shown as the keyboard's cursor is, a thin bar down the left side (see
-       CURSOR_BAR_CLASS), on ::after so it never contends with the open row's own bar on ::before. -->
+       sides. Tab focus moves the keyboard's cursor instead (see onListFocusIn), whose bar marks it. -->
   <component
     :is="to ? RouterLink : 'div'"
     :to="to"
-    class="sm:hover:bg-surface-gray-1 group flex cursor-default select-none space-x-2.5 border-b outline-none focus-visible:outline-none sm:focus-visible:relative sm:focus-visible:after:absolute sm:focus-visible:after:inset-y-0 sm:focus-visible:after:-left-px sm:focus-visible:after:w-[1.5px] sm:focus-visible:after:rounded-r-full sm:focus-visible:after:bg-[var(--ink-gray-8)] sm:focus-visible:after:content-[''] px-3.5 py-2.5 sm:py-2 [-webkit-touch-callout:none] sm:space-x-5 sm:px-5"
+    class="sm:hover:bg-surface-gray-1 group flex cursor-default select-none space-x-2.5 border-b outline-none focus-visible:outline-none px-3.5 py-2.5 sm:py-2 [-webkit-touch-callout:none] sm:space-x-5 sm:px-5"
     :class="{ '!bg-surface-gray-1': isSelected || isTouching, '!py-1': isFullWidth }"
     :draggable="draggable || undefined"
     @mouseenter="isHovered = true"

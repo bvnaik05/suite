@@ -18,10 +18,7 @@
   </div>
 
   <!-- Desktop -->
-  <div
-    v-else
-    class="relative flex items-center border-b border-l-transparent px-3.5 py-2.5 sm:border-l sm:px-5"
-  >
+  <div v-else class="relative flex items-center border-b px-3.5 py-2.5 sm:px-5">
     <!-- Select-all checkbox in the mailbox list; All Inboxes has no selection. -->
     <slot name="lead" />
 
