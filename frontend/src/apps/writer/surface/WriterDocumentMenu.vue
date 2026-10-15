@@ -86,7 +86,7 @@ function versionGroups() {
       options: [
         {
           label: __('Save version'),
-          icon: 'lucide-bookmark-plus',
+          icon: 'lucide-bookmark',
           onClick: pickVersion,
         },
       ],

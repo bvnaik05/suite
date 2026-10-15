@@ -183,7 +183,7 @@ function actions(version: DocumentVersion): DropdownOptions {
             aria-label="Save version"
             @click="emit('saveVersion')"
           >
-            <span class="lucide-bookmark-plus size-4" aria-hidden="true" />
+            <span class="lucide-bookmark size-4" aria-hidden="true" />
           </button>
         </Tooltip>
       </div>
