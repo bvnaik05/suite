@@ -152,8 +152,6 @@ const propertyFontSizeEditing = ref(false)
 const propertyFontSizeDraft = ref('')
 const propertyFontSizeInput = ref<{ inputElement: HTMLInputElement | null }>()
 const textArea = ref<HTMLTextAreaElement>()
-const selectedRectangleId = ref<string>()
-const selectedLineId = ref<string>()
 const selectedLabelId = ref<string>()
 const selectedShapeIds = ref<string[]>([])
 const multiSelectionFrame = ref<RectangleShape>()
@@ -316,7 +314,6 @@ let selectionGesture:
       kind: 'move' | 'resize' | 'curve' | 'rotate'
       start: Point
       original: RectangleShape
-      initial: RectangleShape
       originalScene: SceneSnapshot
       labelOriginal?: RectangleShape
       rollbackScene?: SceneSnapshot
@@ -376,9 +373,9 @@ const rotationCursorStyle = computed(() => {
   }
 })
 const selectedRectangle = computed(() =>
-  rectangles.value.find((rectangle) => rectangle.id === selectedRectangleId.value),
+  rectangles.value.find((rectangle) => rectangle.id === selectedShapeIds.value.at(-1)),
 )
-const selectedLine = computed(() => lines.value.find((line) => line.id === selectedLineId.value))
+const selectedLine = computed(() => lines.value.find((line) => line.id === selectedShapeIds.value.at(-1)))
 const croppingImage = computed(() => {
   const shape = rectangles.value.find(candidate => candidate.id === croppingImageId.value)
   return shape && isImage(shape) ? shape : undefined
@@ -677,7 +674,7 @@ function selectLabel(shape: RectangleShape) {
 
 function groupSelectedShapes(): boolean {
   if (selectedShapeIds.value.length < 2) return false
-  const groupId = nextGroupId()
+  const groupId = createId('group')
   rectangles.value = rectangles.value.map((shape) =>
     selectedShapeIds.value.includes(shape.id) ? { ...shape, groupId } : shape,
   )
@@ -694,8 +691,6 @@ function setSelection(ids: string[]) {
   selectedLabelId.value = undefined
   selectedShapeIds.value = selected
   multiSelectionFrame.value = selected.length > 1 ? selectionOutline(bounds(allShapes.value.filter(shape => selected.includes(shape.id)))!) : undefined
-  selectedRectangleId.value = rectangles.value.find(s => s.id === selected.at(-1))?.id
-  selectedLineId.value = lines.value.find(s => s.id === selected.at(-1))?.id
   liveMessage.value = `${selected.length} objects selected`
 }
 
@@ -711,11 +706,11 @@ function insertScene(scene: SceneSnapshot, offset = 10, commit = true) {
   const groups = new Map<string, string>()
   let order = Math.max(0, ...allShapes.value.map(shape => shape.order ?? 0))
   const clone = (shape: Shape): Shape => {
-    const groupId = shape.groupId ? groups.get(shape.groupId) ?? nextGroupId() : undefined
+    const groupId = shape.groupId ? groups.get(shape.groupId) ?? createId('group') : undefined
     if (shape.groupId && groupId) groups.set(shape.groupId, groupId)
     return isLine(shape)
-      ? { ...shape, id: nextId('line'), order: ++order, groupId, start: { x: shape.start.x + offset, y: shape.start.y + offset }, end: { x: shape.end.x + offset, y: shape.end.y + offset } }
-      : { ...shape, id: nextId('rectangle'), order: ++order, groupId, x: shape.x + offset, y: shape.y + offset }
+      ? { ...shape, id: createId('line'), order: ++order, groupId, start: { x: shape.start.x + offset, y: shape.start.y + offset }, end: { x: shape.end.x + offset, y: shape.end.y + offset } }
+      : { ...shape, id: createId('rectangle'), order: ++order, groupId, x: shape.x + offset, y: shape.y + offset }
   }
   const shapes = [...scene.lines, ...scene.rectangles].sort((a,b) => (a.order ?? 0) - (b.order ?? 0)).map(clone)
   lines.value.push(...shapes.filter(isLine))
@@ -843,7 +838,7 @@ async function insertImages(files: Iterable<File>, point = center()) {
       const scale = Math.min(1, 480 / Math.max(image.width, image.height))
       const width = Math.max(24, Math.round(image.width * scale))
       const height = Math.max(24, Math.round(image.height * scale))
-      added.push({ id: nextId('image'), kind: 'image', src: image.src, naturalWidth: image.width, naturalHeight: image.height, x: start.x + index * 16, y: start.y + index * 16, width, height, rotation: 0, cornerRadius: 0, stroke: null })
+      added.push({ id: createId('image'), kind: 'image', src: image.src, naturalWidth: image.width, naturalHeight: image.height, x: start.x + index * 16, y: start.y + index * 16, width, height, rotation: 0, cornerRadius: 0, stroke: null })
     } catch { liveMessage.value = `Could not add ${file.name}.` }
   }
   if (!added.length) return
@@ -1300,7 +1295,7 @@ function finishTextEditor(event?: FocusEvent) {
       id: '', x: editor.x, y: editor.y, width: editor.width, height: editor.height,
       rotation: 0, cornerRadius: 0,
     }, layout.width, layout.height),
-    id: editor.shapeId ?? nextId('text'),
+    id: editor.shapeId ?? createId('text'),
     kind: 'text',
     text: editor.text,
     fontSize: editor.fontSize,
@@ -1429,7 +1424,7 @@ function finishRectangle(event: PointerEvent) {
     const isDiamondShape = isDiamond(rectangle)
     const committed = {
       ...rectangle,
-      id: nextId(isDiamondShape ? 'diamond' : isEllipseShape ? 'ellipse' : 'rectangle'),
+      id: createId(isDiamondShape ? 'diamond' : isEllipseShape ? 'ellipse' : 'rectangle'),
     }
     rectangles.value.push(committed)
     selectShape(committed)
@@ -1482,7 +1477,7 @@ function finishLine(event: PointerEvent) {
   if (!lineGesture || lineGesture.pointerId !== event.pointerId) return false
   const line = pendingLine.value
   if (line && distance(line.start, line.end) > 0) {
-    const committed = { ...line, id: nextId(line.kind) }
+    const committed = { ...line, id: createId(line.kind) }
     lines.value.push(committed)
     selectShape(committed)
     commitScene()
@@ -1535,7 +1530,6 @@ function startSelection(event: PointerEvent, point: Point) {
       handle: isRotateHandle(rectangleHandle) ? undefined : isCurveHandle(rectangleHandle) ? curveCorner(rectangleHandle) : rectangleHandle,
       start: worldPoint,
       original: { ...rectangle },
-      initial: { ...rectangle },
       originalScene: copyScene(),
       labelOriginal: selectedLabel.value ? { ...selectedLabel.value } : undefined,
       handleStart: isRotateHandle(rectangleHandle) || isCurveHandle(rectangleHandle) ? undefined : resizeHandlePoint(rectangle, rectangleHandle),
@@ -1555,7 +1549,6 @@ function startSelection(event: PointerEvent, point: Point) {
         kind: 'move',
         start: worldPoint,
         original: { ...(hasMultipleSelection.value ? selectionFrame.value! : hit) },
-        initial: { ...hit },
         originalScene: copyScene(),
       }
     } else {
@@ -1565,7 +1558,6 @@ function startSelection(event: PointerEvent, point: Point) {
           kind: 'move',
           start: worldPoint,
           original: { ...selectionFrame.value },
-          initial: { ...selectionFrame.value },
           originalScene: copyScene(),
         }
       } else {
@@ -1589,7 +1581,7 @@ function startSelection(event: PointerEvent, point: Point) {
   }
 
   if (hasMultipleSelection.value && lineSelectionGesture?.kind === 'move' && selectionFrame.value) {
-    selectionGesture = { pointerId: event.pointerId, kind: 'move', start: worldPoint, original: { ...selectionFrame.value }, initial: { ...selectionFrame.value }, originalScene: copyScene() }
+    selectionGesture = { pointerId: event.pointerId, kind: 'move', start: worldPoint, original: { ...selectionFrame.value }, originalScene: copyScene() }
     lineSelectionGesture = undefined
     isCurving.value = false
   }
@@ -1847,10 +1839,6 @@ function updateSelectedTextStyle(patch: TextStylePatch) {
 }
 
 function applyObjectColor(color: ObjectColor) {
-  if (props.activeTool === 'draw') {
-    Object.assign(drawStyle, { stroke: color.border, fill: color.fill })
-    return
-  }
   const selected = new Set(selectedShapeIds.value)
   rectangles.value = rectangles.value.map(shape => selected.has(shape.id) ? { ...shape, stroke: color.border, fill: color.fill } : shape)
   lines.value = lines.value.map(shape => selected.has(shape.id) ? { ...shape, stroke: color.border } : shape)
@@ -1909,11 +1897,6 @@ function applyCustomPropertyColor(color: string | undefined, target?: 'border' |
   }
   if (color === undefined) {
     if (target === 'border') return updateSelectedStyle({ stroke: null })
-    if (textEditor.value?.kind === 'text') {
-      textEditor.value.fill = undefined
-      return
-    }
-    if (selectedTextShapes.value.length) return updateSelectedTextStyle({ fill: undefined })
     if (selectedShapes.value.length) return updateSelectedStyle({ fill: undefined })
     armedTextStyle.fill = undefined
     return
@@ -2122,14 +2105,6 @@ function copyLine(line: LineShape): LineShape {
   return { ...line, start: { ...line.start }, end: { ...line.end }, curve: typeof line.curve === 'object' ? { ...line.curve } : line.curve }
 }
 
-function nextId(kind: string): string {
-  return createId(kind)
-}
-
-function nextGroupId(): string {
-  return createId('group')
-}
-
 function releasePointer(pointerId: number) {
   if (root.value?.hasPointerCapture(pointerId)) root.value.releasePointerCapture(pointerId)
 }
@@ -2231,11 +2206,7 @@ function labelTextAlign(shape: RectangleShape): NonNullable<TextShape['textAlign
 }
 
 function labelLines(shape: RectangleShape): string[] {
-  return layoutText(shape.label ?? '', labelTextWidth(shape), shape.labelFontSize ?? 16, true, {
-    fontFamily: shape.labelFontFamily ?? 'shantell',
-    fontWeight: shape.labelFontWeight ?? 400,
-    fontStyle: shape.labelFontStyle ?? 'normal',
-  }).lines
+  return labelLayout(shape, shape.label ?? '').lines
 }
 
 function labelLineX(shape: RectangleShape): number {
@@ -2267,10 +2238,6 @@ function fitLabel(shape: RectangleShape, text: string, fontSize = shape.labelFon
     },
     layout,
   }
-}
-
-function wrapText(text: string, width: number, fontSize: number, wrap = true, fontFamily: TextFontFamily = 'shantell'): string[] {
-  return layoutText(text, width, fontSize, wrap, { fontFamily }).lines
 }
 
 function shapeFromPoints(start: Point, end: Point, id: string, constrainProportions = false): RectangleShape {
@@ -2314,7 +2281,7 @@ function updateDraw(event: PointerEvent) {
 function finishDraw(event: PointerEvent) {
   if (drawPointerId !== event.pointerId || !pendingDraw.value) return false
   if (event.type === 'pointerup') updateDraw(event)
-  const shape = { ...pendingDraw.value, id: nextId('draw'), points: [...pendingDraw.value.points], pressures: [...pendingDraw.value.pressures] }
+  const shape = { ...pendingDraw.value, id: createId('draw'), points: [...pendingDraw.value.points], pressures: [...pendingDraw.value.pressures] }
   rectangles.value.push(shape)
   pendingDraw.value = undefined
   drawPointerId = undefined
@@ -2990,7 +2957,6 @@ onMounted(async () => {
   document.addEventListener('cut', onClipboard)
   document.addEventListener('paste', onClipboard)
   window.addEventListener('beforeunload', warnUnsaved)
-  window.addEventListener('online', saveDrawing)
   const scene = await loadDrawing()
   if (scene) {
     restoreGestureScene(scene)
@@ -3018,7 +2984,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('cut', onClipboard)
   document.removeEventListener('paste', onClipboard)
   window.removeEventListener('beforeunload', warnUnsaved)
-  window.removeEventListener('online', saveDrawing)
   resizeObserver?.disconnect()
   window.removeEventListener('blur', cancelGesture)
   window.removeEventListener('keyup', onKeyUp)
@@ -3137,47 +3102,35 @@ onBeforeUnmount(() => {
           <rect :x="image.x" :y="image.y" :width="image.width" :height="image.height" :rx="image.cornerRadius" :ry="image.cornerRadius" class="drawn-image-border" :style="shapeStyle(image)" />
         </g>
         <g
-          v-for="diamond in !isLine(object) && isDiamond(object) ? [object] : []"
-          :key="diamond.id"
-          :transform="`rotate(${diamond.rotation} ${diamond.x + diamond.width / 2} ${diamond.y + diamond.height / 2})`"
-        >
-          <path
-            :d="diamondPath(diamond)"
-            class="drawn-diamond"
-            :style="shapeStyle(diamond)"
-          />
-          <text
-            v-if="diamond.label && textEditor?.shapeId !== diamond.id"
-            :x="diamond.x + diamond.width / 2"
-            :y="diamond.y + diamond.height / 2"
-            :font-size="diamond.labelFontSize ?? 16"
-            class="shape-label"
-            :style="{ fill: diamond.labelFill ?? 'var(--ink-gray-9, #171717)', fontFamily: TEXT_FONT_FAMILIES[diamond.labelFontFamily ?? 'shantell'], fontWeight: diamond.labelFontWeight ?? 400, fontStyle: diamond.labelFontStyle ?? 'normal', textDecoration: diamond.labelTextDecoration ?? 'none', textAnchor: labelTextAlign(diamond) === 'center' ? 'middle' : labelTextAlign(diamond) === 'right' ? 'end' : 'start' }"
-          >
-            <tspan
-              v-for="(line, index) in labelLines(diamond)"
-              :key="index"
-              :x="labelLineX(diamond)"
-              :dy="index === 0 ? -(labelLines(diamond).length - 1) * (diamond.labelFontSize ?? 16) * 0.625 : (diamond.labelFontSize ?? 16) * 1.25"
-              :textLength="labelTextAlign(diamond) === 'justify' && index < labelLines(diamond).length - 1 ? labelTextWidth(diamond) : undefined"
-              lengthAdjust="spacing"
-            >{{ line }}</tspan>
-          </text>
-        </g>
-        <g
-          v-for="rectangle in !isLine(object) && !isFreeDraw(object) && !isEllipse(object) && !isDiamond(object) && !isText(object) && !isImage(object) ? [object] : []"
+          v-for="rectangle in !isLine(object) && !isFreeDraw(object) && !isText(object) && !isImage(object) ? [object] : []"
           :key="rectangle.id"
           :transform="`rotate(${rectangle.rotation} ${rectangle.x + rectangle.width / 2} ${rectangle.y + rectangle.height / 2})`"
         >
+          <path
+            v-if="isDiamond(rectangle)"
+            :d="diamondPath(rectangle)"
+            class="drawn-diamond"
+            :style="shapeStyle(rectangle)"
+          />
+          <ellipse
+            v-else-if="isEllipse(rectangle)"
+            :cx="rectangle.x + rectangle.width / 2"
+            :cy="rectangle.y + rectangle.height / 2"
+            :rx="rectangle.width / 2"
+            :ry="rectangle.height / 2"
+            class="drawn-ellipse"
+            :style="shapeStyle(rectangle)"
+          />
           <rect
-          :x="rectangle.x"
-          :y="rectangle.y"
-          :width="rectangle.width"
-          :height="rectangle.height"
-          :rx="rectangle.cornerRadius"
-          :ry="rectangle.cornerRadius"
-          class="drawn-rectangle"
-          :style="shapeStyle(rectangle)"
+            v-else
+            :x="rectangle.x"
+            :y="rectangle.y"
+            :width="rectangle.width"
+            :height="rectangle.height"
+            :rx="rectangle.cornerRadius"
+            :ry="rectangle.cornerRadius"
+            class="drawn-rectangle"
+            :style="shapeStyle(rectangle)"
           />
           <text
             v-if="rectangle.label && textEditor?.shapeId !== rectangle.id"
@@ -3193,37 +3146,6 @@ onBeforeUnmount(() => {
               :x="labelLineX(rectangle)"
               :dy="index === 0 ? -(labelLines(rectangle).length - 1) * (rectangle.labelFontSize ?? 16) * 0.625 : (rectangle.labelFontSize ?? 16) * 1.25"
               :textLength="labelTextAlign(rectangle) === 'justify' && index < labelLines(rectangle).length - 1 ? labelTextWidth(rectangle) : undefined"
-              lengthAdjust="spacing"
-            >{{ line }}</tspan>
-          </text>
-        </g>
-        <g
-          v-for="ellipse in !isLine(object) && isEllipse(object) ? [object] : []"
-          :key="ellipse.id"
-          :transform="`rotate(${ellipse.rotation} ${ellipse.x + ellipse.width / 2} ${ellipse.y + ellipse.height / 2})`"
-        >
-          <ellipse
-          :cx="ellipse.x + ellipse.width / 2"
-          :cy="ellipse.y + ellipse.height / 2"
-          :rx="ellipse.width / 2"
-          :ry="ellipse.height / 2"
-          class="drawn-ellipse"
-          :style="shapeStyle(ellipse)"
-          />
-          <text
-            v-if="ellipse.label && textEditor?.shapeId !== ellipse.id"
-            :x="ellipse.x + ellipse.width / 2"
-            :y="ellipse.y + ellipse.height / 2"
-            :font-size="ellipse.labelFontSize ?? 16"
-            class="shape-label"
-            :style="{ fill: ellipse.labelFill ?? 'var(--ink-gray-9, #171717)', fontFamily: TEXT_FONT_FAMILIES[ellipse.labelFontFamily ?? 'shantell'], fontWeight: ellipse.labelFontWeight ?? 400, fontStyle: ellipse.labelFontStyle ?? 'normal', textDecoration: ellipse.labelTextDecoration ?? 'none', textAnchor: labelTextAlign(ellipse) === 'center' ? 'middle' : labelTextAlign(ellipse) === 'right' ? 'end' : 'start' }"
-          >
-            <tspan
-              v-for="(line, index) in labelLines(ellipse)"
-              :key="index"
-              :x="labelLineX(ellipse)"
-              :dy="index === 0 ? -(labelLines(ellipse).length - 1) * (ellipse.labelFontSize ?? 16) * 0.625 : (ellipse.labelFontSize ?? 16) * 1.25"
-              :textLength="labelTextAlign(ellipse) === 'justify' && index < labelLines(ellipse).length - 1 ? labelTextWidth(ellipse) : undefined"
               lengthAdjust="spacing"
             >{{ line }}</tspan>
           </text>
