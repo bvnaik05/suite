@@ -275,7 +275,7 @@ class TestGroupsAndLists(SuiteCloudTestCase):
         # One alias per call, never the whole set: concurrent edits cannot drop each other's rows.
         self.assertEqual(
             [c[0] for c in self.fake.calls[-2:]],
-            ["mail.groups.add_group_alias", "mail.groups.set_group_alias_enabled"],
+            ["mail.groups.add_alias", "mail.groups.set_alias_enabled"],
         )
         addresses = admin.get_group(group)["email_addresses"]
         self.assertEqual(
