@@ -366,12 +366,13 @@ async function openedSurface(
   path = '/d/node-1',
   comments?: Comments,
   access = ref({ role: 50 }),
+  state = ref('Active'),
 ) {
   const session = {
     nodeId: 'node-1',
     comments,
     title: ref('Quarterly plan'),
-    state: ref('Active'),
+    state,
     access,
     refreshAccess: async () => {},
     versions,
@@ -441,6 +442,7 @@ function liveRoom() {
     onChange: () => () => {},
     flush: async () => {},
     close: vi.fn(async () => {}),
+    loseAccess: vi.fn(async () => {}),
   }
   rooms.next = room
   return room
@@ -548,6 +550,7 @@ async function downloadedChanges(afterClose: (root: Element) => unknown = () => 
   const warning = vi.spyOn(toast, 'warning')
 
   access.value = { role }
+  await vi.waitFor(() => expect(warning).toHaveBeenCalled())
   await afterClose(root)
   const [, shown] = warning.mock.lastCall!
   ;(shown?.action as { onClick: () => void }).onClick()
@@ -951,6 +954,40 @@ describe('Writer surface', () => {
 
     expect(await file.text()).toContain('<p>Unsent line</p>')
     await discardCopies()
+  })
+
+  it('tells the room that editing access was lost when the role drops below edit', async () => {
+    const room = liveRoom()
+    const access = ref({ role: 50 })
+    await openedSurface(undefined, '/d/node-1', undefined, access)
+
+    access.value = { role: 30 }
+
+    expect(room.loseAccess).toHaveBeenCalledWith('lost_edit')
+  })
+
+  it('tells the room that reading access was lost when the document is refused, before its role drops', async () => {
+    const room = liveRoom()
+    const state = ref('Active')
+    await openedSurface(undefined, '/d/node-1', undefined, undefined, state)
+
+    state.value = 'Refused'
+
+    expect(room.loseAccess).toHaveBeenCalledWith('lost_read')
+  })
+
+  it("shows the read-only notice, with no download, when the only unsent work is another tab's", async () => {
+    Object.assign(liveRoom(), { saveState: 'unsaved', othersUnsent: 3 })
+    const access = ref({ role: 50 })
+    await openedSurface(undefined, '/d/node-1', undefined, access)
+    const warning = vi.spyOn(toast, 'warning')
+
+    access.value = { role: 30 }
+
+    await vi.waitFor(() => expect(warning).toHaveBeenCalled())
+    expect(warning.mock.calls).toEqual([
+      ['Editing access changed. This document is now read-only.'],
+    ])
   })
 
   it("shows the freeze strip with Reload when the document holds text the editor can't show", async () => {

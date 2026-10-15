@@ -21,6 +21,7 @@ import {
   type CollabRoom,
   type Held,
   type LiveState,
+  type LostAccess,
   type OpenOptions,
   type RestoreOutcome,
   type RestoreResult,
@@ -32,6 +33,8 @@ const PERSIST_AFTER_MS = 60_000
 // Without live updates a tab pulls every tick while others are editing or work waits, and every sixth tick otherwise
 const QUIET_TICKS = 6
 const CO_EDITING_MS = 60_000
+// The server's pace and one answer; a retry waits longer, so it is cut off
+const LOST_ACCESS_FLUSH_MS = 3000
 
 // Each collaborator below reads and changes this state through its own narrow interface
 export class Room implements CollabRoom {
@@ -57,6 +60,10 @@ export class Room implements CollabRoom {
   closed = false
   // Set once this tab's work can never be committed; the reason it was kept as a recovery copy
   stopReason: string | null = null
+  // The device write of that copy, which no lock may be released before
+  private recovering: Promise<boolean> | null = null
+  // The app shut the tab for a lost right; closing waits until its work is sent or kept
+  private losingAccess: Promise<void> | null = null
   copiesKept = 0
   copyFailed = false
   // Typing after the stop that no device copy holds
@@ -239,6 +246,8 @@ export class Room implements CollabRoom {
   async close() {
     if (this.closed) return
 
+    await this.losingAccess
+    await this.recovering
     if (this.sender.inFlight) {
       await this.sender.inFlight
     }
@@ -278,7 +287,10 @@ export class Room implements CollabRoom {
   }
 
   async moveToRecovery(reason: string) {
-    if (this.stopReason) return
+    if (this.stopReason) {
+      await this.recovering
+      return
+    }
 
     this.stopReason = reason
     if (!this.device) return
@@ -288,13 +300,35 @@ export class Room implements CollabRoom {
     const sids = boxes.map((box) => box.sid)
     const doc = this.device.doc
     const stored = boxes.flatMap((box) => box.toStoredEntries(doc))
-    await this.keepCopy(this.device, sids, reason, stored)
+    this.recovering = this.keepCopy(this.device, sids, reason, stored)
+    await this.recovering
+  }
+
+  // A push still on its way when the bound ends may land after the copy, so its work is both saved and kept
+  async loseAccess(lostAccess: LostAccess) {
+    this.writable = false
+    this.losingAccess ??= this.boundedFlush()
+    await this.losingAccess
+    block(this, lostAccess)
+    await this.recovering
+  }
+
+  private async boundedFlush() {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      this.flush(),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, LOST_ACCESS_FLUSH_MS)
+      }),
+    ])
+    clearTimeout(timer)
   }
 
   private async keepCopy(device: Device, sids: string[], reason: string, stored: StoredEntry[]) {
     const isKept = await device.recover(sids, reason, stored, Y.encodeStateAsUpdate(this.doc))
     this.copyFailed = !isKept
-    if (isKept) {
+    // A tab with nothing unsent writes no copy, so none is counted
+    if (isKept && stored.length) {
       this.copiesKept++
     }
 

@@ -110,6 +110,9 @@ export type SaveState = 'clean' | 'saving' | 'unsaved' | 'failed'
 export type Blocked =
   'signed_out' | 'locked' | 'offline' | 'stale_session' | 'other_user' | 'lost_edit' | 'lost_read'
 
+// The right a 403 or 404 takes away: to edit, refused a push or a claim, or to read, refused a pull or a report
+export type LostAccess = 'lost_edit' | 'lost_read'
+
 // Why the document waits for an admin: one change, or its saved content
 export type Held = 'change' | 'bad_checkpoint'
 
@@ -172,6 +175,8 @@ export interface CollabRoom {
   // Fences the document, makes `edit` the restore of `version` and sends it; calls the fence off unless it lands
   restoreVersion(version: number, edit: () => void): Promise<RestoreResult>
   close(): Promise<void>
+  // The app shut this tab for a lost right: it sends what it can within a bound, then keeps the rest as a recovery copy
+  loseAccess(lostAccess: LostAccess): Promise<void>
   // Whether the server holds each of these items, as committed text does, so a comment on them can post
   committedCovers(items: readonly Y.ID[]): boolean
 }

@@ -1,5 +1,5 @@
 import { isStaleSession, signInChange, type Reply } from './answers'
-import { isRecoverable, type Blocked, type OpenOptions } from './types'
+import { isRecoverable, type Blocked, type LostAccess, type OpenOptions } from './types'
 
 /** What a refusal changes on the room. */
 export interface AccessRoom {
@@ -11,9 +11,6 @@ export interface AccessRoom {
   moveToRecovery(reason: string): Promise<void>
   notifyListeners(): void
 }
-
-// The right a 403 or 404 takes away: to edit, refused a push or a claim, or to read, refused a pull or a report
-export type LostAccess = 'lost_edit' | 'lost_read'
 
 const isLostAccess = (reason: Blocked) => reason === 'lost_edit' || reason === 'lost_read'
 

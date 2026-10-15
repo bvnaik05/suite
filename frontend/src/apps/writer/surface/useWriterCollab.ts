@@ -1,4 +1,9 @@
-import { CollabOpenError, isRecoverable, type CollabRoom } from '@suite/collab-client'
+import {
+  CollabOpenError,
+  isRecoverable,
+  type CollabRoom,
+  type LostAccess,
+} from '@suite/collab-client'
 import { computed, nextTick, ref, shallowRef } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
@@ -143,6 +148,11 @@ export function useWriterCollab(
     void room.value?.close()
   }
 
+  // Before the page drops the editor, so the room keeps its work rather than leaving it to another tab
+  async function loseAccess(lostAccess: LostAccess) {
+    await room.value?.loseAccess(lostAccess)
+  }
+
   const isLive = computed(() => mode.value === 'live')
   // Whether the person can type: "paused" for a reason that clears, "closed" when they can't (or lost the right to).
   // "editing" while there is no room to ask
@@ -222,5 +232,6 @@ export function useWriterCollab(
     openFailure,
     open,
     close,
+    loseAccess,
   }
 }

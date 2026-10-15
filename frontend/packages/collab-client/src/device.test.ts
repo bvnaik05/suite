@@ -676,4 +676,267 @@ describe('collab room on a device', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('a tab shut for a lost right keeps its unsent work as one recovery copy that no later tab takes on', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const endpoints = offlinePushes(server)
+      const push = vi.spyOn(endpoints, 'push')
+      const room = await join(endpoints, { device: kept })
+      room.doc.getText('t').insert(0, 'kept here')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+
+      await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
+      push.mockClear()
+      await room.close()
+
+      const copies = await kept.store.recovery('D')
+      const seen = [copies.length, copies[0]?.reason, room.blocked, room.copiesKept]
+      expect(seen).toEqual([1, 'lost_access', 'lost_edit', 1])
+      expect(await kept.store.sessions('D')).toEqual([])
+      expect(push).not.toHaveBeenCalled()
+      const next = await join(server.endpoints(), { device: kept })
+      await idle()
+      expect([text(next), next.unsent]).toEqual(['', 0])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a clean tab shut for a lost right keeps no copy and counts none', async () => {
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+
+    await room.loseAccess('lost_edit')
+
+    const seen = [room.blocked, room.stopped, room.copiesKept, room.saveState]
+    expect(seen).toEqual(['lost_edit', 'lost_access', 0, 'clean'])
+    expect(await kept.store.recovery('D')).toEqual([])
+  })
+
+  it('a tab shut for a lost right sends what the server still takes within the bound, and keeps no copy', async () => {
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(server.endpoints(), { device: kept })
+    room.doc.getText('t').insert(0, 'sent in time')
+
+    await room.loseAccess('lost_edit')
+
+    expect([server.rows.length, room.unsent, room.copiesKept]).toEqual([1, 0, 0])
+    expect(await kept.store.recovery('D')).toEqual([])
+  })
+
+  it('a tab shut for a lost right keeps the work it took on from a closed tab in the same copy', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const first = await join(offlinePushes(server), { device: kept })
+      first.doc.getText('t').insert(0, 'left behind')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+      await first.close()
+      const second = await join(offlinePushes(server), { device: kept })
+      await idle()
+      second.doc.getText('t').insert(0, 'typed here ')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+
+      await Promise.all([second.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
+
+      const copies = await kept.store.recovery('D')
+      const aside = new Y.Doc()
+      for (const entry of copies[0].entries) {
+        Y.applyUpdate(aside, entry.bytes)
+      }
+
+      expect([copies.length, aside.getText('t').toString()]).toEqual([1, 'typed here left behind'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a push still on its way when the bound ends may land after the copy, so its work is both saved and kept', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const kept = await device()
+    const slow = heldPushes(server)
+    const room = await join(slow.endpoints, { device: kept })
+    room.doc.getText('t').insert(0, 'on its way')
+    await vi.advanceTimersByTimeAsync(0)
+
+    await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
+    slow.release()
+    await idle()
+
+    expect([server.rows.length, (await kept.store.recovery('D')).length]).toEqual([1, 1])
+  })
+
+  it('a retry the bound cut off sends nothing once the work is kept as a copy', async () => {
+    fakeTime()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const endpoints = offlinePushes(server)
+      const push = vi.spyOn(endpoints, 'push')
+      const room = await join(endpoints, { device: kept })
+      room.doc.getText('t').insert(0, 'retried')
+      await vi.advanceTimersByTimeAsync(0)
+
+      await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
+      expect(push).toHaveBeenCalledTimes(1)
+      push.mockClear()
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(push).not.toHaveBeenCalled()
+      expect((await kept.store.recovery('D')).length).toBe(1)
+    } finally {
+      vi.mocked(Math.random).mockRestore()
+    }
+  })
+
+  it('a tab shut for a lost right whose copy the device could not write says so', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(offlinePushes(server), { device: kept })
+    kept.store.recover = () =>
+      Promise.reject(new DOMException('Quota exceeded', 'QuotaExceededError'))
+    room.doc.getText('t').insert(0, 'not kept')
+    await vi.advanceTimersByTimeAsync(0)
+
+    await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
+
+    expect([room.copyFailed, room.copiesKept, room.saveState]).toEqual([true, 0, 'failed'])
+  })
+
+  it('closing a tab while it is shut for a lost right waits, sends no keepalive and leaves nothing for a later tab', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const endpoints = offlinePushes(server)
+      const push = vi.spyOn(endpoints, 'push')
+      const room = await join(endpoints, { device: kept })
+      room.doc.getText('t').insert(0, 'kept here')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+
+      void room.loseAccess('lost_edit')
+      push.mockClear()
+      await Promise.all([room.close(), vi.advanceTimersByTimeAsync(3000)])
+
+      expect(push.mock.calls.some(([, request]) => request?.keepalive)).toBe(false)
+      const next = await join(server.endpoints(), { device: kept })
+      await idle()
+      expect([text(next), (await kept.store.recovery('D')).length]).toEqual(['', 1])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a tab shut for a lost right holds its work until the copy is written, so a tab opened meanwhile takes none of it', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const room = await join(offlinePushes(server), { device: kept })
+      const gate = Promise.withResolvers<void>()
+      const recover = kept.store.recover.bind(kept.store)
+      kept.store.recover = async (...args) => {
+        await gate.promise
+        return recover(...args)
+      }
+
+      room.doc.getText('t').insert(0, 'kept here')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+
+      void room.loseAccess('lost_edit')
+      await vi.advanceTimersByTimeAsync(3000)
+      void room.close()
+      await idle()
+      const next = await join(server.endpoints(), { device: kept })
+      await idle()
+      gate.resolve()
+      await idle()
+
+      expect([text(next), (await kept.store.recovery('D')).length]).toEqual(['', 1])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a tab being shut for a lost right takes on no work another tab leaves meanwhile, which stays for a later tab', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const first = await join(offlinePushes(server), { device: kept })
+      const second = await join(offlinePushes(server), { device: kept })
+      first.doc.getText('t').insert(0, 'left behind')
+      second.doc.getText('t').insert(0, 'kept here')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+
+      void second.loseAccess('lost_edit')
+      await first.close()
+      await idle()
+      await vi.advanceTimersByTimeAsync(3000)
+      await idle()
+
+      const copies = await kept.store.recovery('D')
+      const aside = new Y.Doc()
+      for (const entry of copies[0].entries) {
+        Y.applyUpdate(aside, entry.bytes)
+      }
+
+      expect([copies.length, aside.getText('t').toString()]).toEqual([1, 'kept here'])
+      const next = await join(server.endpoints(), { device: kept })
+      await idle()
+      expect(text(next)).toBe('left behind')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a tab that loses reading access while being shut for editing ends blocked for reading, with one copy', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(offlinePushes(server), { device: kept })
+    room.doc.getText('t').insert(0, 'kept here')
+    await vi.advanceTimersByTimeAsync(0)
+
+    void room.loseAccess('lost_edit')
+    await Promise.all([room.loseAccess('lost_read'), vi.advanceTimersByTimeAsync(3000)])
+
+    const seen = [room.blocked, (await kept.store.recovery('D')).length, room.copiesKept]
+    expect(seen).toEqual(['lost_read', 1, 1])
+  })
+
+  it('a tab that loses reading access and then editing access while being shut stays blocked for reading, with one copy', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const kept = await device()
+    const room = await join(offlinePushes(server), { device: kept })
+    room.doc.getText('t').insert(0, 'kept here')
+    await vi.advanceTimersByTimeAsync(0)
+
+    void room.loseAccess('lost_read')
+    await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
+
+    const seen = [room.blocked, (await kept.store.recovery('D')).length, room.copiesKept]
+    expect(seen).toEqual(['lost_read', 1, 1])
+  })
 })

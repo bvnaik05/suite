@@ -23,6 +23,7 @@ export {
   type ContentAdapter,
   type LiveSocket,
   type LiveState,
+  type LostAccess,
   type Opened,
   type OpenOptions,
   type Peer,

@@ -148,6 +148,7 @@ const {
   openFailure,
   open: openCollab,
   close: closeCollab,
+  loseAccess,
 } = useWriterCollab(
   props.session,
   retainRecovery,
@@ -156,19 +157,19 @@ const {
   () => !!editorSurface.value?.isFrozen,
 )
 
-const writes = createWriteGate(props.session, () => {
-  const roomUnsaved = collabLive.value && saveState.value !== 'clean'
-  const unsaved = dirty.value || roomUnsaved
-  if (unsaved) {
+// Runs before the page drops the editor; only this tab's own work counts, not what other tabs hold
+const writes = createWriteGate(props.session, async () => {
+  if (dirty.value || room.value?.unsent) {
     retainRecovery()
   }
   editorSurface.value?.editor?.setEditable(false)
-  if (!unsaved) {
+  const html = editorSurface.value?.editor?.getHTML()
+  await loseAccess(readable.value ? 'lost_edit' : 'lost_read')
+  if (!dirty.value && !room.value?.unsent) {
     toast.warning('Editing access changed. This document is now read-only.')
     return
   }
 
-  const html = editorSurface.value?.editor?.getHTML()
   toast.warning('Editing access changed. Your unsaved changes are kept on this device.', {
     duration: Number.POSITIVE_INFINITY,
     action: { label: 'Download my changes', onClick: () => downloadChanges(html) },
