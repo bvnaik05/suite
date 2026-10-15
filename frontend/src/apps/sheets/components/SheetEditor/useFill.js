@@ -3,8 +3,8 @@ import { adjustFormula } from '../../engine/formula-adjust.js'
 import { detectSeries } from '../../engine/patterns/index.js'
 import { cellId } from '../../utils/cells.js'
 
-// Fill, extracted from SheetEditor/index.vue: the drag fill handle (series /
-// copy / formats-only, with validation, conditional-format rules and merges
+// Fill, extracted from SheetEditor/index.vue: the drag fill handle (series or
+// copy, with formats, validation, conditional-format rules and merges
 // following the values) and Ctrl+D / Ctrl+R. Each fill is recorded as one
 // undo step and one op for the version log.
 //
@@ -46,7 +46,9 @@ export function useFill({
     }
   }
 
-  // _runFill modes: 'auto' | 'series' | 'copy' | 'format-only' | 'without-format'
+  // _runFill modes: 'auto' | 'series' | 'copy' (see planFill). Every mode
+  // carries the source's formats, validation, conditional-format rules and
+  // merges along with the values, as Excel and Google Sheets do.
   async function _runFill(src, total, mode) {
     const sheetName = currentSheet.value
     // `total` includes `src`, so this one read is also the fill's source.
@@ -55,25 +57,14 @@ export function useFill({
     const beforeVal = _captureValidationRange(total, sheetName)
     const beforeMergeSnap = merge.snapshot?.()
     const cfBefore = condFormat?.getRules?.(sheetName)?.length ?? 0
-    let writes = {}
-    if (mode === 'format-only') {
-      _fillFormatsOnly(src, total, sheetName)
-    } else {
-      const valueMode = mode === 'without-format' ? 'auto' : mode
-      writes = planFill(src, total, (r, c) => fillBefore[cellId(r, c)] ?? '', valueMode)
-      _writeInputs(sheetName, writes)
-      if (mode === 'without-format') _clearFormats(src, total, sheetName)
-    }
-    if (mode !== 'format-only') {
-      _fillValidation(src, total, sheetName)
-      condFormat.extendRulesToRange(src, total, sheetName)
-    }
-    // Merges are a structural format — replicate them alongside cell formats
-    // (so a merged source tiles its merge into every dragged-over destination)
-    // EXCEPT when the user explicitly asked for values-only with `without-format`.
-    if (mode !== 'without-format') {
-      _fillMerges(src, total, sheetName)
-    }
+    const writes = planFill(src, total, (r, c) => fillBefore[cellId(r, c)] ?? '', mode)
+    _writeInputs(sheetName, writes)
+    _fillFormats(src, total, sheetName)
+    _fillValidation(src, total, sheetName)
+    condFormat.extendRulesToRange(src, total, sheetName)
+    // Merges are a structural format: a merged source tiles its merge into
+    // every dragged-over destination.
+    _fillMerges(src, total, sheetName)
     const fillAfter = { ...fillBefore, ...writes }
     const afterFmt = _captureFormatsRange(total, sheetName)
     const afterVal = _captureValidationRange(total, sheetName)
@@ -131,8 +122,6 @@ export function useFill({
   }
   function _fillSummary(mode, n) {
     if (mode === 'copy') return `Copied into ${n} cell${n === 1 ? '' : 's'}`
-    if (mode === 'format-only') return `Filled formats into ${n} cell${n === 1 ? '' : 's'}`
-    if (mode === 'without-format') return `Filled (no format) ${n} cell${n === 1 ? '' : 's'}`
     return `Filled ${n} cell${n === 1 ? '' : 's'}`
   }
 
@@ -219,7 +208,9 @@ export function useFill({
       }
     }
   }
-  function _fillFormatsOnly(src, total, sn) {
+  // Each filled cell takes the format of its source cell (the source repeats
+  // as a pattern); a cell whose source is unformatted is cleared.
+  function _fillFormats(src, total, sn) {
     const srcRows = src.r1 - src.r0 + 1,
       srcCols = src.c1 - src.c0 + 1
     for (let r = total.r0; r <= total.r1; r++) {
@@ -231,14 +222,6 @@ export function useFill({
         const fmt = formats.get(cellId(srcR, srcC), sn)
         if (fmt && Object.keys(fmt).length) formats.set(cellId(r, c), fmt, sn)
         else formats.clear(cellId(r, c), sn)
-      }
-    }
-  }
-  function _clearFormats(src, total, sn) {
-    for (let r = total.r0; r <= total.r1; r++) {
-      for (let c = total.c0; c <= total.c1; c++) {
-        if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-        formats.clear(cellId(r, c), sn)
       }
     }
   }
