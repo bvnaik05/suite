@@ -28,6 +28,11 @@ function threadRow(panel: Locator, text: string) {
 	return panel.getByRole("listitem").filter({ hasText: text });
 }
 
+// The button that opens and closes a thread; an open one's name drops the comment's words
+function threadHeader(row: Locator) {
+	return row.locator(":scope > button");
+}
+
 // Types a line, selects its last word and starts a comment on it from the bubble menu, in the panel it returns
 async function startCommentOnLastWord(page: Page, line: string) {
 	await typeParagraph(page, line);
@@ -85,10 +90,9 @@ test.describe("Writer collaboration comments", () => {
 		const row = threadRow(panel, "Whole document note");
 		await expect(row).toContainText("Whole document");
 
-		await row.getByRole("button", { name: /Whole document note/ }).click();
-		await expect(row.getByLabel("Reply")).toBeFocused();
-		await page.keyboard.type("A reply");
-		await page.keyboard.press("Enter");
+		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
+		await row.getByLabel("Reply").fill("A reply");
+		await row.getByLabel("Reply").press("Enter");
 		await expect(row).toContainText("A reply");
 		await row.getByText("A reply", { exact: true }).hover();
 		await row.getByRole("button", { name: "More comment actions" }).click();
@@ -104,10 +108,11 @@ test.describe("Writer collaboration comments", () => {
 		await row.getByRole("button", { name: "Resolve" }).click();
 		await expect(row).toHaveCount(0);
 		await panel.getByRole("radio", { name: "Resolved 1" }).click();
-		await row.getByRole("button", { name: /Whole document note/ }).click();
+		await threadHeader(row).click();
 		await row.getByRole("button", { name: "Reopen" }).click();
 		await panel.getByRole("radio", { name: "Open 1" }).click();
-		await row.getByRole("button", { name: /Whole document note/ }).click();
+		await threadHeader(row).click();
+		await expect(row.getByLabel("Reply")).toBeFocused();
 
 		for (const text of ["Whole document note", "A reply, edited"]) {
 			await panel.getByText(text, { exact: true }).hover();
@@ -145,13 +150,13 @@ test.describe("Writer collaboration comments", () => {
 
 		const panel = await commentOnDocument(owner.page, "Read me");
 		await expect(row).toContainText("Unread");
-		await row.getByRole("button", { name: /Read me/ }).click();
+		await threadHeader(row).click();
 		await expect(row).not.toContainText("Unread");
-		await row.getByRole("button", { name: /Read me/ }).click();
+		await threadHeader(row).click();
 		await threadRow(panel, "Read me").getByLabel("Reply").fill("A reply");
 		await owner.page.keyboard.press("Enter");
 		await expect(row).toContainText("Unread");
-		await row.getByRole("button", { name: /Read me/ }).click();
+		await threadHeader(row).click();
 		await expect(row).not.toContainText("Unread");
 		await collaborator.page.reload();
 		await openComments(collaborator.page);
@@ -174,7 +179,7 @@ test.describe("Writer collaboration comments", () => {
 		await box.pressSequentially(`Ask @${handle}`);
 		const option = panel.getByRole("option");
 		await expect(option).toHaveCount(1);
-		const name = (await option.textContent())?.trim() ?? "";
+		const name = (await option.locator(":scope > span").last().textContent())?.trim() ?? "";
 		await page.keyboard.press("Enter");
 		await expect(box).toHaveValue(`Ask @${name} `);
 		await box.pressSequentially("to check");
@@ -197,7 +202,7 @@ test.describe("Writer collaboration comments", () => {
 		const drafts = await startCommentOnLastWord(page, "the commented sentence");
 
 		await drafts.getByLabel("Comment on the text").fill("About this word");
-		await drafts.getByRole("button", { name: "Comment" }).click();
+		await drafts.getByRole("button", { name: "Comment", exact: true }).click();
 
 		const panel = page.getByRole("complementary", { name: "Comments" });
 		const row = threadRow(panel, "About this word");
@@ -208,7 +213,6 @@ test.describe("Writer collaboration comments", () => {
 		await writerEditor(page).locator("[data-thread]").dblclick();
 		await page.keyboard.press("Backspace");
 		await expect(row).toContainText("Text deleted");
-		await row.getByRole("button", { name: /About this word/ }).click();
 		await expect(row).toContainText("sentence");
 	});
 
@@ -219,7 +223,7 @@ test.describe("Writer collaboration comments", () => {
 		await openWriterDocument(page, node);
 		const drafts = await startCommentOnLastWord(page, "the commented sentence");
 		await drafts.getByLabel("Comment on the text").fill("About this word");
-		await drafts.getByRole("button", { name: "Comment" }).click();
+		await drafts.getByRole("button", { name: "Comment", exact: true }).click();
 		const panel = page.getByRole("complementary", { name: "Comments" });
 		await expect(threadRow(panel, "About this word")).not.toContainText("Text deleted");
 		await saveNamedVersion(owner.context.request, node, "With the word");
@@ -267,7 +271,7 @@ test.describe("Writer collaboration comments", () => {
 		const drafts = await startCommentOnLastWord(page, "the refused sentence");
 		await page.route("**/api/suite/drive/nodes/*/threads", refuseNewThreads);
 		await drafts.getByLabel("Comment on the text").fill("Sent while offline");
-		await drafts.getByRole("button", { name: "Comment" }).click();
+		await drafts.getByRole("button", { name: "Comment", exact: true }).click();
 		await expect(drafts).toContainText("Not posted ·");
 
 		await page.unroute("**/api/suite/drive/nodes/*/threads", refuseNewThreads);
@@ -278,7 +282,7 @@ test.describe("Writer collaboration comments", () => {
 		await reopened.getByRole("button", { name: "Retry" }).click();
 
 		const row = threadRow(reopened, "Sent while offline");
-		await expect(row.getByRole("button", { name: /Sent while offline/ })).toHaveAttribute("aria-expanded", "true");
+		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
 		await expect(reopened).not.toContainText("Not posted");
 		await expect(row).toHaveCount(1);
 	});
@@ -302,7 +306,7 @@ test.describe("Writer collaboration comments", () => {
 		await openWriterDocument(page, node);
 		const panel = await commentOnDocument(page, "Needs a reply");
 		const row = threadRow(panel, "Needs a reply");
-		await row.getByRole("button", { name: /Needs a reply/ }).click();
+		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
 
 		await page.route("**/api/suite/drive/threads/*/comments", loseAnswer);
 		await row.getByLabel("Reply").fill("Sent twice");
