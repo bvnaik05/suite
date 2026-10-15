@@ -92,8 +92,11 @@ test.describe("Writer collaboration comments", () => {
 
 		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
 		await row.getByLabel("Reply", { exact: true }).fill("A reply");
-		await row.getByLabel("Reply", { exact: true }).press("Enter");
-		await expect(row).toContainText("A reply");
+		await row.getByRole("button", { name: "Send reply" }).click();
+		await expect(row.getByText("A reply", { exact: true })).toBeVisible();
+		await expect(row.getByLabel("Reply", { exact: true })).toHaveValue("");
+		await expect(row.getByRole("button", { name: "Send reply" })).toHaveCount(0);
+		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
 		await row.getByText("A reply", { exact: true }).hover();
 		await row.getByRole("button", { name: "More comment actions" }).click();
 		await page.getByRole("menuitem", { name: "Edit" }).click();
