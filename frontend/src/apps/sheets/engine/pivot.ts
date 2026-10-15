@@ -586,6 +586,15 @@ export function createPivotEngine() {
       if (p.anchorCol == null) p.anchorCol = 0
     }
     _nextId = data.nextId || 1
+    // Defensive, as in charts: keep nextId ahead of any restored id, so a new
+    // pivot can't take an existing one's id and replace it.
+    for (const id of Object.keys(_pivots)) {
+      const m = /^pivot_(\d+)$/.exec(id)
+      if (m) {
+        const n = parseInt(m[1] ?? '', 10)
+        if (n >= _nextId) _nextId = n + 1
+      }
+    }
     _notify()
   }
 

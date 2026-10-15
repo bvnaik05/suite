@@ -91,7 +91,9 @@ export function createSlicerEngine() {
     }
   }
   function duplicateSheet(src: string, dst: string) {
-    if (store[src] && !store[dst]) store[dst] = deepClone(store[src])
+    // The copies get new ids: a slicer id names one slicer across the workbook.
+    if (store[src] && !store[dst])
+      store[dst] = deepClone(store[src]).map((sl) => ({ ...sl, id: _nextId++ }))
   }
   function deleteSheet(name: string) {
     delete store[name]

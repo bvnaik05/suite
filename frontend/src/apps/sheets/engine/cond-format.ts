@@ -442,9 +442,10 @@ export function createCondFormatEngine() {
     _invalidateStats()
   }
 
+  // The copies get new ids: a rule id names one rule across the workbook.
   function duplicateSheet(srcName: string, newName: string) {
     if (store[newName]) return
-    store[newName] = deepClone(store[srcName] || [])
+    store[newName] = deepClone(store[srcName] || []).map((rule) => ({ ...rule, id: _nextId++ }))
   }
 
   function deleteSheet(name: string) {
@@ -458,7 +459,15 @@ export function createCondFormatEngine() {
 
   function restore(snap: CfSnapshot) {
     for (const k of Object.keys(store)) delete store[k]
-    for (const [k, v] of Object.entries(snap)) store[k] = v
+    // Advance the id counter past every restored rule: a reload resets the
+    // module counter, so a new or pasted rule would otherwise reuse an id and
+    // removeRule() would drop both rules (ISSUES #19).
+    let maxId = 0
+    for (const [k, v] of Object.entries(snap)) {
+      store[k] = v
+      for (const rule of v) if (rule.id > maxId) maxId = rule.id
+    }
+    if (maxId >= _nextId) _nextId = maxId + 1
     _invalidateStats()
   }
 
