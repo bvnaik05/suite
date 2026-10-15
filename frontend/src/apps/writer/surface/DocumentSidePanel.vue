@@ -177,6 +177,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             v-model:open-thread="openThread"
             v-model:lit-thread="litThread"
             :threads
+            :node="session.nodeId"
             :places
             :can-comment
             :can-edit-document

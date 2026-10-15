@@ -134,6 +134,33 @@ test.describe("Writer collaboration comments", () => {
 		await expect(threadRow(watching, "Seen from the other tab")).toContainText("Whole document");
 	});
 
+	test("a thread someone else changed shows unread until opened, and stays read through a reload", async ({
+		owner,
+		collaborator,
+	}) => {
+		await openWriterDocument(owner.page, node);
+		await openWriterDocument(collaborator.page, node);
+		const watching = await openComments(collaborator.page);
+		const row = threadRow(watching, "Read me");
+
+		const panel = await commentOnDocument(owner.page, "Read me");
+		await expect(row).toContainText("Unread");
+		await row.getByRole("button", { name: /Read me/ }).click();
+		await expect(row).not.toContainText("Unread");
+		await row.getByRole("button", { name: /Read me/ }).click();
+		await threadRow(panel, "Read me").getByLabel("Reply").fill("A reply");
+		await owner.page.keyboard.press("Enter");
+		await expect(row).toContainText("Unread");
+		await row.getByRole("button", { name: /Read me/ }).click();
+		await expect(row).not.toContainText("Unread");
+		await collaborator.page.reload();
+		await openComments(collaborator.page);
+
+		await expect(row).toContainText("1 reply");
+		await expect(row).not.toContainText("Unread");
+		await expect(threadRow(panel, "Read me")).not.toContainText("Unread");
+	});
+
 	test("a comment on selected text shows on its words, and with deleted text once they go", async ({
 		owner,
 	}) => {

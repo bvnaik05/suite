@@ -180,6 +180,7 @@ Element.prototype.scrollIntoView = () => {}
 afterEach(() => {
   mounted?.unmount()
   document.body.replaceChildren()
+  localStorage.clear()
   confirmed.asked = []
   confirmed.answer = true
   toasts.length = 0
@@ -256,8 +257,19 @@ function showList({
       refusalsLeft -= 1
       return refusalsLeft < 0
     },
-    resolve: async (thread, isResolved) =>
-      (await record(`resolve ${thread} ${isResolved}`)) && !isRefusingResolve,
+    resolve: async (thread, isResolved) => {
+      await record(`resolve ${thread} ${isResolved}`)
+      if (isRefusingResolve) {
+        return false
+      }
+
+      // Read again before answering, as the panel's resolve does
+      const changed = [...listed.value]
+      const index = changed.findIndex((listedThread) => listedThread.name === thread)
+      changed[index] = { ...changed[index], resolved: isResolved }
+      listed.value = changed
+      return true
+    },
     editComment: async (name, text) => (await record(`edit ${name} "${text}"`)) && !isRefusingEdit,
     removeComment: (name) => record(`remove ${name}`),
   }
@@ -266,6 +278,7 @@ function showList({
   const app = createApp(() =>
     h(CommentList, {
       threads: listed.value,
+      node: 'doc-1',
       places: PLACES,
       canComment,
       canEditDocument,
@@ -636,6 +649,7 @@ describe('commenting on the whole document', () => {
     const props = {
       ref: list,
       threads: [DONE],
+      node: 'doc-1',
       places: PLACES,
       canComment: true,
       canEditDocument: false,
@@ -1172,5 +1186,52 @@ describe('comments not yet posted', () => {
       null,
       [expect.stringMatching(/^Asha Rao Text deleted .* Fixed the title · 1 reply$/)],
     ])
+  })
+})
+
+describe('threads changed since last opened', () => {
+  function unreadRows(host: Element) {
+    return rows(host).filter((row) => row.includes('Unread'))
+  }
+
+  function withReply(thread: DocumentThread) {
+    const reply = { ...comment('c9', 'Ben Ito', 'One more'), modified: '2026-10-02 09:00:00' }
+    return { ...thread, comments: [...thread.comments, reply] } as DocumentThread
+  }
+
+  it('dots a row changed since, in either tab, and clears it once opened, never dotting drafts', async () => {
+    const { list } = fakeDrafts([{ text: 'Refused', isSent: true }])
+    const { host, listed } = showList({ drafts: list })
+    const atFirst = unreadRows(host)
+
+    listed.value = [ON_TEXT, withReply(WHOLE), withReply(DONE)]
+    await nextTick()
+    const changed = unreadRows(host)
+    await click(rowButton(host, 'Looks good overall'))
+    const opened = unreadRows(host)
+    await click(buttonNamed(host, 'Resolved 1'))
+    const resolved = unreadRows(host)
+
+    expect([atFirst, changed, opened, resolved]).toEqual([
+      [],
+      [expect.stringMatching(/^Ben Ito Whole document Unread \S.* Looks good overall · 1 reply$/)],
+      [],
+      [expect.stringMatching(/^Asha Rao Text deleted Unread \S.* Fixed the title · 2 replies$/)],
+    ])
+  })
+
+  it('leaves a thread one resolves or reopens oneself unmarked', async () => {
+    const { host } = showList()
+    await click(rowButton(host, 'Looks good overall'))
+
+    await click(labelled(host, 'Resolve'))
+    await settled()
+    await click(buttonNamed(host, 'Resolved 2'))
+    const afterResolve = [rows(host).length, unreadRows(host)]
+    toasts[0].action.onClick()
+    await settled()
+    await click(buttonNamed(host, 'Open 2'))
+
+    expect([afterResolve, rows(host).length, unreadRows(host)]).toEqual([[2, []], 2, []])
   })
 })

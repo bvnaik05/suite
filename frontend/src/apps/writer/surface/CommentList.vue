@@ -24,6 +24,7 @@ import { confirm, toast } from '@/platform/feedback'
 
 import CommentDraftCard from './CommentDraftCard.vue'
 import CommentDraftRow from './CommentDraftRow.vue'
+import { useSeenThreads } from './seenThreads'
 import { threadRows } from './threadRows'
 import type { ShownDraft, useCommentDrafts } from './useCommentDrafts'
 import type { ThreadActions } from './useDocumentPanel'
@@ -41,6 +42,8 @@ const RESOLVED_MESSAGE_MS = 5000
  */
 const props = defineProps<{
   threads: DocumentThread[]
+  /** The document the threads are on. */
+  node: string
   /** Where each thread shows in the editor; null when the editor can't tell. */
   places: ThreadPlaces | null
   canComment: boolean
@@ -74,6 +77,12 @@ const editBoxes = ref<{ focus(): void }[]>([])
 /** The comment whose menu is open keeps its ⋯ while the pointer is in the menu. */
 const menuComment = ref<string | null>(null)
 const { user } = useCurrentUser()
+const { isUnread, markSeen } = useSeenThreads({
+  user: user.value ?? 'Guest',
+  node: props.node,
+  threads: () => props.threads,
+  openThread: () => openThread.value,
+})
 
 // Guests may sign their comments. Signed-in users never see the field (spec §10.5)
 const {
@@ -308,8 +317,19 @@ function sendOnEnter(event: KeyboardEvent, thread: DocumentThread) {
 function offerUndoResolve(thread: DocumentThread) {
   toast.success('Comment resolved', {
     duration: RESOLVED_MESSAGE_MS,
-    action: { label: 'Undo', onClick: () => void props.actions.resolve(thread.name, false) },
+    action: { label: 'Undo', onClick: () => void setResolved(thread.name, false) },
   })
+}
+
+// One's own resolve or reopen leaves the thread seen, once the list holds it
+async function setResolved(thread: string, isResolved: boolean) {
+  const isChanged = await props.actions.resolve(thread, isResolved)
+  if (isChanged) {
+    await nextTick()
+    markSeen(thread)
+  }
+
+  return isChanged
 }
 
 // A thread leaves the tab it is in, so it closes and fades until it has gone
@@ -321,7 +341,7 @@ async function toggleResolved(thread: DocumentThread) {
   const isResolving = !thread.resolved
   closeThread()
   leavingThreads.value.add(thread.name)
-  const isChanged = await props.actions.resolve(thread.name, isResolving)
+  const isChanged = await setResolved(thread.name, isResolving)
   leavingThreads.value.delete(thread.name)
   if (isChanged && isResolving) {
     offerUndoResolve(thread)
@@ -565,6 +585,10 @@ function rowClass(thread: DocumentThread) {
               >
             </span>
             <span v-if="where" class="shrink-0">{{ where }}</span>
+            <span v-if="isUnread(thread)" class="flex shrink-0 items-center">
+              <span class="size-1.5 rounded-full bg-surface-amber-7" aria-hidden="true" />
+              <span class="sr-only">Unread</span>
+            </span>
             <span class="shrink-0">{{ dayOrTime(firstComment(thread)) }}</span>
           </span>
           <span v-if="isClosed(thread)" class="flex gap-1 text-p-sm">
