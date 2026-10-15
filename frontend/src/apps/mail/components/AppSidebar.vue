@@ -96,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { useStorage } from '@vueuse/core'
+import { useIntervalFn, useStorage } from '@vueuse/core'
 import ArrowLeft from '~icons/lucide/arrow-left'
 import CalendarClock from '~icons/lucide/calendar-clock'
 import CircleUserRound from '~icons/lucide/circle-user-round'
@@ -181,6 +181,17 @@ const queuedSends = useQuery(api.mail.scheduled.list, () =>
   store.accountId && !isUnified.value
     ? { account: store.accountId, undo_status: 'pending', start: 0, page_length: 1 }
     : false,
+)
+// A scheduled send goes out on its own, and nothing on this page hears it go: while anything is
+// waiting, the count is asked again every 30 seconds (as the Outbox's own list is), so a sent
+// mail stops being counted and Outbox goes back under More. Nothing waiting, nothing asked.
+const recheckQueued = useIntervalFn(() => void queuedSends.refetch().catch(() => {}), 30_000, {
+  immediate: false,
+})
+watch(
+  () => queuedSends.data?.total ?? 0,
+  (queued) => (queued ? recheckQueued.resume() : recheckQueued.pause()),
+  { immediate: true },
 )
 
 // What an item's `activeFor` is matched against: the open mailbox in an account, the open folder

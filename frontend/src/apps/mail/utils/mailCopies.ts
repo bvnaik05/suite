@@ -45,6 +45,11 @@ export const rowMailIds = (thread: Thread): string[] => {
  */
 export const threadStarIds = (thread: Thread, flagged: boolean): string[] => {
   if (flagged) return rowMailIds(thread)
-  const starred = (thread.messages ?? []).filter((mail) => mail.flagged).flatMap(mailCopyIds)
+  // Every copy that is starred, hidden ones too: a message you sent yourself keeps a copy in Sent
+  // the thread does not show, and a star left on it kept the conversation in Starred.
+  const starred = (thread.messages ?? [])
+    .flatMap(mailCopies)
+    .filter((copy) => copy.flagged)
+    .map((copy) => copy.id)
   return [...new Set([...rowMailIds(thread), ...starred])]
 }

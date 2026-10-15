@@ -58,6 +58,12 @@ describe('threadStarIds', () => {
     expect(threadStarIds(row('b', [older, newest]), true)).toEqual(['b'])
   })
 
+  it('unstars a starred copy the thread does not show', () => {
+    const hiddenStarred = { name: 'message-s1', id: 's1', flagged: 1 } as MailCopy
+    const sent = mail({ id: 'a', name: 'message-a', flagged: 0, duplicates: [hiddenStarred] })
+    expect(threadStarIds(row('b', [sent, newest]), false).sort()).toEqual(['b', 's1'])
+  })
+
   it('unstars every starred message, so the thread leaves Starred', () => {
     expect(threadStarIds(row('b', [older, newest]), false).sort()).toEqual(['a', 'b'])
   })
