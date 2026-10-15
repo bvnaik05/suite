@@ -21,7 +21,10 @@ describe('pending removals', () => {
     vi.useFakeTimers()
     calls.length = 0
     localStorage.clear()
+    sessionStorage.clear()
   })
+  // What another tab — or this one, before it was reloaded — wrote is told apart by the tab.
+  const becomeAnotherTab = () => sessionStorage.setItem('suite.mail.tab', 'another')
   afterEach(() => vi.useRealTimers())
 
   it('sends what a closed page left once its Undo window is over, and only once', async () => {
@@ -46,6 +49,7 @@ describe('pending removals', () => {
   it('leaves a removal another tab may still undo, and sends it once it is abandoned', async () => {
     const { rememberRemoval, resumeRemovals } = await load()
     rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+    becomeAnotherTab()
 
     await resumeRemovals()
     expect(calls).toEqual([])
@@ -55,9 +59,20 @@ describe('pending removals', () => {
     expect(calls).toEqual([{ reference: 'deleteDraft', input: { account: 'a', id: 'd1' } }])
   })
 
+  it('sends at once what this tab left before it was reloaded, keeping the draft off the lists', async () => {
+    const { rememberRemoval, resumeRemovals } = await load()
+    rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+
+    const hold = vi.fn()
+    await resumeRemovals(undefined, { hold, release: vi.fn() })
+    expect(calls).toEqual([{ reference: 'deleteDraft', input: { account: 'a', id: 'd1' } }])
+    expect(hold).toHaveBeenCalledWith('d1')
+  })
+
   it('sends nothing for a removal the other tab settled in its window', async () => {
     const { forgetRemoval, rememberRemoval, resumeRemovals } = await load()
     const key = rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+    becomeAnotherTab()
     await resumeRemovals()
     forgetRemoval(key)
     await vi.advanceTimersByTimeAsync(60_000)

@@ -15,8 +15,23 @@ const KEY = 'suite.mail.pendingRemovals'
 const UNDO_WINDOW_MS = 15_000
 
 // `due`: when the removal stops being anyone's to undo. Before then another tab may still be
-// offering Undo on it, and only that tab can send it.
-type Stored = Record<string, { removal: PendingRemoval; due: number }>
+// offering Undo on it, and only that tab can send it. `tab`: the tab that wrote it — one that was
+// reloaded finds its own here, and those it can send at once: the Undo they waited on went with the
+// page, and while they wait the draft is back on screen to be written in again.
+type Stored = Record<string, { removal: PendingRemoval; due: number; tab?: string }>
+
+const TAB_KEY = 'suite.mail.tab'
+// Per tab and kept across its reloads, which is what sessionStorage is. Nothing without it: every
+// removal then waits to be due, as before.
+const thisTab = (): string => {
+  try {
+    let id = sessionStorage.getItem(TAB_KEY)
+    if (!id) sessionStorage.setItem(TAB_KEY, (id = Math.random().toString(36).slice(2)))
+    return id
+  } catch {
+    return ''
+  }
+}
 
 const read = (): Stored => {
   try {
@@ -57,7 +72,7 @@ export const sendRemoval = (removal: PendingRemoval): Promise<unknown> => {
 /** Writes the removal down; returns the key to forget it by. */
 export const rememberRemoval = (removal: PendingRemoval): string => {
   const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  write({ ...read(), [key]: { removal, due: Date.now() + UNDO_WINDOW_MS } })
+  write({ ...read(), [key]: { removal, due: Date.now() + UNDO_WINDOW_MS, tab: thisTab() } })
   return key
 }
 
@@ -72,17 +87,30 @@ export const forgetRemoval = (key: string) => {
  * forgotten it, and whatever is still here was abandoned. A removal the server has already carried
  * out, or refuses, is let go — retrying it on every start would help nobody.
  */
-export const resumeRemovals = async (onSent?: () => void): Promise<void> => {
+export const resumeRemovals = async (
+  onSent?: () => void,
+  /** Keeps a draft off the lists while its removal is on the way, and lets it back if refused. */
+  drafts?: { hold: (id: string) => void; release: (id: string) => void },
+): Promise<void> => {
   const now = Date.now()
+  const tab = thisTab()
   const entries = Object.entries(read())
-  const due = entries.filter(([, entry]) => entry.due <= now)
+  const due = entries.filter(([, entry]) => entry.due <= now || (!!tab && entry.tab === tab))
+  const draftId = (removal: PendingRemoval) => (removal.kind === 'draft' ? removal.id : undefined)
+  for (const [, entry] of due) {
+    const id = draftId(entry.removal)
+    if (id) drafts?.hold(id)
+  }
   // Forgotten once the request is done, not before: a page closed mid-request leaves it for the
   // next start. Two tabs resuming at once may both send it; the second is refused and let go.
   for (const [key, entry] of due) {
-    await sendRemoval(entry.removal).catch(() => {})
+    await sendRemoval(entry.removal).catch(() => {
+      const id = draftId(entry.removal)
+      if (id) drafts?.release(id)
+    })
     forgetRemoval(key)
   }
   if (due.length) onSent?.()
   const next = Math.min(...entries.filter(([, entry]) => entry.due > now).map(([, e]) => e.due))
-  if (Number.isFinite(next)) setTimeout(() => void resumeRemovals(onSent), next - now + 50)
+  if (Number.isFinite(next)) setTimeout(() => void resumeRemovals(onSent, drafts), next - now + 50)
 }

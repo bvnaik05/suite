@@ -81,6 +81,7 @@ import { userStore } from '@/apps/mail/stores/user'
 import type { ComposeMailData } from '@/apps/mail/types'
 import {
   useComposeMail,
+  useDiscardingDrafts,
   useKeyboardOpen,
   useListReload,
   useMobileSearch,
@@ -95,8 +96,9 @@ const { userResource } = store
 
 const { isMobile } = useScreenSize()
 const { requestListReload } = useListReload()
+const { holdDraft, releaseDraft } = useDiscardingDrafts()
 // Removals a closed page left inside their Undo window: the window is over, so they go now.
-void resumeRemovals(requestListReload)
+void resumeRemovals(requestListReload, { hold: holdDraft, release: releaseDraft })
 
 const router = useRouter()
 const route = useRoute()
