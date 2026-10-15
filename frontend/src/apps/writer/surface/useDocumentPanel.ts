@@ -85,6 +85,8 @@ function threadActions(session: PanelSession, refreshThreads: () => Promise<void
       change(() => comments.reply(thread, text, authorName), 'Could not add the reply.'),
     resolve: (thread: string, isResolved: boolean) =>
       change(() => comments.resolve(thread, isResolved), 'Could not change the thread.'),
+    editComment: (comment: string, text: string) =>
+      change(() => comments.edit(comment, text), 'Could not save the comment.'),
     removeComment: (comment: string) =>
       change(() => comments.remove(comment), 'Could not delete the comment.'),
   }

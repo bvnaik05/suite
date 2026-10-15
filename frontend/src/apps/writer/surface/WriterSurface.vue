@@ -767,6 +767,7 @@ onBeforeUnmount(() => {
                 :previewed-version="preview.version"
                 :session="session"
                 :can-comment="canComment"
+                :can-edit-document="canSaveVersion"
                 :can-restore-version="canRestoreVersion"
                 :can-rename-version="canSaveVersion"
                 :is-restoring-version="isRestoringVersion"

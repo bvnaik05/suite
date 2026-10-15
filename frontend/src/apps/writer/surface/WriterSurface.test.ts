@@ -1078,7 +1078,7 @@ describe('commenting from the editor', () => {
     await settled()
 
     const expanded = root.querySelector('aside li > button[aria-expanded="true"]')
-    expect(expanded?.textContent).toContain('About the world')
+    expect(expanded?.closest('li')?.textContent).toContain('About the world')
   })
 })
 

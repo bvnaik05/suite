@@ -76,7 +76,12 @@ function commentsSession(refusal?: string) {
     }
   }
 
-  const comments = { reply: call('reply'), resolve: call('resolve'), remove: call('remove') }
+  const comments = {
+    reply: call('reply'),
+    resolve: call('resolve'),
+    edit: call('edit'),
+    remove: call('remove'),
+  }
   const session = { comments, versions: {} } as unknown as Pick<
     DocumentSession,
     'comments' | 'versions'
@@ -94,12 +99,15 @@ describe('changing a thread from the panel', () => {
     const panel = useDocumentPanel(session, refresh)
     await panel.reply('thread-1', 'Agreed', 'Asha')
     await panel.resolve('thread-1', true)
+    await panel.editComment('comment-1', 'Reworded')
     await panel.removeComment('comment-2')
 
     expect(calls).toEqual([
       'reply thread-1 Agreed Asha',
       'read threads',
       'resolve thread-1 true',
+      'read threads',
+      'edit comment-1 Reworded',
       'read threads',
       'remove comment-2',
       'read threads',

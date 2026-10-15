@@ -81,6 +81,24 @@ describe('thread highlights', () => {
     expect(highlighted(editor)).toEqual(['open:hello'])
   })
 
+  it('drops the highlight of a thread gone from the list and leaves the text as it was', () => {
+    const doc = new Y.Doc()
+    const threads = { list: [] as DocumentThread[] }
+    const editor = openEditor(doc, threads)
+    editor.commands.setContent('<p>hello world</p>')
+    threads.list = [threadOn(doc, 'kept', 0, 5), threadOn(doc, 'deleted', 6, 11)]
+    redrawThreads(editor.view)
+    const before = [editor.getText(), JSON.stringify(editor.getJSON())]
+
+    threads.list = threads.list.slice(0, 1)
+    redrawThreads(editor.view)
+
+    expect([highlighted(editor), editor.getText(), JSON.stringify(editor.getJSON())]).toEqual([
+      ['kept:hello'],
+      ...before,
+    ])
+  })
+
   it("moves with another tab's edit", () => {
     const doc = new Y.Doc()
     const threads = { list: [] as DocumentThread[] }

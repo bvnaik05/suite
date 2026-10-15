@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Avatar, Button, TabButtons, Textarea, TextInput } from 'frappe-ui'
+import {
+  Avatar,
+  Button,
+  Dropdown,
+  TabButtons,
+  Textarea,
+  TextInput,
+  type DropdownOptions,
+} from 'frappe-ui'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import {
@@ -9,6 +17,7 @@ import {
   type DocumentThread,
 } from '@/apps/drive'
 import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
+import { useCurrentUser } from '@/boot/session'
 import { confirm, toast } from '@/platform/feedback'
 
 import CommentDraftCard from './CommentDraftCard.vue'
@@ -32,6 +41,8 @@ const props = defineProps<{
   /** Where each thread shows in the editor; null when the editor can't tell. */
   places: ThreadPlaces | null
   canComment: boolean
+  /** Whether the person can edit the document, which lets them change anyone's comment. */
+  canEditDocument: boolean
   actions: ThreadActions
   /** Comments on text not posted yet; only the collaborative editor makes them. */
   drafts?: ReturnType<typeof useCommentDrafts>
@@ -54,6 +65,12 @@ const isReplyFocused = ref(false)
 /** Threads being resolved or reopened, faded until they leave the tab. */
 const leavingThreads = ref(new Set<string>())
 let isSendingReply = false
+const editingComment = ref<string | null>(null)
+const editText = ref('')
+const editBoxes = ref<{ focus(): void }[]>([])
+/** The comment whose menu is open keeps its ⋯ while the pointer is in the menu. */
+const menuComment = ref<string | null>(null)
+const { user } = useCurrentUser()
 
 // Guests may sign their comments. Signed-in users never see the field (spec §10.5)
 const {
@@ -106,6 +123,7 @@ const replyText = computed({
 const hasReplyText = computed(() => !!replyText.value.trim())
 const isReplyHintShown = computed(() => isReplyFocused.value && !replyText.value)
 const canReply = computed(() => isOpenTab.value && props.canComment)
+const isEditBlank = computed(() => !editText.value.trim())
 const guestNameHint = computed(() => {
   if (guestNameAtLimit.value) {
     return `Names can have up to ${GUEST_NAME_LIMIT} characters.`
@@ -116,6 +134,10 @@ const guestNameHint = computed(() => {
 
 function isOpen(thread: DocumentThread) {
   return openThread.value === thread.name
+}
+
+function isClosed(thread: DocumentThread) {
+  return !isOpen(thread)
 }
 
 // Opened from the list, the thread's reply box takes the cursor
@@ -300,7 +322,7 @@ function actionsClass(thread: DocumentThread) {
 
 async function deleteComment(comment: ThreadComment) {
   const isConfirmed = await confirm({
-    title: 'Delete comment?',
+    title: 'Delete this comment?',
     message: "It can't be brought back.",
     confirmLabel: 'Delete',
     destructive: true,
@@ -309,6 +331,91 @@ async function deleteComment(comment: ThreadComment) {
     await props.actions.removeComment(comment.name)
   }
 }
+
+// Drive lets anyone who can edit change a comment, and a signed-in author their own
+function canChange(comment: ThreadComment) {
+  if (!props.canComment) {
+    return false
+  }
+
+  if (props.canEditDocument) {
+    return true
+  }
+
+  return !!user.value && user.value !== 'Guest' && comment.author === user.value
+}
+
+function isEditing(comment: ThreadComment) {
+  return editingComment.value === comment.name
+}
+
+function hasMenu(comment: ThreadComment) {
+  return canChange(comment) && !isEditing(comment)
+}
+
+function menuClass(comment: ThreadComment) {
+  if (menuComment.value === comment.name) {
+    return ''
+  }
+
+  return 'invisible group-hover/comment:visible group-focus-within/comment:visible'
+}
+
+function noteMenu(comment: ThreadComment, isMenuOpen: boolean) {
+  if (isMenuOpen) {
+    menuComment.value = comment.name
+  } else if (menuComment.value === comment.name) {
+    menuComment.value = null
+  }
+}
+
+function commentActions(comment: ThreadComment): DropdownOptions {
+  return [
+    { label: 'Edit', icon: 'lucide-pencil', onClick: () => startEdit(comment) },
+    { label: 'Delete', icon: 'lucide-trash-2', onClick: () => deleteComment(comment) },
+  ]
+}
+
+async function startEdit(comment: ThreadComment) {
+  editingComment.value = comment.name
+  editText.value = comment.content
+  await nextTick()
+  editBoxes.value[0]?.focus()
+}
+
+function stopEdit() {
+  editingComment.value = null
+  editText.value = ''
+}
+
+// An unchanged text sends nothing; a refused one keeps the box and the words
+async function saveEdit(comment: ThreadComment) {
+  const text = editText.value.trim()
+  if (text === comment.content) {
+    stopEdit()
+    return
+  }
+
+  if (await props.actions.editComment(comment.name, text)) {
+    stopEdit()
+  }
+}
+
+function isListed(name: string) {
+  return props.threads.some((thread) => thread.comments.some((comment) => comment.name === name))
+}
+
+// Someone else deleted the comment being edited, so there is nothing left to save it to
+function dropDeletedEdit() {
+  if (!editingComment.value || isListed(editingComment.value)) {
+    return
+  }
+
+  stopEdit()
+  toast.warning("This comment was deleted, so your edit wasn't saved.")
+}
+
+watch(() => props.threads, dropDeletedEdit)
 
 function authorImage(comment: ThreadComment) {
   return comment.person?.user_image ?? undefined
@@ -320,6 +427,10 @@ function authorLabel(comment: ThreadComment) {
 
 function firstComment(thread: DocumentThread) {
   return thread.comments[0]
+}
+
+function isReply(thread: DocumentThread, comment: ThreadComment) {
+  return comment !== firstComment(thread)
 }
 
 function replies(thread: DocumentThread) {
@@ -424,7 +535,7 @@ function rowClass(thread: DocumentThread) {
           :aria-expanded="isOpen(thread)"
           @click="toggleThread(thread)"
         >
-          <span class="flex items-center gap-1.5 pr-16 text-xs text-ink-gray-5">
+          <span class="flex items-center gap-1.5 pr-8 text-xs text-ink-gray-5">
             <span class="min-w-0 text-sm-medium text-ink-gray-8">
               <DriveCommentAuthor
                 :author="firstComment(thread).author"
@@ -435,15 +546,7 @@ function rowClass(thread: DocumentThread) {
             <span v-if="where" class="shrink-0">{{ where }}</span>
             <span class="shrink-0">{{ dayOrTime(firstComment(thread)) }}</span>
           </span>
-          <template v-if="isOpen(thread)">
-            <span v-if="quote" class="block truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
-              {{ quote }}
-            </span>
-            <span class="block whitespace-pre-wrap text-p-sm text-ink-gray-7">
-              {{ firstComment(thread).content }}
-            </span>
-          </template>
-          <span v-else class="flex gap-1 text-p-sm">
+          <span v-if="isClosed(thread)" class="flex gap-1 text-p-sm">
             <span class="truncate text-ink-gray-7">{{ firstComment(thread).content }}</span>
             <span v-if="replies(thread).length" class="shrink-0 text-ink-gray-5">
               · {{ repliesLabel(thread) }}
@@ -456,14 +559,6 @@ function rowClass(thread: DocumentThread) {
           :class="actionsClass(thread)"
         >
           <Button
-            v-if="isOpen(thread)"
-            size="sm"
-            variant="ghost"
-            icon="lucide-trash-2"
-            aria-label="Delete comment"
-            @click="deleteComment(firstComment(thread))"
-          />
-          <Button
             size="sm"
             variant="ghost"
             :icon="resolveIcon(thread)"
@@ -473,8 +568,18 @@ function rowClass(thread: DocumentThread) {
         </div>
         <template v-if="isOpen(thread)">
           <div class="space-y-2 px-3 pb-3">
-            <div v-for="comment in replies(thread)" :key="comment.name" class="space-y-1">
-              <p class="flex items-center gap-2 text-sm-medium text-ink-gray-8">
+            <p v-if="quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">
+              {{ quote }}
+            </p>
+            <div
+              v-for="comment in thread.comments"
+              :key="comment.name"
+              class="group/comment relative space-y-1"
+            >
+              <p
+                v-if="isReply(thread, comment)"
+                class="flex items-center gap-2 pr-8 text-sm-medium text-ink-gray-8"
+              >
                 <Avatar
                   v-if="comment.person"
                   :image="authorImage(comment)"
@@ -486,16 +591,48 @@ function rowClass(thread: DocumentThread) {
                   authorLabel(comment)
                 }}</DriveCommentAuthor>
                 <span class="flex-1 text-xs text-ink-gray-5">{{ dayOrTime(comment) }}</span>
-                <Button
-                  v-if="canComment"
-                  size="sm"
-                  variant="ghost"
-                  icon="lucide-trash-2"
-                  aria-label="Delete comment"
-                  @click="deleteComment(comment)"
-                />
               </p>
-              <p class="whitespace-pre-wrap text-p-sm text-ink-gray-7">{{ comment.content }}</p>
+              <form v-if="isEditing(comment)" class="space-y-2" @submit.prevent="saveEdit(comment)">
+                <Textarea
+                  ref="editBoxes"
+                  v-model="editText"
+                  :rows="2"
+                  aria-label="Edit comment"
+                  @keydown.esc.stop.prevent="stopEdit"
+                />
+                <div class="flex justify-end gap-1">
+                  <Button size="sm" variant="ghost" label="Cancel" @click="stopEdit" />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    label="Save"
+                    :disabled="isEditBlank"
+                  />
+                </div>
+              </form>
+              <p v-else class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
+                {{ comment.content }}
+              </p>
+              <div
+                v-if="hasMenu(comment)"
+                class="absolute -top-1 right-0"
+                :class="menuClass(comment)"
+              >
+                <Dropdown
+                  :options="commentActions(comment)"
+                  align="end"
+                  @update:open="noteMenu(comment, $event)"
+                >
+                  <button
+                    type="button"
+                    class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
+                    aria-label="More comment actions"
+                  >
+                    <span class="lucide-ellipsis size-4" aria-hidden="true" />
+                  </button>
+                </Dropdown>
+              </div>
             </div>
             <form v-if="canReply" class="space-y-1" @submit.prevent="submitReply(thread)">
               <div class="relative">

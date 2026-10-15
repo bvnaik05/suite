@@ -16,6 +16,13 @@ interface ShownToast {
 }
 
 const toasts = vi.hoisted(() => [] as ShownToast[])
+const warnings = vi.hoisted(() => [] as string[])
+const me = vi.hoisted(() => ({ id: 'Asha Rao' }))
+
+vi.mock('@/boot/session', async () => {
+  const { computed: derive } = await import('vue')
+  return { useCurrentUser: () => ({ user: derive(() => me.id) }) }
+})
 
 vi.mock('@/platform/feedback', () => ({
   confirm: async ({ title }: { title: string }) => {
@@ -25,6 +32,7 @@ vi.mock('@/platform/feedback', () => ({
   toast: {
     success: (message: string, options: Omit<ShownToast, 'message'>) =>
       toasts.push({ message, ...options }),
+    warning: (message: string) => warnings.push(message),
   },
 }))
 
@@ -81,6 +89,19 @@ vi.mock('frappe-ui', async () => {
               ),
             ),
           ),
+    }),
+    // Shows the menu's items beside its button, as if it were open
+    Dropdown: define({
+      props: { options: Array as () => { label: string; onClick: () => void }[] },
+      setup:
+        (props, { slots }) =>
+        () =>
+          render('div', [
+            slots.default?.(),
+            props.options?.map((option) =>
+              render('button', { role: 'menuitem', onClick: option.onClick }, option.label),
+            ),
+          ]),
     }),
     Textarea: box('textarea'),
     TextInput: box('input'),
@@ -159,6 +180,8 @@ afterEach(() => {
   confirmed.asked = []
   confirmed.answer = true
   toasts.length = 0
+  warnings.length = 0
+  me.id = 'Asha Rao'
 })
 
 // The list over the three threads, recording each change it asks for and each thread it opens or lights
@@ -167,11 +190,14 @@ function showList({
   threads = [ON_TEXT, WHOLE, DONE],
   openThread = null as string | null,
   isRefusingResolve = false,
+  isRefusingEdit = false,
+  canEditDocument = false,
 } = {}) {
   const asked: string[] = []
   const opened: (string | null)[] = []
   const lit: (string | null)[] = []
   const shown = ref(openThread)
+  const listed = ref(threads)
   function open(name: string | null) {
     opened.push(name)
     shown.value = name
@@ -187,15 +213,17 @@ function showList({
     reply: (thread, text) => record(`reply ${thread} "${text}"`),
     resolve: async (thread, isResolved) =>
       (await record(`resolve ${thread} ${isResolved}`)) && !isRefusingResolve,
+    editComment: async (name, text) => (await record(`edit ${name} "${text}"`)) && !isRefusingEdit,
     removeComment: (name) => record(`remove ${name}`),
   }
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp(() =>
     h(CommentList, {
-      threads,
+      threads: listed.value,
       places: PLACES,
       canComment,
+      canEditDocument,
       actions,
       openThread: shown.value,
       'onUpdate:openThread': open,
@@ -204,7 +232,7 @@ function showList({
   )
   app.mount(host)
   mounted = app
-  return { host, asked, opened, lit }
+  return { host, asked, opened, lit, listed }
 }
 
 // Each row's words, one piece of text after another
@@ -228,10 +256,10 @@ function labelled(host: Element, label: string) {
   return host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ?? undefined
 }
 
+// The toggle of the row holding the text, open or closed
 function rowButton(host: Element, text: string) {
-  return [...host.querySelectorAll<HTMLButtonElement>('li > button')].find((button) =>
-    button.textContent?.includes(text),
-  )!
+  const row = [...host.querySelectorAll('li')].find((item) => item.textContent?.includes(text))
+  return row!.querySelector<HTMLButtonElement>(':scope > button')!
 }
 
 async function click(button: HTMLElement | undefined) {
@@ -245,8 +273,8 @@ async function settled() {
 }
 
 function openRows(host: Element) {
-  return [...host.querySelectorAll('li > button[aria-expanded="true"]')].map((button) =>
-    button.textContent?.includes('Is this right?') ? 'on-text' : 'whole',
+  return [...host.querySelectorAll('li > button[aria-expanded="true"]')].map(
+    (button) => button.closest('li')!.dataset.thread ?? '',
   )
 }
 
@@ -528,7 +556,14 @@ describe('commenting on the whole document', () => {
     document.body.append(host)
     const list = ref<{ startDocumentComment(): Promise<void> } | null>(null)
     const actions = {} as ThreadActions
-    const props = { ref: list, threads: [DONE], places: PLACES, canComment: true, actions }
+    const props = {
+      ref: list,
+      threads: [DONE],
+      places: PLACES,
+      canComment: true,
+      canEditDocument: false,
+      actions,
+    }
     mounted = createApp(() => h(CommentList, props))
     mounted.mount(host)
     await click(buttonNamed(host, 'Resolved 1'))
@@ -572,10 +607,10 @@ describe('an empty tab and a reader who can’t comment', () => {
   it('offers a reader no top line, reply, resolve or delete, in either tab', async () => {
     const { host } = showList({ canComment: false, threads: [ON_TEXT, DONE] })
     function extras() {
-      const labels = [...host.querySelectorAll('button')].map(
+      const labels = [...host.querySelectorAll('button:not([aria-expanded])')].map(
         (button) => button.textContent?.trim() || button.getAttribute('aria-label'),
       )
-      const rest = labels.filter((label) => !/^(Open|Resolved) \d$|Is this|Fixed/.test(label ?? ''))
+      const rest = labels.filter((label) => !/^(Open|Resolved) \d$/.test(label ?? ''))
       return [host.querySelector('textarea'), rest]
     }
 
@@ -628,5 +663,235 @@ describe('the list and the editor', () => {
     mounted = null
 
     expect([opened, lit]).toEqual([[null], ['whole', null]])
+  })
+})
+
+describe('editing and deleting a comment', () => {
+  function menus(host: Element) {
+    return host.querySelectorAll('button[aria-label="More comment actions"]').length
+  }
+
+  function editBox() {
+    return document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit comment"]')
+  }
+
+  async function type(text: string) {
+    editBox()!.value = text
+    editBox()!.dispatchEvent(new Event('input'))
+    await nextTick()
+  }
+
+  // Picks an item from the ⋯ menu of the comment with the text
+  async function pick(host: Element, text: string, item: string) {
+    const block = [...host.querySelectorAll('li div')].find(
+      (element) => element.querySelector(':scope > p:not(.flex)')?.textContent?.trim() === text,
+    )
+    const option = [...block!.querySelectorAll('[role="menuitem"]')].find(
+      (element) => element.textContent === item,
+    )
+    await click(option as HTMLElement)
+    await nextTick()
+  }
+
+  async function save() {
+    editBox()!.closest('form')!.requestSubmit()
+    await settled()
+  }
+
+  it('offers ⋯ on an open thread’s own comments to its author, and on all of them to an editor', async () => {
+    const seen: number[] = []
+    for (const options of [{}, { canEditDocument: true }, { canComment: false }]) {
+      const { host } = showList({ threads: [ON_TEXT], ...options })
+      seen.push(menus(host))
+      await click(rowButton(host, 'Is this right?'))
+      seen.push(menus(host))
+      mounted?.unmount()
+      document.body.replaceChildren()
+    }
+
+    expect(seen).toEqual([0, 2, 0, 3, 0, 0])
+  })
+
+  it('names the author above each reply, but not again above the first comment', async () => {
+    const { host } = showList({ threads: [ON_TEXT] })
+
+    await click(rowButton(host, 'Is this right?'))
+    const authorLines = [...host.querySelectorAll('div[class~="group/comment"] > p.flex')]
+
+    expect(authorLines.map((line) => line.textContent?.trim())).toEqual([
+      expect.stringMatching(/^Ben Ito/),
+      expect.stringMatching(/^Asha Rao/),
+    ])
+  })
+
+  it('offers a guest no ⋯, even on comments made as a guest', async () => {
+    me.id = 'Guest'
+    const byGuest = {
+      ...WHOLE,
+      comments: [comment('c9', 'Guest', 'From a guest')],
+    } as unknown as DocumentThread
+    const { host } = showList({ threads: [byGuest] })
+
+    await click(rowButton(host, 'From a guest'))
+
+    expect(menus(host)).toBe(0)
+  })
+
+  it('edits a comment in place, with the cursor in it, and saves the new words', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+
+    await pick(host, 'Is this right?', 'Edit')
+    const opened = [editBox()?.value, document.activeElement === editBox()]
+    await type(' Is this still right? ')
+    await save()
+
+    expect([opened, asked, editBox()]).toEqual([
+      ['Is this right?', true],
+      ['edit c1 "Is this still right?"'],
+      null,
+    ])
+  })
+
+  it('cancels an edit on Esc, sending nothing and keeping the thread open', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+    await pick(host, 'Thanks', 'Edit')
+    await type('Changed my mind')
+
+    editBox()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+
+    expect([asked, editBox(), openRows(host), host.textContent]).toEqual([
+      [],
+      null,
+      ['on-text'],
+      expect.stringContaining('Thanks'),
+    ])
+  })
+
+  it('hides ⋯ on the comment being edited, and Cancel closes the box sending nothing', async () => {
+    const { host, asked } = showList({ threads: [ON_TEXT] })
+    await click(rowButton(host, 'Is this right?'))
+    await pick(host, 'Thanks', 'Edit')
+    await type('Changed my mind')
+
+    const whileEditing = menus(host)
+    await click(buttonNamed(host, 'Cancel')!)
+
+    expect([whileEditing, asked, editBox(), menus(host)]).toEqual([1, [], null, 2])
+  })
+
+  it('sends nothing for an unchanged comment, and can’t save an empty one', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+    await pick(host, 'Is this right?', 'Edit')
+
+    await type('')
+    const isSaveOff = buttonNamed(host, 'Save')!.disabled
+    await type('Is this right?')
+    await save()
+
+    expect([isSaveOff, asked, editBox()]).toEqual([true, [], null])
+  })
+
+  it('keeps the box and the words when the edit is refused', async () => {
+    const { host, asked } = showList({ isRefusingEdit: true })
+    await click(rowButton(host, 'Is this right?'))
+    await pick(host, 'Is this right?', 'Edit')
+
+    await type('Reworded')
+    await save()
+
+    expect([asked, editBox()?.value]).toEqual([['edit c1 "Reworded"'], 'Reworded'])
+  })
+
+  it('asks before deleting a comment, and deletes only once confirmed', async () => {
+    const { host, asked } = showList()
+    await click(rowButton(host, 'Is this right?'))
+
+    confirmed.answer = false
+    await pick(host, 'Thanks', 'Delete')
+    await settled()
+    confirmed.answer = true
+    await pick(host, 'Thanks', 'Delete')
+    await settled()
+
+    expect([confirmed.asked, asked]).toEqual([
+      ['Delete this comment?', 'Delete this comment?'],
+      ['remove c3'],
+    ])
+  })
+
+  it('leads the row with the first reply once the first comment is deleted', async () => {
+    const { host, listed } = showList()
+
+    listed.value = [{ ...ON_TEXT, comments: ON_TEXT.comments.slice(1) }, WHOLE]
+    await nextTick()
+
+    const [, reply] = rows(host)
+    expect(reply).toMatch(/^Ben Ito \S.* Yes · 1 reply$/)
+  })
+})
+
+describe('an edit while someone else changes the comment', () => {
+  function editBox() {
+    return document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit comment"]')
+  }
+
+  async function startEditing(options = {}) {
+    const list = showList(options)
+    await click(rowButton(list.host, 'Is this right?'))
+    const menu = list.host.querySelector('li [role="menuitem"]') as HTMLElement
+    await click(menu)
+    editBox()!.value = 'Mine'
+    editBox()!.dispatchEvent(new Event('input'))
+    await nextTick()
+    return list
+  }
+
+  it('keeps my words when another tab edits it, and my save wins', async () => {
+    const { asked, listed } = await startEditing()
+    const theirs = { ...ON_TEXT.comments[0], content: 'Theirs' }
+
+    listed.value = [{ ...ON_TEXT, comments: [theirs, ...ON_TEXT.comments.slice(1)] }, WHOLE]
+    await nextTick()
+    const kept = editBox()?.value
+    editBox()!.closest('form')!.requestSubmit()
+    await settled()
+
+    expect([kept, asked]).toEqual(['Mine', ['edit c1 "Mine"']])
+  })
+
+  it('keeps the box when the save is refused because it was deleted before the list knew', async () => {
+    const { asked } = await startEditing({ isRefusingEdit: true })
+
+    editBox()!.closest('form')!.requestSubmit()
+    await settled()
+
+    expect([asked, editBox()?.value, warnings]).toEqual([['edit c1 "Mine"'], 'Mine', []])
+  })
+
+  it('closes the box and says once that the edit wasn’t saved when the list shows it deleted', async () => {
+    const { listed } = await startEditing()
+
+    listed.value = [{ ...ON_TEXT, comments: ON_TEXT.comments.slice(1) }, WHOLE]
+    await nextTick()
+    listed.value = [{ ...ON_TEXT, comments: ON_TEXT.comments.slice(2) }]
+    await nextTick()
+
+    expect([editBox(), warnings]).toEqual([
+      null,
+      ["This comment was deleted, so your edit wasn't saved."],
+    ])
+  })
+
+  it('says nothing when the list changes but the comment being edited is still there', async () => {
+    const { listed } = await startEditing()
+
+    listed.value = [ON_TEXT]
+    await nextTick()
+
+    expect([editBox()?.value, warnings]).toEqual(['Mine', []])
   })
 })

@@ -13,6 +13,7 @@ import VersionList from './VersionList.vue'
 const props = defineProps<{
   session: DocumentSession
   canComment: boolean
+  canEditDocument: boolean
   canRestoreVersion: boolean
   canRenameVersion: boolean
   isRestoringVersion: boolean
@@ -178,6 +179,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             :threads
             :places
             :can-comment
+            :can-edit-document
             :actions="threadActions"
             :drafts
           />

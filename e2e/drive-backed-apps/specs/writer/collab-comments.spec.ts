@@ -72,10 +72,17 @@ test.describe("Writer collaboration comments", () => {
 		await page.keyboard.type("A reply");
 		await page.keyboard.press("Enter");
 		await expect(row).toContainText("A reply");
+		await row.getByText("A reply", { exact: true }).hover();
+		await row.getByRole("button", { name: "More comment actions" }).click();
+		await page.getByRole("menuitem", { name: "Edit" }).click();
+		await row.getByLabel("Edit comment").fill("A reply, edited");
+		await row.getByRole("button", { name: "Save" }).click();
+		await expect(row.getByText("A reply, edited", { exact: true })).toBeVisible();
 		await row.getByRole("button", { name: "Resolve" }).click();
 		await expect(row).toHaveCount(0);
 		await page.getByRole("button", { name: "Undo" }).click();
 		await expect(row).toHaveCount(1);
+		await row.hover();
 		await row.getByRole("button", { name: "Resolve" }).click();
 		await expect(row).toHaveCount(0);
 		await panel.getByRole("radio", { name: "Resolved 1" }).click();
@@ -84,10 +91,12 @@ test.describe("Writer collaboration comments", () => {
 		await panel.getByRole("radio", { name: "Open 1" }).click();
 		await row.getByRole("button", { name: /Whole document note/ }).click();
 
-		for (let left = 2; left > 0; left--) {
-			await panel.getByRole("button", { name: "Delete comment" }).first().click();
+		for (const text of ["Whole document note", "A reply, edited"]) {
+			await panel.getByText(text, { exact: true }).hover();
+			await panel.getByRole("button", { name: "More comment actions" }).click();
+			await page.getByRole("menuitem", { name: "Delete" }).click();
 			await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
-			await expect(panel.getByRole("button", { name: "Delete comment" })).toHaveCount(left - 1);
+			await expect(panel.getByText(text, { exact: true })).toHaveCount(0);
 		}
 
 		await expect(panel.getByText("No open comments.", { exact: false })).toBeVisible();
