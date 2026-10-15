@@ -97,13 +97,13 @@ describe('changing a thread from the panel', () => {
     }
 
     const panel = useDocumentPanel(session, refresh)
-    await panel.reply('thread-1', 'Agreed', 'Asha')
+    await panel.reply('thread-1', 'Agreed', 'Asha', 'reply-1')
     await panel.resolve('thread-1', true)
     await panel.editComment('comment-1', 'Reworded')
     await panel.removeComment('comment-2')
 
     expect(calls).toEqual([
-      'reply thread-1 Agreed Asha',
+      'reply thread-1 Agreed Asha reply-1',
       'read threads',
       'resolve thread-1 true',
       'read threads',

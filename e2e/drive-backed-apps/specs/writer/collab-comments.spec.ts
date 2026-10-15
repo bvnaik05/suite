@@ -53,6 +53,16 @@ function refuseNewThreads(route: Route) {
 	return route.fallback();
 }
 
+// Lets Drive take each new comment, then drops its answer as a lost connection would
+async function loseAnswer(route: Route) {
+	if (route.request().method() !== "POST") {
+		return route.fallback();
+	}
+
+	await route.fetch();
+	return route.abort();
+}
+
 test.describe("Writer collaboration comments", () => {
 	let node = "";
 
@@ -221,15 +231,6 @@ test.describe("Writer collaboration comments", () => {
 	test("a comment Drive took but whose answer was lost makes one thread once retried", async ({ owner }) => {
 		const { page } = owner;
 		await openWriterDocument(page, node);
-		async function loseAnswer(route: Route) {
-			if (route.request().method() !== "POST") {
-				return route.fallback();
-			}
-
-			await route.fetch();
-			return route.abort();
-		}
-
 		await page.route("**/api/suite/drive/nodes/*/threads", loseAnswer);
 		const panel = await commentOnDocument(page, "Answer lost");
 		await expect(panel).toContainText("Not posted ·");
@@ -239,5 +240,24 @@ test.describe("Writer collaboration comments", () => {
 
 		await expect(panel).not.toContainText("Not posted");
 		await expect(threadRow(panel, "Answer lost")).toHaveCount(1);
+	});
+
+	test("a reply Drive took but whose answer was lost shows once after sending it again", async ({ owner }) => {
+		const { page } = owner;
+		await openWriterDocument(page, node);
+		const panel = await commentOnDocument(page, "Needs a reply");
+		const row = threadRow(panel, "Needs a reply");
+		await row.getByRole("button", { name: /Needs a reply/ }).click();
+
+		await page.route("**/api/suite/drive/threads/*/comments", loseAnswer);
+		await row.getByLabel("Reply").fill("Sent twice");
+		await page.keyboard.press("Enter");
+		await expect(row.getByLabel("Reply")).toHaveValue("Sent twice");
+
+		await page.unroute("**/api/suite/drive/threads/*/comments", loseAnswer);
+		await row.getByLabel("Reply").press("Enter");
+
+		await expect(row.getByLabel("Reply")).toHaveValue("");
+		await expect(row.getByText("Sent twice", { exact: true })).toHaveCount(1);
 	});
 });

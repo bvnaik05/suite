@@ -228,10 +228,13 @@ function showList({
   openThread = null as string | null,
   isRefusingResolve = false,
   isRefusingEdit = false,
+  refusedReplies = 0,
   canEditDocument = false,
   drafts = fakeDrafts().list,
 } = {}) {
   const asked: string[] = []
+  const replyIds: string[] = []
+  let refusalsLeft = refusedReplies
   const opened: (string | null)[] = []
   const lit: (string | null)[] = []
   const shown = ref(openThread)
@@ -247,7 +250,12 @@ function showList({
   }
 
   const actions: ThreadActions = {
-    reply: (thread, text) => record(`reply ${thread} "${text}"`),
+    reply: async (thread, text, _authorName, clientId) => {
+      replyIds.push(clientId)
+      await record(`reply ${thread} "${text}"`)
+      refusalsLeft -= 1
+      return refusalsLeft < 0
+    },
     resolve: async (thread, isResolved) =>
       (await record(`resolve ${thread} ${isResolved}`)) && !isRefusingResolve,
     editComment: async (name, text) => (await record(`edit ${name} "${text}"`)) && !isRefusingEdit,
@@ -270,7 +278,7 @@ function showList({
   )
   app.mount(host)
   mounted = app
-  return { host, asked, opened, lit, listed }
+  return { host, asked, opened, lit, listed, replyIds }
 }
 
 // Each row's words, one piece of text after another
@@ -512,6 +520,50 @@ describe('replying in an open thread', () => {
     await settled()
 
     expect(asked).toEqual(['reply on-text "Agreed"'])
+  })
+
+  it('sends the same words again under the same client id after a refusal, so Drive posts them once', async () => {
+    const { host, asked, replyIds } = showList({ refusedReplies: 1 })
+    await click(rowButton(host, 'Is this right?'))
+    await type('Agreed')
+
+    await press({})
+    const kept = replyBox()?.value
+    await press({})
+
+    const [first, second] = replyIds
+    expect([asked, kept, replyIds.length, first === second]).toEqual([
+      ['reply on-text "Agreed"', 'reply on-text "Agreed"'],
+      'Agreed',
+      2,
+      true,
+    ])
+  })
+
+  it('sends changed words after a refusal under a new client id', async () => {
+    const { host, replyIds } = showList({ refusedReplies: 1 })
+    await click(rowButton(host, 'Is this right?'))
+    await type('Agreed')
+    await press({})
+
+    await type('Agreed, mostly')
+    await press({})
+
+    const [first, second] = replyIds
+    expect([replyIds.length, first === second]).toEqual([2, false])
+  })
+
+  it('gives a new reply of the same words its own client id once the last one is posted', async () => {
+    const { host, replyIds } = showList()
+    await click(rowButton(host, 'Is this right?'))
+    await type('Agreed')
+    await press({})
+
+    await type('Agreed')
+    await press({})
+
+    const [first, second] = replyIds
+    expect([replyIds.length, first === second]).toEqual([2, false])
   })
 
   it('shows the send arrow only once there is text, and sends from it', async () => {

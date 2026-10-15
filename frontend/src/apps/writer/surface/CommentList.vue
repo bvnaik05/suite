@@ -8,6 +8,7 @@ import {
   TextInput,
   type DropdownOptions,
 } from 'frappe-ui'
+import { v4 } from 'uuid'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import {
@@ -61,6 +62,8 @@ const documentCard = ref<{ focus(): void } | null>(null)
 const replyBoxes = ref<{ focus(): void }[]>([])
 /** A reply typed into each thread, kept while another is open. */
 const replyTexts = ref<Record<string, string>>({})
+/** The last reply sent to each thread that Drive hasn't confirmed, with the client id it went under. */
+const unsentReplies: Record<string, { text: string; clientId: string }> = {}
 const isReplyFocused = ref(false)
 /** Threads being resolved or reopened, faded until they leave the tab. */
 const leavingThreads = ref(new Set<string>())
@@ -254,6 +257,18 @@ async function discardSentDraft(draft: ShownDraft) {
   }
 }
 
+// Sending the same words again reuses their client id, so Drive posts them once
+function replyClientId(thread: string, text: string) {
+  const unsent = unsentReplies[thread]
+  if (unsent?.text === text) {
+    return unsent.clientId
+  }
+
+  const clientId = v4()
+  unsentReplies[thread] = { text, clientId }
+  return clientId
+}
+
 async function submitReply(thread: DocumentThread) {
   const text = replyText.value.trim()
   if (!text || isSendingReply) {
@@ -262,8 +277,10 @@ async function submitReply(thread: DocumentThread) {
 
   isSendingReply = true
   try {
-    if (await props.actions.reply(thread.name, text, takeGuestName())) {
+    const clientId = replyClientId(thread.name, text)
+    if (await props.actions.reply(thread.name, text, takeGuestName(), clientId)) {
       replyTexts.value[thread.name] = ''
+      delete unsentReplies[thread.name]
     }
   } finally {
     isSendingReply = false

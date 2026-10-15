@@ -79,8 +79,8 @@ function threadActions(session: PanelSession, refreshThreads: () => Promise<void
 
   const { comments } = session
   return {
-    reply: (thread: string, text: string, authorName?: string) =>
-      change(() => comments.reply(thread, text, authorName), 'Could not add the reply.'),
+    reply: (thread: string, text: string, authorName: string | undefined, clientId: string) =>
+      change(() => comments.reply(thread, text, authorName, clientId), 'Could not add the reply.'),
     resolve: (thread: string, isResolved: boolean) =>
       change(() => comments.resolve(thread, isResolved), 'Could not change the thread.'),
     editComment: (comment: string, text: string) =>
