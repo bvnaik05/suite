@@ -52,11 +52,13 @@ class TestSuiteCloudClient(UnitTestCase):
         self.assertEqual(self.request.kwargs["params"], {"domain": "acme.com"})  # None is dropped
         self.assertFalse(self.request.kwargs["allow_redirects"])
 
-    def test_a_list_in_a_read_travels_as_json_text(self) -> None:
+    def test_a_read_with_a_list_is_a_query_with_a_json_body(self) -> None:
         self._call(
             _response(200, {"data": {}}), "mail.accounts.get_quotas", emails=["a@acme.com", "b@acme.com"]
         )
-        self.assertEqual(self.request.kwargs["params"], {"emails": '["a@acme.com", "b@acme.com"]'})
+        self.assertEqual(self.request.args, ("QUERY", f"{BASE}mail.accounts.get_quotas"))
+        self.assertEqual(json.loads(self.request.kwargs["data"]), {"emails": ["a@acme.com", "b@acme.com"]})
+        self.assertNotIn("params", self.request.kwargs)
 
     def test_a_write_sends_the_verb_its_name_says_with_a_json_body(self) -> None:
         self._call(

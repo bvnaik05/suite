@@ -22,7 +22,7 @@ from suite.mail.api.utils import get_avatar_url
 from suite.mail.directory import GB, get_account_metadata, get_active_domain_names
 from suite.mail.directory import get_domains as get_site_domains
 from suite.mail.suite_cloud import get_client
-from suite.mail.utils import get_config
+from suite.mail.utils import get_config, log_mail_error
 from suite.mail.utils.dns import ZoneFileRecord
 from suite.mail.utils.dt import from_utc_z, to_utc_z
 from suite.mail.utils.logger import log_admin_action
@@ -697,16 +697,19 @@ def _attach_quotas(users: list[dict]) -> None:
     emails = [user["account"] for user in users if user.get("account")]
     if not emails:
         return
-    with suppress(Exception):
+    try:
         quotas = get_client().call("mail.accounts.get_quotas", emails=emails)
-        for user in users:
-            quota = quotas.get(user.get("account"))
-            if quota:
-                allotted = quota.get("disk_quota_gb")
-                user["quota_gb"] = (
-                    flt(allotted) if allotted is not None else None
-                )  # None: unknown, not unlimited
-                user["used_bytes"] = _bytes_or_none(quota.get("used_disk_bytes"))
+    except Exception as e:
+        # The page lists its accounts without quotas; the refusal's message must not reach it.
+        frappe.clear_last_message()
+        log_mail_error("Suite Cloud quota lookup failed", str(e))
+        return
+    for user in users:
+        quota = quotas.get(user.get("account"))
+        if quota:
+            allotted = quota.get("disk_quota_gb")
+            user["quota_gb"] = flt(allotted) if allotted is not None else None  # None: unknown, not unlimited
+            user["used_bytes"] = _bytes_or_none(quota.get("used_disk_bytes"))
 
 
 def _bytes_or_none(value) -> int | None:
