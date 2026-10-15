@@ -1,6 +1,6 @@
 import type { CollabRoom } from '@suite/collab-client'
 import { toast } from 'frappe-ui'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
@@ -14,6 +14,7 @@ vi.mock('frappe-ui', () => ({ toast: { error: vi.fn() } }))
 afterEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  sessionStorage.clear()
 })
 
 // An anchor on "hello" written into the doc, whose end characters the room below holds once saved
@@ -157,7 +158,7 @@ describe('posting a comment on text', () => {
     ])
   })
 
-  it('shows the drafts left on this device when the document opens again', () => {
+  it('shows the boxes left in this tab when the document opens again in it', () => {
     const { room } = fakeRoom()
     const first = openDrafts(driveComments().session, room)
     first.start(helloAnchor(room.doc))
@@ -263,6 +264,25 @@ describe('posting a comment on the whole document', () => {
     ])
   })
 
+  it('keeps a comment whose id Drive took for other words, and says how to remove it', async () => {
+    function reused() {
+      return Promise.reject(Object.assign(new Error('raw'), { type: 'DriveConflict' }))
+    }
+
+    const { session } = driveComments([reused])
+    const { drafts, start, write, post } = openDrafts(session, null)
+    start(DOCUMENT_ANCHOR)
+    write(drafts.value[0], 'Ship it')
+
+    const thread = await post(drafts.value[0])
+
+    expect([thread, drafts.value.length, vi.mocked(toast.error).mock.calls]).toEqual([
+      null,
+      1,
+      [['This comment was already posted with different words. Discard it to remove it.']],
+    ])
+  })
+
   it('keeps a comment on text unsent while there is no room to save its text', async () => {
     const { session, posts } = driveComments()
     const { drafts, start, write, post } = openDrafts(session, null)
@@ -306,20 +326,44 @@ describe('posting a comment on the whole document', () => {
 })
 
 describe('drafts in two tabs of the document', () => {
-  function storedValues() {
+  /** The other tab's own sessionStorage, while this tab's is in place. */
+  let otherSession = new Map<string, string | null>()
+
+  beforeEach(() => {
+    otherSession = new Map()
+  })
+
+  function storedValues(storage = localStorage) {
     const values = new Map<string, string | null>()
-    for (let index = 0; index < localStorage.length; index++) {
-      const key = localStorage.key(index) ?? ''
-      values.set(key, localStorage.getItem(key))
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index) ?? ''
+      values.set(key, storage.getItem(key))
     }
 
     return values
   }
 
+  function restore(values: Map<string, string | null>) {
+    sessionStorage.clear()
+    for (const [key, value] of values) {
+      sessionStorage.setItem(key, value ?? '')
+    }
+  }
+
+  // Runs as another tab, with its own sessionStorage and the shared localStorage
+  function asOtherTab<T>(act: () => T) {
+    const here = storedValues(sessionStorage)
+    restore(otherSession)
+    const result = act()
+    otherSession = storedValues(sessionStorage)
+    restore(here)
+    return result
+  }
+
   // Makes a change as another tab, then tells of each value it changed as a browser tells the other tabs
-  function inOtherTab(change: () => void) {
+  function inOtherTab<T>(change: () => T) {
     const before = storedValues()
-    change()
+    const result = asOtherTab(change)
     const after = storedValues()
     for (const key of new Set([...before.keys(), ...after.keys()])) {
       const oldValue = before.get(key) ?? null
@@ -328,37 +372,65 @@ describe('drafts in two tabs of the document', () => {
         window.dispatchEvent(new StorageEvent('storage', { key, oldValue, newValue }))
       }
     }
+
+    return result
   }
 
-  it('drops a draft another tab posted or discarded, and takes on none it starts', () => {
+  function texts(drafts: { text: string }[]) {
+    return drafts.map((draft) => draft.text)
+  }
+
+  it('shows a tab opened after this one none of its typed boxes, and its sent ones until discarded', () => {
     const { room } = fakeRoom()
     const anchor = helloAnchor(room.doc)
     const first = openDrafts(driveComments().session, room)
     first.start(anchor)
-    first.write(first.drafts.value[0], 'Shared')
-    const second = openDrafts(driveComments().session, room)
-    second.start(anchor)
-    second.write(second.drafts.value[1], 'Only here')
+    first.write(first.drafts.value[0], 'Half typed')
+    first.start(anchor)
+    first.write(first.drafts.value[1], 'Sent')
+    void first.post(first.drafts.value[1])
 
-    inOtherTab(() => {
-      first.discard(first.drafts.value[0])
-      first.start(anchor)
-    })
+    const second = inOtherTab(() => openDrafts(driveComments().session, room))
+    const shownThere = texts(second.drafts.value)
+    inOtherTab(() => second.discard(second.drafts.value[0]))
 
-    expect(second.drafts.value.map((draft) => draft.text)).toEqual(['Only here'])
+    expect([shownThere, texts(first.drafts.value)]).toEqual([['Sent'], ['Half typed']])
   })
 
-  it('drops a draft started here once a tab opened after it discards it', () => {
+  it('keeps a box typed here whatever a tab opened after it does, and on the device for this tab', () => {
     const { room } = fakeRoom()
     const anchor = helloAnchor(room.doc)
     const first = openDrafts(driveComments().session, room)
     first.start(anchor)
     first.write(first.drafts.value[0], 'Started here')
-    const second = openDrafts(driveComments().session, room)
+    const second = inOtherTab(() => openDrafts(driveComments().session, room))
 
-    inOtherTab(() => second.discard(second.drafts.value[0]))
+    inOtherTab(() => {
+      second.start(anchor)
+      second.discard(second.drafts.value[0])
+    })
 
-    expect(first.drafts.value).toEqual([])
+    expect([
+      texts(second.drafts.value),
+      texts(first.drafts.value),
+      texts(readDrafts('ann', 'doc-1')),
+    ]).toEqual([[], ['Started here'], ['Started here']])
+  })
+
+  it('posts nothing once another tab discards the draft, before its word of that reaches this tab', async () => {
+    const { room, save } = fakeRoom()
+    const { session, posts } = driveComments()
+    const first = openDrafts(session, room)
+    const anchor = helloAnchor(room.doc)
+    first.start(anchor)
+    first.write(first.drafts.value[0], 'Retry me')
+    const posting = first.post(first.drafts.value[0])
+    const second = inOtherTab(() => openDrafts(driveComments().session, room))
+
+    asOtherTab(() => second.discard(second.drafts.value[0]))
+    save(anchor)
+
+    expect([await posting, posts, texts(first.drafts.value)]).toEqual([null, [], ['Retry me']])
   })
 
   it('keeps a draft this tab could not store when another tab changes the drafts', () => {

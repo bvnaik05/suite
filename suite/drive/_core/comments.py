@@ -55,7 +55,7 @@ def create_thread(
         via_link = require(node_row, COMMENT, principals)
         _require_document(node_row)
         _require_active(node_row)
-        sent = first_send("Drive Comment Thread", node_row.name, client_id)
+        sent = first_send("Drive Comment Thread", node_row.name, client_id, text)
         if sent:
             frappe.db.release_savepoint(savepoint)
             return _thread_view(sent.name)
@@ -113,7 +113,7 @@ def reply(
         via_link = require(node, COMMENT, principals)
         _require_document(node)
         _require_active(node)
-        sent = first_send("Drive Comment", node.name, client_id)
+        sent = first_send("Drive Comment", node.name, client_id, text)
         if sent:
             if sent.thread != thread_row.name:
                 raise DriveConflict(_("This Drive comment id was already used in another thread"))
@@ -513,12 +513,25 @@ def _insert_comment(
     return row.name, mentions
 
 
-def first_send(doctype: str, node: str, client_id: str | None) -> frappe._dict | None:
-    """Return the row an earlier send with this client id made; the caller holds the node's lock."""
+def first_send(doctype: str, node: str, client_id: str | None, text: str) -> frappe._dict | None:
+    """Return the row an earlier send of these words under this id made; the caller holds the lock."""
     if client_id is None:
         return None
 
-    return frappe.db.get_value(doctype, {"node": node, "client_id": client_id}, "*", as_dict=True)
+    sent = frappe.db.get_value(doctype, {"node": node, "client_id": client_id}, "*", as_dict=True)
+    if not sent:
+        return None
+
+    words = sent.get("content")
+    if doctype == "Drive Comment Thread":
+        words = frappe.db.get_value(
+            "Drive Comment", {"thread": sent.name}, "content", order_by="creation asc"
+        )
+
+    if words != text:
+        raise DriveConflict(_("This Drive comment id was already used for other words"))
+
+    return sent
 
 
 def announce_threads(node: frappe._dict) -> None:

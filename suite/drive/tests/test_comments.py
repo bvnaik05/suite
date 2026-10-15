@@ -122,6 +122,23 @@ class TestCommentWorkflows(IntegrationTestCase):
             2,
         )
 
+    def test_a_resend_with_other_words_is_refused_and_writes_nothing(self):
+        first = create_thread(self.commenter, self.document.name, "anchor", "Hello", client_id="t-1")
+        reply(self.owner, first.name, "Hi", client_id="r-1")
+
+        with self.assertRaises(DriveConflict):
+            create_thread(self.commenter, self.document.name, "anchor", "Goodbye", client_id="t-1")
+
+        with self.assertRaises(DriveConflict):
+            reply(self.owner, first.name, "Bye", client_id="r-1")
+
+        listed = threads(self.owner, self.document.name)
+        self.assertEqual([[row.content for row in thread.comments] for thread in listed], [["Hello", "Hi"]])
+        self.assertEqual(
+            frappe.db.count("Drive Activity", {"node": self.document.name, "action": "comment"}),
+            2,
+        )
+
     def test_a_reply_id_used_in_another_thread_is_refused(self):
         one = create_thread(self.commenter, self.document.name, "one", "First").name
         two = create_thread(self.commenter, self.document.name, "two", "Second").name

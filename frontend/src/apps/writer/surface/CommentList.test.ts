@@ -194,6 +194,7 @@ afterEach(() => {
   mounted?.unmount()
   document.body.replaceChildren()
   localStorage.clear()
+  sessionStorage.clear()
   confirmed.asked = []
   confirmed.answer = true
   toasts.length = 0

@@ -1,14 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { dropDraft, keepDraft, readDrafts, removedElsewhere } from './commentDrafts'
+import { dropDraft, isDiscarded, keepDraft, readDrafts, removedElsewhere } from './commentDrafts'
 
 afterEach(() => {
   vi.restoreAllMocks()
   localStorage.clear()
+  sessionStorage.clear()
 })
+
+const KEY = 'suite:writer-comment-drafts:ann:doc-1'
 
 function draft(clientId: string, text = '', isSent = false) {
   return { clientId, anchor: `anchor-${clientId}`, text, isSent }
+}
+
+function stored(storage: Storage) {
+  return JSON.parse(storage.getItem(KEY) ?? 'null')
 }
 
 describe('comment drafts on this device', () => {
@@ -58,6 +65,49 @@ describe('comment drafts on this device', () => {
     dropDraft('ann', 'doc-1', 'one')
 
     expect(readDrafts('ann', 'doc-1')).toEqual([])
+  })
+
+  it('keeps a box being typed in this tab only, and a sent draft on the device for every tab', () => {
+    keepDraft('ann', 'doc-1', draft('one', 'typing'))
+    keepDraft('ann', 'doc-1', draft('two', 'typed'))
+    keepDraft('ann', 'doc-1', draft('two', 'sent', true))
+
+    expect([stored(sessionStorage), stored(localStorage), readDrafts('ann', 'doc-1')]).toEqual([
+      [draft('one', 'typing')],
+      [draft('two', 'sent', true)],
+      [draft('two', 'sent', true), draft('one', 'typing')],
+    ])
+  })
+
+  it('shows a draft caught in both places while being sent once, as sent', () => {
+    sessionStorage.setItem(KEY, JSON.stringify([draft('one', 'typing')]))
+    localStorage.setItem(KEY, JSON.stringify([draft('one', 'sent', true)]))
+
+    expect(readDrafts('ann', 'doc-1')).toEqual([draft('one', 'sent', true)])
+  })
+
+  it('keeps a box in this tab when the device copy of its sent words cannot be written', () => {
+    keepDraft('ann', 'doc-1', draft('one', 'typing'))
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage) {
+      if (this === localStorage) {
+        throw new Error('full')
+      }
+    })
+
+    keepDraft('ann', 'doc-1', draft('one', 'typing', true))
+
+    expect(readDrafts('ann', 'doc-1')).toEqual([draft('one', 'typing')])
+  })
+
+  it('tells a draft gone from the device, and none while storage cannot be read', () => {
+    keepDraft('ann', 'doc-1', draft('one', 'sent', true))
+    keepDraft('ann', 'doc-1', draft('two', 'typing'))
+    const found = ['one', 'two', 'three'].map((clientId) => isDiscarded('ann', 'doc-1', clientId))
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+
+    expect([found, isDiscarded('ann', 'doc-1', 'three')]).toEqual([[false, false, true], false])
   })
 
   it('reads a damaged entry as no drafts', () => {

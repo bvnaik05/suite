@@ -9,6 +9,7 @@ import type { DocumentSession } from '@/apps/drive'
 import { anchorEnds } from '@/apps/writer/collab/anchors'
 import {
   dropDraft,
+  isDiscarded,
   keepDraft,
   readDrafts,
   removedElsewhere,
@@ -104,8 +105,9 @@ export function useCommentDrafts({ session, user, room, refreshThreads }: DraftO
       return null
     }
 
+    // Read from the device now, as another tab's discard may not have reached this one yet
     const isShown = list.drafts.value.some((shown) => shown.clientId === draft.clientId)
-    if (!isShown) {
+    if (!isShown || isDiscarded(user, session.nodeId, draft.clientId)) {
       return null
     }
 
@@ -126,7 +128,12 @@ async function sendDraft(session: DraftOptions['session'], draft: ShownDraft, au
     )
     return thread.name
   } catch (error) {
-    showError(error, 'Could not add the comment.')
+    if ((error as { type?: unknown } | null)?.type === 'DriveConflict') {
+      toast.error('This comment was already posted with different words. Discard it to remove it.')
+    } else {
+      showError(error, 'Could not add the comment.')
+    }
+
     return null
   }
 }

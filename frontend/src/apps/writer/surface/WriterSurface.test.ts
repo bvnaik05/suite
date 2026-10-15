@@ -990,8 +990,11 @@ describe('Writer surface', () => {
 })
 
 describe('commenting from the editor', () => {
-  // Drafts are kept on the device between opens
-  afterEach(() => localStorage.clear())
+  // Drafts are kept in the tab and on the device between opens
+  afterEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
 
   // The real collab editor over "hello world", with Drive holding `threads`
   async function openedOnText(threads: (doc: Y.Doc) => DocumentThread[] = () => []) {
