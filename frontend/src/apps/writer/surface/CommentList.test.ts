@@ -636,6 +636,19 @@ describe('replying in an open thread', () => {
     expect([replyIds.length, first === second]).toEqual([2, false])
   })
 
+  it('sends earlier refused words again under their first client id, after other words in between', async () => {
+    const { host, replyIds } = showList({ refusedReplies: 2 })
+    await click(rowButton(host, 'Is this right?'))
+
+    for (const words of ['Agreed', 'Not sure', 'Agreed']) {
+      await type(words)
+      await press({})
+    }
+
+    const [first, second, third] = replyIds
+    expect([replyIds.length, first === third, first === second]).toEqual([3, true, false])
+  })
+
   it('gives a new reply of the same words its own client id once the last one is posted', async () => {
     const { host, replyIds } = showList()
     await click(rowButton(host, 'Is this right?'))

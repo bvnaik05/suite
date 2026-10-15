@@ -60,8 +60,8 @@ const documentCard = ref<{ focus(): void } | null>(null)
 const replyBoxes = ref<{ focus(): void }[]>([])
 /** A reply typed into each thread, kept while another is open. */
 const replyTexts = ref<Record<string, string>>({})
-/** The last reply sent to each thread that Drive hasn't confirmed, with the client id it went under. */
-const unsentReplies: Record<string, { text: string; clientId: string }> = {}
+/** The replies sent to each thread that Drive hasn't confirmed, by words, with the client id each went under. */
+const unsentReplies = new Map<string, Map<string, string>>()
 const isReplyFocused = ref(false)
 /** Threads being resolved or reopened, faded until they leave the tab. */
 const leavingThreads = ref(new Set<string>())
@@ -263,13 +263,10 @@ async function discardSentDraft(draft: ShownDraft) {
 
 // Sending the same words again reuses their client id, so Drive posts them once
 function replyClientId(thread: string, text: string) {
-  const unsent = unsentReplies[thread]
-  if (unsent?.text === text) {
-    return unsent.clientId
-  }
-
-  const clientId = v4()
-  unsentReplies[thread] = { text, clientId }
+  const unsent = unsentReplies.get(thread) ?? new Map<string, string>()
+  const clientId = unsent.get(text) ?? v4()
+  unsent.set(text, clientId)
+  unsentReplies.set(thread, unsent)
   return clientId
 }
 
@@ -294,7 +291,7 @@ async function submitReply(thread: DocumentThread) {
     const clientId = replyClientId(thread.name, text)
     if (await props.actions.reply(thread.name, text, takeGuestName(), clientId)) {
       replyTexts.value[thread.name] = typedSince(replyTexts.value[thread.name] ?? '', typed)
-      delete unsentReplies[thread.name]
+      unsentReplies.delete(thread.name)
     }
   } finally {
     isSendingReply = false
