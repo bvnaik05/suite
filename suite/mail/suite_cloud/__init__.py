@@ -68,7 +68,9 @@ _EXCEPTIONS_BY_TYPE = {
     "SiteAddressError": SuiteCloudAddressError,
     "PermissionError": frappe.PermissionError,
     "ClusterMisconfiguredError": SuiteCloudUnavailableError,
-    "StalwartUnavailableError": SuiteCloudUnavailableError,
+    "ClusterFailedError": SuiteCloudUnavailableError,
+    "ClusterUnavailableError": SuiteCloudUnavailableError,
+    "StalwartUnavailableError": SuiteCloudUnavailableError,  # Suite Cloud before October 2026
 }
 
 # Without a type, the status code decides.
@@ -111,13 +113,10 @@ class SuiteCloudClient:
         """
 
         url = f"{self.base_url}{API_PREFIX}{method}"
-        verb = verb_for(method)
-        params = {k: v for k, v in params.items() if v is not None}
+        verb, payload = encoded(verb_for(method), {k: v for k, v in params.items() if v is not None})
         try:
             # No redirects: the token must not follow a Location header to another host.
-            response = self.session.request(
-                verb, url, timeout=self.timeout, allow_redirects=False, **encoded(verb, params)
-            )
+            response = self.session.request(verb, url, timeout=self.timeout, allow_redirects=False, **payload)
         except requests.RequestException as e:
             log_mail_error(f"Suite Cloud unreachable ({method})", str(e))
             frappe.throw(_("Suite Cloud is unreachable; try again shortly."), SuiteCloudUnavailableError)
@@ -167,15 +166,18 @@ def verb_for(method: str) -> str:
     return next((verb for prefix, verb in VERB_BY_PREFIX.items() if name.startswith(prefix)), "POST")
 
 
-def encoded(verb: str, params: dict[str, Any]) -> dict[str, Any]:
-    """A read carries its parameters in the query string, a list or object among them as JSON
-    text; a write sends a JSON body."""
+def encoded(verb: str, params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """The verb to send and the request's payload.
 
-    if verb == "GET":
-        return {
-            "params": {k: v if isinstance(v, str) else json.dumps(v, default=str) for k, v in params.items()}
-        }
-    return {"data": json.dumps(params, default=str)}
+    A read carries its parameters in the query string. One with a list or object among them goes
+    as a QUERY with a JSON body instead: 500 addresses for ``get_quotas`` do not fit the request
+    line gunicorn or nginx accept. A write sends a JSON body.
+    """
+
+    if verb == "GET" and not any(isinstance(v, list | dict) for v in params.values()):
+        query = {k: v if isinstance(v, str) else json.dumps(v, default=str) for k, v in params.items()}
+        return "GET", {"params": query}
+    return ("QUERY" if verb == "GET" else verb), {"data": json.dumps(params, default=str)}
 
 
 def _error_payload(response: requests.Response) -> tuple[str | None, str | None]:

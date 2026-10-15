@@ -711,6 +711,18 @@ class TestMembers(SuiteCloudTestCase):
         self.assertEqual(admin.get_members(search="carol", start=20, page_length=20)["items"], [])
         self.assertNotIn("quota", listed)
 
+        # A refused lookup leaves the page without quotas, logged, and without the refusal's message.
+        refuse = lambda **_: frappe.throw("Suite Cloud refused the request.", frappe.ValidationError)  # noqa: E731
+        messages_before = list(frappe.local.message_log)
+        with (
+            patch.object(self.fake, "accounts__get_quotas", side_effect=refuse),
+            patch("suite.mail.api.admin.log_mail_error") as logged,
+        ):
+            listed = next(u for u in admin.get_members(search="carol")["items"] if u["name"] == self.email)
+        self.assertEqual((listed["quota_gb"], listed["used_bytes"]), (None, None))
+        self.assertEqual(frappe.local.message_log, messages_before)
+        logged.assert_called_once()
+
         admin.update_member(self.email, description="Carol D", quota_gb=3, time_zone="Asia/Kolkata")
         self.assertEqual(
             (account["display_name"], account["disk_quota_gb"], account["time_zone"]),
