@@ -1,13 +1,5 @@
 <script setup lang="ts">
-import {
-  Avatar,
-  Button,
-  Dropdown,
-  TabButtons,
-  Textarea,
-  TextInput,
-  type DropdownOptions,
-} from 'frappe-ui'
+import { Avatar, Button, Dropdown, TabButtons, TextInput, type DropdownOptions } from 'frappe-ui'
 import { v4 } from 'uuid'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -24,6 +16,8 @@ import { confirm, toast } from '@/platform/feedback'
 
 import CommentDraftCard from './CommentDraftCard.vue'
 import CommentDraftRow from './CommentDraftRow.vue'
+import CommentText from './CommentText.vue'
+import MentionTextarea from './MentionTextarea.vue'
 import { useSeenThreads } from './seenThreads'
 import { threadRows } from './threadRows'
 import type { ShownDraft, useCommentDrafts } from './useCommentDrafts'
@@ -592,7 +586,12 @@ function rowClass(thread: DocumentThread) {
             <span class="shrink-0">{{ dayOrTime(firstComment(thread)) }}</span>
           </span>
           <span v-if="isClosed(thread)" class="flex gap-1 text-p-sm">
-            <span class="truncate text-ink-gray-7">{{ firstComment(thread).content }}</span>
+            <span class="truncate text-ink-gray-7">
+              <CommentText
+                :content="firstComment(thread).content"
+                :mentions="firstComment(thread).mentions"
+              />
+            </span>
             <span v-if="replies(thread).length" class="shrink-0 text-ink-gray-5">
               · {{ repliesLabel(thread) }}
             </span>
@@ -638,7 +637,7 @@ function rowClass(thread: DocumentThread) {
                 <span class="flex-1 text-xs text-ink-gray-5">{{ dayOrTime(comment) }}</span>
               </p>
               <form v-if="isEditing(comment)" class="space-y-2" @submit.prevent="saveEdit(comment)">
-                <Textarea
+                <MentionTextarea
                   ref="editBoxes"
                   v-model="editText"
                   :rows="2"
@@ -657,7 +656,7 @@ function rowClass(thread: DocumentThread) {
                 </div>
               </form>
               <p v-else class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
-                {{ comment.content }}
+                <CommentText :content="comment.content" :mentions="comment.mentions" />
               </p>
               <div
                 v-if="hasMenu(comment)"
@@ -681,7 +680,7 @@ function rowClass(thread: DocumentThread) {
             </div>
             <form v-if="canReply" class="space-y-1" @submit.prevent="submitReply(thread)">
               <div class="relative">
-                <Textarea
+                <MentionTextarea
                   ref="replyBoxes"
                   v-model="replyText"
                   :rows="1"

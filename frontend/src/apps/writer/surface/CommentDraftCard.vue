@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { Button, Textarea } from 'frappe-ui'
+import { Button } from 'frappe-ui'
 import { computed, onMounted, ref } from 'vue'
 
 import { anchorQuote, DOCUMENT_ANCHOR } from '@/apps/writer/collab/anchors'
 
+import MentionTextarea from './MentionTextarea.vue'
 import type { ShownDraft } from './useCommentDrafts'
 
 const props = defineProps<{ draft: ShownDraft }>()
 const emit = defineEmits<{ write: [text: string]; post: []; discard: [] }>()
 
-const field = ref<InstanceType<typeof Textarea> | null>(null)
+const field = ref<InstanceType<typeof MentionTextarea> | null>(null)
 const quote = computed(() => anchorQuote(props.draft.anchor))
 const isPostDisabled = computed(() => !props.draft.text.trim())
 const isOnDocument = computed(() => props.draft.anchor === DOCUMENT_ANCHOR)
@@ -29,7 +30,7 @@ defineExpose({ focus })
 <template>
   <form class="space-y-2 rounded-4 bg-surface-gray-1 p-3" @submit.prevent="emit('post')">
     <p v-if="quote" class="truncate border-l-2 pl-2 text-p-sm text-ink-gray-5">{{ quote }}</p>
-    <Textarea
+    <MentionTextarea
       ref="field"
       :model-value="draft.text"
       :rows="2"

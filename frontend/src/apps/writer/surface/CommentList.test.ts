@@ -24,7 +24,20 @@ const me = vi.hoisted(() => ({ id: 'Asha Rao' }))
 
 vi.mock('@/boot/session', async () => {
   const { computed: derive } = await import('vue')
-  return { useCurrentUser: () => ({ user: derive(() => me.id) }) }
+  return {
+    useCurrentUser: () => ({ user: derive(() => me.id), isLoggedIn: derive(() => true) }),
+  }
+})
+
+vi.mock('@/apps/writer/composables/useUsers', async () => {
+  const { shallowRef } = await import('vue')
+  const names: Record<string, string> = { 'ben@x.com': 'Ben Roy' }
+  return {
+    useUsers: () => ({ users: shallowRef([]) }),
+    searchMentions: () => {},
+    fullName: (user: string) => names[user] ?? user,
+    lookUp: async () => {},
+  }
 })
 
 vi.mock('@/platform/feedback', () => ({
@@ -962,6 +975,27 @@ describe('editing and deleting a comment', () => {
     expect([isSaveOff, asked, editBox()]).toEqual([true, [], null])
   })
 
+  it('shows the people a comment mentions by name to edit, and saves them as mentions', async () => {
+    const asking = {
+      ...WHOLE,
+      comments: [
+        { ...comment('c8', 'Asha Rao', 'Ask @[ben@x.com] or @[ghost]'), mentions: ['ben@x.com'] },
+      ],
+    } as unknown as DocumentThread
+    const { host, asked } = showList({ threads: [asking] })
+    await click(rowButton(host, 'Ask'))
+
+    await pick(host, 'Ask @Ben Roy or @[ghost]', 'Edit')
+    const opened = editBox()?.value
+    await type(`${opened} now`)
+    await save()
+
+    expect([opened, asked]).toEqual([
+      'Ask @Ben Roy or @ghost',
+      ['edit c8 "Ask @[ben@x.com] or @[ghost] now"'],
+    ])
+  })
+
   it('keeps the box and the words when the edit is refused', async () => {
     const { host, asked } = showList({ isRefusingEdit: true })
     await click(rowButton(host, 'Is this right?'))
@@ -1233,5 +1267,54 @@ describe('threads changed since last opened', () => {
     await click(buttonNamed(host, 'Open 2'))
 
     expect([afterResolve, rows(host).length, unreadRows(host)]).toEqual([[2, []], 2, []])
+  })
+})
+
+describe('people a comment mentions', () => {
+  const ASKING = {
+    ...WHOLE,
+    comments: [
+      { ...comment('c8', 'Asha Rao', 'Ask @[ben@x.com] or @[ghost]'), mentions: ['ben@x.com'] },
+    ],
+  } as unknown as DocumentThread
+
+  function tinted(host: Element) {
+    return [...host.querySelectorAll('.text-ink-blue-6')].map((name) => name.textContent)
+  }
+
+  it('names the people Drive found mentioned, in the row and the open thread, and leaves the rest as written', async () => {
+    const { host } = showList({ threads: [ASKING] })
+    const closed = [rows(host), tinted(host)]
+
+    await click(rowButton(host, 'Ask'))
+
+    expect([closed, rows(host), tinted(host)]).toEqual([
+      [[expect.stringMatching(/Ask @Ben Roy or @\[ghost\]$/)], ['@Ben Roy']],
+      [expect.stringMatching(/Ask @Ben Roy or @\[ghost\]/)],
+      ['@Ben Roy'],
+    ])
+  })
+
+  it('names them the same in comments posting and not posted, closed and open', async () => {
+    const { list } = fakeDrafts([
+      { text: 'Ask @[ben@x.com]', isSent: true, isPosting: true },
+      { text: 'Ask @[ben@x.com]', isSent: true },
+    ])
+    const { host } = showList({ threads: [], drafts: list })
+    const closed = [rows(host), tinted(host)]
+
+    const [, notPosted] = [...host.querySelectorAll('button')].filter(
+      (button) => button.textContent?.trim() === 'You',
+    )
+    await click(notPosted)
+
+    expect([closed, rows(host), tinted(host)]).toEqual([
+      [
+        ['You Posting… Ask @Ben Roy', 'You Not posted · Retry Ask @Ben Roy'],
+        ['@Ben Roy', '@Ben Roy'],
+      ],
+      ['You Posting… Ask @Ben Roy', 'You Not posted · Retry Ask @Ben Roy Discard'],
+      ['@Ben Roy', '@Ben Roy'],
+    ])
   })
 })

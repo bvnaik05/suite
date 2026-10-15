@@ -161,6 +161,34 @@ test.describe("Writer collaboration comments", () => {
 		await expect(threadRow(panel, "Read me")).not.toContainText("Unread");
 	});
 
+	test("@ picks a person in a comment box, and the posted comment names them for everyone", async ({
+		owner,
+		collaborator,
+	}) => {
+		const { page } = owner;
+		const [handle = ""] = collaborator.user.user.split("@");
+		await openWriterDocument(page, node);
+		const panel = await openComments(page);
+		await panel.getByRole("button", { name: "Comment on the whole document…" }).click();
+		const box = panel.getByLabel("New comment");
+		await box.pressSequentially(`Ask @${handle}`);
+		const option = panel.getByRole("option");
+		await expect(option).toHaveCount(1);
+		const name = (await option.textContent())?.trim() ?? "";
+		await page.keyboard.press("Enter");
+		await expect(box).toHaveValue(`Ask @${name} `);
+		await box.pressSequentially("to check");
+		await panel.getByRole("button", { name: "Comment", exact: true }).click();
+		await openWriterDocument(collaborator.page, node);
+		const watching = await openComments(collaborator.page);
+
+		for (const shown of [panel, watching]) {
+			const row = threadRow(shown, "to check");
+			await expect(row).toContainText(`Ask @${name} to check`);
+			await expect(row.getByText(`@${name}`, { exact: true })).toBeVisible();
+		}
+	});
+
 	test("a comment on selected text shows on its words, and with deleted text once they go", async ({
 		owner,
 	}) => {
