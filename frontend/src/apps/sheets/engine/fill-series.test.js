@@ -92,6 +92,53 @@ describe('planFill', () => {
     expect(writes).toEqual({ A1: 'a', B1: 'b' })
   })
 
+  // ISSUES #23: Ctrl-drag (mode 'series') on one number counts by 1.
+  it('copies a single number on a plain drag', () => {
+    const writes = planFill(
+      { r0: 0, c0: 0, r1: 0, c1: 0 },
+      { r0: 0, c0: 0, r1: 2, c1: 0 },
+      from({ A1: '7' }),
+    )
+    expect(writes).toEqual({ A2: '7', A3: '7' })
+  })
+
+  it('counts a single number up by 1 when the series is forced', () => {
+    const writes = planFill(
+      { r0: 0, c0: 0, r1: 0, c1: 0 },
+      { r0: 0, c0: 0, r1: 2, c1: 0 },
+      from({ A1: '7' }),
+      'series',
+    )
+    expect(writes).toEqual({ A2: '8', A3: '9' })
+  })
+
+  it('counts down going up, and across going right, when forced', () => {
+    const up = planFill(
+      { r0: 2, c0: 0, r1: 2, c1: 0 },
+      { r0: 0, c0: 0, r1: 2, c1: 0 },
+      from({ A3: '7' }),
+      'series',
+    )
+    expect(up).toEqual({ A2: '6', A1: '5' })
+    const right = planFill(
+      { r0: 0, c0: 0, r1: 0, c1: 0 },
+      { r0: 0, c0: 0, r1: 0, c1: 2 },
+      from({ A1: '7' }),
+      'series',
+    )
+    expect(right).toEqual({ B1: '8', C1: '9' })
+  })
+
+  it('still copies forced text with no pattern', () => {
+    const writes = planFill(
+      { r0: 0, c0: 0, r1: 0, c1: 0 },
+      { r0: 0, c0: 0, r1: 1, c1: 0 },
+      from({ A1: 'hello' }),
+      'series',
+    )
+    expect(writes).toEqual({ A2: 'hello' })
+  })
+
   it('fills the whole block on a diagonal drag', () => {
     const writes = planFill(
       { r0: 0, c0: 0, r1: 0, c1: 0 },

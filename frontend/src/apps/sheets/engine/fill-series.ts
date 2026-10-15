@@ -20,7 +20,8 @@ type Grid = readonly (readonly unknown[])[]
 // srcData: srcRows × srcCols.  Returns count × srcCols of fill values.
 // dir   = +1 → fill downward (after the source); -1 → fill upward.
 // mode  = 'auto'   (default) — series if a pattern is detected, else copy
-//       | 'series'           — force series; fall back to copy if no pattern
+//       | 'series'           — force series: a single number counts by 1;
+//                              anything else without a pattern copies
 //       | 'copy'             — always cycle the source
 export function computeFillDown(
   srcData: Grid,
@@ -31,6 +32,14 @@ export function computeFillDown(
   return srcData.length === 1
     ? _fillVerticalFromRow(srcData[0] as readonly unknown[], count, dir, mode)
     : _fillVerticalFromCols(srcData, count, dir, mode)
+}
+
+// A single number has no step to detect. A forced series (Ctrl-drag) counts
+// it up by 1, as Google Sheets does; a plain drag copies it (ISSUES #23).
+function _stepOrForced(nums: readonly number[], mode: FillMode): number | null {
+  const step = numericStep(nums)
+  if (step === null && mode === 'series' && nums.length === 1) return 1
+  return step
 }
 
 // Horizontal source — one row of N cols.  We compute the "next" along the
@@ -44,7 +53,7 @@ function _fillVerticalFromRow(
   mode: FillMode = 'auto',
 ) {
   const nums = _asNumbers(rowVals)
-  const step = nums ? numericStep(nums) : null
+  const step = nums ? _stepOrForced(nums, mode) : null
   const srcCols = rowVals.length
   const useSeries = mode === 'copy' ? false : step !== null
   // useSeries means a step was found, which means `nums` parsed.
@@ -112,7 +121,7 @@ function _fillHorizontalFromCol(
   mode: FillMode = 'auto',
 ) {
   const nums = _asNumbers(colVals)
-  const step = nums ? numericStep(nums) : null
+  const step = nums ? _stepOrForced(nums, mode) : null
   const useSeries = mode === 'copy' ? false : step !== null
   const srcRows = colVals.length
   // useSeries means a step was found, which means `nums` parsed.
