@@ -23,8 +23,20 @@ from suite.suite_core.utils import (
     is_suite_cloud_configured,
 )
 
-API_PREFIX = "/api/method/suite_cloud.api."
+API_PREFIX = "/api/v2/method/suite_cloud.api."
 DEFAULT_TIMEOUT = (30, 60)
+
+# Suite Cloud's contract: the verb follows the method name, and everything else is a POST.
+VERB_BY_PREFIX = {
+    "list_": "GET",
+    "get_": "GET",
+    "check_": "GET",
+    "ping": "GET",
+    "update_": "PATCH",
+    "set_": "PUT",
+    "delete_": "DELETE",
+    "remove_": "DELETE",
+}
 
 
 class SuiteCloudUnavailableError(frappe.ValidationError):
@@ -40,7 +52,7 @@ class SuiteCloudAddressError(frappe.PermissionError):
     """The key is fine but this server's address is not on the site's allowed list at Suite Cloud."""
 
 
-# Suite Cloud names the exception it raised (Frappe's ``exc_type``); the site re-raises the
+# Suite Cloud names the exception it raised (the error's ``type``); the site re-raises the
 # matching class so callers can tell a duplicate from a limit from a refusal. Suite Cloud's own
 # classes map onto the Frappe ones they subclass.
 _EXCEPTIONS_BY_TYPE = {
@@ -48,7 +60,8 @@ _EXCEPTIONS_BY_TYPE = {
     "DoesNotExistError": frappe.DoesNotExistError,
     "TooManyRequestsError": frappe.TooManyRequestsError,
     "ValidationError": frappe.ValidationError,
-    "StalwartRejected": frappe.ValidationError,
+    "InvalidInputError": frappe.ValidationError,
+    "ClusterRejectedError": frappe.ValidationError,
     "SiteAuthError": SuiteCloudCredentialsError,
     "AuthenticationError": SuiteCloudCredentialsError,
     "SiteSuspendedError": frappe.PermissionError,
@@ -98,19 +111,20 @@ class SuiteCloudClient:
         """
 
         url = f"{self.base_url}{API_PREFIX}{method}"
-        body = {k: v for k, v in params.items() if v is not None}
+        verb = verb_for(method)
+        params = {k: v for k, v in params.items() if v is not None}
         try:
             # No redirects: the token must not follow a Location header to another host.
-            response = self.session.post(
-                url, data=json.dumps(body, default=str), timeout=self.timeout, allow_redirects=False
+            response = self.session.request(
+                verb, url, timeout=self.timeout, allow_redirects=False, **encoded(verb, params)
             )
         except requests.RequestException as e:
             log_mail_error(f"Suite Cloud unreachable ({method})", str(e))
             frappe.throw(_("Suite Cloud is unreachable; try again shortly."), SuiteCloudUnavailableError)
 
         if response.ok:
-            payload = response.json() if response.content else {}
-            return payload.get("message") if isinstance(payload, dict) else payload
+            payload = response.json() if response.content else {}  # a delete answers 204, no body
+            return payload.get("data") if isinstance(payload, dict) else payload
 
         self._raise_for(method, response)
 
@@ -148,33 +162,38 @@ class SuiteCloudClient:
         )
 
 
-def _error_payload(response: requests.Response) -> tuple[str | None, str | None]:
-    """The exception name and the message of a Frappe error response.
+def verb_for(method: str) -> str:
+    name = method.rsplit(".", 1)[-1]
+    return next((verb for prefix, verb in VERB_BY_PREFIX.items() if name.startswith(prefix)), "POST")
 
-    Thrown messages travel in ``_server_messages``; other errors carry only ``exception``.
-    """
+
+def encoded(verb: str, params: dict[str, Any]) -> dict[str, Any]:
+    """A read carries its parameters in the query string, a list or object among them as JSON
+    text; a write sends a JSON body."""
+
+    if verb == "GET":
+        return {
+            "params": {k: v if isinstance(v, str) else json.dumps(v, default=str) for k, v in params.items()}
+        }
+    return {"data": json.dumps(params, default=str)}
+
+
+def _error_payload(response: requests.Response) -> tuple[str | None, str | None]:
+    """The type and message of the first error in Frappe's v2 error response."""
 
     try:
         payload = response.json()
     except ValueError:
         return None, None
-    if not isinstance(payload, dict):
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if not errors or not isinstance(errors[0], dict):
         return None, None
-    exc_type = payload.get("exc_type")
-    exc_type = exc_type if isinstance(exc_type, str) else None
 
-    messages = payload.get("_server_messages")
-    if messages:
-        try:
-            first = json.loads(messages)[0]
-            first = json.loads(first) if isinstance(first, str) else first
-            return exc_type, frappe.utils.strip_html(str(first.get("message") or ""))
-        except (ValueError, IndexError, AttributeError, TypeError):
-            pass
-    exception = payload.get("exception")
-    if exception:
-        return exc_type, str(exception).split(":", 1)[-1].strip()
-    return exc_type, None
+    exc_type, message = errors[0].get("type"), errors[0].get("message")
+    return (
+        exc_type if isinstance(exc_type, str) else None,
+        frappe.utils.strip_html(str(message)).strip() if message else None,
+    )
 
 
 @request_cache

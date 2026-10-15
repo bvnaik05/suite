@@ -5,7 +5,15 @@ import frappe
 import requests
 from frappe.tests import UnitTestCase
 
-from suite.mail.suite_cloud import SuiteCloudClient, SuiteCloudCredentialsError, SuiteCloudUnavailableError
+from suite.mail.suite_cloud import (
+    SuiteCloudAddressError,
+    SuiteCloudClient,
+    SuiteCloudCredentialsError,
+    SuiteCloudUnavailableError,
+    verb_for,
+)
+
+BASE = "https://cloud.frappemail.com/api/v2/method/suite_cloud.api."
 
 
 def _response(status: int, payload: dict | None = None, text: str | None = None) -> requests.Response:
@@ -16,10 +24,9 @@ def _response(status: int, payload: dict | None = None, text: str | None = None)
 
 
 def _frappe_error(status: int, exc_type: str, message: str) -> requests.Response:
-    """What Frappe sends for a thrown exception: the type, and the message wrapped twice."""
+    """What Frappe's v2 handler sends for a thrown exception."""
 
-    server_messages = json.dumps([json.dumps({"message": message})])
-    return _response(status, {"exc_type": exc_type, "_server_messages": server_messages})
+    return _response(status, {"errors": [{"type": exc_type, "message": f"<b>{message}</b>"}]})
 
 
 class TestSuiteCloudClient(UnitTestCase):
@@ -28,32 +35,69 @@ class TestSuiteCloudClient(UnitTestCase):
         self.addCleanup(patch.stopall)
         patch("suite.mail.suite_cloud.log_mail_error").start()
 
-    def _call(self, response: requests.Response):
-        with patch.object(self.client.session, "post", return_value=response) as post:
-            result = self.client.call("mail.domains.get_domain", domain="acme.com", description=None)
-        self.assertEqual(
-            post.call_args.args[0],
-            "https://cloud.frappemail.com/api/method/suite_cloud.api.mail.domains.get_domain",
-        )
-        self.assertEqual(json.loads(post.call_args.kwargs["data"]), {"domain": "acme.com"})  # None is dropped
+    def _call(self, response: requests.Response, method: str = "mail.domains.get_domain", **params):
+        params = params or {"domain": "acme.com", "description": None}
+        with patch.object(self.client.session, "request", return_value=response) as request:
+            result = self.client.call(method, **params)
+        self.request = request.call_args
         return result
 
-    def test_success_unwraps_message(self) -> None:
-        self.assertEqual(
-            self._call(_response(200, {"message": {"domain": "acme.com"}})), {"domain": "acme.com"}
+    def test_a_read_is_a_get_with_the_query_string(self) -> None:
+        self._call(_response(200, {"data": {"domain": "acme.com"}}))
+        self.assertEqual(self.request.args, ("GET", f"{BASE}mail.domains.get_domain"))
+        self.assertEqual(self.request.kwargs["params"], {"domain": "acme.com"})  # None is dropped
+        self.assertFalse(self.request.kwargs["allow_redirects"])
+
+    def test_a_list_in_a_read_travels_as_json_text(self) -> None:
+        self._call(
+            _response(200, {"data": {}}), "mail.accounts.get_quotas", emails=["a@acme.com", "b@acme.com"]
         )
+        self.assertEqual(self.request.kwargs["params"], {"emails": '["a@acme.com", "b@acme.com"]'})
+
+    def test_a_write_sends_the_verb_its_name_says_with_a_json_body(self) -> None:
+        self._call(
+            _response(200, {"data": {}}), "mail.domains.update_domain", domain="acme.com", enabled=False
+        )
+        self.assertEqual(self.request.args, ("PATCH", f"{BASE}mail.domains.update_domain"))
+        self.assertEqual(json.loads(self.request.kwargs["data"]), {"domain": "acme.com", "enabled": False})
+
+    def test_verbs_follow_the_method_name(self) -> None:
+        cases = {
+            "site.ping": "GET",
+            "mail.domains.list_domains": "GET",
+            "mail.domains.check_domain": "GET",
+            "mail.accounts.update_account": "PATCH",
+            "mail.groups.set_members": "PUT",
+            "mail.accounts.set_password": "PUT",
+            "mail.accounts.delete_account": "DELETE",
+            "mail.mailing_lists.remove_recipients": "DELETE",
+            "mail.accounts.create_account": "POST",
+            "mail.domains.verify_dns_records": "POST",
+        }
+        for method, verb in cases.items():
+            self.assertEqual(verb_for(method), verb, method)
+
+    def test_success_unwraps_data(self) -> None:
+        self.assertEqual(self._call(_response(200, {"data": {"domain": "acme.com"}})), {"domain": "acme.com"})
+
+    def test_a_delete_answers_nothing(self) -> None:
+        self.assertIsNone(
+            self._call(_response(204, text=""), "mail.domains.delete_domain", domain="acme.com")
+        )
+        self.assertEqual(self.request.args[0], "DELETE")
 
     def test_errors_are_raised_as_the_type_suite_cloud_named(self) -> None:
         cases = [
-            (417, "DuplicateEntryError", frappe.DuplicateEntryError),
+            (409, "DuplicateEntryError", frappe.DuplicateEntryError),
             (429, "TooManyRequestsError", frappe.TooManyRequestsError),
             (404, "DoesNotExistError", frappe.DoesNotExistError),
-            (422, "StalwartRejected", frappe.ValidationError),
-            (417, "ValidationError", frappe.ValidationError),
+            (422, "ClusterRejectedError", frappe.ValidationError),
+            (422, "ValidationError", frappe.ValidationError),
+            (400, "InvalidInputError", frappe.ValidationError),
             (403, "SiteSuspendedError", frappe.PermissionError),
         ]
         for status, exc_type, expected in cases:
-            with self.subTest(exc_type=exc_type), self.assertRaisesRegex(expected, "Refused by the cloud"):
+            with self.subTest(exc_type=exc_type), self.assertRaisesRegex(expected, "^Refused by the cloud$"):
                 self._call(_frappe_error(status, exc_type, "Refused by the cloud"))
 
     def test_status_code_decides_without_a_type(self) -> None:
@@ -73,8 +117,6 @@ class TestSuiteCloudClient(UnitTestCase):
                 self._call(response)
 
     def test_address_refusals_point_at_the_allowed_list(self) -> None:
-        from suite.mail.suite_cloud import SuiteCloudAddressError
-
         with self.assertRaisesRegex(SuiteCloudAddressError, "allowed addresses"):
             self._call(
                 _frappe_error(403, "SiteAddressError", "Site x does not accept requests from this address.")
@@ -83,11 +125,11 @@ class TestSuiteCloudClient(UnitTestCase):
     def test_server_failures_are_unavailable(self) -> None:
         for status in (500, 502, 503):
             with self.subTest(status=status), self.assertRaises(SuiteCloudUnavailableError):
-                self._call(_response(status, {"exc_type": "StalwartUnavailableError"}))
+                self._call(_response(status, {"errors": [{"type": "StalwartUnavailableError"}]}))
 
     def test_unreachable_is_unavailable(self) -> None:
         with (
-            patch.object(self.client.session, "post", side_effect=requests.ConnectionError("down")),
+            patch.object(self.client.session, "request", side_effect=requests.ConnectionError("down")),
             self.assertRaises(SuiteCloudUnavailableError),
         ):
             self.client.call("site.ping")
