@@ -57,14 +57,9 @@
           @drop="onFolderDrop($event, item)"
         >
           <template #suffix>
-            <!-- More opens in place, so it says which way it will go. -->
-            <span
-              v-if="isMoreToggle(item)"
-              class="lucide-chevron-right mr-2 size-4 text-ink-gray-5 transition-transform"
-              :class="{ 'rotate-90': moreOpen }"
-              aria-hidden="true"
-            />
-            <div v-else class="flex items-center">
+            <!-- More says which way it opens with its own icon (see moreToggle), so it has no
+                 suffix. -->
+            <div v-if="!isMoreToggle(item)" class="flex items-center">
               <Dropdown v-if="item.menuOptions" :options="item.menuOptions">
                 <Button variant="ghost" class="!bg-transparent" @click.stop>
                   <template #icon>
@@ -99,6 +94,8 @@
 import { useIntervalFn, useStorage } from '@vueuse/core'
 import ArrowLeft from '~icons/lucide/arrow-left'
 import CalendarClock from '~icons/lucide/calendar-clock'
+import ChevronDown from '~icons/lucide/chevron-down'
+import ChevronUp from '~icons/lucide/chevron-up'
 import CircleUserRound from '~icons/lucide/circle-user-round'
 import Crown from '~icons/lucide/crown'
 import Ellipsis from '~icons/lucide/ellipsis'
@@ -159,17 +156,18 @@ const isSectionCollapsed = (section: { key?: string }) =>
 // Junk and Trash, and Outbox while it holds only history, wait behind a More row at the foot of the
 // lead folders: a row like theirs that opens in place, rather than a section heading of its own.
 const moreOpen = computed(() => !collapsedSections.value.more)
-const moreToggle = {
+// It opens in place, so its icon is the chevron saying which way: down to open, up to fold away.
+const moreToggle = () => ({
   label: __('More'),
-  icon: Ellipsis,
+  icon: moreOpen.value ? ChevronUp : ChevronDown,
   to: undefined,
   onClick: () => setSectionCollapsed('more', moreOpen.value),
   activeFor: [] as string[],
   moreToggle: true,
-}
+})
 const isMoreToggle = (item: object) => 'moreToggle' in item
 const withMore = <T, M>(items: T[], more: M[]) =>
-  more.length ? [...items, moreToggle, ...(moreOpen.value ? more : [])] : items
+  more.length ? [...items, moreToggle(), ...(moreOpen.value ? more : [])] : items
 const store = userStore()
 const { mailboxes, unifiedFolders } = store
 
