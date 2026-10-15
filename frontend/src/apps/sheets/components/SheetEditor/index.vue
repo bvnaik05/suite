@@ -3439,8 +3439,6 @@ const {
   diffRefs: _diffRefs,
   queueOp: _queueOp,
   rectBlocked: _rectBlocked,
-  // useEditOps is set up further down.
-  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
 })
 
 // Mirrors `clipboard.hasData()` reactively so the context menu can show /

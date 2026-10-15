@@ -1,5 +1,4 @@
 import { planFill } from '../../engine/fill-series.js'
-import { adjustFormula } from '../../engine/formula-adjust.js'
 import { detectSeries } from '../../engine/patterns/index.js'
 import { cellId } from '../../utils/cells.js'
 
@@ -28,7 +27,6 @@ export function useFill({
   diffRefs: _diffRefs,
   queueOp: _queueOp,
   rectBlocked: _rectBlocked,
-  pushEditOp: _pushEditOp,
 }) {
   function _fillValidation(src, total, sn) {
     const srcRows = src.r1 - src.r0 + 1,
@@ -48,8 +46,9 @@ export function useFill({
 
   // _runFill modes: 'auto' | 'series' | 'copy' (see planFill). Every mode
   // carries the source's formats, validation, conditional-format rules and
-  // merges along with the values, as Excel and Google Sheets do.
-  async function _runFill(src, total, mode) {
+  // merges along with the values, as Excel and Google Sheets do. `summary`
+  // names the op in the version log (default: "Filled N cells").
+  async function _runFill(src, total, mode, summary = '') {
     const sheetName = currentSheet.value
     // `total` includes `src`, so this one read is also the fill's source.
     const fillBefore = await _readInputs(total, sheetName)
@@ -79,7 +78,7 @@ export function useFill({
         cellRefs: refs,
         before: fillBefore,
         after: fillAfter,
-        summary: _fillSummary(mode, refs.length),
+        summary: summary || _fillSummary(mode, refs.length),
       })
     }
     // History — the previous markEdited() path pushed a full snapshot, but
@@ -250,27 +249,17 @@ export function useFill({
   }
 
   // Ctrl+D / Ctrl+R: copy the selection's first row down (or first column
-  // right) across the rest of it.
+  // right) across the rest of it. It's a copy-mode fill from that edge, so it
+  // carries formats, validation, rules and merges like a drag does.
   async function _fillFromEdge(down) {
     if (!getGrid()) return
     const sel = getGrid().getSelection()
     const { r0, c0, r1, c1 } = sel
     if (down ? r1 <= r0 : c1 <= c0) return
-    const sn = currentSheet.value
     const dest = down ? { r0: r0 + 1, c0, r1, c1 } : { r0, c0: c0 + 1, r1, c1 }
-    if (_rectBlocked(dest, sn)) return
-    const before = await _readInputs(sel, sn)
-    const after = {}
-    for (let r = dest.r0; r <= dest.r1; r++) {
-      for (let c = dest.c0; c <= dest.c1; c++) {
-        const srcVal = before[down ? cellId(r0, c) : cellId(r, c0)] ?? ''
-        after[cellId(r, c)] = srcVal.startsWith('=')
-          ? adjustFormula(srcVal, down ? r - r0 : 0, down ? 0 : c - c0)
-          : srcVal
-      }
-    }
-    _writeInputs(sn, after)
-    _pushEditOp(sn, before, after, down ? 'Fill down' : 'Fill right')
+    if (_rectBlocked(dest, currentSheet.value)) return
+    const src = down ? { r0, c0, r1: r0, c1 } : { r0, c0, r1, c1: c0 }
+    await _runFill(src, sel, 'copy', down ? 'Fill down' : 'Fill right')
   }
   function fillDown() {
     _fillFromEdge(true).catch((e) => console.error('[sheets] fill down failed', e))
