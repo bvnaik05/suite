@@ -420,12 +420,12 @@ test.describe("Writer collaboration", () => {
 			.first()
 			.click();
 		const comments = page.getByRole("complementary", { name: "Comments" });
-		const inputBox = (await comments.getByPlaceholder("Add a comment").boundingBox())!;
+		const tabsBox = (await comments.getByRole("radiogroup", { name: "Show comments" }).boundingBox())!;
 		const commentsHeading = (await comments
 			.getByRole("heading", { name: "Comments" })
 			.boundingBox())!;
-		expect(inputBox.x).toBe(commentsHeading.x);
-		expect(inputBox.y - commentsHeading.y).toBe(tocGap);
+		expect(tabsBox.x).toBe(commentsHeading.x);
+		expect(tabsBox.y - commentsHeading.y).toBe(tocGap);
 
 		const closing = sampleMotion();
 		await page.getByRole("button", { name: "Close panel" }).click();
