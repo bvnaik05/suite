@@ -91,8 +91,8 @@ test.describe("Writer collaboration comments", () => {
 		await expect(row).toContainText("Whole document");
 
 		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
-		await row.getByLabel("Reply").fill("A reply");
-		await row.getByLabel("Reply").press("Enter");
+		await row.getByLabel("Reply", { exact: true }).fill("A reply");
+		await row.getByLabel("Reply", { exact: true }).press("Enter");
 		await expect(row).toContainText("A reply");
 		await row.getByText("A reply", { exact: true }).hover();
 		await row.getByRole("button", { name: "More comment actions" }).click();
@@ -112,7 +112,7 @@ test.describe("Writer collaboration comments", () => {
 		await row.getByRole("button", { name: "Reopen" }).click();
 		await panel.getByRole("radio", { name: "Open 1" }).click();
 		await threadHeader(row).click();
-		await expect(row.getByLabel("Reply")).toBeFocused();
+		await expect(row.getByLabel("Reply", { exact: true })).toBeFocused();
 
 		for (const text of ["Whole document note", "A reply, edited"]) {
 			await panel.getByText(text, { exact: true }).hover();
@@ -153,7 +153,7 @@ test.describe("Writer collaboration comments", () => {
 		await threadHeader(row).click();
 		await expect(row).not.toContainText("Unread");
 		await threadHeader(row).click();
-		await threadRow(panel, "Read me").getByLabel("Reply").fill("A reply");
+		await threadRow(panel, "Read me").getByLabel("Reply", { exact: true }).fill("A reply");
 		await owner.page.keyboard.press("Enter");
 		await expect(row).toContainText("Unread");
 		await threadHeader(row).click();
@@ -234,7 +234,7 @@ test.describe("Writer collaboration comments", () => {
 
 		await page.getByRole("button", { name: /versions/i }).first().click();
 		await page.getByRole("complementary", { name: "Versions" }).getByRole("button", { name: /^With the word/ }).click();
-		await page.getByRole("button", { name: "Restore", exact: true }).click();
+		await page.getByRole("complementary", { name: "Versions" }).getByRole("button", { name: "Restore this version" }).click();
 		await page.getByRole("dialog").getByRole("button", { name: "Restore", exact: true }).click();
 		await expect(page.getByText("Version restored")).toBeVisible();
 
@@ -309,14 +309,14 @@ test.describe("Writer collaboration comments", () => {
 		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
 
 		await page.route("**/api/suite/drive/threads/*/comments", loseAnswer);
-		await row.getByLabel("Reply").fill("Sent twice");
+		await row.getByLabel("Reply", { exact: true }).fill("Sent twice");
 		await page.keyboard.press("Enter");
-		await expect(row.getByLabel("Reply")).toHaveValue("Sent twice");
+		await expect(row.getByLabel("Reply", { exact: true })).toHaveValue("Sent twice");
 
 		await page.unroute("**/api/suite/drive/threads/*/comments", loseAnswer);
-		await row.getByLabel("Reply").press("Enter");
+		await row.getByLabel("Reply", { exact: true }).press("Enter");
 
-		await expect(row.getByLabel("Reply")).toHaveValue("");
+		await expect(row.getByLabel("Reply", { exact: true })).toHaveValue("");
 		await expect(row.getByText("Sent twice", { exact: true })).toHaveCount(1);
 	});
 });
