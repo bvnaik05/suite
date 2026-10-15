@@ -134,9 +134,15 @@ class TestSuiteCloudClient(UnitTestCase):
             )
 
     def test_server_failures_are_unavailable(self) -> None:
-        for status in (500, 502, 503):
-            with self.subTest(status=status), self.assertRaises(SuiteCloudUnavailableError):
-                self._call(_response(status, {"errors": [{"type": "StalwartUnavailableError"}]}))
+        for status, exc_type in (
+            (500, "InternalError"),
+            (502, "ClusterFailedError"),
+            (502, "ClusterMisconfiguredError"),
+            (503, "ClusterUnavailableError"),
+            (503, "StalwartUnavailableError"),
+        ):
+            with self.subTest(exc_type), self.assertRaises(SuiteCloudUnavailableError):
+                self._call(_frappe_error(status, exc_type, "The mail server is not reachable right now."))
 
     def test_unreachable_is_unavailable(self) -> None:
         with (

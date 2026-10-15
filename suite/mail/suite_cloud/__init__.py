@@ -68,7 +68,9 @@ _EXCEPTIONS_BY_TYPE = {
     "SiteAddressError": SuiteCloudAddressError,
     "PermissionError": frappe.PermissionError,
     "ClusterMisconfiguredError": SuiteCloudUnavailableError,
-    "StalwartUnavailableError": SuiteCloudUnavailableError,
+    "ClusterFailedError": SuiteCloudUnavailableError,
+    "ClusterUnavailableError": SuiteCloudUnavailableError,
+    "StalwartUnavailableError": SuiteCloudUnavailableError,  # Suite Cloud before October 2026
 }
 
 # Without a type, the status code decides.
