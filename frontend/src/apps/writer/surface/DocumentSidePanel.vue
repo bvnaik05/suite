@@ -148,18 +148,18 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
     <aside
       v-if="panel"
       :aria-label="title"
-      class="absolute bottom-0 right-0 top-0 z-20 w-full overflow-hidden border-l border-outline-gray-1 bg-surface-elevation-1 shadow-xl md:static md:w-80 md:shrink-0 md:border-outline-gray-2 md:bg-surface-base md:shadow-none"
+      class="absolute bottom-0 right-0 top-0 z-20 w-full overflow-hidden border-l border-outline-gray-1 bg-surface-elevation-1 shadow-xl md:static md:box-content md:w-80 md:shrink-0 md:border-outline-gray-2 md:bg-surface-base md:shadow-none"
     >
       <div class="flex h-full w-full flex-col md:w-80 md:p-2">
         <div
-          class="flex min-h-12 items-center justify-between border-b pl-7 pr-4 md:min-h-0 md:border-b-0 md:pb-1 md:pl-5 md:pr-1"
+          class="flex min-h-12 items-center justify-between border-b pl-7 pr-4 md:min-h-0 md:border-b-0 md:pb-1 md:pl-6 md:pr-3"
         >
           <h2 class="text-lg-semibold md:text-base-medium md:text-ink-gray-8">
             {{ title }}
           </h2>
           <Button icon="lucide-x" aria-label="Close panel" variant="ghost" @click="closePanel" />
         </div>
-        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:px-2 md:pb-2 md:pt-0.5">
+        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:px-3 md:pb-2 md:pt-0.5">
           <div v-if="showsVersionName" class="space-y-1">
             <TextInput
               ref="versionNameInput"
@@ -193,9 +193,11 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
               :versions="lists.versions"
               :can-restore="canRestoreVersion"
               :is-restoring="isRestoringVersion"
+              :can-save-version="canEditDocument"
               :rename="versionRename"
               @restore="emit('restoreVersion', $event)"
               @download="emit('downloadVersion', $event)"
+              @save-version="startNamingVersion"
             />
             <p v-if="hasNoVersions" class="px-3 text-sm text-ink-gray-5">No versions yet.</p>
             <Button

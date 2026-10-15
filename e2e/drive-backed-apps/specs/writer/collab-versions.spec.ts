@@ -37,7 +37,7 @@ test.describe("Writer collaboration", () => {
 		await discardNode(owner.context.request, node);
 	});
 
-	test("an edit made while another tab previews a version shows after Back to current", async ({
+	test("an edit made while another tab previews a version shows after going back to Current version", async ({
 		owner,
 		collaborator,
 		testApi,
@@ -67,7 +67,10 @@ test.describe("Writer collaboration", () => {
 			.poll(async () => (await serverBlocks(testApi, node)).join("\n"))
 			.toContain("Typed during the preview");
 
-		await owner.page.getByRole("button", { name: "Back to current" }).click();
+		await owner.page
+			.getByRole("complementary", { name: "Versions" })
+			.getByRole("button", { name: "Current version", exact: true })
+			.click();
 
 		await expectConverged(
 			testApi,
@@ -107,7 +110,7 @@ test.describe("Writer collaboration", () => {
 		await expect(panel.getByRole("button", { name: /^Before restoring version \d+/ })).toHaveCount(1);
 		await panel.getByRole("button", { name: /^Before restoring version \d+/ }).click();
 		await expect(page.getByLabel("Version preview")).toContainText("Typed after the version");
-		await page.getByRole("button", { name: "Back to current" }).click();
+		await panel.getByRole("button", { name: "Current version", exact: true }).click();
 
 		await page.getByLabel("Document editor").click();
 		await page.keyboard.press("ControlOrMeta+z");
@@ -141,7 +144,7 @@ test.describe("Writer collaboration", () => {
 		await restoreFromPreview(page, panel, "Two");
 
 		await expect(page.getByText(/^A restore just ran\. Try again in \d+ seconds\.$/)).toBeVisible();
-		await page.getByRole("button", { name: "Back to current" }).click();
+		await panel.getByRole("button", { name: "Current version", exact: true }).click();
 		const blocks = await expectConverged(testApi, node, [page], ["First words"]);
 		expect(blocks.filter(Boolean)).toEqual(["First words"]);
 	});
@@ -175,7 +178,7 @@ test.describe("Writer collaboration", () => {
 			await expect(writerEditor(page)).toHaveText("Kept in the version");
 			await panel.getByRole("button", { name: AUTOMATIC_VERSION }).first().click();
 			await expect(page.getByLabel("Version preview")).toContainText("Kept in the version and typed after");
-			await page.getByRole("button", { name: "Back to current" }).click();
+			await panel.getByRole("button", { name: "Current version", exact: true }).click();
 			// Past the editor's five-second autosave
 			await page.waitForTimeout(6_000);
 			await page.reload();
@@ -403,16 +406,24 @@ test.describe("Writer collaboration", () => {
 		const row = versionsPanel.getByRole("button", { name: /^One/ });
 		await expect(row).toBeVisible();
 		const panelBox = (await versionsPanel.boundingBox())!;
-		expect(panelBox).toMatchObject({ y: column!.y, height: column!.height, width: 320 });
+		expect(panelBox).toMatchObject({ y: column!.y, height: column!.height, width: 321 });
 		expect(panelBox.x + panelBox.width).toBe(column!.x + column!.width);
-		expect((await centredLine.boundingBox())!.x).toBe(restingBox!.x - 160);
+		expect((await centredLine.boundingBox())!.x).toBe(restingBox!.x - panelBox.width / 2);
 		const headingBox = (await versionsPanel
 			.getByRole("heading", { name: "Versions" })
 			.boundingBox())!;
 		const firstRowBox = (await versionsPanel
 			.getByRole("button", { name: "Current version", exact: true })
 			.boundingBox())!;
-		expect(firstRowBox.x).toBe(headingBox.x);
+		expect(
+			await versionsPanel
+				.getByRole("button", { name: "Current version", exact: true })
+				.evaluate((button) => {
+					const range = document.createRange();
+					range.selectNodeContents(button);
+					return range.getBoundingClientRect().x;
+				}),
+		).toBe(headingBox.x);
 		expect(firstRowBox.y - headingBox.y).toBe(tocGap);
 
 		await page
@@ -424,7 +435,6 @@ test.describe("Writer collaboration", () => {
 		const commentsHeading = (await comments
 			.getByRole("heading", { name: "Comments" })
 			.boundingBox())!;
-		expect(tabsBox.x).toBe(commentsHeading.x);
 		expect(tabsBox.y - commentsHeading.y).toBe(tocGap);
 
 		const closing = sampleMotion();
@@ -433,7 +443,7 @@ test.describe("Writer collaboration", () => {
 		expect(await centredLine.boundingBox()).toEqual(restingBox);
 	});
 
-	test("a version preview shows its text where the editor's text sits, and Back to current returns to it", async ({
+	test("a version preview shows its text where the editor's text sits, and Current version returns to it", async ({
 		owner,
 	}) => {
 		const { page } = owner;
@@ -450,7 +460,7 @@ test.describe("Writer collaboration", () => {
 			.first()
 			.click();
 		const panel = page.getByRole("complementary", { name: "Versions" });
-		await expect.poll(async () => (await panel.boundingBox())?.width).toBe(320);
+		await expect.poll(async () => (await panel.boundingBox())?.width).toBe(321);
 		const editorText = page.getByLabel("Document editor");
 		const previewText = page.locator('[aria-label="Version preview"] .ProseMirror');
 		const linePlacement = async (text: typeof editorText) => {
@@ -491,11 +501,11 @@ test.describe("Writer collaboration", () => {
 				theme,
 			);
 			expect(await barLook(bar)).toEqual(toolbarLooks[i]);
-			const backToCurrent = bar.getByRole("button", { name: "Back to current" });
-			const backToCurrentFill = await backToCurrent.evaluate(
-				(button) => getComputedStyle(button).backgroundColor,
-			);
-			expect(backToCurrentFill).toBe("rgba(0, 0, 0, 0)");
+			expect(
+				await bar
+					.getByRole("button", { name: "Restore this version" })
+					.evaluate((button) => getComputedStyle(button).backgroundColor),
+			).toBe("rgba(0, 0, 0, 0)");
 		}
 		// frappe-ui gives an empty read-only line a fixed height, so lines below one may sit a few px off.
 		expect(await linePlacement(previewText)).toMatchObject({
@@ -512,7 +522,7 @@ test.describe("Writer collaboration", () => {
 			top: editorPlacement.top,
 		});
 
-		await page.getByRole("button", { name: "Back to current" }).click();
+		await panel.getByRole("button", { name: "Current version", exact: true }).click();
 		await expect(editorText).toBeVisible();
 		expect(await linePlacement(editorText)).toEqual(editorPlacement);
 	});

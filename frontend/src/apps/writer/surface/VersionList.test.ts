@@ -81,6 +81,7 @@ function milestone(seq: number, takenAt: Date) {
 interface ListOptions {
   canRestore?: boolean
   isRestoring?: boolean
+  canSaveVersion?: boolean
   previewed?: DocumentVersion | null
   rename?: (version: DocumentVersion, label: string) => Promise<boolean>
 }
@@ -88,12 +89,14 @@ interface ListOptions {
 function mountList({
   canRestore = true,
   isRestoring = false,
+  canSaveVersion = true,
   previewed = null,
   rename,
 }: ListOptions = {}) {
   const shown = ref(previewed)
   const restored: number[] = []
   const downloaded: number[] = []
+  let saves = 0
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp(() =>
@@ -101,6 +104,7 @@ function mountList({
       versions: VERSIONS,
       canRestore,
       isRestoring,
+      canSaveVersion,
       rename,
       previewed: shown.value,
       'onUpdate:previewed': (next: DocumentVersion | null) => {
@@ -108,11 +112,12 @@ function mountList({
       },
       onRestore: ({ seq }: DocumentVersion) => restored.push(seq),
       onDownload: ({ seq }: DocumentVersion) => downloaded.push(seq),
+      onSaveVersion: () => saves++,
     }),
   )
   app.mount(host)
   mounted = app
-  return { host, shown, restored, downloaded }
+  return { host, shown, restored, downloaded, saves: () => saves }
 }
 
 function rowOf(host: Element, seq: number) {
@@ -217,6 +222,20 @@ describe("a version's actions", () => {
     const { host } = mountList({ isRestoring: true })
 
     expect(restoreOf(host, named.seq)!.disabled).toBe(true)
+  })
+
+  it('saves a version from Current version', () => {
+    const { host, saves } = mountList()
+
+    host.querySelector<HTMLButtonElement>('[aria-label="Save version"]')!.click()
+
+    expect(saves()).toBe(1)
+  })
+
+  it('offers no Save version to someone who can’t save', () => {
+    const { host } = mountList({ canSaveVersion: false })
+
+    expect(host.querySelector('[aria-label="Save version"]')).toBeNull()
   })
 
   it('shows the viewed row’s actions without a hover, and hides the others’ until one', () => {

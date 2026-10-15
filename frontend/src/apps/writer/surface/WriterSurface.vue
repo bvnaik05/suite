@@ -386,19 +386,6 @@ provide(RENAME_DOCUMENT, async (title) => {
 
 provide(DOCUMENT_MEDIA, (id) => props.session.media(id))
 
-async function closePreview() {
-  const pressedVersionButton = document.querySelector<HTMLElement>(
-    'aside button[aria-pressed="true"]',
-  )
-  closeAnyPreview()
-  await nextTick()
-  if (pressedVersionButton) {
-    pressedVersionButton.focus()
-  } else {
-    editorSurface.value?.editor?.commands.focus()
-  }
-}
-
 function showVersion(shown: DocumentVersion | null) {
   if (!shown) {
     closeAnyPreview()
@@ -760,12 +747,14 @@ onBeforeUnmount(() => {
               <DocumentStrip>
                 <p class="truncate">Viewing {{ versionTitle(preview.version) }}</p>
                 <Button
+                  v-if="canRestoreVersion"
                   size="sm"
                   variant="ghost"
-                  icon="lucide-x"
-                  tooltip="Back to current"
-                  aria-label="Back to current"
-                  @click="closePreview"
+                  icon="lucide-undo-2"
+                  tooltip="Restore this version"
+                  aria-label="Restore this version"
+                  :disabled="isRestoringVersion"
+                  @click="confirmRestore(preview.version)"
                 />
               </DocumentStrip>
             </template>

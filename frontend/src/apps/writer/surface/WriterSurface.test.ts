@@ -414,7 +414,7 @@ function buttonLabelled(root: Element, label: string) {
 // The row in the versions list whose text starts with `label`
 function versionRow(root: Element, label: string) {
   const rows = [...root.querySelectorAll<HTMLElement>('aside button')]
-  return rows.find((button) => button.textContent?.startsWith(label))!
+  return rows.find((button) => button.textContent?.trim().startsWith(label))!
 }
 
 afterEach(() => {
@@ -456,7 +456,7 @@ async function previewAndReturn(root: Element, during: () => void | Promise<void
   await nextTick()
   expect(root.querySelector('[data-preview]')).not.toBeNull()
   await during()
-  buttonLabelled(root, 'Back to current')!.click()
+  versionRow(root, 'Current version').click()
   await nextTick()
 }
 
@@ -639,7 +639,21 @@ describe('Writer surface', () => {
     expect(root.querySelector('aside')?.textContent).toContain('Before review')
   })
 
-  it('shows a version in place of the editor until Back to current', async () => {
+  it('opens the Versions name box from Save version on Current version, with the cursor in it', async () => {
+    const root = await openedSurface(oneVersion)
+
+    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+    expect(root.querySelector('input[aria-label="Version name"]')).toBeNull()
+    buttonLabelled(root.querySelector('aside')!, 'Save version')!.click()
+    await vi.waitFor(() =>
+      expect(root.querySelector('input[aria-label="Version name"]')).not.toBeNull(),
+    )
+
+    expect(document.activeElement).toBe(root.querySelector('input[aria-label="Version name"]'))
+  })
+
+  it('shows a version in place of the editor until Current version', async () => {
     const list = vi.fn(async () => ({
       rows: [{ seq: 3, kind: 'named', label: 'Before review' }],
       next_cursor: null,
@@ -657,11 +671,10 @@ describe('Writer surface', () => {
     expect(preview.getAttribute('data-preview')).toBe('3')
     expect(editorShown()).toBe(false)
 
-    buttonLabelled(root, 'Back to current')!.click()
+    versionRow(root, 'Current version').click()
     await nextTick()
     expect(root.querySelector('[data-preview]')).toBeNull()
     expect(editorShown()).toBe(true)
-    expect(document.activeElement?.textContent).toMatch(/^Before review/)
   })
 
   it('restores a version of a document edited without collaboration and shows its text', async () => {
@@ -686,11 +699,53 @@ describe('Writer surface', () => {
     await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
     versionRow(root, 'Before review').click()
     await nextTick()
-    buttonLabelled(root, 'Restore this version')!.click()
+    buttonLabelled(root.querySelector('aside')!, 'Restore this version')!.click()
 
     await vi.waitFor(() => expect(editor().textContent).toBe('<p>Back then</p>'))
     expect(restore).toHaveBeenCalledWith('3')
     expect(root.querySelector('[data-preview]')).toBeNull()
+  })
+
+  it('restores the shown version from the version bar, the same as from its row', async () => {
+    vi.stubEnv('DEV', false)
+    await serverMinBuilds({ writer: '100' }, '<p>Back then</p>')
+    stored.html = '<p>Today</p>'
+    const restore = vi.fn(async () => {
+      stored.html = '<p>Back then</p>'
+    })
+    const root = await openedSurface({
+      ...oneVersion,
+      contentUrl: () => '/version/3',
+      restore,
+    } as unknown as Versions)
+
+    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+    versionRow(root, 'Before review').click()
+    await nextTick()
+    const bar = [...root.querySelectorAll('[role="status"]')].find((status) =>
+      status.textContent?.includes('Viewing Before review'),
+    )!
+    buttonLabelled(bar, 'Restore this version')!.click()
+
+    await vi.waitFor(() =>
+      expect(root.querySelector('[data-editor]')!.textContent).toBe('<p>Back then</p>'),
+    )
+    expect(restore).toHaveBeenCalledWith('3')
+    expect(root.querySelector('[data-preview]')).toBeNull()
+  })
+
+  it('offers no Restore on the version bar to someone who can’t restore', async () => {
+    const root = await openedSurface(oneVersion, '/d/node-1', undefined, ref({ role: 30 }))
+
+    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+    versionRow(root, 'Before review').click()
+    await nextTick()
+    const bar = [...root.querySelectorAll('[role="status"]')].find((status) =>
+      status.textContent?.includes('Viewing Before review'),
+    )!
+    expect(bar.querySelectorAll('button')).toHaveLength(0)
   })
 
   it('shows edits made in another tab while a version was previewed', async () => {
@@ -744,7 +799,7 @@ describe('Writer surface', () => {
     await discardCopy(copy)
   })
 
-  it('keeps Back to current in the recovery bar’s menu, first, and the version bar’s as a button', async () => {
+  it('keeps Back to current in the recovery bar’s menu, first, and as a button', async () => {
     keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
     const [copy] = await listCopies('node-1')
     const root = await openedSurface(oneVersion)

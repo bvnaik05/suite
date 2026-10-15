@@ -17,6 +17,7 @@ const props = defineProps<{
   versions: DocumentVersion[]
   canRestore: boolean
   isRestoring: boolean
+  canSaveVersion: boolean
   /** Names the version, answering whether Drive took the name; absent for someone who can't. */
   rename?: (version: DocumentVersion, label: string) => Promise<boolean>
 }>()
@@ -25,12 +26,16 @@ const previewed = defineModel<DocumentVersion | null>('previewed', { required: t
 const emit = defineEmits<{
   restore: [version: DocumentVersion]
   download: [version: DocumentVersion]
+  saveVersion: []
 }>()
 
 const days = computed(() => versionDays(props.versions))
 const isCurrentViewed = computed(() => !previewed.value)
 const currentRowClass = computed(() =>
   isCurrentViewed.value ? 'bg-surface-elevation-3 shadow-sm' : 'hover:bg-surface-gray-2',
+)
+const currentActionsClass = computed(() =>
+  isCurrentViewed.value ? '' : 'invisible group-hover:visible group-focus-within:visible',
 )
 /** The row whose menu is open keeps its actions while the pointer is in the menu. */
 const menuRow = ref<number | null>(null)
@@ -157,15 +162,27 @@ function actions(version: DocumentVersion): DropdownOptions {
 
 <template>
   <div class="space-y-1">
-    <div class="rounded-4" :class="currentRowClass">
+    <div class="group flex items-center rounded-4" :class="currentRowClass">
       <button
         type="button"
-        class="block w-full py-2 pl-3 pr-2 text-left text-sm text-ink-gray-8"
+        class="min-w-0 flex-1 py-2 pl-3 pr-2 text-left text-sm text-ink-gray-8"
         :aria-pressed="isCurrentViewed"
         @click="view(null)"
       >
         Current version
       </button>
+      <div v-if="canSaveVersion" class="flex shrink-0 items-center" :class="currentActionsClass">
+        <Tooltip text="Save version">
+          <button
+            type="button"
+            class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
+            aria-label="Save version"
+            @click="emit('saveVersion')"
+          >
+            <span class="lucide-bookmark-plus size-4" aria-hidden="true" />
+          </button>
+        </Tooltip>
+      </div>
     </div>
     <section v-for="day in days" :key="day.label">
       <h3 v-if="day.label" class="px-3 pb-1 pt-2 text-sm text-ink-gray-5">{{ day.label }}</h3>
@@ -197,7 +214,7 @@ function actions(version: DocumentVersion): DropdownOptions {
           <p class="truncate text-sm" :class="titleClass(version)">{{ title(version) }}</p>
           <p class="truncate text-xs text-ink-gray-5">{{ byline(version) }}</p>
         </button>
-        <div class="flex shrink-0 items-center pr-1" :class="actionsClass(version)">
+        <div class="flex shrink-0 items-center" :class="actionsClass(version)">
           <Tooltip v-if="canRestore" text="Restore this version">
             <button
               type="button"
