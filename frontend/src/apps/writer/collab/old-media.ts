@@ -28,7 +28,8 @@ function pixels(value: unknown) {
 }
 
 // Laid out as the old editor showed it (alignment over float, neither means left); a size in
-// percent or 'auto' has no pixel form, so the editor measures the media instead
+// percent or 'auto' has no pixel form, so the editor measures the media instead. The old editor
+// stored an image's resized height as NaN, so a pixel width stands on its own
 function mediaAttributes(old: XmlElement) {
   const stored = old.getAttributes() as Record<string, unknown>
   const attributes: Record<string, unknown> = { align: 'left' }
@@ -46,8 +47,12 @@ function mediaAttributes(old: XmlElement) {
 
   const width = pixels(stored.width)
   const height = pixels(stored.height)
+  if (width !== null) {
+    attributes.width = width
+  }
+
   if (width !== null && height !== null) {
-    Object.assign(attributes, { width, height })
+    attributes.height = height
   }
 
   return attributes

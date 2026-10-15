@@ -100,7 +100,16 @@ describe('convertOldMedia', () => {
       stored: { width: '100%', height: 'auto' },
       shown: { align: 'left' },
     },
-    { name: 'a height of NaN', stored: { width: 300, height: 'NaN' }, shown: { align: 'left' } },
+    {
+      name: 'a resized width and a height of NaN',
+      stored: { width: 420, height: Number.NaN },
+      shown: { align: 'left', width: 420 },
+    },
+    {
+      name: 'a percent width and a pixel height',
+      stored: { width: '100%', height: 200 },
+      shown: { align: 'left' },
+    },
   ])('lays out an old image with $name as the old editor showed it', ({ stored, shown }) => {
     const body = converted(oldMedia({ src: SRC, 'media-type': 'img', ...stored }))
 

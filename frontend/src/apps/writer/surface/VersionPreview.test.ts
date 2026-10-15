@@ -2,9 +2,10 @@ import { getSchema } from '@tiptap/core'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref, shallowRef } from 'vue'
-import { encodeStateAsUpdate } from 'yjs'
+import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
+import { BODY_FIELD } from '@/apps/writer/collab'
 import { writerSchema } from '@/apps/writer/schema'
 
 import VersionPreview from './VersionPreview.vue'
@@ -51,6 +52,22 @@ async function tabbedVersion() {
   ]
   const ydoc = prosemirrorJSONToYDoc(getSchema(writerSchema()), { type: 'doc', content }, 'default')
   ydoc.getMap('meta').set('firstTabLabel', 'Intro')
+  return stateVersion(ydoc)
+}
+
+// A version the old editor saved, holding an image of the kind only it had
+function oldImageVersion() {
+  const ydoc = new Doc()
+  const text = new XmlElement('paragraph')
+  text.insert(0, [new XmlText('before')])
+  const image = new XmlElement('resizableMedia')
+  image.setAttribute('src', '/files/chart.png')
+  image.setAttribute('media-type', 'img')
+  ydoc.getXmlFragment(BODY_FIELD).insert(0, [text, image])
+  return stateVersion(ydoc)
+}
+
+async function stateVersion(ydoc: Doc) {
   const update = new Response(new Uint8Array(encodeStateAsUpdate(ydoc))).body!
   const zipped = await new Response(update.pipeThrough(new CompressionStream('gzip'))).arrayBuffer()
   const stored = {
@@ -110,6 +127,7 @@ function mountPreview(session: DocumentSession, seq = 1) {
     root,
     shownSeq,
     versionHTML: () => exposed.value?.versionHTML(),
+    isShown: () => exposed.value?.isShown,
     unmount: () => {
       app.unmount()
       root.remove()
@@ -201,6 +219,19 @@ describe('VersionPreview', () => {
         '<div data-tab-id="a" data-tab-label="Sooner" data-tab-order="0"><p>ay</p></div>' +
         '<div data-tab-id="b" data-tab-label="Later" data-tab-order="1"><p>bee</p></div>',
     )
+    preview.unmount()
+  })
+
+  it('shows a version holding an old image, so it can be downloaded and restored', async () => {
+    const stored = await oldImageVersion()
+    const preview = mountPreview(fakeSession(async () => new Response(stored)))
+
+    await vi.waitFor(() => expect(preview.root.textContent).toContain('before'))
+    await settle()
+
+    expect(preview.root.textContent).not.toContain("can't be shown")
+    expect(preview.isShown()).toBe(true)
+    expect(preview.versionHTML()).toContain('<img src="/files/chart.png"')
     preview.unmount()
   })
 

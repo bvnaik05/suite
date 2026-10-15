@@ -4,6 +4,7 @@ import * as Y from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
+import { convertOldMedia } from '@/apps/writer/collab/old-media'
 import { storedFirstTabLabel } from '@/apps/writer/extensions/tabs'
 
 /** What one stored version shows: HTML, or a document read from its Yjs state, and its first tab's label. */
@@ -36,7 +37,9 @@ export async function readVersion(bytes: Uint8Array): Promise<StoredVersion> {
   const ydoc = new Y.Doc()
   try {
     Y.applyUpdate(ydoc, body.state)
-    const content = yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment(BODY_FIELD))
+    const fragment = ydoc.getXmlFragment(BODY_FIELD)
+    convertOldMedia(fragment)
+    const content = yXmlFragmentToProsemirrorJSON(fragment)
     return { content, firstTabLabel: storedFirstTabLabel(ydoc) }
   } finally {
     ydoc.destroy()
