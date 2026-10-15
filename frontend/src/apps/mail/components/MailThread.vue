@@ -1003,10 +1003,21 @@ watch(
 // or the new-mail socket — would otherwise re-add them here. Cleared when the open thread changes.
 const removedMailIds = new Set<string>()
 const { isHeld: isHeldDraft, heldDrafts, takeRestoredDraft } = useDiscardingDrafts()
-// A discard undone from this thread puts the draft back here, so the thread is drawn again as soon
-// as the draft is let back — the list it reads from has not changed, only what it leaves out.
+// A discard undone from this thread puts the draft back here as soon as it is let back — the list it
+// reads from has not changed, only what it leaves out. Only that draft is added: rebuilding the whole
+// thread would take away a reply being written in it, and a draft let back elsewhere is none of
+// this thread's business.
 watch(heldDrafts, (now, before) => {
-  if ([...before].some((id) => !now.has(id))) loadThread()
+  const released = [...before].filter((id) => !now.has(id))
+  const shown = new Set(thread.value.map((mail: Mail) => mail.id))
+  const back = transformThreadMails(sourceMessages() ?? []).filter(
+    (mail) => released.includes(mail.id) && !shown.has(mail.id),
+  )
+  if (!back.length) return
+  back.forEach(populateDraftMails)
+  thread.value = [...thread.value, ...back].sort((a, b) =>
+    a.received_at.localeCompare(b.received_at),
+  )
 })
 const transformThreadMails = (mails: Mail[]) =>
   mails

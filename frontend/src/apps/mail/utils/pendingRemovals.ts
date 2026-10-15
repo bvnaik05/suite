@@ -15,10 +15,15 @@ const KEY = 'suite.mail.pendingRemovals'
 const UNDO_WINDOW_MS = 15_000
 
 // `due`: when the removal stops being anyone's to undo. Before then another tab may still be
-// offering Undo on it, and only that tab can send it. `tab`: the tab that wrote it — one that was
-// reloaded finds its own here, and those it can send at once: the Undo they waited on went with the
-// page, and while they wait the draft is back on screen to be written in again.
-type Stored = Record<string, { removal: PendingRemoval; due: number; tab?: string }>
+// offering Undo on it, and only that tab can send it. `tab` and `page`: the tab that wrote it, and
+// which load of its page. A tab that was reloaded finds its own here from an earlier load, and those
+// it can send at once: the Undo they waited on went with that page, and while they wait the draft is
+// back on screen to be written in again. One from this same load is still on offer — the layout can
+// mount again without a reload (a phone's compose page closing) — and waits like any other.
+type Stored = Record<string, { removal: PendingRemoval; due: number; tab?: string; page?: string }>
+
+// This load of the page: a new one each time the app starts.
+const PAGE = Math.random().toString(36).slice(2)
 
 const TAB_KEY = 'suite.mail.tab'
 // Per tab and kept across its reloads, which is what sessionStorage is. Nothing without it: every
@@ -72,7 +77,10 @@ export const sendRemoval = (removal: PendingRemoval): Promise<unknown> => {
 /** Writes the removal down; returns the key to forget it by. */
 export const rememberRemoval = (removal: PendingRemoval): string => {
   const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  write({ ...read(), [key]: { removal, due: Date.now() + UNDO_WINDOW_MS, tab: thisTab() } })
+  write({
+    ...read(),
+    [key]: { removal, due: Date.now() + UNDO_WINDOW_MS, tab: thisTab(), page: PAGE },
+  })
   return key
 }
 
@@ -95,7 +103,8 @@ export const resumeRemovals = async (
   const now = Date.now()
   const tab = thisTab()
   const entries = Object.entries(read())
-  const due = entries.filter(([, entry]) => entry.due <= now || (!!tab && entry.tab === tab))
+  const leftByReload = (entry: Stored[string]) => !!tab && entry.tab === tab && entry.page !== PAGE
+  const due = entries.filter(([, entry]) => entry.due <= now || leftByReload(entry))
   const draftId = (removal: PendingRemoval) => (removal.kind === 'draft' ? removal.id : undefined)
   for (const [, entry] of due) {
     const id = draftId(entry.removal)

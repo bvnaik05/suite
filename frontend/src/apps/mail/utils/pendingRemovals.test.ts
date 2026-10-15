@@ -60,13 +60,22 @@ describe('pending removals', () => {
   })
 
   it('sends at once what this tab left before it was reloaded, keeping the draft off the lists', async () => {
-    const { rememberRemoval, resumeRemovals } = await load()
-    rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+    ;(await load()).rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+    vi.resetModules() // the reload: the page starts again, in the same tab
+    const { resumeRemovals } = await load()
 
     const hold = vi.fn()
     await resumeRemovals(undefined, { hold, release: vi.fn() })
     expect(calls).toEqual([{ reference: 'deleteDraft', input: { account: 'a', id: 'd1' } }])
     expect(hold).toHaveBeenCalledWith('d1')
+  })
+
+  it('leaves a removal still on offer in this same page, when the layout mounts again', async () => {
+    const { rememberRemoval, resumeRemovals } = await load()
+    rememberRemoval({ kind: 'draft', account: 'a', id: 'd1' })
+
+    await resumeRemovals()
+    expect(calls).toEqual([])
   })
 
   it('sends nothing for a removal the other tab settled in its window', async () => {
