@@ -11,6 +11,7 @@ interface Measured {
 interface Storage {
   scroller: HTMLElement | null
   measured: Measured | null
+  leftover: number
   isDragging: boolean
   stop: (() => void) | null
 }
@@ -61,6 +62,17 @@ function measure(storage: Storage, view: EditorView, transaction: Transaction) {
   }
 }
 
+// The scroller keeps whole pixels, so the dropped fraction carries over, never a clamp's shortfall
+function shift(storage: Storage, scroller: HTMLElement, by: number) {
+  const target = scroller.scrollTop + by + storage.leftover
+  scroller.scrollTop = target
+  const rest = target - scroller.scrollTop
+  storage.leftover = 0
+  if (Math.abs(rest) < 1) {
+    storage.leftover = rest
+  }
+}
+
 function listenForDrags(storage: Storage, dom: HTMLElement) {
   function onPointerDown() {
     storage.isDragging = true
@@ -83,7 +95,7 @@ export const SteadyCaret = Extension.create<object, Storage>({
   name: 'steadyCaret',
 
   addStorage() {
-    return { scroller: null, measured: null, isDragging: false, stop: null }
+    return { scroller: null, measured: null, leftover: 0, isDragging: false, stop: null }
   },
 
   onCreate() {
@@ -110,7 +122,7 @@ export const SteadyCaret = Extension.create<object, Storage>({
     this.storage.scroller ??= scrollerOf(this.editor.view.dom)
     if (!this.storage.scroller) return
 
-    this.storage.scroller.scrollTop += caretTop(this.editor.view) - measured.top
+    shift(this.storage, this.storage.scroller, caretTop(this.editor.view) - measured.top)
   },
 
   onDestroy() {
