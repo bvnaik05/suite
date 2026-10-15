@@ -413,7 +413,12 @@
                                 :class="
                                   isCollapsed(mail)
                                     ? 'absolute right-0 top-1/2 hidden h-5 -translate-y-1/2 items-center gap-1 sm:group-hover/card:flex sm:group-has-[[data-state=open]]/card:flex'
-                                    : 'flex gap-1'
+                                    : thread.length > 1 || mail.draft
+                                      ? 'flex gap-1'
+                                      : /* A message alone has no card around it: its edge is
+                                           the column's, so its icons stand out by their padding
+                                           to line up with the toolbar's above. */
+                                        'flex gap-1 sm:-mr-1.5'
                                 "
                               >
                                 <MailActions
