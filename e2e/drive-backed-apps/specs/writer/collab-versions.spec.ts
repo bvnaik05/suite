@@ -409,7 +409,9 @@ test.describe("Writer collaboration", () => {
 		const headingBox = (await versionsPanel
 			.getByRole("heading", { name: "Versions" })
 			.boundingBox())!;
-		const firstRowBox = (await row.boundingBox())!;
+		const firstRowBox = (await versionsPanel
+			.getByRole("button", { name: "Current version", exact: true })
+			.boundingBox())!;
 		expect(firstRowBox.x).toBe(headingBox.x);
 		expect(firstRowBox.y - headingBox.y).toBe(tocGap);
 
