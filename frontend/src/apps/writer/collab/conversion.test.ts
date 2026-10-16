@@ -1,4 +1,5 @@
 import { Editor, generateJSON, getSchema } from '@tiptap/core'
+import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
 import Heading from '@tiptap/extension-heading'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -18,6 +19,7 @@ import {
 import { convertLegacy, type LegacyBody } from '@/apps/writer/collab/conversion'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
+import { placeThread } from '@/apps/writer/collab/places'
 import { HeadingAnchors } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
 
@@ -61,6 +63,17 @@ function yParagraph(text: string) {
 function yMarked(text: string, attributes: Record<string, unknown>) {
   const content = new XmlText()
   content.insert(0, text, attributes)
+  return yElement('paragraph', content)
+}
+
+function yRuns(...pieces: [string, Record<string, unknown>?][]) {
+  const content = new XmlText()
+  let at = 0
+  for (const [piece, attributes] of pieces) {
+    content.insert(at, piece, attributes ?? {})
+    at += piece.length
+  }
+
   return yElement('paragraph', content)
 }
 
@@ -124,6 +137,37 @@ function opened(state: Uint8Array) {
 function bodyOf(state: Uint8Array) {
   const json = yXmlFragmentToProsemirrorJSON(opened(state).getXmlFragment(BODY_FIELD))
   return schema.nodeFromJSON(json).toJSON()
+}
+
+// The converted state open in an editor, the way a tab opens it
+function openConverted(state: Uint8Array) {
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...writerSchema(), Collaboration.configure({ document: opened(state) })],
+  })
+  editors.push(editor)
+  return editor
+}
+
+// Where the editor shows a thread and the words there
+function shown(editor: Editor, anchor: string) {
+  const place = placeThread(editor.state, anchor)
+  if (place.kind !== 'text') {
+    return place.kind
+  }
+
+  return {
+    from: place.from,
+    to: place.to,
+    text: editor.state.doc.textBetween(place.from, place.to),
+  }
+}
+
+// Each stored run of a paragraph's text with the keys it holds
+function storedRuns(state: Uint8Array, index: number) {
+  const block = opened(state).getXmlFragment(BODY_FIELD).get(index) as XmlElement
+  const runs: { insert: string; attributes?: object }[] = (block.get(0) as XmlText).toDelta()
+  return runs.map(({ insert, attributes }) => [insert, Object.keys(attributes ?? {})])
 }
 
 function paragraph(...content: object[]) {
@@ -492,6 +536,7 @@ describe('convertLegacy', () => {
     { name: 'an overlapping annotation', mark: { 'annotation--Ab+/9xY=': { annotationID: 'a2' } } },
     { name: 'a comment with no id', mark: { comment: { commentId: null } } },
     { name: 'a comment with an empty id', mark: { comment: { commentId: '' } } },
+    { name: 'a comment with a blank id', mark: { comment: { commentId: ' ' } } },
     { name: 'a comment with a number for its id', mark: { comment: { commentId: 7 } } },
     {
       name: 'a hashed copy of a comment with no id',
@@ -509,6 +554,14 @@ describe('convertLegacy', () => {
     mention.setAttribute('label', 'Ann')
     mention.setAttribute('annotation', { annotationID: 'a1' } as never)
     const legacy = stored(legacyDoc(yElement('paragraph', new XmlText('hi '), mention)))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a comment beside an annotation, which no thread is made from yet', () => {
+    const comment = { comment: { commentId: 'c1' } }
+    const annotation = { annotation: { annotationID: 'a1' } }
+    const legacy = stored(legacyDoc(yRuns(['one', comment], [' '], ['two', annotation])))
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
@@ -534,19 +587,116 @@ describe('convertLegacy', () => {
     const overlap = stored(legacyDoc(yMarked('see', { 'comment--a+/=bC9z': { commentId: 'c2' } })))
     const html = { content: null, html: '<p><span data-comment-id="c1">see</span></p>', collab: 0 }
 
-    const kinds = [yjs, overlap, html].map((legacy) => convertLegacy(legacy, MAX_STATE).kind)
+    const results = [yjs, overlap, html].map(convert)
 
-    expect(kinds).toEqual(['converted', 'converted', 'converted'])
+    // The lone copy is drawn as a comment, so the converted body holds it under the plain key
+    expect(results.map(({ anchors }) => Object.keys(anchors))).toEqual([['c1'], ['c2'], ['c1']])
   })
 
-  it('keeps two comments on the same words, the second carried as kept formatting', () => {
+  it('refuses two comments on the same words, the second one having no anchor', () => {
     const both = { comment: { commentId: 'c1' }, 'comment--a+/=bC9z': { commentId: 'c2' } }
+    const legacy = stored(legacyDoc(yMarked('see', both)))
 
-    const result = convert(stored(legacyDoc(yMarked('see', both))))
+    // Only the plain comment key moves onto an anchor; the hashed copy stays behind, so the body
+    // no longer matches itself without comment marks
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
 
+  it('anchors an old comment on its words and leaves no comment mark', () => {
+    const marks = { comment: { commentId: 'c1' }, bold: {} }
+    const doc = legacyDoc(yRuns(['one '], ['two', marks], [' three']))
+
+    const result = convert(stored(doc))
+
+    expect(shown(openConverted(result.state), result.anchors.c1)).toEqual({
+      from: 5,
+      to: 8,
+      text: 'two',
+    })
+    const bold = { type: 'text', text: 'two', marks: [{ type: 'bold' }] }
+    const body = paragraph({ type: 'text', text: 'one ' }, bold, { type: 'text', text: ' three' })
+    expect(bodyOf(result.state)).toEqual(page(body))
+    expect(storedRuns(result.state, 0)).toEqual([
+      ['one ', []],
+      ['two', ['bold']],
+      [' three', []],
+    ])
+  })
+
+  it('anchors an old comment saved in the HTML on its words', () => {
+    const html = '<p>one <span data-comment-id="c1">two</span> three</p>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    expect(shown(openConverted(result.state), result.anchors.c1)).toEqual({
+      from: 5,
+      to: 8,
+      text: 'two',
+    })
+    expect(bodyOf(result.state)).toEqual(page(words('one two three')))
+  })
+
+  it('anchors an old comment on a mention and takes the mark off the mention', () => {
+    const mention = yAtom('mention', { id: 'x', label: 'Ann' })
+    mention.setAttribute('comment', { commentId: 'c1' } as never)
+    const doc = legacyDoc(yElement('paragraph', new XmlText('hi '), mention))
+
+    const result = convert(stored(doc))
+
+    expect(placeThread(openConverted(result.state).state, result.anchors.c1)).toEqual({
+      kind: 'text',
+      from: 4,
+      to: 5,
+      quote: '@Ann',
+    })
+    const shownMention = { type: 'mention', attrs: { id: 'x', label: 'Ann' } }
+    const body = paragraph({ type: 'text', text: 'hi ' }, shownMention)
+    expect(bodyOf(result.state)).toEqual(page(body))
     const block = opened(result.state).getXmlFragment(BODY_FIELD).get(0) as XmlElement
-    const attributes = { ...both, comment: { commentId: 'c1', resolved: false } }
-    expect((block.get(0) as XmlText).toDelta()).toEqual([{ insert: 'see', attributes }])
+    const attributes = (block.get(1) as XmlElement).getAttributes()
+    expect([Object.hasOwn(attributes, 'comment'), attributes.id, attributes.label]).toEqual([
+      false,
+      'x',
+      'Ann',
+    ])
+  })
+
+  it('records a far copy of a comment and keeps its words with their other marks', () => {
+    const doc = legacyDoc(
+      yRuns(['one '], ['two', { comment: { commentId: 'c1' } }]),
+      yParagraph('filler'),
+      yRuns(['copy', { comment: { commentId: 'c1' }, italic: {} }]),
+    )
+
+    const result = convert(stored(doc))
+
+    expect(shown(openConverted(result.state), result.anchors.c1)).toEqual({
+      from: 5,
+      to: 8,
+      text: 'two',
+    })
+    expect(result.dropped).toEqual([{ kind: 'comment-copy', id: 'c1', text: 'copy' }])
+    const italic = paragraph({ type: 'text', text: 'copy', marks: [{ type: 'italic' }] })
+    expect(bodyOf(result.state)).toEqual(page(words('one two'), words('filler'), italic))
+    expect(storedRuns(result.state, 2)).toEqual([['copy', ['italic']]])
+  })
+
+  it("keeps typing at a converted comment's edges outside it (R324)", () => {
+    const doc = legacyDoc(yRuns(['one '], ['two', { comment: { commentId: 'c1' } }], [' three']))
+    const result = convert(stored(doc))
+    const editor = openConverted(result.state)
+
+    editor.commands.insertContentAt(8, 'X')
+    editor.commands.insertContentAt(5, 'X')
+
+    expect([shown(editor, result.anchors.c1), editor.getText()]).toEqual([
+      { from: 6, to: 9, text: 'two' },
+      'one XtwoX three',
+    ])
+  })
+
+  it('gives no anchors to a body with no comments', () => {
+    expect(convert(stored(legacyDoc(yParagraph('one')))).anchors).toEqual({})
   })
 
   it('refuses a Yjs body whose link holds an attribute the link mark lacks', () => {

@@ -104,7 +104,7 @@ describe('oldCommentAnchors', () => {
   it('anchors a comment on the words its mark covers', () => {
     const doc = docWith(yParagraph(['say '], ['hello', comment('c1')], [' world']))
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(Object.keys(anchors)).toEqual(['c1'])
     const text = 'say hello world'
@@ -117,7 +117,7 @@ describe('oldCommentAnchors', () => {
       yParagraph(['start', comment('c2')], [' of two']),
     )
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(placed(doc, anchors.c2)).toEqual({
       start: ['end of one', 7],
@@ -133,7 +133,7 @@ describe('oldCommentAnchors', () => {
       yParagraph(['start', comment('c2')], [' of two']),
     )
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     // The editor quotes a space for each block boundary, so the empty paragraph adds its own
     expect(placed(doc, anchors.c2)).toEqual({
@@ -150,9 +150,10 @@ describe('oldCommentAnchors', () => {
       yParagraph(['bottom', comment('c1')]),
     )
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors, copies } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(placed(doc, anchors.c1)).toEqual({ start: ['top', 0], end: ['top', 3], quote: 'top' })
+    expect(copies).toEqual([{ id: 'c1', text: 'bottom' }])
   })
 
   it('keeps a copy past an image apart from the first place', () => {
@@ -164,7 +165,7 @@ describe('oldCommentAnchors', () => {
       yParagraph(['bottom', comment('c1')]),
     )
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(placed(doc, anchors.c1)).toEqual({ start: ['top', 0], end: ['top', 3], quote: 'top' })
   })
@@ -172,7 +173,7 @@ describe('oldCommentAnchors', () => {
   it('spans the unmarked words inside one comment, so the comment keeps one place', () => {
     const doc = docWith(yParagraph(['ab', comment('c3')], ['XY'], ['cd', comment('c3')]))
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(placed(doc, anchors.c3)).toEqual({
       start: ['abXYcd', 0],
@@ -184,7 +185,7 @@ describe('oldCommentAnchors', () => {
   it('quotes a comment holding a mention as the editor quotes it', () => {
     const doc = docWith(yInline(yText('hi ', 'c1'), yMention('c1'), yText(' there', 'c1')))
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(placed(doc, anchors.c1)).toEqual({
       start: ['hi ', 0],
@@ -196,7 +197,7 @@ describe('oldCommentAnchors', () => {
   it('anchors a comment made on a mention alone on that mention', () => {
     const doc = docWith(yInline(yMention('c1')))
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(editorRange(doc, anchors.c1)).toEqual({ from: 1, to: 2, quote: '@Ann' })
   })
@@ -204,7 +205,7 @@ describe('oldCommentAnchors', () => {
   it('ends a comment closing on a mention just after the mention', () => {
     const doc = docWith(yInline(yText('hi ', 'c1'), yMention('c1')))
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(editorRange(doc, anchors.c1)).toEqual({ from: 1, to: 5, quote: 'hi @Ann' })
   })
@@ -213,7 +214,7 @@ describe('oldCommentAnchors', () => {
     const list = new XmlElement('bulletList')
     const doc = docWith(list, yParagraph(['say '], ['hello', comment('c1')]))
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     const text = 'say hello'
     expect(placed(doc, anchors.c1)).toEqual({ start: [text, 4], end: [text, 9], quote: 'hello' })
@@ -222,7 +223,10 @@ describe('oldCommentAnchors', () => {
   it('gives no anchor to a comment the editor has no place for, after a node it lacks', () => {
     const doc = docWith(new XmlElement('callout'), yParagraph(['say '], ['hello', comment('c1')]))
 
-    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({})
+    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({
+      anchors: {},
+      copies: [],
+    })
   })
 
   it.each([
@@ -232,27 +236,36 @@ describe('oldCommentAnchors', () => {
   ])('gives no anchor to a comment mark with $name', ({ mark }) => {
     const doc = docWith(yParagraph(['hello', mark]))
 
-    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({})
+    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({
+      anchors: {},
+      copies: [],
+    })
   })
 
   it('reads a comment only from text and inline nodes, not from a block holding the key', () => {
     const block = yParagraph(['hello'])
     block.setAttribute('comment', comment('c1').comment as never)
 
-    expect(oldCommentAnchors(docWith(block).getXmlFragment(BODY_FIELD), schema)).toEqual({})
+    expect(oldCommentAnchors(docWith(block).getXmlFragment(BODY_FIELD), schema)).toEqual({
+      anchors: {},
+      copies: [],
+    })
   })
 
   it('gives no anchor when no text carries a comment', () => {
     const doc = docWith(yParagraph(['plain', { bold: true }]))
 
-    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({})
+    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({
+      anchors: {},
+      copies: [],
+    })
   })
 
   it('keeps a long comment within the stored anchor limit, quoting its start', () => {
     const long = 'a'.repeat(400)
     const doc = docWith(yParagraph([long, comment('c4')]))
 
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect([...anchors.c4].length).toBeLessThanOrEqual(255)
     const { start, end, quote } = placed(doc, anchors.c4)
@@ -266,7 +279,7 @@ describe('oldCommentAnchors', () => {
 
   it('anchors on the stored items, so a copy of the saved state finds the same words', () => {
     const doc = docWith(yParagraph(['say '], ['hello', comment('c1')]))
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+    const { anchors } = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     const copy = new Doc()
     applyUpdate(copy, encodeStateAsUpdate(doc))
@@ -284,5 +297,11 @@ describe('unreadableThreads', () => {
     const doc = docWith(yParagraph(['see', { comments: { commentId: null } }]))
 
     expect(unreadableThreads(doc)).toEqual([])
+  })
+
+  it('reads a comment mark with a blank thread id as having none', () => {
+    const doc = docWith(yParagraph(['see', { comment: { commentId: ' ' } }]))
+
+    expect(unreadableThreads(doc)).toEqual(['comment'])
   })
 })

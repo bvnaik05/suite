@@ -40,7 +40,8 @@ interface PlacedRun {
   toPlace: number
 }
 
-// The binding keeps inline nodes as elements, so a text holds only strings
+// The binding keeps inline nodes as elements, so a text holds only strings; conversion reads only
+// the body the binding wrote
 interface Insert {
   insert: string
   attributes?: Record<string, unknown>
@@ -48,7 +49,7 @@ interface Insert {
 
 function threadId(attrs: unknown): string | undefined {
   const id = (attrs as { commentId?: unknown } | null)?.commentId
-  if (typeof id === 'string' && id) {
+  if (typeof id === 'string' && id.trim()) {
     return id
   }
 
@@ -159,7 +160,7 @@ function placedRun(
   const to = createRelativePositionFromTypeIndex(run.type, run.to, -1)
   const fromPlace = placeOf(body, built, from)
   const toPlace = placeOf(body, built, to)
-  if (fromPlace === null || toPlace === null) {
+  if (fromPlace === null || toPlace === null || fromPlace >= toPlace) {
     return null
   }
 
@@ -187,11 +188,27 @@ function firstStretch(doc: PMNode, runs: PlacedRun[]) {
   return runs.slice(0, end)
 }
 
+// Each stretch of a comment's runs, in order, with its words
+function stretches(doc: PMNode, runs: PlacedRun[]) {
+  const found: { start: PlacedRun; end: PlacedRun; quote: string }[] = []
+  let left = runs
+  while (left.length) {
+    const stretch = firstStretch(doc, left)
+    const start = stretch[0]
+    const end = stretch.at(-1)!
+    found.push({ start, end, quote: quoteBetween(doc, start.fromPlace, end.toPlace) })
+    left = left.slice(stretch.length)
+  }
+
+  return found
+}
+
 /**
  * Each old comment's anchor in `body`, from the first character or atom its mark covers to the
- * last of that stretch, leaving out copies elsewhere; a comment the editor can't place gets none
+ * last of that stretch, and the words of its copies elsewhere; a comment the editor can't place
+ * gets none
  */
-export function oldCommentAnchors(body: XmlFragment, schema: Schema): Record<string, string> {
+export function oldCommentAnchors(body: XmlFragment, schema: Schema) {
   const built = initProseMirrorDoc(body, schema)
   const runs = new Map<string, (PlacedRun | null)[]>()
   for (const [id, run] of commentRuns(body, schema)) {
@@ -200,16 +217,30 @@ export function oldCommentAnchors(body: XmlFragment, schema: Schema): Record<str
   }
 
   const anchors: Record<string, string> = {}
+  const copies: { id: string; text: string }[] = []
   for (const [id, placed] of runs) {
     if (!placed.every((run): run is PlacedRun => run !== null)) {
       continue
     }
 
-    const [start, ...rest] = firstStretch(built.doc, placed)
-    const end = rest.at(-1) ?? start
-    const quote = quoteBetween(built.doc, start.fromPlace, end.toPlace)
-    anchors[id] = encodeAnchor(start.from, end.to, quote)
+    const [first, ...rest] = stretches(built.doc, placed)
+    anchors[id] = encodeAnchor(first.start.from, first.end.to, first.quote)
+    copies.push(...rest.map(({ quote }) => ({ id, text: quote })))
   }
 
-  return anchors
+  return { anchors, copies }
+}
+
+/** Takes the old comment marks that carry a thread id off `body`; the ids it took them from */
+export function dropCommentMarks(body: XmlFragment, schema: Schema) {
+  const runs = commentRuns(body, schema)
+  for (const [, { type, from, to }] of runs) {
+    if (type instanceof XmlText) {
+      type.format(from, to - from, { [COMMENT_KEY]: null })
+    } else if (type instanceof XmlElement || type instanceof XmlFragment) {
+      ;(type.get(from) as XmlElement).removeAttribute(COMMENT_KEY)
+    }
+  }
+
+  return runs.map(([id]) => id)
 }

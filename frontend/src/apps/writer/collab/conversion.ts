@@ -25,8 +25,13 @@ import {
 } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
-import { domInventory, inventory, unkept } from '@/apps/writer/collab/inventory'
-import { OLD_THREAD_TAGS, unreadableThreads } from '@/apps/writer/collab/old-comments'
+import { domInventory, inventory, unkept, type Inventory } from '@/apps/writer/collab/inventory'
+import {
+  dropCommentMarks,
+  OLD_THREAD_TAGS,
+  oldCommentAnchors,
+  unreadableThreads,
+} from '@/apps/writer/collab/old-comments'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
@@ -41,12 +46,23 @@ export interface LegacyBody {
   collab: number
 }
 
-/** What the conversion couldn't carry over: a part the editor can't hold, or a change Yjs held back. */
+/**
+ * What the conversion couldn't carry over: a part the editor can't hold, a change Yjs held back,
+ * or the words of an old comment's copy away from its anchor.
+ */
 export type Dropped =
-  { kind: 'node'; name: string; text: string } | { kind: 'pending'; text: string; parts: string[] }
+  | { kind: 'node'; name: string; text: string }
+  | { kind: 'pending'; text: string; parts: string[] }
+  | { kind: 'comment-copy'; id: string; text: string }
 
 export type Converted =
-  | { kind: 'converted'; state: Uint8Array; dropped: Dropped[]; from: 'yjs' | 'html' }
+  | {
+      kind: 'converted'
+      state: Uint8Array
+      dropped: Dropped[]
+      from: 'yjs' | 'html'
+      anchors: Record<string, string>
+    }
   | { kind: 'failed'; reason: 'too_large' | 'check' }
 
 function insertedText({ insert }: { insert: unknown }) {
@@ -315,6 +331,36 @@ function fromHtml(html: string) {
   }
 }
 
+function isNotComment([key]: [string, unknown]) {
+  return key !== 'comment'
+}
+
+// What a body holds apart from its old comment marks
+function withoutComments({ characters, elements }: Inventory): Inventory {
+  return {
+    characters: characters.map((character) => ({
+      ...character,
+      entries: character.entries.filter(isNotComment),
+    })),
+    elements: elements.map((piece) => ({ ...piece, entries: piece.entries.filter(isNotComment) })),
+  }
+}
+
+// Each old comment moves from its mark to an anchor; the body must then hold the same with no
+// comment mark, and no comment mark may lose its thread
+function moveComments(body: XmlFragment) {
+  const { anchors, copies } = oldCommentAnchors(body, schema)
+  const marked = withoutComments(inventory(body))
+  const ids = dropCommentMarks(body, schema)
+  const left = inventory(body)
+  const isMoved =
+    ids.every((id) => Object.hasOwn(anchors, id)) &&
+    !unkept(marked, left).length &&
+    !unkept(left, marked).length
+  const dropped = copies.map(({ id, text }): Dropped => ({ kind: 'comment-copy', id, text }))
+  return { isMoved, anchors, dropped }
+}
+
 function read(legacy: LegacyBody) {
   // A body saved without collaboration has only its HTML
   if (legacy.collab !== 0) {
@@ -337,9 +383,13 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   const converted = withHeadingIds(node)
   const fresh = new Doc()
   const body = fresh.getXmlFragment(BODY_FIELD)
-  // Old comment marks are carried over as they are
   prosemirrorToYXmlFragment(converted, body)
   if (!isKept(body)) {
+    return { kind: 'failed', reason: 'check' }
+  }
+
+  const comments = moveComments(body)
+  if (!comments.isMoved) {
     return { kind: 'failed', reason: 'check' }
   }
 
@@ -348,5 +398,6 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
     return { kind: 'failed', reason: 'too_large' }
   }
 
-  return { kind: 'converted', state, dropped, from }
+  const { anchors } = comments
+  return { kind: 'converted', state, dropped: [...dropped, ...comments.dropped], from, anchors }
 }
