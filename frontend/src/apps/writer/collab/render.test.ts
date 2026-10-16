@@ -8,10 +8,10 @@ function linkedDoc() {
   const doc = new Y.Doc()
   const paragraph = new Y.XmlElement('paragraph')
   const text = new Y.XmlText()
-  paragraph.insert(0, [text])
   const image = new Y.XmlElement('image')
   image.setAttribute('src', '/private/files/chart.png')
-  doc.getXmlFragment(BODY_FIELD).insert(0, [paragraph, image])
+  paragraph.insert(0, [text, image])
+  doc.getXmlFragment(BODY_FIELD).insert(0, [paragraph])
   text.insert(0, 'See ')
   text.insert(4, 'the plan', { link: { href: 'https://example.com/plan' } })
   return doc
@@ -61,5 +61,19 @@ describe('writerRender', () => {
 
     expect(html).toMatch(/<img [^>]*src="\/private\/files\/chart\.png"/)
     expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+  })
+
+  it("shows Drive's top-level image in a paragraph of its own", () => {
+    const doc = new Y.Doc()
+    const words = new Y.XmlElement('paragraph')
+    words.insert(0, [new Y.XmlText('See the plan')])
+    const image = new Y.XmlElement('image')
+    image.setAttribute('src', '/private/files/chart.png')
+    doc.getXmlFragment(BODY_FIELD).insert(0, [words, image])
+
+    const { html, text } = writerRender(doc)
+
+    expect(html).toMatch(/<img [^>]*src="\/private\/files\/chart\.png"/)
+    expect(text).toBe('See the plan\n')
   })
 })

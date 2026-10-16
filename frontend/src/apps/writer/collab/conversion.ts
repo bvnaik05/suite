@@ -128,6 +128,26 @@ function pendingDrop(doc: Doc): Dropped[] {
   return [{ kind: 'pending', text, parts }]
 }
 
+function isContent(type: AbstractType<unknown>) {
+  if (type instanceof XmlText) {
+    return type.length > 0
+  }
+
+  return (
+    type instanceof XmlElement &&
+    (isAtomName(type.nodeName) || Object.keys(type.getAttributes()).length > 0)
+  )
+}
+
+// A lost part holds content when it, or anything in it, is text, an atom or a stored attribute
+function holdsContent(part: AbstractType<unknown>) {
+  if (isContent(part)) {
+    return true
+  }
+
+  return part instanceof XmlElement && !part.createTreeWalker(isContent).next().done
+}
+
 function lostParts(lost: AbstractType<unknown>[]): Dropped[] {
   return lost.map((type) => ({ kind: 'node', name: nameOf(type), text: textOf(type) }))
 }
@@ -200,8 +220,9 @@ function dropDriveDefaults(body: XmlFragment) {
 
 // The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
 // checked on its own by where the media points; Drive's defaults, dropped; the parts the build set
-// aside, lost (recorded) or hidden (holding nothing), left out of the source; and the extras the
-// result may hold, being the filler the build adds, declared defaults and heading ids
+// aside holding nothing, hidden or lost (recorded), left out of the source, so a lost part with
+// content fails; and the extras the result may hold, being the filler the build adds, declared
+// defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
@@ -210,7 +231,10 @@ function fromYjs(old: Doc) {
   dropDriveDefaults(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(body) === media
-  const source = inventory(body, new Set([...hidden, ...lost]))
+  const source = inventory(
+    body,
+    new Set([...hidden, ...lost.filter((part) => !holdsContent(part))]),
+  )
   return {
     node,
     dropped: [...lostParts(lost), ...pendingDrop(old)],

@@ -74,6 +74,15 @@ function yHeading(text: string, id?: string) {
   return node
 }
 
+function yAtom(name: string, attributes: Record<string, string>) {
+  const node = new XmlElement(name)
+  for (const [key, value] of Object.entries(attributes)) {
+    node.setAttribute(key, value)
+  }
+
+  return node
+}
+
 function oldMedia(attributes: Record<string, string>) {
   const node = new XmlElement('resizableMedia')
   for (const [key, value] of Object.entries(attributes)) {
@@ -171,6 +180,39 @@ describe('convertLegacy', () => {
     expect(result.from).toBe('yjs')
   })
 
+  it("keeps Drive's top-level block image in a paragraph with all it stored (R332)", () => {
+    const attrs = { src: SRC, uploadId: 'u1', alt: 'Sales chart', title: 'Q3' }
+    const doc = legacyDoc(yParagraph('one'), yAtom('image', attrs))
+
+    const result = convert(stored(doc))
+
+    const image = { type: 'image', attrs: { ...attrs, align: 'left' } }
+    const body = page(words('one'), paragraph(image))
+    expect([bodyOf(result.state), result.dropped]).toEqual([body, []])
+  })
+
+  it("keeps Drive's block image after a list item's paragraph, in a paragraph there", () => {
+    const item = yElement('listItem', yParagraph('item'), yAtom('image', { src: SRC }))
+
+    const result = convert(stored(legacyDoc(yElement('bulletList', item))))
+
+    const image = { type: 'image', attrs: { src: SRC, align: 'left' } }
+    const list = {
+      type: 'bulletList',
+      content: [{ type: 'listItem', content: [words('item'), paragraph(image)] }],
+    }
+    expect([bodyOf(result.state), result.dropped]).toEqual([page(list), []])
+  })
+
+  it('keeps a top-level video as a block', () => {
+    const doc = legacyDoc(yParagraph('one'), yAtom('video', { src: '/files/demo.mp4' }))
+
+    const result = convert(stored(doc))
+
+    const video = { type: 'video', attrs: { src: '/files/demo.mp4' } }
+    expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one'), video), []])
+  })
+
   it('drops an old inline table of contents, records it and changes nothing else', () => {
     const doc = legacyDoc(yParagraph('one'), new XmlElement('tocNode'), yParagraph('two'))
 
@@ -188,24 +230,25 @@ describe('convertLegacy', () => {
     expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one')), []])
   })
 
-  it('records a part the editor cannot hold together with its text', () => {
-    const doc = legacyDoc(yParagraph('one'), yElement('callout', yParagraph('note')))
+  it('refuses a part the editor cannot hold that holds text (R316)', () => {
+    const legacy = stored(legacyDoc(yParagraph('one'), yElement('callout', yParagraph('note'))))
 
-    const result = convert(stored(doc))
-
-    expect(bodyOf(result.state)).toEqual(page(words('one')))
-    expect(result.dropped).toEqual([{ kind: 'node', name: 'callout', text: 'note' }])
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
-  it('records a part the editor cannot hold that has an image in it', () => {
-    const image = new XmlElement('image')
-    image.setAttribute('src', SRC)
-    const doc = legacyDoc(yParagraph('one'), yElement('callout', yElement('paragraph', image)))
+  it.each([
+    { name: 'in a paragraph', inside: () => yElement('paragraph', yAtom('image', { src: SRC })) },
+    { name: 'directly', inside: () => yAtom('image', { src: SRC }) },
+  ])('refuses a part the editor cannot hold that has an image in it $name (R316)', ({ inside }) => {
+    const legacy = stored(legacyDoc(yParagraph('one'), yElement('callout', inside())))
 
-    const result = convert(stored(doc))
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
 
-    expect(bodyOf(result.state)).toEqual(page(words('one')))
-    expect(result.dropped).toEqual([{ kind: 'node', name: 'callout', text: '' }])
+  it('refuses a part the editor cannot hold that stores an attribute', () => {
+    const legacy = stored(legacyDoc(yParagraph('one'), yAtom('callout', { kind: 'note' })))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
   it('records text Yjs holds back because the change it follows was never stored', () => {

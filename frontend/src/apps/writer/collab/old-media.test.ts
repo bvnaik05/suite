@@ -18,6 +18,15 @@ function oldMedia(attributes: Record<string, unknown>) {
   return node
 }
 
+function blockImage(attributes: Record<string, string>) {
+  const node = new XmlElement('image')
+  for (const [key, value] of Object.entries(attributes)) {
+    node.setAttribute(key, value)
+  }
+
+  return node
+}
+
 function yElement(name: string, ...children: XmlElement[]) {
   const node = new XmlElement(name)
   node.insert(0, children)
@@ -147,5 +156,32 @@ describe('convertOldMedia', () => {
       content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [shown] }] }],
     }
     expect(body).toEqual(page({ type: 'bulletList', content: [listItem] }, table))
+  })
+
+  it("turns Drive's block image into an image in its own paragraph, keeping all it stored", () => {
+    const stored = { src: SRC, uploadId: 'u1', alt: 'Sales chart', title: 'Q3' }
+    const quote = yElement('blockquote', blockImage({ ...stored, align: 'right' }))
+    const row = yElement('tableRow', yElement('tableCell', blockImage(stored)))
+
+    const body = converted(blockImage(stored), quote, yElement('table', row))
+
+    const shown = paragraph(image({ ...stored, align: 'left' }))
+    const right = paragraph(image({ ...stored, align: 'right' }))
+    const quoted = { type: 'blockquote', content: [right] }
+    const table = {
+      type: 'table',
+      content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [shown] }] }],
+    }
+    expect(body).toEqual(page(shown, quoted, table))
+  })
+
+  it('leaves an image in a paragraph or an image group as it is', () => {
+    const inParagraph = yElement('paragraph', blockImage({ src: SRC }))
+    const group = yElement('imageGroup', blockImage({ src: SRC }), blockImage({ src: SRC }))
+
+    const body = converted(inParagraph, group)
+
+    const kept = image({ src: SRC })
+    expect(body).toEqual(page(paragraph(kept), { type: 'imageGroup', content: [kept, kept] }))
   })
 })

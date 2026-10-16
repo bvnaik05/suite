@@ -1,9 +1,14 @@
+import { getSchema } from '@tiptap/core'
 import { AbstractType, applyUpdate, Doc, encodeStateAsUpdate, XmlElement, XmlFragment } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { writerSchema } from '@/apps/writer/schema'
 
+const schema = getSchema(writerSchema())
 // The old editor's resizable image or video, which this editor has no node for
 const OLD_MEDIA = 'resizableMedia'
+// Drive's earlier image was a block, which this editor holds only among text
+const OLD_IMAGE = 'image'
 const ALIGNMENTS = ['left', 'center', 'right']
 const FLOATS = ['left', 'right']
 // A list item opens with a paragraph, so a video can't come first
@@ -11,8 +16,22 @@ const LIST_ITEMS = ['listItem', 'taskItem']
 
 type Parent = XmlFragment | XmlElement
 
+// An image at the top or in a part that holds blocks; a part the editor doesn't know is left alone
+function isBlockImage(type: XmlElement) {
+  const { parent } = type
+  if (!(parent instanceof XmlElement)) {
+    return true
+  }
+
+  return schema.nodes[parent.nodeName]?.inlineContent === false
+}
+
 function isOldMedia(type: AbstractType<unknown>) {
-  return type instanceof XmlElement && type.nodeName === OLD_MEDIA
+  if (!(type instanceof XmlElement)) {
+    return false
+  }
+
+  return type.nodeName === OLD_MEDIA || (type.nodeName === OLD_IMAGE && isBlockImage(type))
 }
 
 function pixels(value: unknown) {
@@ -68,7 +87,17 @@ function element(name: string, attributes: Record<string, unknown>, children: Xm
   return node
 }
 
+// Drive's block image keeps all it stored; with no alignment it's at the left, as old media is
+function keptImage(old: XmlElement) {
+  const stored = old.getAttributes() as Record<string, unknown>
+  return element('image', { ...stored, align: stored.align ?? 'left' })
+}
+
 function converted(old: XmlElement, parent: Parent, index: number) {
+  if (old.nodeName === OLD_IMAGE) {
+    return [element('paragraph', {}, [keptImage(old)])]
+  }
+
   const attributes = mediaAttributes(old)
   if (old.getAttribute('media-type') !== 'video') {
     return [element('paragraph', {}, [element('image', attributes)])]
