@@ -6,9 +6,6 @@ import { createEditorBody } from './editorBody'
 import { QuotedContentExtension } from './quotedContentExtension'
 import { CustomParagraphExtension } from './text-editor'
 
-vi.mock('frappe-ui/experimental', () => ({
-  ImageExtension: { extend: () => ({ configure: () => ({}) }) },
-}))
 vi.mock('frappe-ui', () => ({ useFileUpload: () => ({}), toast: { error: vi.fn() } }))
 
 // The composer as wired: the body goes in as the editor's `content`, each change comes back out
