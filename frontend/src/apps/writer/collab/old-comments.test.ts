@@ -126,6 +126,49 @@ describe('oldCommentAnchors', () => {
     })
   })
 
+  it('keeps a comment across paragraphs whole when an empty one sits between', () => {
+    const doc = docWith(
+      yParagraph(['end of '], ['one', comment('c2')]),
+      yParagraph(),
+      yParagraph(['start', comment('c2')], [' of two']),
+    )
+
+    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+
+    // The editor quotes a space for each block boundary, so the empty paragraph adds its own
+    expect(placed(doc, anchors.c2)).toEqual({
+      start: ['end of one', 7],
+      end: ['start of two', 5],
+      quote: 'one  start',
+    })
+  })
+
+  it('anchors a comment copied far away only on its first place (R320)', () => {
+    const doc = docWith(
+      yParagraph(['top', comment('c1')]),
+      yParagraph(['filler']),
+      yParagraph(['bottom', comment('c1')]),
+    )
+
+    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+
+    expect(placed(doc, anchors.c1)).toEqual({ start: ['top', 0], end: ['top', 3], quote: 'top' })
+  })
+
+  it('keeps a copy past an image apart from the first place', () => {
+    const image = new XmlElement<Record<string, object | string>>('image')
+    image.setAttribute('src', '/private/files/chart.png')
+    const doc = docWith(
+      yParagraph(['top', comment('c1')]),
+      yInline(image),
+      yParagraph(['bottom', comment('c1')]),
+    )
+
+    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+
+    expect(placed(doc, anchors.c1)).toEqual({ start: ['top', 0], end: ['top', 3], quote: 'top' })
+  })
+
   it('spans the unmarked words inside one comment, so the comment keeps one place', () => {
     const doc = docWith(yParagraph(['ab', comment('c3')], ['XY'], ['cd', comment('c3')]))
 

@@ -1,4 +1,4 @@
-import type { Schema } from '@tiptap/pm/model'
+import type { Node as PMNode, Schema } from '@tiptap/pm/model'
 import { initProseMirrorDoc, relativePositionToAbsolutePosition } from '@tiptap/y-tiptap'
 import {
   createRelativePositionFromTypeIndex,
@@ -31,6 +31,13 @@ interface Run {
   type: AbstractType<unknown>
   from: number
   to: number
+}
+
+interface PlacedRun {
+  from: RelativePosition
+  to: RelativePosition
+  fromPlace: number
+  toPlace: number
 }
 
 // The binding keeps inline nodes as elements, so a text holds only strings
@@ -143,28 +150,65 @@ function placeOf(
   return relativePositionToAbsolutePosition(body.doc!, body, position, mapping, meta.hidden)
 }
 
+function placedRun(
+  body: XmlFragment,
+  built: ReturnType<typeof initProseMirrorDoc>,
+  run: Run,
+): PlacedRun | null {
+  const from = createRelativePositionFromTypeIndex(run.type, run.from, 0)
+  const to = createRelativePositionFromTypeIndex(run.type, run.to, -1)
+  const fromPlace = placeOf(body, built, from)
+  const toPlace = placeOf(body, built, to)
+  if (fromPlace === null || toPlace === null) {
+    return null
+  }
+
+  return { from, to, fromPlace, toPlace }
+}
+
+// Runs in one textblock, or with only block boundaries between them, are one stretch; any leaf
+// between them, a hard break or an image as well, counts as content
+function joins(doc: PMNode, before: PlacedRun, after: PlacedRun) {
+  const end = before.toPlace
+  const start = after.fromPlace
+  return (
+    doc.resolve(end).parent === doc.resolve(start).parent ||
+    doc.textBetween(end, start, '', '\ufffc') === ''
+  )
+}
+
+// Old Writer copied a comment's mark with its words, so one id can sit in places far apart
+function firstStretch(doc: PMNode, runs: PlacedRun[]) {
+  const end = runs.findIndex((run, index) => index > 0 && !joins(doc, runs[index - 1], run))
+  if (end < 0) {
+    return runs
+  }
+
+  return runs.slice(0, end)
+}
+
 /**
  * Each old comment's anchor in `body`, from the first character or atom its mark covers to the
- * last; a comment the editor can't place gets none
+ * last of that stretch, leaving out copies elsewhere; a comment the editor can't place gets none
  */
 export function oldCommentAnchors(body: XmlFragment, schema: Schema): Record<string, string> {
   const built = initProseMirrorDoc(body, schema)
-  const runs = new Map<string, Run[]>()
+  const runs = new Map<string, (PlacedRun | null)[]>()
   for (const [id, run] of commentRuns(body, schema)) {
     const known = runs.get(id) ?? []
-    runs.set(id, [...known, run])
+    runs.set(id, [...known, placedRun(body, built, run)])
   }
 
   const anchors: Record<string, string> = {}
-  for (const [id, [start, ...rest]] of runs) {
-    const end = rest.at(-1) ?? start
-    const from = createRelativePositionFromTypeIndex(start.type, start.from, 0)
-    const to = createRelativePositionFromTypeIndex(end.type, end.to, -1)
-    const fromPlace = placeOf(body, built, from)
-    const toPlace = placeOf(body, built, to)
-    if (fromPlace !== null && toPlace !== null) {
-      anchors[id] = encodeAnchor(from, to, quoteBetween(built.doc, fromPlace, toPlace))
+  for (const [id, placed] of runs) {
+    if (!placed.every((run): run is PlacedRun => run !== null)) {
+      continue
     }
+
+    const [start, ...rest] = firstStretch(built.doc, placed)
+    const end = rest.at(-1) ?? start
+    const quote = quoteBetween(built.doc, start.fromPlace, end.toPlace)
+    anchors[id] = encodeAnchor(start.from, end.to, quote)
   }
 
   return anchors
