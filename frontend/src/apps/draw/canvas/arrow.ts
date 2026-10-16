@@ -10,8 +10,12 @@ export type ArrowGeometry = {
 const samples = 32
 
 export function arrowGeometry(line: LineShape, viewportScale = 1): ArrowGeometry {
-  const centerline = Array.from({ length: samples + 1 }, (_, index) => linePointAt(line, index / samples))
-  const length = centerline.slice(1).reduce((total, point, index) => total + distance(centerline[index]!, point), 0)
+  const centerline = Array.from({ length: samples + 1 }, (_, index) =>
+    linePointAt(line, index / samples),
+  )
+  const length = centerline
+    .slice(1)
+    .reduce((total, point, index) => total + distance(centerline[index]!, point), 0)
   const weight = (line.strokeWidth ?? 2) / Math.max(viewportScale, 0.01)
   const headLength = Math.min(weight * 4, length * 0.55)
   const shaftHalfWidth = weight / 2
@@ -62,14 +66,21 @@ export function arrowGeometry(line: LineShape, viewportScale = 1): ArrowGeometry
   }
 }
 
-function offsetCurve(line: LineShape, endT: number, count: number, offset: number, fallback: Point): Point[] {
+function offsetCurve(
+  line: LineShape,
+  endT: number,
+  count: number,
+  offset: number,
+  fallback: Point,
+): Point[] {
   const control = lineControlPoint(line)
   return Array.from({ length: count + 1 }, (_, index) => {
-    const t = endT * index / count
-    const tangent = normalize({
-      x: 2 * (1 - t) * (control.x - line.start.x) + 2 * t * (line.end.x - control.x),
-      y: 2 * (1 - t) * (control.y - line.start.y) + 2 * t * (line.end.y - control.y),
-    }) ?? fallback
+    const t = (endT * index) / count
+    const tangent =
+      normalize({
+        x: 2 * (1 - t) * (control.x - line.start.x) + 2 * t * (line.end.x - control.x),
+        y: 2 * (1 - t) * (control.y - line.start.y) + 2 * t * (line.end.y - control.y),
+      }) ?? fallback
     const center = linePointAt(line, t)
     return { x: center.x - tangent.y * offset, y: center.y + tangent.x * offset }
   })
@@ -78,7 +89,8 @@ function offsetCurve(line: LineShape, endT: number, count: number, offset: numbe
 function curveCommands(points: Point[]): string {
   let path = ''
   for (let index = 1; index < points.length - 1; index++) {
-    const current = points[index]!, next = points[index + 1]!
+    const current = points[index]!,
+      next = points[index + 1]!
     path += ` Q ${point(current)} ${(current.x + next.x) / 2} ${(current.y + next.y) / 2}`
   }
   const last = points.at(-1)!

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+
 import type { AlignmentGuide, SpacingMarker } from '../canvas/snapping'
 
 const props = defineProps<{
@@ -9,7 +10,6 @@ const props = defineProps<{
 }>()
 
 const tickSize = computed(() => 5 / props.scale)
-
 </script>
 
 <template>
@@ -47,7 +47,6 @@ const tickSize = computed(() => 5 / props.scale)
         class="snap-guide-line"
       />
     </g>
-
   </g>
 </template>
 
@@ -63,5 +62,4 @@ const tickSize = computed(() => 5 / props.scale)
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
-
 </style>
