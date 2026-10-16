@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import { APPLIED_UPDATE, REMOTE } from './origins'
-import { device, fakeServer, join, text } from './test-support'
+import { breaksOn, device, fakeServer, join, text } from './test-support'
 
 describe('collab room', () => {
   it('keeps a checkpoint it opened from on the device, so the document reopens offline', async () => {
@@ -112,6 +112,29 @@ describe('collab room', () => {
     await reader.pull()
     expect(text(reader)).toBe('two')
     expect(transactions).toEqual([[true, server.rows[1].bytes]])
+  })
+
+  it('tells listeners of a pulled row that throws only once the room cannot write', async () => {
+    const server = fakeServer()
+    const reader = await join(server.endpoints())
+    breaksOn(reader, 'boom')
+    let isApplied = false
+    reader.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+      isApplied ||= transaction.meta.has(APPLIED_UPDATE)
+    })
+    const canWriteWhenTold: boolean[] = []
+    reader.onChange(() => {
+      if (isApplied) {
+        canWriteWhenTold.push(reader.canWrite)
+      }
+    })
+    const writer = await join(server.endpoints())
+    writer.doc.getText('t').insert(0, 'boom')
+    await writer.flush()
+
+    await reader.pull()
+
+    expect([text(reader), new Set(canWriteWhenTold)]).toEqual(['boom', new Set([false])])
   })
 
   it('two writers converge on the server order after a poll', async () => {

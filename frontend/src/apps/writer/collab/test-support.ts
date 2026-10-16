@@ -1,4 +1,4 @@
-import { REMOTE } from '@suite/collab-client'
+import { APPLIED_UPDATE, REMOTE } from '@suite/collab-client'
 import { Editor, getSchema, type JSONContent } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
@@ -10,7 +10,7 @@ import { writerEditorExtensions } from '@/apps/writer/editor-extensions'
 import { writerSchema } from '@/apps/writer/schema'
 
 import { BODY_FIELD } from './field'
-import { findRemovals, typeBack, type Removal } from './removals'
+import { watchRemovals, type Removal } from './removals'
 
 /** One open tab: its editor, the edits it hasn't sent yet, and what it reported. */
 export interface Tab {
@@ -18,6 +18,16 @@ export interface Tab {
   editor: Editor
   outbox: Uint8Array[]
   reported: Removal[]
+  room: TabRoom
+}
+
+/** The parts of a collab room watchRemovals reads, with the listeners it registers. */
+export interface TabRoom {
+  doc: Y.Doc
+  ownClients: Set<number>
+  canWrite: boolean
+  listeners: Set<() => void>
+  onChange(listener: () => void): () => void
 }
 
 const editors: Editor[] = []
@@ -66,7 +76,18 @@ function openTab(state: Uint8Array, clientID: number): Tab {
   const collaboration = Collaboration.configure({ document: ydoc, field: BODY_FIELD })
   const editor = new Editor({ element, extensions: [...extensions, collaboration] })
   editors.push(editor)
-  const tab: Tab = { ydoc, editor, outbox: [], reported: [] }
+  const room: TabRoom = {
+    doc: ydoc,
+    ownClients: new Set([clientID]),
+    canWrite: true,
+    listeners: new Set(),
+    onChange(listener) {
+      room.listeners.add(listener)
+      return () => room.listeners.delete(listener)
+    },
+  }
+  const tab: Tab = { ydoc, editor, outbox: [], reported: [], room }
+  watchRemovals(room, (removals) => tab.reported.push(...removals))
   ydoc.on('update', (update: Uint8Array, origin: unknown) => {
     if (origin !== REMOTE) {
       tab.outbox.push(update)
@@ -84,21 +105,15 @@ export function sendRow(tab: Tab) {
   return Y.mergeUpdates(tab.outbox.splice(0))
 }
 
-/** Applies a row the way the puller does, then types back or reports what it removed. */
-export function receiveRow(tab: Tab, row: Uint8Array) {
-  const found: Removal[] = []
-  function detect(transaction: Y.Transaction) {
-    if (transaction.origin === REMOTE) {
-      found.push(...findRemovals(transaction, row))
-    }
+/** Applies a row the way the puller does, or `origin`'s applier, then tells the room's listeners. */
+export function receiveRow(tab: Tab, row: Uint8Array, origin: unknown = REMOTE) {
+  tab.ydoc.transact((transaction) => {
+    transaction.meta.set(APPLIED_UPDATE, row)
+    Y.applyUpdate(tab.ydoc, row, origin)
+  }, origin)
+  for (const listener of tab.room.listeners) {
+    listener()
   }
-
-  tab.ydoc.on('afterTransaction', detect)
-  Y.applyUpdate(tab.ydoc, row, REMOTE)
-  tab.ydoc.off('afterTransaction', detect)
-  const body = tab.ydoc.getXmlFragment(BODY_FIELD)
-  const unplaced = found.filter((removal) => !typeBack(body, removal))
-  tab.reported.push(...unplaced)
 }
 
 /** Delivers rows in server order: every tab but the sender receives each one. */

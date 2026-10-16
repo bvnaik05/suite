@@ -44,6 +44,15 @@ vi.mock('@/apps/writer/collab', () => ({
   },
 }))
 
+const watched = vi.hoisted(() => new Set<object>())
+
+vi.mock('@/apps/writer/collab/removals', () => ({
+  watchRemovals: (room: object) => {
+    watched.add(room)
+    return () => watched.delete(room)
+  },
+}))
+
 async function openCollab(retainRecovery = () => false, mayEdit = () => true) {
   const session = { nodeId: 'node-1' } as DocumentSession
   const collab = useWriterCollab(
@@ -434,6 +443,22 @@ describe('writer collab rebuild', () => {
 
     await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
     expect(collab.banner.value).toBeNull()
+  })
+
+  it('watches only the live room for lost text, from open until close', async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    watched.clear()
+    const collab = await openCollab()
+    const oldRoom = fakeRooms.room
+    expect([watched.size, watched.has(oldRoom)]).toEqual([1, true])
+    fakeRooms.room = fakeRooms.makeRoom()
+
+    becomesOn(oldRoom, { needsRebuild: true })
+
+    await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
+    expect([watched.size, watched.has(fakeRooms.room)]).toEqual([1, true])
+    collab.close()
+    expect(watched.size).toBe(0)
   })
 
   it('counts the unsent work other tabs of the document hold on this device', async () => {

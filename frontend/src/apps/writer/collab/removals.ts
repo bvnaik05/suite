@@ -1,7 +1,13 @@
+import { APPLIED_UPDATE, type CollabRoom } from '@suite/collab-client'
 import * as Y from 'yjs'
+
+import { BODY_FIELD } from './field'
 
 /** Origin of the edit that puts a removed piece of text back. */
 export const TYPE_BACK = Symbol('writer-type-back')
+
+// Yjs exports no DeleteSet type
+type DeleteSet = ReturnType<typeof Y.createDeleteSet>
 
 // Shorter text can match in the wrong place, so it's reported instead
 const MIN_SEEN_LENGTH = 3
@@ -29,11 +35,57 @@ export type Removal =
   | { kind: 'node'; name: string; attrs: Record<string, unknown> }
 
 /**
- * My text and nodes that `transaction` deleted though its `update` didn't name them.
- * Call from afterTransaction: deleted text is collected right after it.
+ * Types back what the room's pulled rows removed of its work, or hands it to `report`
+ * when there's no single place or the room can't write. Returns a stop function.
  */
-export function findRemovals(transaction: Y.Transaction, update: Uint8Array): Removal[] {
-  const deleted = myDeletedItems(transaction)
+export function watchRemovals(
+  room: Pick<CollabRoom, 'doc' | 'ownClients' | 'canWrite' | 'onChange'>,
+  report: (removals: Removal[]) => void,
+) {
+  const found: Removal[] = []
+  function collect(transaction: Y.Transaction) {
+    const update: Uint8Array | undefined = transaction.meta.get(APPLIED_UPDATE)
+    if (update) {
+      found.push(...findRemovals(transaction, update, room.ownClients))
+    }
+  }
+
+  // The room tells its listeners after a pull's catch, so a suspect room can't write by then
+  function placeOrReport() {
+    const unplaced = typeBackAll(room, found.splice(0))
+    if (unplaced.length) {
+      report(unplaced)
+    }
+  }
+
+  room.doc.on('afterTransaction', collect)
+  const stopListening = room.onChange(placeOrReport)
+  return () => {
+    room.doc.off('afterTransaction', collect)
+    stopListening()
+  }
+}
+
+// Returns the removals it couldn't type back
+function typeBackAll(room: Pick<CollabRoom, 'doc' | 'canWrite'>, removals: Removal[]) {
+  if (!room.canWrite) {
+    return removals
+  }
+
+  const body = room.doc.getXmlFragment(BODY_FIELD)
+  return removals.filter((removal) => !typeBack(body, removal))
+}
+
+/**
+ * Text and nodes of the clients in `mine` that `transaction` deleted though its `update`
+ * didn't name them. Call from afterTransaction: deleted text is collected right after it.
+ */
+export function findRemovals(
+  transaction: Y.Transaction,
+  update: Uint8Array,
+  mine: ReadonlySet<number>,
+): Removal[] {
+  const deleted = myDeletedItems(transaction, mine)
   if (!deleted.length) {
     return []
   }
@@ -51,24 +103,23 @@ export function findRemovals(transaction: Y.Transaction, update: Uint8Array): Re
   }
 
   for (const text of texts) {
-    removals.push(textRemoval(text, transaction, named))
+    removals.push(textRemoval(text, transaction, named, mine))
   }
 
   return removals
 }
 
 // Splits items at the delete boundaries; yjs merges them back after afterTransaction
-function myDeletedItems(transaction: Y.Transaction) {
-  const me = transaction.doc.clientID
-  const ranges = transaction.deleteSet.clients.get(me)
-  const deleted: Y.Item[] = []
-  if (!ranges) {
-    return deleted
+function myDeletedItems(transaction: Y.Transaction, mine: ReadonlySet<number>) {
+  const myDeletes = Y.createDeleteSet()
+  for (const [client, ranges] of transaction.deleteSet.clients) {
+    if (mine.has(client)) {
+      myDeletes.clients.set(client, ranges)
+    }
   }
 
-  const mine = Y.createDeleteSet()
-  mine.clients.set(me, ranges)
-  Y.iterateDeletedStructs(transaction, mine, (struct) => {
+  const deleted: Y.Item[] = []
+  Y.iterateDeletedStructs(transaction, myDeletes, (struct) => {
     if (struct instanceof Y.Item) {
       deleted.push(struct)
     }
@@ -76,7 +127,7 @@ function myDeletedItems(transaction: Y.Transaction) {
   return deleted
 }
 
-function hasUnnamed(item: Y.Item, named: Y.DeleteSet) {
+function hasUnnamed(item: Y.Item, named: DeleteSet) {
   const { client, clock } = item.id
   const offsets = [...Array(item.length).keys()]
   return offsets.some((offset) => !Y.isDeleted(named, Y.createID(client, clock + offset)))
@@ -95,7 +146,8 @@ function elementIn(item: Y.Item) {
 function textRemoval(
   text: Y.AbstractType<unknown>,
   transaction: Y.Transaction,
-  named: Y.DeleteSet,
+  named: DeleteSet,
+  mine: ReadonlySet<number>,
 ) {
   const written = { before: transaction.beforeState, after: transaction.afterState }
   const removal = {
@@ -120,7 +172,7 @@ function textRemoval(
 
     for (let index = 0; index < item.length; index++) {
       const id = Y.createID(item.id.client, item.id.clock + index)
-      const state = { ...charState(id, transaction, named), attrs }
+      const state = { ...charState(id, transaction, named, mine), attrs }
       run = addChar(removal, gaps, run, item.content.str[index], state)
     }
   }
@@ -130,10 +182,15 @@ function textRemoval(
 }
 
 // Lost: deleted without the row naming it, mine or someone else's. Seen: deleted and named by the row
-function charState(id: Y.ID, transaction: Y.Transaction, named: Y.DeleteSet) {
+function charState(
+  id: Y.ID,
+  transaction: Y.Transaction,
+  named: DeleteSet,
+  mine: ReadonlySet<number>,
+) {
   const isDeletedNow = Y.isDeleted(transaction.deleteSet, id)
   const isNamed = Y.isDeleted(named, id)
-  const isMine = id.client === transaction.doc.clientID
+  const isMine = mine.has(id.client)
   const isUnnamed = isDeletedNow && !isNamed
   return {
     isLost: isMine && isUnnamed,

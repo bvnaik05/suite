@@ -8,6 +8,7 @@ import { computed, nextTick, ref, shallowRef } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
 import { openWriterRoom } from '@/apps/writer/collab'
+import { watchRemovals } from '@/apps/writer/collab/removals'
 import { TransportError } from '@/platform/transport'
 
 import { bannerFor, isKeptNowhere, openFailureFor, type BannerState } from './collabMessages'
@@ -86,7 +87,13 @@ export function useWriterCollab(
       const liveRoom = opened.room
       room.value = liveRoom
       recoveryKept.value = false
-      stopWatching = liveRoom.onChange(() => syncRoomStatus(liveRoom))
+      const stopStatus = liveRoom.onChange(() => syncRoomStatus(liveRoom))
+      // Reports go to the recovery copy once it exists; until then they're dropped, as before
+      const stopRemovals = watchRemovals(liveRoom, () => {})
+      stopWatching = () => {
+        stopStatus()
+        stopRemovals()
+      }
       syncRoomStatus(liveRoom)
       mode.value = 'live'
     } catch (error) {

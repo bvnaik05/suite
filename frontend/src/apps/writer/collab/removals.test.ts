@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
-import { typeBack } from '@/apps/writer/collab/removals'
+import { typeBack, watchRemovals, type Removal } from '@/apps/writer/collab/removals'
 import {
   blocks,
   deliver,
   inside,
   openTabs,
+  receiveRow,
   sendRow,
   stored,
   syncAll,
@@ -442,4 +443,76 @@ describe('removals that are reported', () => {
       expect(headingTab.reported).toEqual([])
     },
   )
+})
+
+describe('a room watching for removals', () => {
+  it("types back the text a tab took on from a closed tab's outbox (R295)", async () => {
+    const [headingTab, typingTab, closedTab] = await openTabs(threeParagraphs, 3)
+    typeQQ(closedTab, 'defgh')
+    Y.applyUpdate(typingTab.ydoc, sendRow(closedTab)!, 'adopt')
+    typingTab.room.ownClients.add(closedTab.ydoc.clientID)
+    makeHeading(headingTab, 'defgh')
+    const tabs = [headingTab, typingTab]
+
+    await sendInOrder(tabs, tabs)
+
+    for (const tab of tabs) {
+      expect(blocks(tab)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+    }
+
+    expect(allReported(tabs)).toEqual([])
+  })
+
+  it("types back what a closed tab's restructure removed once this tab takes it on (R298)", async () => {
+    const [typingTab, closedTab] = await openTabs(threeParagraphs, 2)
+    typeQQ(typingTab, 'defgh')
+    makeHeading(closedTab, 'defgh')
+
+    receiveRow(typingTab, sendRow(closedTab)!, 'adopt')
+
+    expect(blocks(typingTab)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+    expect(typingTab.reported).toEqual([])
+  })
+
+  it('reports instead of typing back when the room cannot write (R282)', async () => {
+    const tabs = await openTabs(threeParagraphs, 2)
+    const [headingTab, typingTab] = tabs
+    makeHeading(headingTab, 'defgh')
+    typeQQ(typingTab, 'defgh')
+    typingTab.room.canWrite = false
+
+    await sendInOrder(tabs, tabs)
+
+    expect(blocks(typingTab)).toEqual(['paragraph abc', 'heading defgh', 'paragraph xyz'])
+    expect(typingTab.reported).toEqual([lostQQ])
+  })
+
+  it('stops watching once stopped', async () => {
+    const tabs = await openTabs(threeParagraphs, 2)
+    const [headingTab, typingTab] = tabs
+    typingTab.room.canWrite = false
+    const stoppedReports: Removal[] = []
+    watchRemovals(typingTab.room, (removals) => stoppedReports.push(...removals))()
+    makeHeading(headingTab, 'defgh')
+    typeQQ(typingTab, 'defgh')
+
+    await sendInOrder(tabs, tabs)
+
+    expect([typingTab.reported, stoppedReports]).toEqual([[lostQQ], []])
+  })
+
+  it('leaves typed-back text in place when the tab undoes', async () => {
+    const tabs = await openTabs(threeParagraphs, 2)
+    const [headingTab, typingTab] = tabs
+    makeHeading(headingTab, 'defgh')
+    typeQQ(typingTab, 'defgh')
+    await sendInOrder(tabs, tabs)
+
+    typingTab.editor.commands.undo()
+    await syncAll(tabs)
+
+    for (const tab of tabs) {
+      expect(blocks(tab)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+    }
+  })
 })
