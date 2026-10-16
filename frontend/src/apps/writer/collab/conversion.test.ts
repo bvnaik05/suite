@@ -236,6 +236,22 @@ describe('convertLegacy', () => {
         return toc
       },
     },
+    {
+      name: 'a horizontal rule',
+      toc: () => {
+        const toc = yElement('tocNode', new XmlElement('horizontalRule'))
+        toc.setAttribute('placeholder', 'Table of Contents')
+        return toc
+      },
+    },
+    {
+      name: 'a paragraph with an attribute',
+      toc: () => {
+        const toc = yElement('tocNode', yAtom('paragraph', { textAlign: 'center' }))
+        toc.setAttribute('placeholder', 'Table of Contents')
+        return toc
+      },
+    },
   ])("refuses Drive's table of contents holding $name besides its hint (R346)", ({ toc }) => {
     const legacy = stored(legacyDoc(yParagraph('one'), toc(), yParagraph('two')))
 

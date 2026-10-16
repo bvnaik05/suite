@@ -13,7 +13,7 @@ import {
 
 import { readAnchor } from '@/apps/writer/collab/anchors'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
-import { oldCommentAnchors } from '@/apps/writer/collab/old-comments'
+import { oldCommentAnchors, unreadableThreads } from '@/apps/writer/collab/old-comments'
 import { writerSchema } from '@/apps/writer/schema'
 
 const schema = getSchema(writerSchema())
@@ -276,5 +276,13 @@ describe('oldCommentAnchors', () => {
       end: ['say hello', 9],
       quote: 'hello',
     })
+  })
+})
+
+describe('unreadableThreads', () => {
+  it("doesn't read a `comments` key as a comment mark (R351)", () => {
+    const doc = docWith(yParagraph(['see', { comments: { commentId: null } }]))
+
+    expect(unreadableThreads(doc)).toEqual([])
   })
 })
