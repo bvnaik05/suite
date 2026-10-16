@@ -2,6 +2,7 @@ import { Editor, getSchema } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import type { Mark } from '@tiptap/pm/model'
 import {
+  ySyncPluginKey,
   yUndoPluginKey,
   yXmlFragmentToProseMirrorRootNode,
   type UnplaceableReason,
@@ -484,6 +485,20 @@ describe('marks on an inline atom', () => {
     const written = (paragraph.get(1) as Y.XmlElement).getAttributes()
     expect(written).toEqual({ id: 'ann', bold: {}, ...MYSTERY })
     expect(atomMarks(reload(tab), 'mention')).toEqual(['bold', MYSTERY])
+  })
+
+  it.each(ATOMS)('bold on the atom shows in a past state (%s)', async (name, attrs) => {
+    const tab = open(aroundAtom(name, { ...attrs, bold: {} }))
+    const past = Y.encodeStateAsUpdateV2(tab.ydoc)
+    tab.editor.chain().setTextSelection({ from: 1, to: 4 }).unsetBold().run()
+    expect(atomMarks(tab, name)).toEqual([])
+
+    const shown = { snapshot: past, prevSnapshot: past }
+    tab.editor.view.dispatch(tab.editor.state.tr.setMeta(ySyncPluginKey, shown))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(atomMarks(tab, name)).toEqual(['bold'])
+    expect(tab.freezes).toEqual([])
   })
 
   it('is never an attribute of the atom itself', () => {
