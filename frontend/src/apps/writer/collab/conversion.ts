@@ -151,8 +151,17 @@ function holdsContent(part: AbstractType<unknown>) {
 // Drive's table of contents, drawn from the headings, stores only the hint it showed
 const OLD_TOC = 'tocNode'
 
+function isHintOnlyToc(part: AbstractType<unknown>) {
+  return (
+    part instanceof XmlElement &&
+    part.nodeName === OLD_TOC &&
+    Object.keys(part.getAttributes()).every((key) => key === 'placeholder') &&
+    !!part.createTreeWalker(isContent).next().done
+  )
+}
+
 function isDroppable(part: AbstractType<unknown>) {
-  return (part instanceof XmlElement && part.nodeName === OLD_TOC) || !holdsContent(part)
+  return isHintOnlyToc(part) || !holdsContent(part)
 }
 
 function lostParts(lost: AbstractType<unknown>[]): Dropped[] {
@@ -227,9 +236,9 @@ function dropDriveDefaults(body: XmlFragment) {
 
 // The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
 // checked on its own by where the media points; Drive's defaults, dropped; the parts the build set
-// aside holding nothing, hidden or lost (recorded), and Drive's table of contents, left out of the
-// source, so a lost part with content fails; and the extras the result may hold, being the filler
-// the build adds, declared defaults and heading ids
+// aside holding nothing, hidden or lost (recorded), and Drive's table of contents holding only its
+// hint, left out of the source, so a lost part with content fails; and the extras the result may
+// hold, being the filler the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)

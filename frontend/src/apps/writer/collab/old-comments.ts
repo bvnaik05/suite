@@ -16,6 +16,8 @@ import { quoteBetween } from '@/apps/writer/collab/places'
 
 // The old comment mark, which excludes itself, so the binding keeps it under its own name
 const COMMENT_KEY = 'comment'
+// The comment mark under its own name or a hashed copy, which the binding shouldn't write
+const ANY_COMMENT_KEY = /^comment(--[a-zA-Z0-9+/=]{8})?$/
 
 // Drive's later comment mark, which could overlap itself (`excludes: ''`), so the binding keeps
 // each under a hashed name; and the list its threads were kept in
@@ -48,7 +50,7 @@ function threadId(attrs: unknown): string | undefined {
 
 // An annotation, or a comment mark with no thread id, as Drive's earlier one that held its whole thread
 function isUnreadableMark([key, attrs]: [string, unknown]) {
-  return ANNOTATION_KEY.test(key) || (key === COMMENT_KEY && threadId(attrs) === undefined)
+  return ANNOTATION_KEY.test(key) || (ANY_COMMENT_KEY.test(key) && threadId(attrs) === undefined)
 }
 
 function markEntries(type: AbstractType<unknown>): [string, unknown][] {

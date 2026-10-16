@@ -223,6 +223,25 @@ describe('convertLegacy', () => {
     expect(result.dropped).toEqual([{ kind: 'node', name: 'tocNode', text: '' }])
   })
 
+  it.each([
+    {
+      name: 'another attribute',
+      toc: () => yAtom('tocNode', { placeholder: 'Table of Contents', title: 'x' }),
+    },
+    {
+      name: 'text',
+      toc: () => {
+        const toc = yElement('tocNode', new XmlText('Intro'))
+        toc.setAttribute('placeholder', 'Table of Contents')
+        return toc
+      },
+    },
+  ])("refuses Drive's table of contents holding $name besides its hint (R346)", ({ toc }) => {
+    const legacy = stored(legacyDoc(yParagraph('one'), toc(), yParagraph('two')))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
   it('converts a body holding an empty list, which the editor hides', () => {
     const doc = legacyDoc(yParagraph('one'), new XmlElement('bulletList'))
 
@@ -458,6 +477,10 @@ describe('convertLegacy', () => {
     { name: 'a comment with no id', mark: { comment: { commentId: null } } },
     { name: 'a comment with an empty id', mark: { comment: { commentId: '' } } },
     { name: 'a comment with a number for its id', mark: { comment: { commentId: 7 } } },
+    {
+      name: 'a hashed copy of a comment with no id',
+      mark: { 'comment--a+/=bC9z': { commentId: null } },
+    },
   ])('refuses a Yjs body holding $name, which no thread is made from yet', ({ mark }) => {
     const legacy = stored(legacyDoc(yMarked('see', mark)))
 
