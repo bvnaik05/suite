@@ -46,13 +46,19 @@ import {
   normalizeToLightScheme,
   remapEmailForDarkMode,
 } from '@/apps/mail/utils/darkMail'
+import { highlightBody } from '@/apps/mail/utils/highlightBody'
 import { escapeBracketedAddresses } from '@/apps/mail/utils/html'
 import { parseMailto } from '@/apps/mail/utils/mailto'
 import { findQuoteRoots } from '@/apps/mail/utils/quotedContent'
 
 // Whether to withhold remote content is the thread's to say: it offers a Show in each message that
 // holds some (see HiddenImagesBanner), and lifts the block here once the reader asks.
-const { content, blockImages = false } = defineProps<{ content: string; blockImages?: boolean }>()
+// `highlight`: the words a search found the message by, marked in its body.
+const {
+  content,
+  blockImages = false,
+  highlight = '',
+} = defineProps<{ content: string; blockImages?: boolean; highlight?: string }>()
 
 const { dataTheme } = useTheme()
 const { isMobile } = useScreenSize()
@@ -154,6 +160,7 @@ const srcdoc = computed(() => {
   normalizeToLightScheme(doc)
   const remapped = dataTheme.value === 'dark' && !declaresFixedPalette(doc) && !isArtDirected(doc)
   if (remapped) remapEmailForDarkMode(doc)
+  if (doc.body) highlightBody(doc.body, highlight)
   collapseQuotes(doc)
   const transformedContent = doc.documentElement.outerHTML
 
