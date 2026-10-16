@@ -4115,7 +4115,7 @@ writes no access log and runs no permission query.
 
 After Build, an S3 suite site holds blobs in two places: Drive's objects
 copied into the framework layout (`driver = s3`) and legacy attachments under
-`Home` linked in place on local disk (`driver = local`, `../<rel_path>` keys,
+`Home` linked in place on local disk (`driver = local`, `<rel_path>` keys,
 `backfill.py:148`). One storage location is a framework job, not a suite job.
 
 ```python
@@ -4124,7 +4124,7 @@ copied into the framework layout (`driver = s3`) and legacy attachments under
 def relocate_blobs(batch_size: int = 100, target_driver: str | None = None) -> dict:
 	"""Move every blob whose driver is not the configured one. Resumable.
 
-	Per blob: copy the bytes to the target driver under make_key(checksum),
+	Per blob: copy the bytes to the target driver under make_key(target, blob, filename),
 	take the row lock the GC takes (get_value(..., for_update=True)), rewrite
 	`driver` and `key`, commit, then delete the old bytes through
 	frappe.db.after_commit. Returns {"moved", "bytes", "skipped", "errors"}.
@@ -4133,8 +4133,8 @@ def relocate_blobs(batch_size: int = 100, target_driver: str | None = None) -> d
 ```
 
 It needs no Drive knowledge and no Drive code, runs after Build at any time,
-and on a local-disk site folds the in-place `../` files into the blobs
-directory. The old bytes go after commit, so a crash leaves an unreferenced
+and on a local-disk site moves the in-place files to `<blob>/<filename>`
+keys. The old bytes go after commit, so a crash leaves an unreferenced
 object, never a blob row pointing at nothing.
 
 Rejected: a suite job in Build or Cleanup (Drive would then write and delete
@@ -4324,10 +4324,12 @@ is GO when every check passes and no defect blocks.
 3. S3 copy step: for each Drive `File` row whose `file_url` is a
    `suite.drive.api.s3.fetch?path=` URL and which has no blob, stream the
    object once to compute its sha256, server-side `CopyObject` it to
-   `private/<ab>/<cd>/<sha256>[.ext]` (`frappe/storage/blob.py:39`) in the
-   same bucket, insert one `File Blob` with `driver = "s3"`, and set
-   `File.blob`. Objects above 5 GB go through the boto3 managed multipart
-   copy. The step is resumable by the `File.blob` check [011 §3].
+   `private/<site prefix>/<blob>/<filename>` (`frappe.storage.blob.make_key`)
+   in the same bucket, record the copy in Build's copy ledger, insert one
+   `File Blob` with `driver = "s3"`, and set `File.blob`. Build derives the blob name from the checksum, so a rerun
+   finds an object an interrupted run already copied. Objects above 5 GB go
+   through the boto3 managed multipart copy. The step is resumable by the
+   `File.blob` check [011 §3].
 4. Root nodes and their matching metadata pairs, atomically per pair.
 5. Nodes, walked from each root by depth, with title dedupe and trash
    propagation.

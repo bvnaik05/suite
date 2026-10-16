@@ -68,6 +68,9 @@ class StorageGateway(Protocol):
     def driver_config(self) -> dict:
         """The site's `storage_driver_config`, or an empty dict when unset."""
 
+    def key_prefix(self) -> str:
+        """The S3 driver's `key_prefix`: the site's folder that new blob keys start with."""
+
     def run_backfill(self, batch_size: int) -> dict:
         """`frappe.storage.backfill.run()`. Idempotent; links local bytes in place."""
 
@@ -81,8 +84,8 @@ class StorageGateway(Protocol):
     def blocked_by(self, checksum: str) -> str | None:
         """Status of the row that holds this content's unique triple, if any."""
 
-    def insert_blob(self, *, key: str, checksum: str, size: int, mime_type: str) -> str:
-        """Insert one private S3 `File Blob` and return its name.
+    def insert_blob(self, *, name: str, key: str, checksum: str, size: int, mime_type: str) -> str:
+        """Insert one private S3 `File Blob` named `name` and return its name.
 
         Raises `BlobConflict` when the unique triple is already taken."""
 
@@ -114,6 +117,9 @@ class S3Bucket(Protocol):
     def size(self, key: str) -> int | None:
         """Object size in bytes, or None when the object is not there."""
 
+    def sizes_under(self, prefix: str) -> dict[str, int]:
+        """Size of every object whose key starts with `prefix`, by key."""
+
     def copy_object(self, source_key: str, destination_key: str) -> None:
         """Single-part server-side copy. Refuses a source above 5 GB."""
 
@@ -134,6 +140,11 @@ class SiteStorage:
 
     def driver_config(self) -> dict:
         return frappe.conf.storage_driver_config or {}
+
+    def key_prefix(self) -> str:
+        from frappe.storage.driver import get_driver
+
+        return get_driver("s3").key_prefix
 
     def run_backfill(self, batch_size: int) -> dict:
         from frappe.storage import backfill
@@ -164,7 +175,7 @@ class SiteStorage:
             "File Blob", {"checksum": checksum, "is_private": 1, "driver": "s3"}, "status"
         )
 
-    def insert_blob(self, *, key: str, checksum: str, size: int, mime_type: str) -> str:
+    def insert_blob(self, *, name: str, key: str, checksum: str, size: int, mime_type: str) -> str:
         blob = frappe.new_doc("File Blob")
         blob.update(
             {
@@ -195,7 +206,7 @@ class SiteStorage:
         savepoint = "drive_build_insert_blob"
         frappe.db.savepoint(savepoint)
         try:
-            blob.insert(ignore_permissions=True)
+            blob.insert(ignore_permissions=True, set_name=name)
         except frappe.UniqueValidationError as e:
             rollback_savepoint(savepoint, e)
             raise BlobConflict(checksum) from e
@@ -306,6 +317,11 @@ class BotoBucket:
             if self._is_missing(e):
                 return None
             raise
+
+    def sizes_under(self, prefix: str) -> dict[str, int]:
+        # One page is enough: Build keeps at most one object per blob folder.
+        listed = self.client.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
+        return {item["Key"]: item["Size"] for item in listed.get("Contents", [])}
 
     def copy_object(self, source_key: str, destination_key: str) -> None:
         self.client.copy_object(
@@ -761,7 +777,7 @@ class BlobRow:
     is_private: int
     status: str
     key: str | None = None
-    # The content address. `File Blob` is unique on
+    # The content checksum. `File Blob` is unique on
     # `(checksum, is_private, driver)`, so one picture stored public and later
     # made private is two rows with one checksum. Step 8 reads it to tell that
     # pair apart from two rows that hold different bytes.

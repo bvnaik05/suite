@@ -791,7 +791,7 @@ class BlobStreamCase(DavCase):
         self.checksum = hashlib.sha256(self.DATA).hexdigest()
         self.blob = frappe._dict(
             name="blob1",
-            key="ab/cd/blob1",
+            key="blob1/a.txt",
             driver="local",
             is_private=1,
             checksum=self.checksum,

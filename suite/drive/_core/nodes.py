@@ -549,7 +549,7 @@ def crumb(row: frappe._dict) -> dict:
 
 
 def content_url(principals: Principals, node: str, *, expires_in: int = CONTENT_TTL_SECONDS) -> dict:
-    """Mint one readable file node's signed `/f/` URL after a READ check (§6.8).
+    """Mint one readable file node's signed blob URL after a READ check (§6.8).
 
     Every byte that leaves Drive by URL leaves through here or through the
     preview and media expansions, and all three check first. The signature
@@ -599,7 +599,7 @@ def stream_content(row: frappe._dict, *, environ: dict | None = None, as_attachm
 
     The caller has already spent §2.3's point check on `row`; this adds no
     second one, exactly as `signed_content_url` adds none. It exists beside
-    that function because a signed `/f/` redirect is not usable everywhere a
+    that function because a signed blob redirect is not usable everywhere a
     byte path is: WebDAV's Windows client drops credentials across a redirect
     (§12.3), so DAV needs the bytes on the same response.
 
@@ -2595,8 +2595,8 @@ def _refuse_sibling_collision(
         raise DriveConflict(_("An active Drive node with this title already exists"), free_title=free)
 
 
-# Page size for both blob-source scans below. Storage dedup is
-# content-addressed and site-wide, so one blob can sit under many nodes; this
+# Page size for both blob-source scans below. Storage deduplicates by
+# content site-wide, so one blob can sit under many nodes; this
 # bounds each query's work. A page with no readable row and a full page keeps
 # scanning (up to `BLOB_SOURCE_MAX_PAGES`); a short page is the last one.
 # Ordering by `name` alone keeps every page a disjoint, resumable range on the
@@ -2699,7 +2699,7 @@ def _require_readable_blob(principals: Principals, blob: str) -> None:
     """Refuse a named blob the caller cannot already read (§6.8, §8.2 copy).
 
     A blob id is a bearer capability, and Drive prints it itself: §6.8's signed
-    `/f/` URL carries it in the path, and the content redirect, every row of
+    blob URL carries it in the path, and the content redirect, every row of
     `GET /nodes/<id>/media`, the preview expansion, and the version list all
     hand one out. That disclosure is deliberately time-boxed - §6.8 sets a
     fifteen-minute TTL and rejects a day-long one as "a different security

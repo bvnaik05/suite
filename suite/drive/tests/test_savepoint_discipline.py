@@ -254,7 +254,13 @@ class TestTheBuildBlobInsertReportsItsDeadlock(StubbedDatabase):
             patch.object(frappe, "new_doc", return_value=blob),
             self.assertRaises(frappe.QueryDeadlockError) as raised,
         ):
-            self.storage.insert_blob(key="ab/cd/x", checksum="x", size=12, mime_type="text/plain")
+            self.storage.insert_blob(
+                name="b7x2k9q4mz",
+                key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
+                checksum="x",
+                size=12,
+                mime_type="text/plain",
+            )
 
         self.assertIs(raised.exception, deadlock)
 
@@ -263,6 +269,12 @@ class TestTheBuildBlobInsertReportsItsDeadlock(StubbedDatabase):
         blob.insert.side_effect = frappe.UniqueValidationError("File Blob")
 
         with patch.object(frappe, "new_doc", return_value=blob), self.assertRaises(BlobConflict):
-            self.storage.insert_blob(key="ab/cd/x", checksum="x", size=12, mime_type="text/plain")
+            self.storage.insert_blob(
+                name="b7x2k9q4mz",
+                key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
+                checksum="x",
+                size=12,
+                mime_type="text/plain",
+            )
 
         self.db.rollback.assert_called_once_with(save_point="drive_build_insert_blob")
