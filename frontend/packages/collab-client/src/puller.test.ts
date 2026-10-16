@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 
+import { APPLIED_UPDATE, REMOTE } from './origins'
 import { device, fakeServer, join, text } from './test-support'
 
 describe('collab room', () => {
@@ -92,6 +94,24 @@ describe('collab room', () => {
       false,
       1,
     ])
+  })
+
+  it('applies a pull in one transaction that carries the update it applied', async () => {
+    const server = fakeServer()
+    const writer = await join(server.endpoints())
+    writer.doc.getText('t').insert(0, 'one two')
+    await writer.flush()
+    const reader = await join(server.endpoints())
+    const transactions: [boolean, unknown][] = []
+    reader.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+      transactions.push([transaction.origin === REMOTE, transaction.meta.get(APPLIED_UPDATE)])
+    })
+
+    writer.doc.getText('t').delete(0, 4)
+    await writer.flush()
+    await reader.pull()
+    expect(text(reader)).toBe('two')
+    expect(transactions).toEqual([[true, server.rows[1].bytes]])
   })
 
   it('two writers converge on the server order after a poll', async () => {

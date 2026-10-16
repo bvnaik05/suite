@@ -7,7 +7,7 @@ import type { RestoreFence } from './fence'
 import { decodeFrame, parseHeld, type Limits, type PullHeader, type Row } from './frames'
 import type { Live } from './live'
 import type { Opening } from './opening'
-import { REMOTE } from './origins'
+import { APPLIED_UPDATE, REMOTE } from './origins'
 import type { Answer, Held } from './types'
 import type { SuspectReport } from './verdict'
 
@@ -98,7 +98,11 @@ export class Puller {
         bytes = Y.mergeUpdates(parts)
       }
       if (bytes) {
-        Y.applyUpdate(room.doc, bytes, REMOTE)
+        const applied = bytes
+        room.doc.transact((transaction) => {
+          transaction.meta.set(APPLIED_UPDATE, applied)
+          Y.applyUpdate(room.doc, applied, REMOTE)
+        }, REMOTE)
       }
     } catch {
       // Yjs keeps what it applied, so this copy follows nothing more until the server judges the rows
