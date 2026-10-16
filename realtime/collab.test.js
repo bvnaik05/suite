@@ -171,7 +171,7 @@ test("presence carries the user the server verified, never one the tab names", a
 	[writer, guest, watcher].forEach((tab) => tab.close());
 });
 
-test("every tab hears when each other tab connected, whatever order they entered the room in", async () => {
+test("tabs rank by when they first asked for rooms, not when their socket connected", async () => {
 	const nsp = fakeSite();
 	const first = connect(nsp, "first@example.com");
 	const second = connect(nsp, "second@example.com");
@@ -183,12 +183,12 @@ test("every tab hears when each other tab connected, whatever order they entered
 	first.sendPresence([roomB], { cursor: null });
 	await waitForFlush();
 
-	const [firstArrival, secondArrival] = ranked(thirdReply.roster).map((entry) => entry.arrival);
+	const [secondArrival, firstArrival] = ranked(thirdReply.roster).map((entry) => entry.arrival);
 	assert.deepEqual(
 		ranked(thirdReply.roster).map((entry) => entry.user),
-		["first@example.com", "second@example.com"],
+		["second@example.com", "first@example.com"],
 	);
-	assert.ok(firstArrival < secondArrival && secondArrival < thirdReply.arrival);
+	assert.ok(secondArrival < firstArrival && firstArrival < thirdReply.arrival);
 	const joins = second.heard("suite_collab_presence_join");
 	assert.deepEqual(
 		joins.map((join) => [join.user, join.arrival]),
@@ -202,12 +202,16 @@ test("every tab hears when each other tab connected, whatever order they entered
 		states.map((state) => [state.user, state.arrival]),
 		[["first@example.com", firstArrival]],
 	);
+
+	await first.joinRooms([]);
+	const rejoined = await first.joinRooms([roomC]);
+	assert.equal(rejoined.arrival, firstArrival);
 	for (const tab of [first, second, third]) {
 		tab.close();
 	}
 });
 
-// Members by when they connected
+// Members by arrival
 function ranked(members) {
 	return [...members].sort((one, other) => one.arrival - other.arrival);
 }

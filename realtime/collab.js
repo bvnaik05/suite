@@ -19,14 +19,14 @@ const sites = new Map();
 // Per site: whether sockets may join, asked of the site at most every 30 s
 const joinableBySite = new Map();
 let flushTimer = null;
-// Counts sockets in the order they connect, so every tab ranks the people in a room the same way
+// Counts sockets as they first ask for rooms, so every tab ranks the people in a room the same way
 let arrivals = 0;
 
 const is_room = (room) => typeof room === "string" && ROOM_PATTERN.test(room);
 
 const collab_handlers = (socket) => {
 	const pid = 2 ** 31 + crypto.randomInt(2 ** 31);
-	const arrival = ++arrivals;
+	let arrival = null;
 	const user = socket.user;
 	const isGuest = !user || user === "Guest";
 	const joinedRooms = new Set();
@@ -128,6 +128,9 @@ const collab_handlers = (socket) => {
 	function set_rooms(rooms) {
 		const site = site_of(socket);
 		const wanted = new Set(rooms);
+		if (wanted.size) {
+			arrival ??= ++arrivals;
+		}
 
 		for (const room of [...joinedRooms]) {
 			if (wanted.has(room)) continue;
