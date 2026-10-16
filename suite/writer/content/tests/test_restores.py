@@ -1,3 +1,5 @@
+import base64
+import gzip
 import json
 import uuid
 from datetime import timedelta
@@ -10,7 +12,10 @@ from frappe.utils import now_datetime
 
 from suite import drive
 from suite.composition import content as routes
+from suite.drive._core.principals import Principals
+from suite.drive._core.versions import read_version
 from suite.writer.content.tests.support import (
+    WRITER,
     CheckpointCase,
     answer,
     call_route,
@@ -41,6 +46,18 @@ class TestRestoreFence(CheckpointCase):
     def milestones(self) -> list[str]:
         rows = drive.list_versions(self.node)["rows"]
         return [row["label"] for row in rows if row["kind"] == "milestone"]
+
+    def milestone_seq(self, label: str) -> int:
+        rows = drive.list_versions(self.node)["rows"]
+        return next(row["seq"] for row in rows if row["label"] == label)
+
+    # The document state a version holds, as its stored bytes give it
+    def version_state(self, seq: int) -> bytes:
+        owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        with read_version(owner, self.node, seq) as stream:
+            payload = json.loads(stream.read())
+
+        return gzip.decompress(base64.b64decode(payload["state"]))
 
     def test_a_restore_begins_at_the_head_and_holds_every_other_push(self):
         status, fence = self.begin()
@@ -217,6 +234,20 @@ class TestRestoreFence(CheckpointCase):
         _status, refusal = self.begin()
         self.assertEqual(refusal["collab"], "restore_recent")
 
+    def test_a_restore_can_be_undone_by_restoring_the_version_before_it(self):
+        restoring = self.open_tab()
+        _status, fence = self.begin(version=1)
+        self.push_word(restoring, "old ", restore=fence["token"])
+        self.set_doc(self.node, restored_at=now_datetime() - timedelta(seconds=61))
+
+        undoing = self.open_tab()
+        before = self.milestone_seq("Before restoring version 1")
+        _status, fence = self.begin(version=before)
+        status, _landed = self.push_restore(undoing, self.version_state(before), fence["token"])
+
+        body = self.open_tab().doc.get("default", type=pycrdt.XmlFragment)
+        self.assertEqual((status, str(body)), (200, "one two"))
+
     # A tab opened on the document now, holding every row through the head
     def open_tab(self) -> frappe._dict:
         sid = uuid.uuid4().hex
@@ -237,6 +268,18 @@ class TestRestoreFence(CheckpointCase):
     def push_word(self, tab: frappe._dict, word: str, *, restore: str | None = None) -> tuple[int, dict]:
         seen = tab.doc.get_state()
         tab.doc.get("default", type=pycrdt.XmlFragment).children[0].insert(0, word)
+        return self.send(tab, seen, restore=restore)
+
+    # The tab writes the text `state` holds in place of its own, as the restoring tab does, and sends it
+    def push_restore(self, tab: frappe._dict, state: bytes, token: str) -> tuple[int, dict]:
+        seen = tab.doc.get_state()
+        body = tab.doc.get("default", type=pycrdt.XmlFragment)
+        del body.children[0 : len(body.children)]
+        body.children.append(pycrdt.XmlText(self.text_of(state)))
+        return self.send(tab, seen, restore=token)
+
+    # The tab's edits since `seen`, sent as its next push
+    def send(self, tab: frappe._dict, seen: bytes, *, restore: str | None) -> tuple[int, dict]:
         tab.seq += 1
         lineage = tab.header["lineage"]
         update = tab.doc.get_update(seen)
