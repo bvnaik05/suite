@@ -253,6 +253,7 @@
                     v-else
                     :mailbox
                     :drafts="mailbox === mailboxIds.drafts"
+                    :unarchive="mailbox === mailboxIds.archive"
                     :mail="row.thread"
                     :account-id="isAllAccountsSearch ? row.thread.account : undefined"
                     :account-label="
@@ -270,6 +271,7 @@
                     @drag-end="threadDrag.end()"
                     @set-seen="(seen: boolean) => rowSetSeen(row.thread, seen)"
                     @archive-thread="rowArchive(row.thread)"
+                    @unarchive-thread="handleUnarchiveThreads([row.thread.thread_id])"
                     @trash-thread="rowTrash(row.thread)"
                     @delete-thread="junkOrDeleteThreads([row.thread.thread_id], false)"
                     @set-flagged="(flagged: boolean) => rowSetFlagged(row.thread, flagged)"
@@ -327,6 +329,7 @@
           @sync-unseen="handleSyncUnseen"
           @set-flagged="(ids: string[], flagged: boolean) => setFlaggedSubmit({ ids, flagged })"
           @archive-thread="handleArchiveThreads([threadID!])"
+          @unarchive-thread="handleUnarchiveThreads([threadID!])"
           @move-thread="
             (moveToMailbox: string) => handleMoveThreads({ [moveToMailbox]: [threadID!] })
           "
@@ -719,6 +722,7 @@ const selectActions = buildSelectActions(
     star: () => setFlaggedByThreadIDs(selections.value, true),
     unstar: () => setFlaggedByThreadIDs(selections.value, false),
     archive: () => handleArchiveThreads(selections.value),
+    unarchive: () => handleUnarchiveThreads(selections.value),
     junk: () => junkOrDeleteThreads(selections.value, true),
     notJunk: () => handleSetSpamStatus({ 0: selections.value }),
     trash: () => handleMoveThreads({ [mailboxIds.trash]: selections.value }),
@@ -1082,6 +1086,7 @@ const {
   setFlaggedByThreadIDs,
   handleMoveThreads,
   handleArchiveThreads,
+  handleUnarchiveThreads,
   handleSetSpamStatus,
   handleAddThreadsToMailbox,
   handleRemoveThreadsFromMailbox,

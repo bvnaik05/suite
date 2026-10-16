@@ -8321,7 +8321,7 @@ export const operationFileMails: Validators<FileMailsInput, FileMailsOutput> = {
           account: { title: 'Account', type: 'string' },
           ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
           action: {
-            enum: ['archive', 'move', 'junk', 'not_junk', 'trash'],
+            enum: ['archive', 'unarchive', 'move', 'junk', 'not_junk', 'trash'],
             title: 'Action',
             type: 'string',
           },

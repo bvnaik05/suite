@@ -110,6 +110,7 @@ import { Button, Checkbox } from 'frappe-ui'
 import { Icon } from 'frappe-ui/experimental'
 import {
   Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
   ChevronLeft,
@@ -151,6 +152,7 @@ const emit = defineEmits([
   'setFlagged',
   'setSeen',
   'archiveThread',
+  'unarchiveThread',
   'moveThread',
   'addThreadToMailbox',
   'removeThreadFromMailbox',
@@ -217,6 +219,16 @@ const moreActions = computed((): Action[] => [
       !inDrafts.value &&
       holdsReceived.value &&
       !threadMailboxes.value.includes(mailboxIds.value.archive),
+  },
+  // Archive reversed, in Archive itself. Not in All Inboxes yet, whose list files by its own paths.
+  {
+    label: __('Unarchive'),
+    onClick: () => emit('unarchiveThread'),
+    icon: ArchiveRestore,
+    condition: () =>
+      route.name !== UNIFIED_THREAD_ROUTE &&
+      mailbox.value === mailboxIds.value.archive &&
+      holdsReceived.value,
   },
   {
     label: __('Mark as Junk (!)'),

@@ -52,8 +52,10 @@
         :is-hovered
         :threads="[mail]"
         :drafts
+        :unarchive
         @set-seen="(seen: boolean) => emit('setSeen', seen)"
         @archive="emit('archiveThread')"
+        @unarchive="emit('unarchiveThread')"
         @trash="emit('trashThread')"
         @delete="emit('deleteThread')"
         @set-flagged="(flagged: boolean) => emit('setFlagged', flagged)"
@@ -190,6 +192,7 @@ const {
   selectable = true,
   hideSender = false,
   drafts = false,
+  unarchive = false,
   selectionMode = false,
   threadRouteName = 'mail-mail',
   hideAvatar = false,
@@ -210,6 +213,8 @@ const {
   hideSender?: boolean
   // The list is Drafts, so the row's bin discards (see MailRowActions).
   drafts?: boolean
+  // The list is Archive and can take the row back to the Inbox (see MailRowActions).
+  unarchive?: boolean
   // Whether the row can be dragged onto a folder; the view decides, since only it
   // knows whether a selection is riding along.
   draggable?: boolean
@@ -231,6 +236,7 @@ const {
 const emit = defineEmits([
   'setSeen',
   'archiveThread',
+  'unarchiveThread',
   'trashThread',
   'deleteThread',
   'setFlagged',

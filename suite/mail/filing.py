@@ -10,6 +10,7 @@ here, so the lists, All Inboxes and the open thread can't each grow their own.
 | Action      | Mail you received                        | Your sent mail        | A draft   |
 |-------------|------------------------------------------|-----------------------|-----------|
 | archive     | Inbox → Archive (Archive added if not)*  | stays in Sent         | untouched |
+| unarchive   | Archive → Inbox, other folders kept      | untouched             | untouched |
 | move        | leaves every folder for the target       | target, keeps Sent**  | untouched |
 | junk        | leaves every folder for Junk, marked     | stays in Sent         | untouched |
 | not_junk    | Junk → Inbox, mark cleared               | untouched             | untouched |
@@ -28,8 +29,8 @@ from suite.mail.doctype.user_account.user_account import get_user_for_jmap_accou
 from suite.mail.jmap import chunked_get, chunked_set, get_account_client, get_mailbox_id_by_role
 from suite.mail.utils import log_mail_error
 
-Action = Literal["archive", "move", "junk", "not_junk", "trash"]
-ACTIONS: tuple[Action, ...] = ("archive", "move", "junk", "not_junk", "trash")
+Action = Literal["archive", "unarchive", "move", "junk", "not_junk", "trash"]
+ACTIONS: tuple[Action, ...] = ("archive", "unarchive", "move", "junk", "not_junk", "trash")
 
 
 class Roles(TypedDict):
@@ -84,6 +85,11 @@ def plan(action: Action, emails: list[dict], roles: Roles, target: str | None = 
             update |= {f"mailboxIds/{box}": None for box in leaving}
             if junked:
                 update |= {"keywords/$junk": None, "keywords/$notjunk": True}
+        elif action == "unarchive":
+            # Archive reversed: back in the Inbox, every other folder as it was.
+            if own or roles["archive"] not in boxes:
+                continue
+            update = {f"mailboxIds/{roles['archive']}": None, f"mailboxIds/{roles['inbox']}": True}
         elif action == "move":
             if own:
                 # Filed with the conversation, but never into the Inbox: that holds mail you received.

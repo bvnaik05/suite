@@ -6018,7 +6018,7 @@ const operationMoveMails: MutationRef<MoveMailsInput, MoveMailsOutput, MoveMails
 export type FileMailsInput = {
   account: string
   ids: Array<string>
-  action: 'archive' | 'move' | 'junk' | 'not_junk' | 'trash'
+  action: 'archive' | 'unarchive' | 'move' | 'junk' | 'not_junk' | 'trash'
   mailbox?: string | null
   screen_action?: string | null
   leaves?: string | null

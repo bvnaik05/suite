@@ -18652,6 +18652,7 @@
           "action": {
             "enum": [
               "archive",
+              "unarchive",
               "move",
               "junk",
               "not_junk",

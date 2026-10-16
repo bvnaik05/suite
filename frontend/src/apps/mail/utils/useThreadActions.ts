@@ -816,11 +816,14 @@ export function useThreadActions(deps: {
       (done) => !!done,
     )
   }
-  // Archive clears the Inbox: the conversation's received mail swaps Inbox for Archive, or just gains
-  // Archive where it wasn't in the Inbox, and your own mail stays where it is. So only the Inbox loses
-  // the row; archived from a folder of yours, Sent or Starred the conversation stays put, and the
-  // toast says it was added to Archive rather than archived.
-  const archiveThreads = (threadIds: string[]) => {
+  // Archive and Unarchive file a conversation in place: the rows leave only the list named as left,
+  // and Undo puts each message back exactly. `told` reads the toast off the server's answer.
+  const fileInPlace = (
+    action: 'archive' | 'unarchive',
+    threadIds: string[],
+    leaves: boolean,
+    told: (filed: { left_inbox: boolean }) => string,
+  ) => {
     if (!threadIds.length) return
     const mails = threadMails(threadIds)
     const snapshot = mails.map((m) => ({
@@ -828,14 +831,12 @@ export function useThreadActions(deps: {
       mailbox_ids: m.mailboxes.map((mb) => mb.mailbox_id),
       junk: m.junk,
     }))
-    const leaves = mailbox.value === mailboxIds.inbox
-    const many = threadIds.length > 1
     setUndoAction(undefined)
     const removed = leaves ? handleSuccessAndRemoveFromList(threadIds, false) : []
     let forwardOk = false
     const forward = fileMailsSubmit({
       ids: mails.map((m) => m.id),
-      action: 'archive',
+      action,
       leaves: leaves ? mailbox.value : null,
     }).then(
       (filed) => {
@@ -862,24 +863,38 @@ export function useThreadActions(deps: {
             mailboxes.refetch().catch(() => {})
             if (!leaves) resetThreads()
           })
-          raiseOptimisticToast(restore, many ? __('Threads moved back.') : __('Thread moved back.'))
+          raiseOptimisticToast(
+            restore,
+            threadIds.length > 1 ? __('Threads moved back.') : __('Thread moved back.'),
+          )
         })(),
     )
-    raiseOptimisticToast(
-      forward,
-      (filed) =>
-        !filed.left_inbox
-          ? __('Added to Archive.')
-          : many
-            ? __('Threads archived.')
-            : __('Thread archived.'),
-      undo,
-    )
+    raiseOptimisticToast(forward, told, undo)
     return forward.then(
       () => true,
       () => false,
     )
   }
+
+  // Archive clears the Inbox: the conversation's received mail swaps Inbox for Archive, or just gains
+  // Archive where it wasn't in the Inbox, and your own mail stays where it is. So only the Inbox loses
+  // the row; archived from a folder of yours, Sent or Starred the conversation stays put, and the
+  // toast says it was added to Archive rather than archived.
+  const archiveThreads = (threadIds: string[]) =>
+    fileInPlace('archive', threadIds, mailbox.value === mailboxIds.inbox, (filed) =>
+      !filed.left_inbox
+        ? __('Added to Archive.')
+        : threadIds.length > 1
+          ? __('Threads archived.')
+          : __('Thread archived.'),
+    )
+
+  // Archive reversed: the received mail goes back from Archive to the Inbox, every other folder kept,
+  // and your own mail stays where it is. Only Archive loses the row.
+  const unarchiveThreads = (threadIds: string[]) =>
+    fileInPlace('unarchive', threadIds, mailbox.value === mailboxIds.archive, () =>
+      threadIds.length > 1 ? __('Threads unarchived.') : __('Thread unarchived.'),
+    )
 
   const setSpamStatus = (threadIDs: SetSeenParams) => {
     const selectedThreads = Object.values(threadIDs).flat()
@@ -1165,6 +1180,13 @@ export function useThreadActions(deps: {
     return result
   }
 
+  const handleUnarchiveThreads = (threadIds: string[]) => {
+    const touched = touchedRows(threadIds)
+    const result = unarchiveThreads(threadIds)
+    screener.acceptOnAction(touched, landedOf(result))
+    return result
+  }
+
   const handleAddThreadsToMailbox = (mailboxId: string, threadIds: string[], isUndo = false) => {
     const touched = touchedRows(threadIds)
     const result = addThreadsToMailbox(mailboxId, threadIds, isUndo)
@@ -1197,6 +1219,7 @@ export function useThreadActions(deps: {
     setFlaggedByThreadIDs,
     handleMoveThreads,
     handleArchiveThreads,
+    handleUnarchiveThreads,
     handleSetSpamStatus,
     handleAddThreadsToMailbox,
     handleRemoveThreadsFromMailbox,

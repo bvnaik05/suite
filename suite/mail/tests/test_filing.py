@@ -21,6 +21,18 @@ def email(id: str, *boxes: str, **keywords: bool) -> dict:
     return {"id": id, "mailboxIds": dict.fromkeys(boxes, True), "keywords": keywords}
 
 
+def apply(email: dict, update: dict) -> dict:
+    """The message as an update of per-folder patches leaves it."""
+    boxes = dict(email["mailboxIds"])
+    for key, value in update.items():
+        box = key.removeprefix("mailboxIds/")
+        if value is None:
+            boxes.pop(box, None)
+        else:
+            boxes[box] = value
+    return {**email, "mailboxIds": boxes}
+
+
 # A conversation: a question in the Inbox also filed in Projects, your reply, and a reply draft.
 QUESTION = email("q", "inbox", "projects")
 REPLY = email("r", "sent")
@@ -63,6 +75,20 @@ class TestArchive(UnitTestCase):
         self.assertTrue(left_inbox(from_inbox, CONVERSATION, ROLES))
         filed = [email("p", "projects")]
         self.assertFalse(left_inbox(plan("archive", filed, ROLES), filed, ROLES))
+
+
+class TestUnarchive(UnitTestCase):
+    def test_brings_received_mail_back_to_the_inbox_and_keeps_its_folders(self):
+        archived = [email("q", "archive", "projects"), email("r", "sent"), email("p", "projects")]
+        self.assertEqual(
+            plan("unarchive", archived, ROLES),
+            {"q": {"mailboxIds/archive": None, "mailboxIds/inbox": True}},
+        )
+
+    def test_takes_an_archived_conversation_back_to_where_it_was(self):
+        archived = apply(QUESTION, plan("archive", [QUESTION], ROLES)["q"])
+        unarchived = apply(archived, plan("unarchive", [archived], ROLES)["q"])
+        self.assertEqual(unarchived["mailboxIds"], QUESTION["mailboxIds"])
 
 
 class TestMove(UnitTestCase):

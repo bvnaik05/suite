@@ -1,5 +1,6 @@
 import {
   Archive,
+  ArchiveRestore,
   CircleAlert,
   CircleCheck,
   Mail as MailIcon,
@@ -28,6 +29,8 @@ export interface SelectHandlers {
   star: () => void
   unstar: () => void
   archive: () => void
+  // Where the list files by the filing rules (a single account's); left out elsewhere.
+  unarchive?: () => void
   junk: () => void
   notJunk: () => void
   trash: () => void
@@ -74,6 +77,13 @@ export const selectActions = (
       onClick: run.archive,
       icon: Archive,
       condition: () => !folder().archive && notDrafts(received)(),
+    },
+    {
+      label: __('Unarchive'),
+      shortLabel: __('Unarchive'),
+      onClick: () => run.unarchive?.(),
+      icon: ArchiveRestore,
+      condition: () => folder().archive && !!run.unarchive && notDrafts(received)(),
     },
     {
       label: __('Mark as Junk (!)'),

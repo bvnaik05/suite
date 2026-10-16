@@ -1347,7 +1347,7 @@ def file_mails(
     screen_action: str | None = None,
     leaves: str | None = None,
 ) -> Filed:
-    """Archives, moves, junks, un-junks or trashes the given mails — a conversation's, usually — by
+    """Archives, unarchives, moves, junks, un-junks or trashes the given mails — a conversation's, usually — by
     the filing rules (see `suite.mail.filing`), optionally screening their senders with
     `screen_action` (Spam on Junk, Accepted on Not junk) in the same request.
 

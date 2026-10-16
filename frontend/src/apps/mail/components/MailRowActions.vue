@@ -33,7 +33,7 @@
 
 <script setup lang="ts">
 import { Tooltip } from 'frappe-ui'
-import { Archive, Mail, MailOpen, Star, Trash2 } from 'lucide-vue-next'
+import { Archive, ArchiveRestore, Mail, MailOpen, Star, Trash2 } from 'lucide-vue-next'
 import { computed } from 'vue'
 
 import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
@@ -52,6 +52,7 @@ const {
   isHovered,
   threads,
   showStar = true,
+  unarchive = false,
   drafts = false,
 } = defineProps<{
   isHovered: boolean
@@ -59,12 +60,14 @@ const {
   threads: Thread[]
   // Off for stacks, where the chevron occupies the star's slot.
   showStar?: boolean
+  // The list is Archive and files by the filing rules, so it can take a thread back to the Inbox.
+  unarchive?: boolean
   // The list is Drafts: its bin discards rather than trashes. Asked of the list, not the thread —
   // a conversation with a reply draft is filed in Drafts and in Inbox alike.
   drafts?: boolean
 }>()
 
-const emit = defineEmits(['setSeen', 'archive', 'trash', 'delete', 'setFlagged'])
+const emit = defineEmits(['setSeen', 'archive', 'unarchive', 'trash', 'delete', 'setFlagged'])
 
 const { isMobile } = useScreenSize()
 const { mailboxIds } = userStore()
@@ -117,6 +120,12 @@ const actions = computed(() =>
       onClick: () => emit('archive'),
       icon: Archive,
       condition: !drafts && holdsReceived.value && !everyIn(archiveId.value),
+    },
+    {
+      label: many.value ? __('Unarchive {0} threads', [count.value]) : __('Unarchive'),
+      onClick: () => emit('unarchive'),
+      icon: ArchiveRestore,
+      condition: unarchive && !drafts && holdsReceived.value && everyIn(archiveId.value),
     },
     {
       label: many.value ? __('Move {0} threads to Trash', [count.value]) : __('Move to Trash'),

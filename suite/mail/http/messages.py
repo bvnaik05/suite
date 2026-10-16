@@ -104,7 +104,7 @@ class MoveInput(IdsInput):
 
 
 class FileInput(IdsInput):
-    action: Literal["archive", "move", "junk", "not_junk", "trash"]
+    action: Literal["archive", "unarchive", "move", "junk", "not_junk", "trash"]
     mailbox: NotRequired[str | None]
     screen_action: NotRequired[str | None]
     leaves: NotRequired[str | None]

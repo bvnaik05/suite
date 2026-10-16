@@ -8,6 +8,7 @@
       @set-flagged="onSetFlagged"
       @set-seen="setThreadSeen"
       @archive-thread="emit('archiveThread')"
+      @unarchive-thread="emit('unarchiveThread')"
       @move-thread="onMoveThread"
       @add-thread-to-mailbox="(mailboxId: string) => fileThread(mailboxId, true)"
       @remove-thread-from-mailbox="(mailboxId: string) => fileThread(mailboxId, false)"
@@ -814,6 +815,7 @@ const emit = defineEmits([
   'reloadMails',
   'setSpamStatus',
   'archiveThread',
+  'unarchiveThread',
   'deleteThread',
   'setSeen',
   'setFlagged',
