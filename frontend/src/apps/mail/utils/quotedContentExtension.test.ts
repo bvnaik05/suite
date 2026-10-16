@@ -169,6 +169,19 @@ describe('QuotedContentExtension', () => {
       editor.destroy()
     })
 
+    it('answers above the first quoted line on Enter there, and the reader shows the answer', () => {
+      const editor = mounted(`<div>See below.</div>${QUOTE}`)
+      const el = quoteIn(editor)
+      document.getSelection()!.collapse(el.querySelector('blockquote div')!.firstChild!, 0)
+      pressEnter(el)
+      type(el, () => (document.getSelection()!.anchorNode!.textContent = 'All confirmed.'))
+
+      expect(readerSees(editor.getHTML())).toBe(
+        'See below.On 9 Sep 2026, a@b.c wrote:All confirmed.',
+      )
+      editor.destroy()
+    })
+
     it('leaves Enter to the browser outside the quoted lines', () => {
       const editor = mounted(
         `<div>FYI</div><div class="frappe_mail_fwd"><div>The invoice.</div></div>`,

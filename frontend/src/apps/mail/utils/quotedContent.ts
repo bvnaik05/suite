@@ -72,13 +72,24 @@ const attributionBefore = (quote: Element) => {
   return prev && hasClass(prev, CITE_PREFIX_CLASS) ? prev : null
 }
 
-// The first line of a trail: its first child that holds anything.
-const firstLine = (trail: Element) => {
-  for (const node of Array.from(trail.childNodes)) {
-    if (node.nodeName === 'BR' || !node.textContent?.trim()) continue
-    return node.textContent
+// The first line of a trail: its first child that holds anything. In a reply it is the
+// attribution, "On … wrote:".
+const firstLineNode = (trail: Element) =>
+  Array.from(trail.childNodes).find((node) => node.nodeName !== 'BR' && node.textContent?.trim())
+const firstLine = (trail: Element) => firstLineNode(trail)?.textContent ?? ''
+
+const BLOCK = /^(?:DIV|P|BLOCKQUOTE|TABLE|UL|OL|PRE|H[1-6])$/
+// The attribution line itself: Gmail's is one element, but plenty of clients write it as a run of
+// text and inline markup ("On …, <span>name</span> wrote:") that ends at a line break or a block.
+const attributionNodes = (trail: Element): Node[] => {
+  const first = firstLineNode(trail)
+  if (!first || BLOCK.test(first.nodeName)) return first ? [first] : []
+  const run: Node[] = []
+  for (let node: Node | null = first; node; node = node.nextSibling) {
+    if (node.nodeName === 'BR' || BLOCK.test(node.nodeName)) break
+    run.push(node)
   }
-  return ''
+  return run
 }
 
 // The line above a cite blockquote, where iPhone Mail puts "Begin forwarded message:".
@@ -136,36 +147,52 @@ export const findQuoteRoots = (root: ParentNode): Element[] => {
       return true
     })
 
-  // What the writer typed inside a trail, around the lines they quote.
+  // What the writer typed inside a trail, around the lines they quote — anything that is neither
+  // quoted nor the attribution line, above the first quoted line as much as between them.
   const isQuoted = (node: Node, trail: Element) => {
     for (let p = node.parentElement; p && p !== trail; p = p.parentElement)
       if (p.tagName === 'BLOCKQUOTE' || candidates.has(p)) return true
     return false
   }
+  const isAnswer = (node: Node, trail: Element) =>
+    !isQuoted(node, trail) && !attributionNodes(trail).some((line) => line.contains(node))
+  const hasWriterText = (trail: Element) => textNodes(trail).some((node) => isAnswer(node, trail))
   const hasWriterTextAfter = (trail: Element, quote: Element) =>
     textNodes(trail).some(
       (node) =>
         !quote.contains(node) &&
         quote.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING &&
-        !isQuoted(node, trail),
+        isAnswer(node, trail),
     )
   // Only a container can hold an answer: everything inside a quoted blockquote is the quoted
   // author's, their own inline answers included, and Outlook's trail is quoted as a whole.
-  const firstQuote = (trail: Element) =>
-    trail.tagName !== 'BLOCKQUOTE' && hasClass(trail, QUOTE_CLASS)
-      ? Array.from(trail.querySelectorAll('*')).find(
-          (el) => el.tagName === 'BLOCKQUOTE' || candidates.has(el),
-        )
-      : undefined
+  const quotesAnswers = (trail: Element) =>
+    trail.tagName !== 'BLOCKQUOTE' &&
+    hasClass(trail, QUOTE_CLASS) &&
+    !!trail.querySelector('blockquote') &&
+    hasWriterText(trail)
+  // The quoted blocks directly inside a trail the writer answered in: the trails it holds, and the
+  // plain blockquotes our own composer splits a quote into when the writer answers inside it.
+  const quotedBlocks = (trail: Element) => {
+    const blocks = new Set(
+      [...candidates, ...Array.from(trail.querySelectorAll('blockquote'))].filter(
+        (el) => el !== trail && trail.contains(el),
+      ),
+    )
+    return Array.from(blocks).filter((el) => {
+      for (let p = el.parentElement; p && p !== trail; p = p.parentElement)
+        if (blocks.has(p)) return false
+      return true
+    })
+  }
 
   // A forward stays, and so does a trail the writer answered inside — of those, only history
   // with nothing of theirs after it folds away.
   const trailsIn = (trail: Element): Element[] => {
     if (isForward(trail)) return outermost(trail).flatMap(trailsIn)
-    const quote = firstQuote(trail)
-    if (quote && hasWriterTextAfter(trail, quote))
-      return outermost(trail)
-        .filter((inner) => !hasWriterTextAfter(trail, inner))
+    if (quotesAnswers(trail))
+      return quotedBlocks(trail)
+        .filter((block) => !hasWriterTextAfter(trail, block))
         .flatMap(trailsIn)
     return [trail]
   }

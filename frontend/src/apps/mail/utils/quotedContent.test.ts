@@ -199,6 +199,38 @@ describe('findQuoteRoots', () => {
       expect(findQuoteRoots(doc)).toHaveLength(0)
     })
 
+    it('reads an attribution written as text and inline markup as one line', () => {
+      const doc = parseDoc(
+        '<div>Following up.</div>' +
+          '<div class="gmail_quote">On Tue, 7 Jul, Amy <span>&lt;amy@x.test&gt;</span> wrote:<br>' +
+          '<blockquote class="gmail_quote">Any thoughts?</blockquote></div>',
+      )
+      expect(findQuoteRoots(doc)).toHaveLength(1)
+      expect(visibleText(doc)).toBe('Following up.')
+    })
+
+    it('shows an answer typed above the first quoted line, folding the quote under it', () => {
+      const doc = parseDoc(
+        '<div>See below.</div>' +
+          '<div class="frappe_mail_quote">On 9 Sep, a@b.c wrote:' +
+          '<div>Yes, all three.</div>' +
+          '<blockquote>Can you confirm the three points?</blockquote></div>',
+      )
+      expect(findQuoteRoots(doc)).toHaveLength(1)
+      expect(visibleText(doc)).toBe('See below.On 9 Sep, a@b.c wrote:Yes, all three.')
+    })
+
+    it('folds the history after the last answer typed inside our own quote', () => {
+      const doc = parseDoc(
+        '<div>See below.</div>' +
+          '<div class="frappe_mail_quote">On 9 Sep, a@b.c wrote:' +
+          '<blockquote>Can you ship on Friday?</blockquote><div>Yes.</div>' +
+          '<blockquote>Thanks, A. On 8 Sep, B wrote: older</blockquote></div>',
+      )
+      expect(findQuoteRoots(doc)).toHaveLength(1)
+      expect(visibleText(doc)).toBe('See below.On 9 Sep, a@b.c wrote:Can you ship on Friday?Yes.')
+    })
+
     it('shows a mail that is nothing but a quote', () => {
       const doc = parseDoc(
         '<style>p { margin: 0 }</style>' +
