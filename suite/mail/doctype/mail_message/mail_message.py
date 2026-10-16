@@ -3,6 +3,7 @@
 
 import json
 import re
+import time
 from contextlib import suppress
 from email.utils import formataddr
 from functools import cached_property
@@ -916,6 +917,7 @@ def get_messages(account: str, ids: list[str]) -> list[dict]:
             ids_to_fetch.append(id)
 
     if ids_to_fetch:
+        fetched_at = time.time()
         client = get_account_client(account)
         properties = EMAIL_PROPERTIES + classification.EMAIL_PROPERTIES if classify else EMAIL_PROPERTIES
         emails = [
@@ -946,6 +948,10 @@ def get_messages(account: str, ids: list[str]) -> list[dict]:
             messages_to_cache[message["id"]] = message
             messages[message["id"]] = message
 
+        # A message changed through Suite since this read began may be held here as it was before:
+        # it is returned, but left for the next read to cache.
+        for id in _written_since(account, list(messages_to_cache), fetched_at):
+            messages_to_cache.pop(id)
         if messages_to_cache:
             _cache_messages(account, messages_to_cache)
 
@@ -1615,6 +1621,25 @@ def _cache_messages(account: str, messages: dict[str, dict]) -> None:
                 rebuild_email_address_index(account)
 
 
+# When each message was last changed through Suite: a read of the server that began before then may
+# hold the message as it was, and must not cache it. Kept a minute, far longer than a read takes.
+_WRITTEN_KEY = "mail:written:{}"
+_WRITTEN_KEEP = 60
+
+
+def _written_key(account: str, id: str) -> str:
+    return frappe.cache.make_key(_WRITTEN_KEY.format(account) + f":{id}")
+
+
+def _written_since(account: str, ids: list[str], since: float) -> set[str]:
+    """The given messages changed through Suite at or after `since`."""
+
+    if not ids:
+        return set()
+    stamps = frappe.cache.mget([_written_key(account, id) for id in ids])
+    return {id for id, at in zip(ids, stamps, strict=True) if at is not None and float(at) >= since}
+
+
 def _remove_cached_messages(account: str, ids: list[str]) -> None:
     """Remove messages from cache for the provided IDs.
 
@@ -1627,6 +1652,13 @@ def _remove_cached_messages(account: str, ids: list[str]) -> None:
 
     store = get_data_store(account)
     store.delete_many(Entity.EMAIL, keys=ids)
+    # Noted, so a read already on its way with the message as it was doesn't cache it back (see
+    # get_messages): a list reloading as a message is archived would otherwise keep it unarchived.
+    now = time.time()
+    with frappe.cache.pipeline() as pipe:
+        for id in ids:
+            pipe.set(_written_key(account, id), now, ex=_WRITTEN_KEEP)
+        pipe.execute()
 
 
 def _message_addresses(messages: list[dict]) -> list[dict]:
