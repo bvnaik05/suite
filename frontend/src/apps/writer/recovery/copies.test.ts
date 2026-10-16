@@ -6,6 +6,7 @@ import { BODY_FIELD } from '@/apps/writer/collab/field'
 
 import {
   copyEntries,
+  copyToClipboard,
   discardCopy,
   downloadCopy,
   keepPageCopy,
@@ -156,6 +157,42 @@ describe('Writer recovery copies', () => {
     click.mockRestore()
     delete url.createObjectURL
     delete url.revokeObjectURL
+  })
+
+  it('copying puts the copy on the clipboard, formatted where the browser allows', async () => {
+    let pasted: Record<string, string> = {}
+    const clipboard = {
+      async write([item]: { parts: Record<string, Blob> }[]) {
+        const parts = Object.entries(item.parts)
+        const read = parts.map(async ([type, blob]) => [type, await blob.text()])
+        pasted = Object.fromEntries(await Promise.all(read))
+      },
+      async writeText(text: string) {
+        pasted = { 'text/plain': text }
+      },
+    }
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        constructor(readonly parts: Record<string, Blob>) {}
+      },
+    )
+    keepPageCopy('node-1', 'Plan', '<p>Unsaved <b>work</b></p>')
+    const [copy] = await listCopies('node-1')
+
+    await copyToClipboard(copy)
+    expect(pasted).toEqual({
+      'text/html': '<p>Unsaved <b>work</b></p>',
+      'text/plain': 'Unsaved work',
+    })
+
+    vi.stubGlobal('ClipboardItem', undefined)
+    await copyToClipboard(copy)
+    expect(pasted).toEqual({ 'text/plain': 'Unsaved work' })
+
+    vi.unstubAllGlobals()
+    delete (navigator as { clipboard?: unknown }).clipboard
   })
 
   it('offers a copy as a standalone HTML file named after the document', async () => {
