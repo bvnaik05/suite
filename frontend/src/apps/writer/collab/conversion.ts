@@ -148,6 +148,13 @@ function holdsContent(part: AbstractType<unknown>) {
   return part instanceof XmlElement && !part.createTreeWalker(isContent).next().done
 }
 
+// Drive's table of contents, drawn from the headings, stores only the hint it showed
+const OLD_TOC = 'tocNode'
+
+function isDroppable(part: AbstractType<unknown>) {
+  return (part instanceof XmlElement && part.nodeName === OLD_TOC) || !holdsContent(part)
+}
+
 function lostParts(lost: AbstractType<unknown>[]): Dropped[] {
   return lost.map((type) => ({ kind: 'node', name: nameOf(type), text: textOf(type) }))
 }
@@ -220,9 +227,9 @@ function dropDriveDefaults(body: XmlFragment) {
 
 // The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
 // checked on its own by where the media points; Drive's defaults, dropped; the parts the build set
-// aside holding nothing, hidden or lost (recorded), left out of the source, so a lost part with
-// content fails; and the extras the result may hold, being the filler the build adds, declared
-// defaults and heading ids
+// aside holding nothing, hidden or lost (recorded), and Drive's table of contents, left out of the
+// source, so a lost part with content fails; and the extras the result may hold, being the filler
+// the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
@@ -231,10 +238,7 @@ function fromYjs(old: Doc) {
   dropDriveDefaults(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(body) === media
-  const source = inventory(
-    body,
-    new Set([...hidden, ...lost.filter((part) => !holdsContent(part))]),
-  )
+  const source = inventory(body, new Set([...hidden, ...lost.filter(isDroppable)]))
   return {
     node,
     dropped: [...lostParts(lost), ...pendingDrop(old)],

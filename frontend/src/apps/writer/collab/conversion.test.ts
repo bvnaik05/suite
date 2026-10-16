@@ -213,8 +213,9 @@ describe('convertLegacy', () => {
     expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one'), video), []])
   })
 
-  it('drops an old inline table of contents, records it and changes nothing else', () => {
-    const doc = legacyDoc(yParagraph('one'), new XmlElement('tocNode'), yParagraph('two'))
+  it("drops Drive's table of contents with its stored hint and records it (R341)", () => {
+    const toc = yAtom('tocNode', { placeholder: 'Table of Contents' })
+    const doc = legacyDoc(yParagraph('one'), toc, yParagraph('two'))
 
     const result = convert(stored(doc))
 
@@ -244,6 +245,29 @@ describe('convertLegacy', () => {
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
+
+  it.each([
+    {
+      name: 'a list',
+      outer: () =>
+        yElement(
+          'bulletList',
+          yElement('listItem', yParagraph('item')),
+          yAtom('image', { src: SRC }),
+        ),
+    },
+    {
+      name: 'a table row',
+      outer: () => yElement('table', yElement('tableRow', yAtom('image', { src: SRC }))),
+    },
+  ])(
+    'refuses a block image directly in $name, where no paragraph can hold it (R344)',
+    ({ outer }) => {
+      const legacy = stored(legacyDoc(yParagraph('one'), outer()))
+
+      expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    },
+  )
 
   it('refuses a part the editor cannot hold that stores an attribute', () => {
     const legacy = stored(legacyDoc(yParagraph('one'), yAtom('callout', { kind: 'note' })))
