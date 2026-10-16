@@ -7,6 +7,7 @@ import {
   idle,
   join,
   offlinePushes,
+  type FakeServer,
 } from '@suite/collab-client/test-support'
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -96,6 +97,7 @@ const lostQQ = {
   seen: 'defgh',
   runs: [{ offset: 2, text: 'QQ', attrs: {} }],
   written: expect.anything(),
+  pulled: expect.anything(),
   isUncertain: false,
 }
 
@@ -117,8 +119,8 @@ function roomText(room: CollabRoom, index: number) {
 }
 
 // Real rooms on one device: a tab whose pushes fail turns defgh into a heading reading `heading`,
-// this tab types QQ into the old block, then the other tab closes and this one takes its work on
-async function takeOverHeading(heading: string) {
+// this tab types QQ into the old block, `beforeClose` runs, then the other tab closes and this one takes its work on
+async function takeOverHeading(heading: string, beforeClose = async (_server: FakeServer) => {}) {
   fakeTime()
   const server = fakeServer()
   const first = await join(server.endpoints())
@@ -134,10 +136,11 @@ async function takeOverHeading(heading: string) {
   await vi.advanceTimersByTimeAsync(0)
   await idle()
   roomText(typing, 1).insert(2, 'QQ')
+  await beforeClose(server)
   await closing.close()
   await vi.advanceTimersByTimeAsync(60_000)
   await idle()
-  return { typing, reported }
+  return { first, typing, reported }
 }
 
 function roomBlocks(room: CollabRoom) {
@@ -261,6 +264,21 @@ describe('text the row could only type back in the wrong place (R278)', () => {
     expect(typingTab.reported).toEqual([lostQQ])
   })
 
+  it('reports when the row typed the text in two places around older text (R305)', async () => {
+    const tabs = await openTabs(threeParagraphs, 2)
+    const [deletingTab, typingTab] = tabs
+    deleteBlock(deletingTab, 1)
+    typeAt(deletingTab, 'xyz', 0, 'de')
+    typeAt(deletingTab, 'dexyz', 5, 'fgh')
+    typeQQ(typingTab, 'defgh')
+
+    await sendInOrder(tabs, tabs)
+
+    expect(blocks(deletingTab)).toEqual(['paragraph abc', 'paragraph dexyzfgh'])
+    expect(blocks(typingTab)).toEqual(blocks(deletingTab))
+    expect(typingTab.reported).toEqual([lostQQ])
+  })
+
   it('reports when the text is short, even where a whole run the row typed matches it', async () => {
     const tabs = await openTabs(stored(paragraph(text('ab')), paragraph(text('xyz'))), 2)
     const [headingTab, typingTab] = tabs
@@ -274,7 +292,14 @@ describe('text the row could only type back in the wrong place (R278)', () => {
     expect(blocks(headingTab)).toEqual(['heading aXb', 'paragraph xyzab'])
     expect(blocks(typingTab)).toEqual(blocks(headingTab))
     const runs = [{ offset: 2, text: 'QQ', attrs: {} }]
-    const lost = { kind: 'text', seen: 'ab', runs, written: expect.anything(), isUncertain: false }
+    const lost = {
+      kind: 'text',
+      seen: 'ab',
+      runs,
+      written: expect.anything(),
+      pulled: expect.anything(),
+      isUncertain: false,
+    }
     expect(typingTab.reported).toEqual([lost])
   })
 
@@ -396,6 +421,7 @@ describe('three tabs restructuring and typing at once', () => {
       seen: 'abc',
       runs,
       written: expect.anything(),
+      pulled: expect.anything(),
       isUncertain: true,
     }
     expect(typingTab.reported).toEqual([uncertain])
@@ -546,6 +572,57 @@ describe('a room watching for removals', () => {
     }
   })
 
+  // A third tab sends ZZ at `offset` in the old block once the type-back is out, so the taking-on
+  // tab never sees it, then pulls the taken-on heading and the type-back together
+  async function thirdTabTyping(offset: number) {
+    let third!: CollabRoom
+    const thirdReported: Removal[] = []
+    const { first, typing } = await takeOverHeading('defgh', async (server) => {
+      third = await join(server.endpoints(), { pollMs: 3_600_000 })
+      watchRemovals(third, (removals) => thirdReported.push(...removals))
+    })
+    await typing.flush()
+    expect(roomText(third, 1).toString()).toBe('defgh')
+    roomText(third, 1).insert(offset, 'ZZ')
+    await third.flush()
+    await third.pull()
+    await third.flush()
+    await typing.pull()
+    await first.pull()
+    return { rooms: [first, typing, third], thirdReported }
+  }
+
+  it("types back a third tab's sent text once it pulls the taken-on heading and the type-back together (R305)", async () => {
+    fakeLocks()
+    try {
+      const { rooms, thirdReported } = await thirdTabTyping(4)
+
+      for (const room of rooms) {
+        expect(roomBlocks(room)).toEqual(['paragraph abc', 'heading deQQfgZZh', 'paragraph xyz'])
+      }
+
+      expect(thirdReported).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("reports a third tab's text sent where the type-back's tab typed too (R305)", async () => {
+    fakeLocks()
+    try {
+      const { rooms, thirdReported } = await thirdTabTyping(2)
+
+      for (const room of rooms) {
+        expect(roomBlocks(room)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+      }
+
+      const runs = [{ offset: 2, text: 'ZZ', attrs: {} }]
+      expect(thirdReported).toEqual([{ ...lostQQ, runs, isUncertain: true }])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('types back what a row removed though a row pulled with it typed into its copy (R297)', async () => {
     fakeTime()
     const server = fakeServer()
@@ -565,6 +642,27 @@ describe('a room watching for removals', () => {
 
     expect(roomBlocks(typing)).toEqual(['paragraph abc', 'heading defgRRhZZ', 'paragraph xyz'])
     expect(reported).toEqual([])
+  })
+
+  it('reports what a row removed when a row pulled with it deleted part of its copy (R305)', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const writing = await join(server.endpoints())
+    Y.applyUpdate(writing.doc, threeParagraphs)
+    await writing.flush()
+    const typing = await join(offlinePushes(server))
+    const reported: Removal[] = []
+    watchRemovals(typing, (removals) => reported.push(...removals))
+
+    makeRoomHeading(writing, 'defgh')
+    await writing.flush()
+    roomText(writing, 1).delete(0, 1)
+    await writing.flush()
+    roomText(typing, 1).insert(2, 'QQ')
+    await typing.pull()
+
+    expect(roomBlocks(typing)).toEqual(['paragraph abc', 'heading efgh', 'paragraph xyz'])
+    expect(reported).toEqual([lostQQ])
   })
 
   // One pull: a row deletes `de` in place, then a row from another tab makes the block a heading

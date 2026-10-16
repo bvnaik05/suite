@@ -51,7 +51,7 @@ afterEach(async () => {
 function lostText(seen: string, runs: { offset: number; text: string }[], isUncertain = false) {
   const written = { before: new Map(), after: new Map() }
   const lost = runs.map((run) => ({ ...run, attrs: { bold: {} } }))
-  return { kind: 'text' as const, seen, runs: lost, written, isUncertain }
+  return { kind: 'text' as const, seen, runs: lost, written, pulled: written, isUncertain }
 }
 
 describe('Writer recovery copies', () => {

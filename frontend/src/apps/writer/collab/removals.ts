@@ -20,7 +20,7 @@ export interface Run {
   attrs: Record<string, unknown>
 }
 
-/** The row wrote each client's clocks from `before` up to `after`. */
+/** Rows wrote each client's clocks from `before` up to `after`. */
 export interface RowClocks {
   before: Map<number, number>
   after: Map<number, number>
@@ -29,10 +29,18 @@ export interface RowClocks {
 /**
  * Something of mine a remote row removed without naming it, because the row
  * deleted the block around it. `seen` is the text the row deleted next to mine,
- * and each run sits at its offset in `seen`.
+ * and each run sits at its offset in `seen`. `written` is what the rows that deleted
+ * `seen` wrote, and `pulled` all that the same transaction wrote.
  */
 export type Removal =
-  | { kind: 'text'; seen: string; runs: Run[]; written: RowClocks; isUncertain: boolean }
+  | {
+      kind: 'text'
+      seen: string
+      runs: Run[]
+      written: RowClocks
+      pulled: RowClocks
+      isUncertain: boolean
+    }
   | { kind: 'node'; name: string; attrs: Record<string, unknown> }
 
 /**
@@ -162,6 +170,7 @@ function textRemoval(
     seen: '',
     runs: [] as Run[],
     written: clocksOf([]),
+    pulled: { before: new Map(transaction.beforeState), after: new Map(transaction.afterState) },
     isUncertain: false,
   }
   const gaps = new Set<number>()
@@ -290,27 +299,28 @@ function rawAttrs(element: Y.XmlElement) {
 }
 
 /**
- * Puts a text removal back where exactly one run of text the same transaction
- * wrote equals `seen`. Returns false when there's no such place, or more than one,
- * or when the row also removed someone else's text at a run's offset without naming it.
+ * Puts a text removal back where exactly one run of text the rows that deleted `seen`
+ * wrote equals it, past what other rows of the pull wrote inside it. Returns false when
+ * there's no such place, or more than one, or when the row also removed someone else's
+ * text at a run's offset without naming it.
  */
 export function typeBack(body: Y.XmlFragment, removal: Removal) {
   if (removal.kind !== 'text' || removal.isUncertain || removal.seen.length < MIN_SEEN_LENGTH) {
     return false
   }
 
-  const { seen, written } = removal
-  const matches = liveTexts(body).flatMap((text) => placesIn(text, seen, written))
+  const { seen, written, pulled } = removal
+  const matches = liveTexts(body).flatMap((text) => placesIn(text, seen, written, pulled))
   if (matches.length !== 1) {
     return false
   }
 
-  const [{ text, at }] = matches
+  const [{ text, liveIndexes }] = matches
   const runs = [...removal.runs].reverse()
   body.doc!.transact(() => {
     for (const run of runs) {
       // A copy, since insert sets every format it isn't given to null on the object
-      text.insert(at + run.offset, run.text, { ...run.attrs })
+      text.insert(liveIndexes[run.offset], run.text, { ...run.attrs })
     }
   }, TYPE_BACK)
   return true
@@ -330,40 +340,47 @@ function liveTexts(parent: Y.XmlFragment | Y.XmlElement): Y.XmlText[] {
   })
 }
 
-// Each whole run of live chars the transaction wrote that equals `seen`
-function placesIn(text: Y.XmlText, seen: string, written: RowClocks) {
-  const places: { text: Y.XmlText; at: number }[] = []
-  for (const span of rowSpans(text, written)) {
+// Each whole run of live chars the rows wrote that equals `seen`, with each char's live index and one past the last
+function placesIn(text: Y.XmlText, seen: string, written: RowClocks, pulled: RowClocks) {
+  const places: { text: Y.XmlText; liveIndexes: number[] }[] = []
+  for (const span of rowSpans(text, written, pulled)) {
     if (span.text === seen) {
-      places.push({ text, at: span.at })
+      const { liveIndexes } = span
+      places.push({ text, liveIndexes: [...liveIndexes, liveIndexes[liveIndexes.length - 1] + 1] })
     }
   }
 
   return places
 }
 
-function rowSpans(text: Y.XmlText, written: RowClocks) {
-  const spans: { at: number; text: string }[] = []
-  let span: { at: number; text: string } | null = null
-  for (const [at, { char, isFromRow }] of liveChars(text, written).entries()) {
+// Other rows of the pull, like a type-back, may write inside the copy, so their chars don't end a span
+function rowSpans(text: Y.XmlText, written: RowClocks, pulled: RowClocks) {
+  const spans: { liveIndexes: number[]; text: string }[] = []
+  let span: { liveIndexes: number[]; text: string } | null = null
+  for (const [at, { char, isFromRow, isFromPull }] of liveChars(text, written, pulled).entries()) {
+    if (isFromPull) {
+      continue
+    }
+
     if (!isFromRow) {
       span = null
       continue
     }
 
     if (!span) {
-      span = { at, text: '' }
+      span = { liveIndexes: [], text: '' }
       spans.push(span)
     }
 
+    span.liveIndexes.push(at)
     span.text += char
   }
 
   return spans
 }
 
-function liveChars(text: Y.XmlText, written: RowClocks) {
-  const chars: { char: string; isFromRow: boolean }[] = []
+function liveChars(text: Y.XmlText, written: RowClocks, pulled: RowClocks) {
+  const chars: { char: string; isFromRow: boolean; isFromPull: boolean }[] = []
   for (let item = text._start; item; item = item.right) {
     if (item.deleted || !(item.content instanceof Y.ContentString)) {
       continue
@@ -372,7 +389,8 @@ function liveChars(text: Y.XmlText, written: RowClocks) {
     const { client, clock } = item.id
     for (let index = 0; index < item.length; index++) {
       const isFromRow = wroteIn(written, client, clock + index)
-      chars.push({ char: item.content.str[index], isFromRow })
+      const isFromPull = !isFromRow && wroteIn(pulled, client, clock + index)
+      chars.push({ char: item.content.str[index], isFromRow, isFromPull })
     }
   }
 
