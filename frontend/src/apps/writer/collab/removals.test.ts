@@ -115,6 +115,22 @@ describe('text a row removed with the block around it', () => {
     expect(allReported(tabs)).toEqual([])
   })
 
+  it('types back two tabs typing at different places when a third made the block a heading (R296)', async () => {
+    const tabs = await openTabs(threeParagraphs, 3)
+    const [headingTab, qqTab, rrTab] = tabs
+    typeQQ(qqTab, 'defgh')
+    typeAt(rrTab, 'defgh', 4, 'RR')
+    makeHeading(headingTab, 'defgh')
+
+    await sendInOrder(tabs, [qqTab, rrTab, headingTab])
+
+    for (const tab of tabs) {
+      expect(blocks(tab)).toEqual(['paragraph abc', 'heading deQQfgRRh', 'paragraph xyz'])
+    }
+
+    expect(allReported(tabs)).toEqual([])
+  })
+
   it('types back into the row copy, not an older block with the same text', async () => {
     const repeated = stored(
       paragraph(text('abc')),

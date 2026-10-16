@@ -105,6 +105,7 @@ function textRemoval(
     written,
     isUncertain: false,
   }
+  const gaps = new Set<number>()
   let attrs: Record<string, unknown> = {}
   let run: Run | null = null
   for (let item = text._start; item; item = item.right) {
@@ -120,10 +121,11 @@ function textRemoval(
     for (let index = 0; index < item.length; index++) {
       const id = Y.createID(item.id.client, item.id.clock + index)
       const state = { ...charState(id, transaction, named), attrs }
-      run = addChar(removal, run, item.content.str[index], state)
+      run = addChar(removal, gaps, run, item.content.str[index], state)
     }
   }
 
+  removal.isUncertain = removal.runs.some((lost) => gaps.has(lost.offset))
   return removal
 }
 
@@ -162,15 +164,16 @@ interface CharState {
   attrs: Record<string, unknown>
 }
 
-// Returns the run the next lost char joins
+// Returns the run the next lost char joins; `gaps` gets the offsets of other clients' lost chars
 function addChar(
-  removal: { seen: string; runs: Run[]; isUncertain: boolean },
+  removal: { seen: string; runs: Run[] },
+  gaps: Set<number>,
   run: Run | null,
   char: string,
   state: CharState,
 ) {
   if (state.isOtherLost) {
-    removal.isUncertain = true
+    gaps.add(removal.seen.length)
   }
 
   if (!state.isLost) {
@@ -204,7 +207,7 @@ function rawAttrs(element: Y.XmlElement) {
 /**
  * Puts a text removal back where exactly one run of text the same transaction
  * wrote equals `seen`. Returns false when there's no such place, or more than one,
- * or when the row also removed someone else's text there without naming it.
+ * or when the row also removed someone else's text at a run's offset without naming it.
  */
 export function typeBack(body: Y.XmlFragment, removal: Removal) {
   if (removal.kind !== 'text' || removal.isUncertain || removal.seen.length < MIN_SEEN_LENGTH) {
