@@ -325,6 +325,73 @@ describe('collab presence', () => {
     expect(idleSince()).toEqual([startedAt - IDLE_MS, startedAt - hiddenFor])
   })
 
+  it('a tab that joins late leaves out the caret of a tab hidden 30 s or more, and still lists it', async () => {
+    vi.useFakeTimers()
+    const { presence, answer, remoteStates } = setup()
+    const startedAt = Date.now()
+    answer(
+      [{ room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' }],
+      [
+        {
+          room: OWN_ROOMS[0],
+          pid: PEER_PID,
+          user: 'b@x.com',
+          n: 1,
+          state: { cursor, hiddenFor: 40_000 },
+        },
+      ],
+    )
+    const heard = [presence.peers.length, remoteStates().size, presence.peers[0].idleSince]
+    await vi.advanceTimersByTimeAsync(HIDDEN_IDLE_MS - 40_000)
+
+    expect(heard).toEqual([1, 0, null])
+    expect(presence.peers[0].idleSince).toBe(startedAt - 40_000)
+  })
+
+  it('drops a hidden tab’s caret 30 s after it was hidden, counted from what the service reports', async () => {
+    vi.useFakeTimers()
+    const { answer, remoteStates } = setup()
+    answer(
+      [{ room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' }],
+      [
+        {
+          room: OWN_ROOMS[0],
+          pid: PEER_PID,
+          user: 'b@x.com',
+          n: 1,
+          state: { cursor, hiddenFor: 20_000 },
+        },
+      ],
+    )
+    await vi.advanceTimersByTimeAsync(CARET_KEPT_MS - 20_000 - 1)
+    const shown = remoteStates().size
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect([shown, remoteStates().size]).toEqual([1, 0])
+  })
+
+  it('a service that reports a hidden tab as just hidden still has its caret drawn and dropped 30 s after the join', async () => {
+    vi.useFakeTimers()
+    const { answer, remoteStates } = setup()
+    answer(
+      [{ room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' }],
+      [
+        {
+          room: OWN_ROOMS[0],
+          pid: PEER_PID,
+          user: 'b@x.com',
+          n: 1,
+          state: { cursor, hiddenFor: 0 },
+        },
+      ],
+    )
+    await vi.advanceTimersByTimeAsync(CARET_KEPT_MS - 1)
+    const shown = remoteStates().size
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect([shown, remoteStates().size]).toEqual([1, 0])
+  })
+
   it('keeps renewing a shown tab’s caret for others and stops once the tab is hidden', async () => {
     vi.useFakeTimers()
     const { presence, answer, emitted } = setup()

@@ -15,9 +15,10 @@ import type { LiveSocket, Peer } from './types'
 // Carets go out trailing-edge, at most ten a second
 const SEND_MS = 100
 // A tab without input for five minutes is idle, and one hidden a minute counts as idle from when it was hidden;
-// a hidden tab sends nothing more, so the awareness drops its caret 30 s after the last message
+// a hidden tab sends nothing more, so its caret goes 30 s after it was hidden
 const IDLE_MS = 300_000
 const HIDDEN_IDLE_MS = 60_000
+const HIDDEN_CARET_MS = 30_000
 const INPUTS = ['keydown', 'pointerdown', 'pointermove', 'wheel', 'touchstart']
 
 export interface PresenceHooks {
@@ -242,6 +243,11 @@ export class Presence {
 
       member.idleSince = startOf(idleFor, now)
       member.hiddenSince = startOf(hiddenFor, now)
+      if (caretLapsed(member, now)) {
+        this.removeCarets([pid])
+        continue
+      }
+
       const user = { id: member.user }
       const shown = {
         user,
@@ -258,7 +264,8 @@ export class Presence {
     applyAwarenessUpdate(this.awareness, update, 'remote')
   }
 
-  // A hidden tab sends nothing more, so this tab wakes itself when one has been hidden long enough to be idle
+  // A hidden tab sends nothing more, so this tab wakes itself when one has been hidden long enough to lose its
+  // caret, and again when it turns idle
   private wakeWhenHiddenTurnsIdle() {
     if (this.wakeTimer) {
       clearTimeout(this.wakeTimer)
@@ -267,12 +274,18 @@ export class Presence {
 
     const now = Date.now()
     const turns = [...this.members.values()]
-      .map(({ hiddenSince }) => (hiddenSince ?? -Infinity) + HIDDEN_IDLE_MS)
+      .map(({ hiddenSince }) => hiddenSince ?? -Infinity)
+      .flatMap((since) => [since + HIDDEN_CARET_MS, since + HIDDEN_IDLE_MS])
       .filter((turnsAt) => turnsAt > now)
     if (!turns.length) return
 
     const wake = () => {
       this.wakeTimer = null
+      const lapsed = [...this.members]
+        .filter(([, member]) => caretLapsed(member, Date.now()))
+        .map(([pid]) => pid)
+      this.removeCarets(lapsed)
+      this.wakeWhenHiddenTurnsIdle()
       this.notifyListeners()
     }
 
@@ -402,6 +415,10 @@ function tabIdleSince({ idleSince, hiddenSince }: Member, now: number) {
   }
 
   return Math.min(...known)
+}
+
+function caretLapsed({ hiddenSince }: Member, now: number) {
+  return hiddenSince !== null && now - hiddenSince >= HIDDEN_CARET_MS
 }
 
 function startOf(duration: number | null, now: number) {
