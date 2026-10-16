@@ -4808,7 +4808,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 .property-toolbar {
-  position: fixed;
+  position: absolute;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -4817,7 +4817,7 @@ onBeforeUnmount(() => {
   left: 50%;
   z-index: 1;
   width: max-content;
-  max-width: calc(100vw - 32px);
+  max-width: calc(100% - 32px);
   height: 38px;
   padding: 4px;
   overflow-x: auto;
@@ -4989,7 +4989,7 @@ onBeforeUnmount(() => {
 ) {
   display: none;
 }
-@media (max-width: 760px) {
+@container draw-canvas (max-width: 760px) {
   .property-toolbar {
     right: 16px;
     bottom: 64px;
@@ -5014,7 +5014,7 @@ onBeforeUnmount(() => {
   }
 }
 .history-controls {
-  position: fixed;
+  position: absolute;
   right: 16px;
   bottom: 16px;
   z-index: 1;
@@ -5044,6 +5044,7 @@ onBeforeUnmount(() => {
 }
 
 .infinite-canvas {
+  container: draw-canvas / inline-size;
   position: relative;
   z-index: 0;
   width: 100%;
@@ -5393,7 +5394,7 @@ onBeforeUnmount(() => {
 }
 
 .viewport-panel {
-  position: fixed;
+  position: absolute;
   left: 16px;
   bottom: 16px;
   z-index: 1;
