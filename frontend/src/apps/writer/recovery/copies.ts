@@ -1,14 +1,18 @@
 import type { DeviceStore, RecoveryRecord } from '@suite/collab-client'
+import { getSchema } from '@tiptap/core'
 import * as yjs from 'yjs'
 
-import { writerDeviceStore } from '@/apps/writer/collab'
+import { BODY_FIELD, writerDeviceStore } from '@/apps/writer/collab'
+import type { Removal } from '@/apps/writer/collab/removals'
 import { writerRender } from '@/apps/writer/collab/render'
+import { writerSchema } from '@/apps/writer/schema'
 
 /**
  * Writer's recovery copies: work kept on this device because it could not
- * reach the server. The live editor keeps them in its device store; the old
- * editor, and a browser without that store, in this page's storage. A copy is
- * never sent on its own and stays until the person discards it.
+ * reach the server, or because someone else's edit removed it. The live editor
+ * keeps them in its device store; the old editor, and a browser without that
+ * store, in this page's storage. A copy is never sent on its own and stays
+ * until the person discards it.
  */
 export interface RecoveryCopy {
   key: string
@@ -36,6 +40,80 @@ const PAGE_LOAD = String(Date.now() + Math.random())
 export function keepPageCopy(node: string, title: string, html: string, now = new Date()) {
   const copy: PageCopy = { node, title, savedAt: now.toISOString(), html }
   localStorage.setItem(`${PAGE_PREFIX}${node}:${PAGE_LOAD}`, JSON.stringify(copy))
+}
+
+const schema = getSchema(writerSchema())
+
+/**
+ * Keeps what someone else's edit removed as one recovery copy of `node`: a paragraph per lost
+ * run and the removed images and the like, never where they sat. Resolves to null when none of
+ * it reads on its own, such as an empty paragraph, else whether the device kept it.
+ */
+export async function keepRemovedWork(
+  node: string,
+  title: string,
+  removals: Removal[],
+): Promise<'kept' | 'unkept' | null> {
+  const blocks = removals.flatMap(blocksOf)
+  if (!blocks.length) {
+    return null
+  }
+
+  const store = await writerDeviceStore()
+  if (!store) {
+    return 'unkept'
+  }
+
+  // A sid of its own, since recover() files the copy under it and forgets that session
+  const id = crypto.randomUUID()
+  const sid = `restructure-${id}`
+  const state = removedDoc(blocks)
+  const entry = { doc: node, sid, seq: 0, bytes: state, sha: '', seenRev: 0 }
+  try {
+    await store.recover(node, [sid], 'restructure', [entry], { state, title })
+    return 'kept'
+  } catch {
+    return 'unkept'
+  }
+}
+
+function removedDoc(blocks: yjs.XmlElement[]) {
+  const doc = new yjs.Doc()
+  doc.getXmlFragment(BODY_FIELD).insert(0, blocks)
+  return yjs.encodeStateAsUpdate(doc)
+}
+
+function blocksOf(removal: Removal) {
+  if (removal.kind === 'text') {
+    return removal.runs.map((run) => {
+      const text = new yjs.XmlText()
+      text.insert(0, run.text, { ...run.attrs })
+      return inParagraph(text)
+    })
+  }
+
+  // A removed block's text comes as text removals, so only leaves like images are kept
+  const type = schema.nodes[removal.name]
+  if (!type?.isLeaf) {
+    return []
+  }
+
+  const element = new yjs.XmlElement(removal.name)
+  for (const [key, value] of Object.entries(removal.attrs)) {
+    element.setAttribute(key, value as string)
+  }
+
+  if (type.isInline) {
+    return [inParagraph(element)]
+  }
+
+  return [element]
+}
+
+function inParagraph(child: yjs.XmlText | yjs.XmlElement) {
+  const paragraph = new yjs.XmlElement('paragraph')
+  paragraph.insert(0, [child])
+  return paragraph
 }
 
 /** This device's copies, newest first; of one document when `node` is given. */

@@ -44,17 +44,23 @@ vi.mock('@/apps/writer/collab', () => ({
   },
 }))
 
-const watched = vi.hoisted(() => new Set<object>())
+const watched = vi.hoisted(() => new Map<object, (removals: unknown[]) => void>())
 
 vi.mock('@/apps/writer/collab/removals', () => ({
-  watchRemovals: (room: object) => {
-    watched.add(room)
+  watchRemovals: (room: object, report: (removals: unknown[]) => void) => {
+    watched.set(room, report)
     return () => watched.delete(room)
   },
 }))
 
+const keepRemovedWork = vi.hoisted(() =>
+  vi.fn(async (): Promise<'kept' | 'unkept' | null> => 'kept'),
+)
+
+vi.mock('@/apps/writer/recovery/copies', () => ({ keepRemovedWork }))
+
 async function openCollab(retainRecovery = () => false, mayEdit = () => true) {
-  const session = { nodeId: 'node-1' } as DocumentSession
+  const session = { nodeId: 'node-1', title: { value: 'Plan' } } as DocumentSession
   const collab = useWriterCollab(
     session,
     retainRecovery,
@@ -459,6 +465,35 @@ describe('writer collab rebuild', () => {
     expect([watched.size, watched.has(fakeRooms.room)]).toEqual([1, true])
     collab.close()
     expect(watched.size).toBe(0)
+  })
+
+  it("keeps the text someone else's edit removed as a recovery copy, and says so", async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    const collab = await openCollab()
+    const removals = [{ kind: 'node', name: 'image', attrs: {} }]
+    keepRemovedWork.mockResolvedValueOnce('kept')
+
+    watched.get(fakeRooms.room)!(removals)
+
+    await vi.waitFor(() => expect(collab.copiesKept.value).toBe(1))
+    expect(keepRemovedWork).toHaveBeenLastCalledWith('node-1', 'Plan', removals)
+    expect(collab.banner.value?.text).toBe(
+      "Someone else's edit removed text you typed. It was kept as a recovery copy.",
+    )
+  })
+
+  it("says when this device couldn't keep the text someone else's edit removed", async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    const collab = await openCollab()
+    keepRemovedWork.mockResolvedValueOnce('unkept')
+
+    watched.get(fakeRooms.room)!([{ kind: 'node', name: 'image', attrs: {} }])
+
+    await vi.waitFor(() => expect(collab.banner.value).not.toBeNull())
+    expect(collab.banner.value?.text).toBe(
+      "Someone else's edit removed text you typed, and it couldn't be kept on this device.",
+    )
+    expect(collab.copiesKept.value).toBe(0)
   })
 
   it('counts the unsent work other tabs of the document hold on this device', async () => {

@@ -30,6 +30,7 @@ const defaultState = {
   recoveryKept: false,
   copyFailed: false,
   setAside: null,
+  removedWork: null,
   isNewerAfterReload: false,
   unsent: 1,
   polling: false,
@@ -298,6 +299,15 @@ describe('collab stop copy', () => {
     expect(bannerFor(defaultState)).toBeNull()
     expect(bannerText({ setAside: 'poison' })).toBe(
       "Your last edits couldn't be saved here and were kept as a recovery copy.",
+    )
+  })
+
+  it("says someone else's edit removed text typed here, and whether this device kept it", () => {
+    expect(bannerText({ removedWork: 'kept' })).toBe(
+      "Someone else's edit removed text you typed. It was kept as a recovery copy.",
+    )
+    expect(bannerText({ removedWork: 'unkept', polling: true })).toBe(
+      "Someone else's edit removed text you typed, and it couldn't be kept on this device.",
     )
   })
 

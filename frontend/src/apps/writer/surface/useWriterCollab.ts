@@ -8,7 +8,8 @@ import { computed, nextTick, ref, shallowRef } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
 import { openWriterRoom } from '@/apps/writer/collab'
-import { watchRemovals } from '@/apps/writer/collab/removals'
+import { watchRemovals, type Removal } from '@/apps/writer/collab/removals'
+import { keepRemovedWork } from '@/apps/writer/recovery/copies'
 import { TransportError } from '@/platform/transport'
 
 import { bannerFor, isKeptNowhere, openFailureFor, type BannerState } from './collabMessages'
@@ -60,6 +61,8 @@ export function useWriterCollab(
   const openStatus = ref<number | null>(null)
   const recoveryKept = ref(false)
   const setAside = ref<string | null>(null)
+  const removedWork = ref<'kept' | 'unkept' | null>(null)
+  const removedCopies = ref(0)
   const isNewerAfterReload = ref(false)
   let isNewerSchemaMarked = false
   let stopWatching = () => {}
@@ -88,8 +91,7 @@ export function useWriterCollab(
       room.value = liveRoom
       recoveryKept.value = false
       const stopStatus = liveRoom.onChange(() => syncRoomStatus(liveRoom))
-      // Reports go to the recovery copy once it exists; until then they're dropped, as before
-      const stopRemovals = watchRemovals(liveRoom, () => {})
+      const stopRemovals = watchRemovals(liveRoom, keepRemovals)
       stopWatching = () => {
         stopStatus()
         stopRemovals()
@@ -103,6 +105,15 @@ export function useWriterCollab(
       openStatus.value = hasStatus ? error.status : null
       mode.value = 'failed'
     }
+  }
+
+  async function keepRemovals(removals: Removal[]) {
+    const kept = await keepRemovedWork(session.nodeId, session.title.value, removals)
+    if (kept === 'kept') {
+      removedCopies.value++
+    }
+
+    removedWork.value = kept ?? removedWork.value
   }
 
   // Mirrors the room's state for the page, or rebuilds the room once it asks for that
@@ -208,7 +219,7 @@ export function useWriterCollab(
     return roomStatus.unsent + roomStatus.othersUnsent
   })
   const paused = computed(() => (isLive.value ? (status.value?.paused ?? null) : null))
-  const copiesKept = computed(() => status.value?.copiesKept ?? 0)
+  const copiesKept = computed(() => (status.value?.copiesKept ?? 0) + removedCopies.value)
   const banner = computed(() => {
     const roomStatus = status.value
     if (!isLive.value || !roomStatus) {
@@ -221,6 +232,7 @@ export function useWriterCollab(
       failed: roomStatus.saveState === 'failed',
       recoveryKept: recoveryKept.value || (roomStatus.copiesKept > 0 && !roomStatus.copyFailed),
       setAside: setAside.value,
+      removedWork: removedWork.value,
       polling: roomStatus.live === 'polling',
       isNewerAfterReload: isNewerAfterReload.value,
       isFrozen: isFrozen(),

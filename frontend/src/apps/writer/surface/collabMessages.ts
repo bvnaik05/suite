@@ -33,6 +33,8 @@ export type BannerState = Pick<
   recoveryKept: boolean
   // Why an earlier room of this page set its unsent work aside as a recovery copy
   setAside: string | null
+  // Someone else's edit removed text typed here, and whether this device kept it as a recovery copy
+  removedWork: 'kept' | 'unkept' | null
   // No live updates reach this tab, so it polls
   polling: boolean
   // The newer-schema banner showed before this tab's last reload too
@@ -111,6 +113,16 @@ function savingBanner(state: BannerState): Banner | null {
 
   if (state.setAside) {
     return { text: "Your last edits couldn't be saved here and were kept as a recovery copy." }
+  }
+
+  if (state.removedWork === 'kept') {
+    return { text: "Someone else's edit removed text you typed. It was kept as a recovery copy." }
+  }
+
+  if (state.removedWork === 'unkept') {
+    return {
+      text: "Someone else's edit removed text you typed, and it couldn't be kept on this device.",
+    }
   }
 
   if (state.polling) {

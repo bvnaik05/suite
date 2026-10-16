@@ -10,6 +10,7 @@ import {
   discardCopy,
   downloadCopy,
   keepPageCopy,
+  keepRemovedWork,
   listCopies,
   recoveryFile,
   type RecoveryCopy,
@@ -42,7 +43,41 @@ afterEach(async () => {
   await Promise.all(copies.map(discardCopy))
 })
 
+function lostText(seen: string, runs: { offset: number; text: string }[], isUncertain = false) {
+  const written = { before: new Map(), after: new Map() }
+  const lost = runs.map((run) => ({ ...run, attrs: { bold: {} } }))
+  return { kind: 'text' as const, seen, runs: lost, written, isUncertain }
+}
+
 describe('Writer recovery copies', () => {
+  it('keeps the text another edit removed as its own copy, without the text around it', async () => {
+    const removals = [
+      lostText('defgh', [{ offset: 2, text: 'QQ' }]),
+      lostText('xyz', [{ offset: 0, text: 'RR' }], true),
+    ]
+    const image = { kind: 'node' as const, name: 'image', attrs: { src: '/files/x.png' } }
+
+    expect(await keepRemovedWork('node-1', 'Plan', removals)).toBe('kept')
+    expect(await keepRemovedWork('node-1', 'Plan', [image])).toBe('kept')
+
+    // Both copies may share a millisecond, so neither order is promised
+    const copies = await listCopies('node-1')
+    const textCopy = copies.find((copy) => copy.text !== '')!
+    expect(summary(copies)).toContainEqual(['node-1', 'Plan', 'QQ\nRR'])
+    expect(textCopy.html).toContain('<strong>QQ</strong>')
+    expect(copies.filter((copy) => copy.html.includes('src="/files/x.png"'))).toHaveLength(1)
+    const records = await (await writerDeviceStore())!.recovery('node-1')
+    expect(records.map((record) => record.reason)).toEqual(['restructure', 'restructure'])
+  })
+
+  it('keeps no copy when nothing another edit removed reads on its own', async () => {
+    const paragraph = { kind: 'node' as const, name: 'paragraph', attrs: {} }
+
+    expect(await keepRemovedWork('node-1', 'Plan', [paragraph])).toBeNull()
+
+    expect(await listCopies('node-1')).toEqual([])
+  })
+
   it('lists the device store’s copies and this page’s, newest first, for one document or all', async () => {
     keepPageCopy(
       'node-1',
