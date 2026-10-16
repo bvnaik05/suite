@@ -25,7 +25,7 @@ export interface RowClocks {
  * and each run sits at its offset in `seen`.
  */
 export type Removal =
-  | { kind: 'text'; seen: string; runs: Run[]; written: RowClocks }
+  | { kind: 'text'; seen: string; runs: Run[]; written: RowClocks; isUncertain: boolean }
   | { kind: 'node'; name: string; attrs: Record<string, unknown> }
 
 /**
@@ -98,7 +98,13 @@ function textRemoval(
   named: Y.DeleteSet,
 ) {
   const written = { before: transaction.beforeState, after: transaction.afterState }
-  const removal = { kind: 'text' as const, seen: '', runs: [] as Run[], written }
+  const removal = {
+    kind: 'text' as const,
+    seen: '',
+    runs: [] as Run[],
+    written,
+    isUncertain: false,
+  }
   let attrs: Record<string, unknown> = {}
   let run: Run | null = null
   for (let item = text._start; item; item = item.right) {
@@ -121,12 +127,17 @@ function textRemoval(
   return removal
 }
 
-// Lost: mine and deleted without the row naming it. Seen: deleted and named by the row
+// Lost: deleted without the row naming it, mine or someone else's. Seen: deleted and named by the row
 function charState(id: Y.ID, transaction: Y.Transaction, named: Y.DeleteSet) {
   const isDeletedNow = Y.isDeleted(transaction.deleteSet, id)
   const isNamed = Y.isDeleted(named, id)
   const isMine = id.client === transaction.doc.clientID
-  return { isLost: isMine && isDeletedNow && !isNamed, isSeen: isDeletedNow && isNamed }
+  const isUnnamed = isDeletedNow && !isNamed
+  return {
+    isLost: isMine && isUnnamed,
+    isOtherLost: !isMine && isUnnamed,
+    isSeen: isDeletedNow && isNamed,
+  }
 }
 
 function wasLive(item: Y.Item, transaction: Y.Transaction) {
@@ -146,17 +157,22 @@ function withFormat(attrs: Record<string, unknown>, format: Y.ContentFormat) {
 
 interface CharState {
   isLost: boolean
+  isOtherLost: boolean
   isSeen: boolean
   attrs: Record<string, unknown>
 }
 
 // Returns the run the next lost char joins
 function addChar(
-  removal: { seen: string; runs: Run[] },
+  removal: { seen: string; runs: Run[]; isUncertain: boolean },
   run: Run | null,
   char: string,
   state: CharState,
 ) {
+  if (state.isOtherLost) {
+    removal.isUncertain = true
+  }
+
   if (!state.isLost) {
     if (state.isSeen) {
       removal.seen += char
@@ -187,10 +203,11 @@ function rawAttrs(element: Y.XmlElement) {
 
 /**
  * Puts a text removal back where exactly one run of text the same transaction
- * wrote equals `seen`. Returns false when there's no such place, or more than one.
+ * wrote equals `seen`. Returns false when there's no such place, or more than one,
+ * or when the row also removed someone else's text there without naming it.
  */
 export function typeBack(body: Y.XmlFragment, removal: Removal) {
-  if (removal.kind !== 'text' || removal.seen.length < MIN_SEEN_LENGTH) {
+  if (removal.kind !== 'text' || removal.isUncertain || removal.seen.length < MIN_SEEN_LENGTH) {
     return false
   }
 

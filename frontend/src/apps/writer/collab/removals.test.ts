@@ -85,6 +85,7 @@ const lostQQ = {
   seen: 'defgh',
   runs: [{ offset: 2, text: 'QQ', attrs: {} }],
   written: expect.anything(),
+  isUncertain: false,
 }
 
 describe('text a row removed with the block around it', () => {
@@ -197,7 +198,7 @@ describe('text the row could only type back in the wrong place (R278)', () => {
     expect(blocks(headingTab)).toEqual(['heading aXb', 'paragraph xyzab'])
     expect(blocks(typingTab)).toEqual(blocks(headingTab))
     const runs = [{ offset: 2, text: 'QQ', attrs: {} }]
-    const lost = { kind: 'text', seen: 'ab', runs, written: expect.anything() }
+    const lost = { kind: 'text', seen: 'ab', runs, written: expect.anything(), isUncertain: false }
     expect(typingTab.reported).toEqual([lost])
   })
 
@@ -303,20 +304,26 @@ describe('three tabs restructuring and typing at once', () => {
     expect([...headingTab.reported, ...joinTab.reported]).toEqual([])
   })
 
-  it("keeps C's typing once when B's row lands before A's", async () => {
+  it("reports C's typing when B's row lands before A's", async () => {
     const tabs = await threeTabs()
     const [headingTab, joinTab, typingTab] = tabs
 
     await sendInOrder(tabs, [joinTab, headingTab, typingTab])
 
-    const [heading, ...rest] = blocks(headingTab)
-    expect(heading).toMatch(/^heading abc(QQdefgh|defghQQ)$/)
-    expect(rest).toEqual(['paragraph xyz'])
     for (const tab of tabs) {
-      expect(blocks(tab)).toEqual(blocks(headingTab))
+      expect(blocks(tab)).toEqual(['heading abcdefgh', 'paragraph xyz'])
     }
 
-    expect(allReported(tabs)).toEqual([])
+    const runs = [{ offset: 3, text: 'QQ', attrs: {} }]
+    const uncertain = {
+      kind: 'text',
+      seen: 'abc',
+      runs,
+      written: expect.anything(),
+      isUncertain: true,
+    }
+    expect(typingTab.reported).toEqual([uncertain])
+    expect([...headingTab.reported, ...joinTab.reported]).toEqual([])
   })
 })
 
