@@ -17,10 +17,10 @@ describe('folderTicks', () => {
   })
 
   it('will not untick a folder that is some message’s only one', () => {
-    const [inbox, cloud] = folderTicks([[filed('inbox')], [filed('inbox', 'cloud')]], [
-      'inbox',
-      'cloud',
-    ])
+    const [inbox, cloud] = folderTicks(
+      [[filed('inbox')], [filed('inbox', 'cloud')]],
+      ['inbox', 'cloud'],
+    )
     expect(inbox.removable).toBe(false)
     expect(cloud.removable).toBe(true)
   })

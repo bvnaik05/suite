@@ -20,7 +20,8 @@ type Grid = readonly (readonly unknown[])[]
 // srcData: srcRows × srcCols.  Returns count × srcCols of fill values.
 // dir   = +1 → fill downward (after the source); -1 → fill upward.
 // mode  = 'auto'   (default) — series if a pattern is detected, else copy
-//       | 'series'           — force series; fall back to copy if no pattern
+//       | 'series'           — force series: a single number counts by 1;
+//                              anything else without a pattern copies
 //       | 'copy'             — always cycle the source
 export function computeFillDown(
   srcData: Grid,
@@ -31,6 +32,14 @@ export function computeFillDown(
   return srcData.length === 1
     ? _fillVerticalFromRow(srcData[0] as readonly unknown[], count, dir, mode)
     : _fillVerticalFromCols(srcData, count, dir, mode)
+}
+
+// A single number has no step to detect. A forced series (Ctrl-drag) counts
+// it up by 1, as Google Sheets does; a plain drag copies it (ISSUES #23).
+function _stepOrForced(nums: readonly number[], mode: FillMode): number | null {
+  const step = numericStep(nums)
+  if (step === null && mode === 'series' && nums.length === 1) return 1
+  return step
 }
 
 // Horizontal source — one row of N cols.  We compute the "next" along the
@@ -44,7 +53,7 @@ function _fillVerticalFromRow(
   mode: FillMode = 'auto',
 ) {
   const nums = _asNumbers(rowVals)
-  const step = nums ? numericStep(nums) : null
+  const step = nums ? _stepOrForced(nums, mode) : null
   const srcCols = rowVals.length
   const useSeries = mode === 'copy' ? false : step !== null
   // useSeries means a step was found, which means `nums` parsed.
@@ -112,7 +121,7 @@ function _fillHorizontalFromCol(
   mode: FillMode = 'auto',
 ) {
   const nums = _asNumbers(colVals)
-  const step = nums ? numericStep(nums) : null
+  const step = nums ? _stepOrForced(nums, mode) : null
   const useSeries = mode === 'copy' ? false : step !== null
   const srcRows = colVals.length
   // useSeries means a step was found, which means `nums` parsed.
@@ -190,17 +199,19 @@ export function planFill(
     const count = goDown ? total.r1 - src.r1 : src.r0 - total.r0
     const dir = goDown ? 1 : -1
     const filled = computeFillDown(readGrid(src), count, dir, { mode })
-    const startR = goDown ? src.r1 + 1 : total.r0
-    filled.forEach((row, rOff) =>
+    // filled[0] is the row next to the source: below it going down, above it
+    // going up (ISSUES #22).
+    filled.forEach((row, rOff) => {
+      const r = goDown ? src.r1 + 1 + rOff : src.r0 - 1 - rOff
       row.forEach((val, cOff) => {
         if (typeof val === 'string' && val.startsWith('=')) {
           const srcRowOff =
             dir > 0 ? rOff % srcRows : (((srcRows - 1 - rOff) % srcRows) + srcRows) % srcRows
-          val = adjustFormula(val, startR + rOff - (src.r0 + srcRowOff), 0)
+          val = adjustFormula(val, r - (src.r0 + srcRowOff), 0)
         }
-        put(startR + rOff, src.c0 + cOff, val)
-      }),
-    )
+        put(r, src.c0 + cOff, val)
+      })
+    })
     workSrc = {
       r0: Math.min(src.r0, total.r0),
       r1: Math.max(src.r1, total.r1),
@@ -212,15 +223,16 @@ export function planFill(
     const count = goRight ? total.c1 - workSrc.c1 : workSrc.c0 - total.c0
     const dir = goRight ? 1 : -1
     const filled = computeFillRight(readGrid(workSrc), count, dir, { mode })
-    const startC = goRight ? workSrc.c1 + 1 : total.c0
+    // row[0] is the column next to the source, as in the vertical pass.
     filled.forEach((row, rOff) =>
       row.forEach((val, cOff) => {
+        const c = goRight ? workSrc.c1 + 1 + cOff : workSrc.c0 - 1 - cOff
         if (typeof val === 'string' && val.startsWith('=')) {
           const srcColOff =
             dir > 0 ? cOff % srcCols : (((srcCols - 1 - cOff) % srcCols) + srcCols) % srcCols
-          val = adjustFormula(val, 0, startC + cOff - (workSrc.c0 + srcColOff))
+          val = adjustFormula(val, 0, c - (workSrc.c0 + srcColOff))
         }
-        put(workSrc.r0 + rOff, startC + cOff, val)
+        put(workSrc.r0 + rOff, c, val)
       }),
     )
   }

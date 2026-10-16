@@ -197,6 +197,48 @@ export function createChartEngine() {
     _remap(sheet, null, mapRow)
   }
 
+  // Sheet operations, run alongside the other stores' (useSheetTabs extras).
+  // A chart names two sheets: the one it reads (sourceSheet) and the one it
+  // is drawn on (position.sheet).
+  function renameSheet(oldName: string, newName: string) {
+    let changed = false
+    for (const ch of Object.values(_charts)) {
+      if (ch.sourceSheet === oldName) {
+        ch.sourceSheet = newName
+        changed = true
+      }
+      if (ch.position?.sheet === oldName) {
+        ch.position = { ...ch.position, sheet: newName }
+        changed = true
+      }
+    }
+    if (changed) _notify()
+  }
+
+  // The copy gets its own charts; one that read the source sheet reads the copy.
+  function duplicateSheet(srcName: string, newName: string) {
+    const onSheet = Object.values(_charts).filter((ch) => ch.position?.sheet === srcName)
+    for (const ch of onSheet) {
+      const id = _newId()
+      const copy = deepClone(ch)
+      _charts[id] = {
+        ...copy,
+        id,
+        position: { ...(copy.position as ChartPosition), sheet: newName },
+        ...(copy.sourceSheet === srcName ? { sourceSheet: newName } : {}),
+      }
+    }
+    if (onSheet.length) _notify()
+  }
+
+  // Charts drawn on the sheet go with it. One drawn elsewhere that read it
+  // stays and shows no data, like a formula pointing at a deleted sheet.
+  function deleteSheet(name: string) {
+    const gone = Object.values(_charts).filter((ch) => ch.position?.sheet === name)
+    for (const ch of gone) delete _charts[ch.id]
+    if (gone.length) _notify()
+  }
+
   return {
     add,
     update,
@@ -207,6 +249,9 @@ export function createChartEngine() {
     affectsChart,
     remapCols,
     remapRows,
+    renameSheet,
+    duplicateSheet,
+    deleteSheet,
     snapshot,
     restore,
     setOnChange,

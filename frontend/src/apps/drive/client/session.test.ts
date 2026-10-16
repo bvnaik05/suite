@@ -153,7 +153,9 @@ describe('document session media', () => {
       if (id === 'node_media') {
         mediaCalls += 1
         return {
-          media: [{ node: 'm1', url: `/private/files/b7x2k9q4mz/a.png?e=1&s=${mediaCalls}`, expires: 1 }],
+          media: [
+            { node: 'm1', url: `/private/files/b7x2k9q4mz/a.png?e=1&s=${mediaCalls}`, expires: 1 },
+          ],
         }
       }
       return {}

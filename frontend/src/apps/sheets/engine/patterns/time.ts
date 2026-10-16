@@ -72,10 +72,9 @@ function _classifyStep(times: readonly ParsedTime[]): { step: number } | null {
   }
   const step = diffs[0]
   if (!diffs.every((d) => d === step)) return null
-  if (step === 0) return null
-  // `step` is undefined only for an empty source; kept as-is (no behaviour
-  // change), see ISSUES / the PR notes.
-  return { step: step as number }
+  // `step` is undefined only for an empty source (ISSUES #24).
+  if (step === undefined || step === 0) return null
+  return { step }
 }
 
 export const timeDetector: Detector = {

@@ -559,6 +559,31 @@ export function createPivotEngine() {
     _remap(sheet, null, mapRow)
   }
 
+  // Sheet operations, run alongside the other stores' (useSheetTabs extras).
+  // A pivot names the sheet it reads (sourceSheet) and the sheet it writes
+  // its table to (outputSheet).
+  function renameSheet(oldName: string, newName: string) {
+    let changed = false
+    for (const p of Object.values(_pivots)) {
+      if (p.sourceSheet === oldName) {
+        p.sourceSheet = newName
+        changed = true
+      }
+      if (p.outputSheet === oldName) {
+        p.outputSheet = newName
+        changed = true
+      }
+    }
+    if (changed) _notify()
+  }
+
+  // A pivot whose output sheet is deleted goes with it.
+  function deleteSheet(name: string) {
+    const gone = Object.values(_pivots).filter((p) => p.outputSheet === name)
+    for (const p of gone) delete _pivots[p.id]
+    if (gone.length) _notify()
+  }
+
   // Returns true if the given sheet+cellId falls within any pivot's source range.
   function affectsPivot(sheetName: string) {
     return Object.values(_pivots).some((p) => p.sourceSheet === sheetName)
@@ -586,6 +611,15 @@ export function createPivotEngine() {
       if (p.anchorCol == null) p.anchorCol = 0
     }
     _nextId = data.nextId || 1
+    // Defensive, as in charts: keep nextId ahead of any restored id, so a new
+    // pivot can't take an existing one's id and replace it.
+    for (const id of Object.keys(_pivots)) {
+      const m = /^pivot_(\d+)$/.exec(id)
+      if (m) {
+        const n = parseInt(m[1] ?? '', 10)
+        if (n >= _nextId) _nextId = n + 1
+      }
+    }
     _notify()
   }
 
@@ -598,6 +632,8 @@ export function createPivotEngine() {
     affectsPivot,
     remapCols,
     remapRows,
+    renameSheet,
+    deleteSheet,
     snapshot,
     restore,
     setOnChange,

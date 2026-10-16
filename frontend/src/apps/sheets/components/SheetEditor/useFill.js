@@ -1,10 +1,9 @@
 import { planFill } from '../../engine/fill-series.js'
-import { adjustFormula } from '../../engine/formula-adjust.js'
 import { detectSeries } from '../../engine/patterns/index.js'
 import { cellId } from '../../utils/cells.js'
 
-// Fill, extracted from SheetEditor/index.vue: the drag fill handle (series /
-// copy / formats-only, with validation, conditional-format rules and merges
+// Fill, extracted from SheetEditor/index.vue: the drag fill handle (series or
+// copy, with formats, validation, conditional-format rules and merges
 // following the values) and Ctrl+D / Ctrl+R. Each fill is recorded as one
 // undo step and one op for the version log.
 //
@@ -28,7 +27,6 @@ export function useFill({
   diffRefs: _diffRefs,
   queueOp: _queueOp,
   rectBlocked: _rectBlocked,
-  pushEditOp: _pushEditOp,
 }) {
   function _fillValidation(src, total, sn) {
     const srcRows = src.r1 - src.r0 + 1,
@@ -36,16 +34,21 @@ export function useFill({
     for (let r = total.r0; r <= total.r1; r++) {
       for (let c = total.c0; c <= total.c1; c++) {
         if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-        const srcR = src.r0 + ((r - src.r0 + srcRows) % srcRows)
-        const srcC = src.c0 + ((c - src.c0 + srcCols) % srcCols)
+        // True modulo: a drag more than one source-height up or left gives a
+        // negative offset, and JS `%` would keep the sign.
+        const srcR = src.r0 + ((((r - src.r0) % srcRows) + srcRows) % srcRows)
+        const srcC = src.c0 + ((((c - src.c0) % srcCols) + srcCols) % srcCols)
         const rule = validation.get(cellId(srcR, srcC), sn)
         if (rule) validation.set(cellId(r, c), rule, sn)
       }
     }
   }
 
-  // _runFill modes: 'auto' | 'series' | 'copy' | 'format-only' | 'without-format'
-  async function _runFill(src, total, mode) {
+  // _runFill modes: 'auto' | 'series' | 'copy' (see planFill). Every mode
+  // carries the source's formats, validation, conditional-format rules and
+  // merges along with the values, as Excel and Google Sheets do. `summary`
+  // names the op in the version log (default: "Filled N cells").
+  async function _runFill(src, total, mode, summary = '') {
     const sheetName = currentSheet.value
     // `total` includes `src`, so this one read is also the fill's source.
     const fillBefore = await _readInputs(total, sheetName)
@@ -53,25 +56,14 @@ export function useFill({
     const beforeVal = _captureValidationRange(total, sheetName)
     const beforeMergeSnap = merge.snapshot?.()
     const cfBefore = condFormat?.getRules?.(sheetName)?.length ?? 0
-    let writes = {}
-    if (mode === 'format-only') {
-      _fillFormatsOnly(src, total, sheetName)
-    } else {
-      const valueMode = mode === 'without-format' ? 'auto' : mode
-      writes = planFill(src, total, (r, c) => fillBefore[cellId(r, c)] ?? '', valueMode)
-      _writeInputs(sheetName, writes)
-      if (mode === 'without-format') _clearFormats(src, total, sheetName)
-    }
-    if (mode !== 'format-only') {
-      _fillValidation(src, total, sheetName)
-      condFormat.extendRulesToRange(src, total, sheetName)
-    }
-    // Merges are a structural format — replicate them alongside cell formats
-    // (so a merged source tiles its merge into every dragged-over destination)
-    // EXCEPT when the user explicitly asked for values-only with `without-format`.
-    if (mode !== 'without-format') {
-      _fillMerges(src, total, sheetName)
-    }
+    const writes = planFill(src, total, (r, c) => fillBefore[cellId(r, c)] ?? '', mode)
+    _writeInputs(sheetName, writes)
+    _fillFormats(src, total, sheetName)
+    _fillValidation(src, total, sheetName)
+    condFormat.extendRulesToRange(src, total, sheetName)
+    // Merges are a structural format: a merged source tiles its merge into
+    // every dragged-over destination.
+    _fillMerges(src, total, sheetName)
     const fillAfter = { ...fillBefore, ...writes }
     const afterFmt = _captureFormatsRange(total, sheetName)
     const afterVal = _captureValidationRange(total, sheetName)
@@ -86,7 +78,7 @@ export function useFill({
         cellRefs: refs,
         before: fillBefore,
         after: fillAfter,
-        summary: _fillSummary(mode, refs.length),
+        summary: summary || _fillSummary(mode, refs.length),
       })
     }
     // History — the previous markEdited() path pushed a full snapshot, but
@@ -129,8 +121,6 @@ export function useFill({
   }
   function _fillSummary(mode, n) {
     if (mode === 'copy') return `Copied into ${n} cell${n === 1 ? '' : 's'}`
-    if (mode === 'format-only') return `Filled formats into ${n} cell${n === 1 ? '' : 's'}`
-    if (mode === 'without-format') return `Filled (no format) ${n} cell${n === 1 ? '' : 's'}`
     return `Filled ${n} cell${n === 1 ? '' : 's'}`
   }
 
@@ -217,25 +207,20 @@ export function useFill({
       }
     }
   }
-  function _fillFormatsOnly(src, total, sn) {
+  // Each filled cell takes the format of its source cell (the source repeats
+  // as a pattern); a cell whose source is unformatted is cleared.
+  function _fillFormats(src, total, sn) {
     const srcRows = src.r1 - src.r0 + 1,
       srcCols = src.c1 - src.c0 + 1
     for (let r = total.r0; r <= total.r1; r++) {
       for (let c = total.c0; c <= total.c1; c++) {
         if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-        const srcR = src.r0 + ((r - src.r0 + srcRows) % srcRows)
-        const srcC = src.c0 + ((c - src.c0 + srcCols) % srcCols)
+        // True modulo, as in _fillValidation.
+        const srcR = src.r0 + ((((r - src.r0) % srcRows) + srcRows) % srcRows)
+        const srcC = src.c0 + ((((c - src.c0) % srcCols) + srcCols) % srcCols)
         const fmt = formats.get(cellId(srcR, srcC), sn)
         if (fmt && Object.keys(fmt).length) formats.set(cellId(r, c), fmt, sn)
         else formats.clear(cellId(r, c), sn)
-      }
-    }
-  }
-  function _clearFormats(src, total, sn) {
-    for (let r = total.r0; r <= total.r1; r++) {
-      for (let c = total.c0; c <= total.c1; c++) {
-        if (r >= src.r0 && r <= src.r1 && c >= src.c0 && c <= src.c1) continue
-        formats.clear(cellId(r, c), sn)
       }
     }
   }
@@ -264,27 +249,17 @@ export function useFill({
   }
 
   // Ctrl+D / Ctrl+R: copy the selection's first row down (or first column
-  // right) across the rest of it.
+  // right) across the rest of it. It's a copy-mode fill from that edge, so it
+  // carries formats, validation, rules and merges like a drag does.
   async function _fillFromEdge(down) {
     if (!getGrid()) return
     const sel = getGrid().getSelection()
     const { r0, c0, r1, c1 } = sel
     if (down ? r1 <= r0 : c1 <= c0) return
-    const sn = currentSheet.value
     const dest = down ? { r0: r0 + 1, c0, r1, c1 } : { r0, c0: c0 + 1, r1, c1 }
-    if (_rectBlocked(dest, sn)) return
-    const before = await _readInputs(sel, sn)
-    const after = {}
-    for (let r = dest.r0; r <= dest.r1; r++) {
-      for (let c = dest.c0; c <= dest.c1; c++) {
-        const srcVal = before[down ? cellId(r0, c) : cellId(r, c0)] ?? ''
-        after[cellId(r, c)] = srcVal.startsWith('=')
-          ? adjustFormula(srcVal, down ? r - r0 : 0, down ? 0 : c - c0)
-          : srcVal
-      }
-    }
-    _writeInputs(sn, after)
-    _pushEditOp(sn, before, after, down ? 'Fill down' : 'Fill right')
+    if (_rectBlocked(dest, currentSheet.value)) return
+    const src = down ? { r0, c0, r1: r0, c1 } : { r0, c0, r1, c1: c0 }
+    await _runFill(src, sel, 'copy', down ? 'Fill down' : 'Fill right')
   }
   function fillDown() {
     _fillFromEdge(true).catch((e) => console.error('[sheets] fill down failed', e))
