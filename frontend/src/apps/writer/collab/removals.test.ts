@@ -1415,6 +1415,15 @@ describe("work a tab takes on that the doc already held as another tab's (R310)"
     expect([oldBlockText(reader).toString(), found]).toEqual(['deQQfgh', [neverKept('QQ')]])
   })
 
+  it('reports held text another tab deleted before its block went, as a spare copy (R326)', () => {
+    const found = adoptHeld(typeQQAt2, (reader) => {
+      oldBlockText(reader).delete(2, 2)
+      applyRestructure(reader)
+    })
+
+    expect(found).toEqual([neverKept('QQ')])
+  })
+
   it('keys lost text by every lost character, alike each time the same work is taken on', () => {
     const writer = docOf(threeParagraphs)
     const base = Y.encodeStateVector(writer)
