@@ -459,6 +459,47 @@ describe('convertLegacy', () => {
     })
   })
 
+  it("converts Drive's blocks that hold its default indent and heading line height (R331)", () => {
+    const block = yParagraph('one')
+    block.setAttribute('indent', 0 as never)
+    block.setAttribute('lineHeight', '100%')
+    const heading = yHeading('Two')
+    heading.setAttribute('indent', '0')
+    heading.setAttribute('lineHeight', '100%')
+
+    const result = convert(stored(legacyDoc(block, heading)))
+
+    const blocks = bodyOf(result.state).content.map((converted) => [
+      converted.type,
+      converted.attrs.lineHeight ?? null,
+      converted.content[0].text,
+    ])
+    expect(blocks).toEqual([
+      ['paragraph', '100%', 'one'],
+      ['heading', null, 'Two'],
+    ])
+  })
+
+  it("refuses a block indented past Drive's default", () => {
+    const block = yParagraph('one')
+    block.setAttribute('indent', 1 as never)
+
+    expect(convertLegacy(stored(legacyDoc(block)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it("refuses a heading whose line height isn't Drive's default", () => {
+    const heading = yHeading('Two')
+    heading.setAttribute('lineHeight', '150%')
+
+    expect(convertLegacy(stored(legacyDoc(heading)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('keeps a Yjs link, which gains the link mark defaults', () => {
     const result = convert(stored(legacyDoc(yMarked('go', { link: { href: '/a' } }))))
 

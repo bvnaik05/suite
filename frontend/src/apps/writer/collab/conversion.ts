@@ -201,15 +201,32 @@ function mediaSources(found: Inventory) {
   return JSON.stringify(sources)
 }
 
+// Drive stored its indent and heading line height at their defaults, which this editor has no attribute for
+const DEFAULT_INDENTS = new Set<unknown>([0, '0'])
+
+function dropDriveDefaults(body: XmlFragment) {
+  const elements = [...body.createTreeWalker((type) => type instanceof XmlElement)] as XmlElement[]
+  for (const element of elements) {
+    if (DEFAULT_INDENTS.has(element.getAttribute('indent'))) {
+      element.removeAttribute('indent')
+    }
+
+    if (element.nodeName === 'heading' && element.getAttribute('lineHeight') === '100%') {
+      element.removeAttribute('lineHeight')
+    }
+  }
+}
+
 // The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
-// checked on its own by where the media points; the parts the build set aside, lost (recorded) or
-// hidden (holding nothing), left out of the source; and the extras the result may hold, being the
-// filler the build adds, declared defaults and heading ids
+// checked on its own by where the media points; Drive's defaults, dropped; the parts the build set
+// aside, lost (recorded) or hidden (holding nothing), left out of the source; and the extras the
+// result may hold, being the filler the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
   const media = mediaSources(inventory(body))
   convertOldMedia(body)
+  dropDriveDefaults(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(inventory(body)) === media
   const source = inventory(body, new Set([...hidden, ...lost]))
