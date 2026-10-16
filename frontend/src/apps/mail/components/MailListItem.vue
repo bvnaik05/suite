@@ -137,6 +137,9 @@
           >
             {{ m.mailbox_name }}
           </div>
+          <div v-if="moreMailboxes" class="bg-surface-gray-3 inline-flex rounded-4 p-1.5 text-xs">
+            +{{ moreMailboxes }}
+          </div>
         </template>
       </div>
       <template v-if="!isFullWidth && mailboxesToShow.length">
@@ -146,6 +149,12 @@
           class="bg-surface-gray-3 mr-1.5 inline-flex rounded-4 p-1.5 text-xs"
         >
           {{ m.mailbox_name }}
+        </div>
+        <div
+          v-if="moreMailboxes"
+          class="bg-surface-gray-3 mr-1.5 inline-flex rounded-4 p-1.5 text-xs"
+        >
+          +{{ moreMailboxes }}
         </div>
       </template>
     </template>
@@ -180,6 +189,7 @@ import {
   threadDisplayName,
   threadParticipants,
 } from '@/apps/mail/utils/participants'
+import { receivedFolders } from '@/apps/mail/utils/receivedMail'
 import { mailboxParam, UNIFIED_THREAD_ROUTE } from '@/apps/mail/utils/unifiedFolders'
 import HighlightedText from '@/components/HighlightedText.vue'
 
@@ -269,7 +279,20 @@ const to = computed(() => ({
   query: route.query,
 }))
 
-const mailboxesToShow = computed(() => mail.mailboxes.filter((m) => m.mailbox_id !== mailbox))
+// Where else the conversation is filed. A row stands for one of its messages, which in Sent is your
+// reply — never archived or filed away — so there and in Starred it says where the mail you received
+// is instead, apart from the Inbox, the usual place.
+const allMailboxesToShow = computed(() =>
+  mailbox === mailboxIds.sent || mailbox === 'starred'
+    ? receivedFolders(mail.messages?.length ? mail.messages : [mail], mailboxIds, mailbox)
+    : // Sent and Drafts are where your own mail lives, not where anything was filed: never a tag.
+      mail.mailboxes.filter(
+        (m) => ![mailbox, mailboxIds.sent, mailboxIds.drafts].includes(m.mailbox_id),
+      ),
+)
+// Two at most, the rest counted.
+const mailboxesToShow = computed(() => allMailboxesToShow.value.slice(0, 2))
+const moreMailboxes = computed(() => allMailboxesToShow.value.length - mailboxesToShow.value.length)
 
 const attachments = computed(
   () => mail.attachments.filter((m) => m.filename && m.disposition === 'attachment') || [],

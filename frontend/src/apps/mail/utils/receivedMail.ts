@@ -41,3 +41,23 @@ export const unarchivable = (
       isReceived(mail, boxes.sent) &&
       mail.mailboxes.some((mailbox) => mailbox.mailbox_id === boxes.archive),
   )
+
+/**
+ * The folders the mail you received is in, apart from the usual places — the Inbox, Sent and Drafts —
+ * and the list being shown: what a Sent or Starred row's tags say, the row standing for the
+ * conversation rather than for its own message (in Sent, your reply, which is never filed away).
+ */
+export const receivedFolders = <F extends { mailbox_id: string }>(
+  mails: (Filed & { mailboxes: F[] })[],
+  boxes: { sent?: string; inbox?: string; drafts?: string },
+  shown: string,
+): F[] => {
+  const usual = [boxes.inbox, boxes.sent, boxes.drafts, shown]
+  const folders = new Map<string, F>()
+  for (const mail of mails)
+    if (isReceived(mail, boxes.sent))
+      for (const folder of mail.mailboxes)
+        if (!usual.includes(folder.mailbox_id) && !folders.has(folder.mailbox_id))
+          folders.set(folder.mailbox_id, folder)
+  return [...folders.values()]
+}

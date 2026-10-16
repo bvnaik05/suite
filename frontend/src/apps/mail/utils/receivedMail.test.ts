@@ -1,6 +1,12 @@
 import { expect, it } from 'vitest'
 
-import { archivable, holdsReceivedMail, isReceived, unarchivable } from './receivedMail'
+import {
+  archivable,
+  holdsReceivedMail,
+  isReceived,
+  receivedFolders,
+  unarchivable,
+} from './receivedMail'
 
 const in_ = (...ids: string[]) => ids.map((mailbox_id) => ({ mailbox_id }))
 
@@ -31,4 +37,18 @@ it('offers Unarchive exactly where Archive has nothing left to do', () => {
   expect(unarchivable([{ mailboxes: in_('inbox') }, reply], boxes)).toBe(false)
   expect(unarchivable([{ mailboxes: in_('projects') }, reply], boxes)).toBe(false)
   expect(unarchivable([reply], boxes)).toBe(false)
+})
+
+it("names where a conversation's received mail is filed, apart from the Inbox", () => {
+  const boxes = { sent: 'sent', inbox: 'inbox', drafts: 'drafts' }
+  const conversation = [
+    { mailboxes: in_('inbox', 'projects') },
+    { mailboxes: in_('archive', 'projects') },
+    { mailboxes: in_('sent', 'clients') },
+  ]
+  expect(receivedFolders(conversation, boxes, 'sent').map((f) => f.mailbox_id)).toEqual([
+    'projects',
+    'archive',
+  ])
+  expect(receivedFolders([{ mailboxes: in_('inbox') }], boxes, 'sent')).toEqual([])
 })
