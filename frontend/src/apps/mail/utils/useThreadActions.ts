@@ -1021,10 +1021,21 @@ export function useThreadActions(deps: {
     // conversation — your reply is never junked — so the open thread stays put there.
     const action = async () => {
       await forward()
-      if (mailbox.value === mailboxIds.sent) resetThreads()
-      else handleSuccessAndRemoveFromList(threadIDs)
+      // Sent keeps the conversation and its open thread, but the mail you received is junked now:
+      // it leaves the open thread, as it would on reading the conversation again.
+      let unjunkPane = () => {}
+      if (mailbox.value === mailboxIds.sent) {
+        resetThreads()
+        if (spam && threadID.value && selectedThreads.includes(threadID.value)) {
+          const rollbacks = threadMails([threadID.value])
+            .filter((m) => isReceived(m, mailboxIds.sent))
+            .map((m) => mailThreadRef.value?.removeMailFromView(m.id).rollback)
+          unjunkPane = () => rollbacks.forEach((rollback) => rollback?.())
+        }
+      } else handleSuccessAndRemoveFromList(threadIDs)
       setUndoAction(() => {
         const undoAction = async () => {
+          unjunkPane()
           await setMailsMailboxesSubmit(restore)
           resetThreads()
           mailboxes.refetch().catch(() => {})
