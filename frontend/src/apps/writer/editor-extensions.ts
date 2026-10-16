@@ -38,8 +38,8 @@ export type WriterEditorOptions = {
   onAnchors: (anchors: unknown[]) => void
   scrollParent: () => HTMLElement | Window
   media: DocumentMedia | null
-  comments: unknown
-  ydoc: unknown
+  comments?: unknown
+  ydoc?: unknown
   activeComment: Ref<unknown>
   showComments: Ref<boolean>
   showResolved: Ref<boolean>
@@ -98,14 +98,24 @@ export const writerEditorExtensions = (options: WriterEditorOptions): AnyExtensi
   }),
   MediaDownload,
   DriveMedia.configure({ media: options.media }),
-  CommentExtension.configure({
-    comments: options.comments,
-    doc: options.ydoc,
-    activeComment: options.activeComment,
-    showComments: options.showComments,
-    showResolved: options.showResolved,
-    edited: options.edited,
-    onActivated: options.onCommentActivated,
-    onDecorationsPainted: options.onCommentsPainted,
-  }),
+  ...commentExtensions(options),
 ]
+
+function commentExtensions(options: WriterEditorOptions): AnyExtension[] {
+  if (!options.comments) {
+    return []
+  }
+
+  return [
+    CommentExtension.configure({
+      comments: options.comments,
+      doc: options.ydoc,
+      activeComment: options.activeComment,
+      showComments: options.showComments,
+      showResolved: options.showResolved,
+      edited: options.edited,
+      onActivated: options.onCommentActivated,
+      onDecorationsPainted: options.onCommentsPainted,
+    }),
+  ]
+}

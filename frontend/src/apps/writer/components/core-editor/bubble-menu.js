@@ -7,9 +7,12 @@ export function bubbleMenuOptions({ comments }) {
       if (from === to) return false
       // Only show for text selections — not node selections (images) or cell selections (tables)
       if (!(state.selection instanceof TextSelection)) return false
-      let hide = false
-      comments.forEach((k) => (k.new || k.edit) && (hide = true))
-      return !hide
+
+      if (!comments) {
+        return true
+      }
+
+      return ![...comments.values()].some((comment) => comment.new || comment.edit)
     },
   }
 }

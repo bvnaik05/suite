@@ -7,7 +7,6 @@
     :document
     :settings
     :editable
-    :comments
     :extensions
     :comment-on-selection
     collaborative
@@ -23,7 +22,6 @@
 import type { CollabRoom } from '@suite/collab-client'
 import { toast } from 'frappe-ui'
 import { computed, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue'
-import * as Y from 'yjs'
 
 import type { DocumentThread } from '@/apps/drive'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
@@ -84,9 +82,6 @@ defineExpose({ editor, peers, places, isFrozen })
 function onFrozen() {
   isFrozen.value = true
 }
-
-// Collaborative documents carry no comments yet
-const comments = new Y.Doc().getMap('comments')
 
 const extensions = [
   ...writerAdapter.bind(props.room, onFrozen),

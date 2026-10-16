@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import * as Y from 'yjs'
 
+import { bubbleMenuOptions } from './components/core-editor/bubble-menu'
 import { writerEditorExtensions, type WriterEditorOptions } from './editor-extensions'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
 
-const writerEditor = (content: string) => {
+function writerEditor(content: string, changes: Partial<WriterEditorOptions> = {}) {
   const ydoc = new Y.Doc()
   const options: WriterEditorOptions = {
     collaborative: false,
@@ -26,7 +27,7 @@ const writerEditor = (content: string) => {
     edited: ref(false),
     onCommentsPainted: () => {},
   }
-  const extensions = writerEditorExtensions(options)
+  const extensions = writerEditorExtensions({ ...options, ...changes })
   return new Editor({ content, extensions })
 }
 
@@ -40,6 +41,39 @@ describe('writer editor', () => {
     editor.commands.applyStyles()
 
     expect(editor.getHTML()).toContain('<strong>plain</strong>')
+    editor.destroy()
+  })
+})
+
+describe('collab editor without a comments map', () => {
+  it('runs without the comment extension and still shows the bubble menu over a selection', () => {
+    const editor = writerEditor('<p>plain text</p>', {
+      collaborative: true,
+      comments: undefined,
+      ydoc: undefined,
+    })
+    editor.commands.setTextSelection({ from: 1, to: 6 })
+    const { state } = editor
+    const { from, to } = state.selection
+    const names = editor.extensionManager.extensions.map((extension) => extension.name)
+
+    expect(names).not.toContain('commentExtension')
+    expect(bubbleMenuOptions({ comments: undefined }).shouldShow({ state, from, to })).toBe(true)
+    editor.destroy()
+  })
+})
+
+describe('bubble menu', () => {
+  it('hides over a selection while a comment is being written', () => {
+    const editor = writerEditor('<p>plain text</p>')
+    editor.commands.setTextSelection({ from: 1, to: 6 })
+    const { state } = editor
+    const { from, to } = state.selection
+    const comments = new Y.Doc().getMap('comments')
+    comments.set('old', { id: 'old' })
+    comments.set('draft', { id: 'draft', new: true })
+
+    expect(bubbleMenuOptions({ comments }).shouldShow({ state, from, to })).toBe(false)
     editor.destroy()
   })
 })
