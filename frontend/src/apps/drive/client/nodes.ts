@@ -26,7 +26,9 @@ export function createDocument(input: {
       ? 'Untitled spreadsheet'
       : input.content_doctype === 'Presentation'
         ? 'Untitled presentation'
-        : 'Untitled document'
+        : input.content_doctype === 'Drawing'
+          ? 'Untitled drawing'
+          : 'Untitled document'
   return client.mutation(api.drive.nodes.createDocument, { ...input, title, kind: 'document' })
 }
 

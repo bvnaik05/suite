@@ -1,46 +1,81 @@
 <script setup lang="ts">
+import { Button, Dropdown, Tooltip, TooltipProvider } from 'frappe-ui'
+import {
+  ArrowRight,
+  Circle,
+  Diamond,
+  Eraser,
+  ImagePlus,
+  LassoSelect,
+  Minus,
+  MousePointer2,
+  Pencil,
+  Square,
+  Type,
+} from 'lucide-vue-next'
 import { computed, defineComponent, h } from 'vue'
-import { Button } from 'frappe-ui'
-import { Dropdown } from 'frappe-ui'
 
-import { Tooltip } from 'frappe-ui'
-import { TooltipProvider } from 'frappe-ui'
-import { ArrowRight, Circle, Diamond, Eraser, ImagePlus, LassoSelect, Minus, MousePointer2, Pencil, Square, Type } from 'lucide-vue-next'
+import { translate as __ } from '@/platform/translation'
+
 import laserPointerIcon from '../assets/laser-pointer.svg?no-inline'
 import type { DrawingTool } from '../canvas/tools'
 
-const tools: ReadonlyArray<{ label: string; icon?: typeof Square; value: DrawingTool; shortcut?: string }> = [
-  { label: 'Select', icon: MousePointer2, value: 'select', shortcut: 'Escape' },
-  { label: 'Rectangle', icon: Square, value: 'rectangle', shortcut: 'R' },
-  { label: 'Diamond', icon: Diamond, value: 'diamond', shortcut: 'D' },
-  { label: 'Ellipse', icon: Circle, value: 'ellipse', shortcut: 'O' },
-  { label: 'Line', icon: Minus, value: 'line', shortcut: 'L' },
-  { label: 'Arrows', icon: ArrowRight, value: 'arrow', shortcut: 'A' },
-  { label: 'Draw', icon: Pencil, value: 'draw', shortcut: 'P' },
-  { label: 'Eraser', icon: Eraser, value: 'eraser', shortcut: 'E' },
-  { label: 'Text', icon: Type, value: 'text', shortcut: 'T' },
+const tools: ReadonlyArray<{
+  label: string
+  icon?: typeof Square
+  value: DrawingTool
+  shortcut?: string
+}> = [
+  { label: __('Select'), icon: MousePointer2, value: 'select', shortcut: 'Escape' },
+  { label: __('Rectangle'), icon: Square, value: 'rectangle', shortcut: 'R' },
+  { label: __('Diamond'), icon: Diamond, value: 'diamond', shortcut: 'D' },
+  { label: __('Ellipse'), icon: Circle, value: 'ellipse', shortcut: 'O' },
+  { label: __('Line'), icon: Minus, value: 'line', shortcut: 'L' },
+  { label: __('Arrows'), icon: ArrowRight, value: 'arrow', shortcut: 'A' },
+  { label: __('Draw'), icon: Pencil, value: 'draw', shortcut: 'P' },
+  { label: __('Eraser'), icon: Eraser, value: 'eraser', shortcut: 'E' },
+  { label: __('Text'), icon: Type, value: 'text', shortcut: 'T' },
 ]
 
 const props = defineProps<{ activeTool: DrawingTool | null }>()
 
 const emit = defineEmits<{ select: [tool: DrawingTool] }>()
 
-const LaserPointerIcon = defineComponent(() => () => h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true' }, [
-  h('use', { href: `${laserPointerIcon}#laser-pointer` }),
-]))
+const LaserPointerIcon = defineComponent(
+  () => () =>
+    h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true' }, [
+      h('use', { href: `${laserPointerIcon}#laser-pointer` }),
+    ]),
+)
 
 const overflowTools = computed(() => [
-  { label: 'Insert Image', icon: ImagePlus, onClick: () => emit('select', 'image') },
-  { label: 'Laser Pointer', icon: LaserPointerIcon, onClick: () => emit('select', 'laser') },
-  { label: 'Lasso Select', icon: LassoSelect, selected: props.activeTool === 'lasso', onClick: () => emit('select', 'lasso') },
+  { label: __('Insert Image'), icon: ImagePlus, onClick: () => emit('select', 'image') },
+  { label: __('Laser Pointer'), icon: LaserPointerIcon, onClick: () => emit('select', 'laser') },
+  {
+    label: __('Lasso Select'),
+    icon: LassoSelect,
+    selected: props.activeTool === 'lasso',
+    onClick: () => emit('select', 'lasso'),
+  },
 ])
 </script>
 
 <template>
-  <nav class="drawing-toolbar" aria-label="Drawing tools">
+  <nav class="drawing-toolbar" :aria-label="__('Drawing tools')">
     <TooltipProvider>
-      <div class="drawing-toolbar__surface" role="toolbar" aria-label="Drawing tools">
-        <Tooltip v-for="tool in tools" :key="tool.label" :text="tool.value === 'select' ? 'Pointer - Esc' : tool.shortcut ? `${tool.label} - ${tool.shortcut}` : tool.label" placement="top">
+      <div class="drawing-toolbar__surface" role="toolbar" :aria-label="__('Drawing tools')">
+        <Tooltip
+          v-for="tool in tools"
+          :key="tool.label"
+          :text="
+            tool.value === 'select'
+              ? 'Pointer - Esc'
+              : tool.shortcut
+                ? `${tool.label} - ${tool.shortcut}`
+                : tool.label
+          "
+          placement="top"
+        >
           <Button
             class="drawing-tool"
             size="sm"
@@ -60,7 +95,13 @@ const overflowTools = computed(() => [
           align="end"
           :offset="12"
           :options="overflowTools"
-          :button="{ icon: 'lucide-more-horizontal', label: 'More tools', size: 'md', variant: 'ghost', theme: 'gray' }"
+          :button="{
+            icon: 'lucide-more-horizontal',
+            label: 'More tools',
+            size: 'md',
+            variant: 'ghost',
+            theme: 'gray',
+          }"
         />
       </div>
     </TooltipProvider>

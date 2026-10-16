@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+
 import { arrowGeometry } from '../canvas/arrow'
 import type { LineShape } from '../canvas/scene'
 
@@ -11,7 +12,9 @@ const props = defineProps<{
 }>()
 
 const geometry = computed(() => arrowGeometry(props.shape, props.scale))
-const shaftColor = computed(() => props.shape.stroke === null ? 'transparent' : props.shape.stroke ?? '#171717')
+const shaftColor = computed(() =>
+  props.shape.stroke === null ? 'transparent' : (props.shape.stroke ?? '#171717'),
+)
 const headColor = computed(() => props.shape.arrowHeadFill ?? shaftColor.value)
 </script>
 
