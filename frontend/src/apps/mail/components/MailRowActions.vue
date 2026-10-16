@@ -40,7 +40,7 @@ import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Thread } from '@/apps/mail/types'
 import { useScreenSize } from '@/apps/mail/utils/composables'
-import { archivable, holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
+import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
 
 // The hover actions on a row, for one thread or for a whole collapsed run of them.
 //
@@ -60,7 +60,7 @@ const {
   threads: Thread[]
   // Off for stacks, where the chevron occupies the star's slot.
   showStar?: boolean
-  // The list is Archive and files by the filing rules, so it can take a thread back to the Inbox.
+  // The list files by the filing rules, so it can take an archived thread back to the Inbox.
   unarchive?: boolean
   // The list is Drafts: its bin discards rather than trashes. Asked of the list, not the thread —
   // a conversation with a reply draft is filed in Drafts and in Inbox alike.
@@ -133,7 +133,16 @@ const actions = computed(() =>
       label: many.value ? __('Unarchive {0} threads', [count.value]) : __('Unarchive'),
       onClick: () => emit('unarchive'),
       icon: ArchiveRestore,
-      condition: unarchive && !drafts && holdsReceived.value && everyIn(archiveId.value),
+      condition:
+        unarchive &&
+        !drafts &&
+        threads.some((t) =>
+          unarchivable(t.messages?.length ? t.messages : [t], {
+            sent: mailboxIds.sent,
+            archive: archiveId.value,
+            inbox: t.inbox ?? mailboxIds.inbox,
+          }),
+        ),
     },
     {
       label: many.value ? __('Move {0} threads to Trash', [count.value]) : __('Move to Trash'),

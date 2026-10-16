@@ -26,3 +26,18 @@ export const archivable = (
     const ids = mail.mailboxes.map((mailbox) => mailbox.mailbox_id)
     return !ids.includes(boxes.archive ?? '') || ids.includes(boxes.inbox ?? '')
   })
+
+/**
+ * Whether Unarchive would do something: the mail you received is archived, and none of it is still
+ * in the Inbox. Archive's opposite, so the two share one place and only one of them shows.
+ */
+export const unarchivable = (
+  mails: Filed[],
+  boxes: { sent?: string; archive?: string; inbox?: string },
+): boolean =>
+  !archivable(mails, boxes) &&
+  mails.some(
+    (mail) =>
+      isReceived(mail, boxes.sent) &&
+      mail.mailboxes.some((mailbox) => mailbox.mailbox_id === boxes.archive),
+  )

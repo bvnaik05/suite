@@ -103,11 +103,18 @@ class MoveInput(IdsInput):
     clear_junk: NotRequired[bool]
 
 
+class ShownFolder(TypedDict):
+    mailbox: str
+    mailbox_id: str
+    mailbox_name: str
+
+
 class FileInput(IdsInput):
     action: Literal["archive", "unarchive", "move", "junk", "not_junk", "trash"]
     mailbox: NotRequired[str | None]
     screen_action: NotRequired[str | None]
     leaves: NotRequired[str | None]
+    shows: NotRequired[dict[str, list[ShownFolder]] | None]
 
 
 class FiledResult(TypedDict):

@@ -278,50 +278,6 @@ export function useThreadActions(deps: {
       })
   }
 
-  // Optimistically mirror a move on the rows that STAY in the list (Sent / Starred keptInList): each item
-  // (summary + nested messages) takes the target mailbox, keeping Sent for sent copies — exactly what the
-  // forward ops do server-side — so MailListItem's folder tags update at once instead of showing the old
-  // folder until a refetch. Returns a revert closure (restores the exact prior mailbox sets).
-  const syncListMove = (threadIDs: Record<string, string[]>) => {
-    const prev = new Map<
-      {
-        mailboxes: Mailbox[]
-      },
-      Mailbox[]
-    >()
-    const sentEntry = mailboxEntry(mailboxIds.sent)
-    for (const [target, tids] of Object.entries(threadIDs)) {
-      const targetEntry = mailboxEntry(target)
-      if (!targetEntry) continue
-      rows.value
-        ?.filter((t: Thread) => tids.includes(t.thread_id))
-        .forEach((t: Thread) => {
-          ;[t, ...(t.messages ?? [])].forEach((item: { mailboxes: Mailbox[] }) => {
-            prev.set(item, item.mailboxes)
-            const keepsSent = item.mailboxes.some((mb) => mb.mailbox_id === mailboxIds.sent)
-            // Sent mail is filed with the conversation, but never into the Inbox (see filing.py).
-            item.mailboxes =
-              keepsSent && sentEntry
-                ? target === mailboxIds.inbox
-                  ? [{ ...sentEntry }]
-                  : [
-                      {
-                        ...targetEntry,
-                      },
-                      {
-                        ...sentEntry,
-                      },
-                    ]
-                : [
-                    {
-                      ...targetEntry,
-                    },
-                  ]
-          })
-        })
-    }
-    return () => prev.forEach((mailboxes, item) => (item.mailboxes = mailboxes))
-  }
   const addThreadsToMailbox = (mailboxId: string, threadIds: string[], isUndo = false) => {
     const mailboxName = mailboxes.data?.find((m) => m.id === mailboxId)?._name
 
@@ -676,6 +632,7 @@ export function useThreadActions(deps: {
             action: 'move',
             mailbox: target,
             leaves: keptInList || reconcileView ? null : mailbox.value,
+            shows: keptInList ? expectedFolders('move', tids, target) : null,
           }),
     )
 
@@ -743,8 +700,8 @@ export function useThreadActions(deps: {
     }
     if (keptInList) {
       // The rows stay (Sent keeps its sent copy; a Starred thread keeps a non-junk/trash copy), but
-      // their folder tags change — update them now, before the request, and revert on failure/undo.
-      const revertMove = syncListMove(threadIDs)
+      // their folder tags change: the request carries the folders expected (`shows`), which the
+      // client policy shows at once and takes back if the request fails.
       let forwardOk = false
       const forwardPromise = (async () => {
         try {
@@ -752,7 +709,6 @@ export function useThreadActions(deps: {
           forwardOk = true
           mailboxes.refetch().catch(() => {})
         } catch (error) {
-          revertMove()
           setMailsMailboxesSubmit({
             mails: snapshot,
           }).catch(() => {})
@@ -765,18 +721,10 @@ export function useThreadActions(deps: {
           void (async () => {
             await forwardPromise.catch(() => {})
             if (!forwardOk) return
-            revertMove()
             setUndoAction(undefined)
             const restore = setMailsMailboxesSubmit({
               mails: snapshot,
-            })
-              .then(() => mailboxes.refetch().catch(() => {}))
-              .catch((error) => {
-                // The undo didn't land server-side — re-apply the move to the tags so they
-                // match the server instead of showing the stale pre-move folder.
-                syncListMove(threadIDs)
-                throw error
-              })
+            }).then(() => mailboxes.refetch().catch(() => {}))
             raiseOptimisticToast(restore, movedBack)
           })(),
       )
@@ -816,6 +764,57 @@ export function useThreadActions(deps: {
       (done) => !!done,
     )
   }
+  // The folders each message of these conversations is expected in once filed, by the filing rules
+  // (filing.py), for rows that stay on the list: sent with the request, the client policy shows
+  // them on the click — and with them the Archive/Unarchive button and the folder tags.
+  const expectedFolders = (
+    action: 'archive' | 'unarchive' | 'move',
+    threadIds: string[],
+    target?: string,
+  ): Record<string, Mailbox[]> => {
+    const entry = (id: string) => mailboxEntry(id)
+    const shows: Record<string, Mailbox[]> = {}
+    rows.value
+      ?.filter((t: Thread) => threadIds.includes(t.thread_id))
+      .forEach((t: Thread) => {
+        ;[t, ...(t.messages ?? [])].forEach((item) => {
+          if (item.draft) return
+          const ids = item.mailboxes.map((m) => m.mailbox_id)
+          const own = ids.includes(mailboxIds.sent)
+          let next: string[] | undefined
+          if (action === 'move' && target)
+            next = own
+              ? target === mailboxIds.inbox
+                ? [mailboxIds.sent]
+                : [mailboxIds.sent, target]
+              : [target]
+          else if (own) return
+          else if (action === 'archive')
+            next = [
+              ...ids.filter(
+                (id) =>
+                  ![
+                    mailboxIds.inbox,
+                    mailboxIds.junk,
+                    mailboxIds.trash,
+                    mailboxIds.archive,
+                  ].includes(id),
+              ),
+              mailboxIds.archive,
+            ]
+          else if (action === 'unarchive' && ids.includes(mailboxIds.archive))
+            next = [
+              ...ids.filter((id) => id !== mailboxIds.archive && id !== mailboxIds.inbox),
+              mailboxIds.inbox,
+            ]
+          if (!next) return
+          const entries = next.map(entry).filter((m): m is Mailbox => !!m)
+          if (entries.length === next.length) shows[item.id] = entries
+        })
+      })
+    return shows
+  }
+
   // Archive and Unarchive file a conversation in place: the rows leave only the list named as left,
   // and Undo puts each message back exactly. `told` reads the toast off the server's answer.
   const fileInPlace = (
@@ -838,12 +837,14 @@ export function useThreadActions(deps: {
       ids: mails.map((m) => m.id),
       action,
       leaves: leaves ? mailbox.value : null,
+      // Rows that stay show the new folders at once; Search is read again, its rows being matches.
+      shows: leaves || mailbox.value === 'search' ? null : expectedFolders(action, threadIds),
     }).then(
       (filed) => {
         forwardOk = true
         mailboxes.refetch().catch(() => {})
         if (leaves) refillIfEmpty()
-        else resetThreads()
+        else if (mailbox.value === 'search') resetThreads()
         return filed
       },
       (error) => {
@@ -861,7 +862,7 @@ export function useThreadActions(deps: {
           setUndoAction(undefined)
           const restore = setMailsMailboxesSubmit({ mails: snapshot }).then(() => {
             mailboxes.refetch().catch(() => {})
-            if (!leaves) resetThreads()
+            if (mailbox.value === 'search') resetThreads()
           })
           raiseOptimisticToast(
             restore,

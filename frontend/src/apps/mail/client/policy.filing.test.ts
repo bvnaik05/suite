@@ -34,3 +34,15 @@ it('leaves it on a list it did not leave, such as a folder of yours', () => {
     update({ ...archived, leaves: null }, { account: 'a', mailbox: 'inbox' }, list),
   ).toBeUndefined()
 })
+
+it('shows a conversation that stays on the list in the folders it is filed into', () => {
+  const update = updateOf()
+  const archive = { mailbox: 'Archive', mailbox_id: 'archive', mailbox_name: 'Archive' }
+  const kept = { account: 'a', ids: ['q', 'r'], action: 'archive', shows: { q: [archive] } }
+  expect(update(kept, { account: 'a', mailbox: 'sent' }, list)).toEqual({
+    rows: [
+      { id: 'q', mailboxes: [archive], messages: [{ id: 'q', mailboxes: [archive] }, { id: 'r' }] },
+      { id: 'other' },
+    ],
+  })
+})

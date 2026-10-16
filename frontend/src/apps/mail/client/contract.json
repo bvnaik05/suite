@@ -18637,6 +18637,31 @@
       "pathParams": [],
       "query": null,
       "body": {
+        "$defs": {
+          "ShownFolder": {
+            "properties": {
+              "mailbox": {
+                "title": "Mailbox",
+                "type": "string"
+              },
+              "mailbox_id": {
+                "title": "Mailbox Id",
+                "type": "string"
+              },
+              "mailbox_name": {
+                "title": "Mailbox Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mailbox",
+              "mailbox_id",
+              "mailbox_name"
+            ],
+            "title": "ShownFolder",
+            "type": "object"
+          }
+        },
         "properties": {
           "account": {
             "title": "Account",
@@ -18693,6 +18718,23 @@
               }
             ],
             "title": "Leaves"
+          },
+          "shows": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "$ref": "#/$defs/ShownFolder"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shows"
           }
         },
         "required": [

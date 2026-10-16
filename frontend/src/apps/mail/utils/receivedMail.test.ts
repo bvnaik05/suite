@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 
-import { archivable, holdsReceivedMail, isReceived } from './receivedMail'
+import { archivable, holdsReceivedMail, isReceived, unarchivable } from './receivedMail'
 
 const in_ = (...ids: string[]) => ids.map((mailbox_id) => ({ mailbox_id }))
 
@@ -22,4 +22,13 @@ it('stops offering Archive once the received mail is archived, whatever your rep
   expect(archivable([{ mailboxes: in_('inbox') }, reply], boxes)).toBe(true)
   expect(archivable([{ mailboxes: in_('archive', 'projects') }, reply], boxes)).toBe(false)
   expect(archivable([reply], boxes)).toBe(false)
+})
+
+it('offers Unarchive exactly where Archive has nothing left to do', () => {
+  const boxes = { sent: 'sent', archive: 'archive', inbox: 'inbox' }
+  const reply = { mailboxes: in_('sent') }
+  expect(unarchivable([{ mailboxes: in_('archive', 'projects') }, reply], boxes)).toBe(true)
+  expect(unarchivable([{ mailboxes: in_('inbox') }, reply], boxes)).toBe(false)
+  expect(unarchivable([{ mailboxes: in_('projects') }, reply], boxes)).toBe(false)
+  expect(unarchivable([reply], boxes)).toBe(false)
 })

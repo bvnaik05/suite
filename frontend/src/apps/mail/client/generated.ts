@@ -6015,6 +6015,12 @@ const operationMoveMails: MutationRef<MoveMailsInput, MoveMailsOutput, MoveMails
   loadValidators: async () => (await import('./validators')).operationMoveMails,
 }
 
+export type FileMailsInputShownFolder = {
+  mailbox: string
+  mailbox_id: string
+  mailbox_name: string
+}
+
 export type FileMailsInput = {
   account: string
   ids: Array<string>
@@ -6022,6 +6028,7 @@ export type FileMailsInput = {
   mailbox?: string | null
   screen_action?: string | null
   leaves?: string | null
+  shows?: { [key: string]: Array<FileMailsInputShownFolder> } | null
 }
 
 export type FileMailsOutput = { updated: Array<string>; left_inbox: boolean }

@@ -11,7 +11,7 @@ import {
 } from 'lucide-vue-next'
 
 import type { Thread } from '@/apps/mail/types'
-import { archivable, holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
+import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
 
 export interface SelectAction {
   label: string
@@ -100,7 +100,16 @@ export const selectActions = (
       shortLabel: __('Unarchive'),
       onClick: () => run.unarchive?.(),
       icon: ArchiveRestore,
-      condition: () => folder().archive && !!run.unarchive && notDrafts(received)(),
+      condition: () =>
+        !!run.unarchive &&
+        !!folder().archiveId &&
+        notDrafts((t) =>
+          unarchivable(t.messages?.length ? t.messages : [t], {
+            sent: folder().sent,
+            archive: folder().archiveId,
+            inbox: folder().inboxId,
+          }),
+        )(),
     },
     {
       label: __('Mark as Junk (!)'),

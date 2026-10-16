@@ -361,6 +361,30 @@ function messagePolicy<I, O>(id: string): Policy<I, O> {
           }
           if (!isRecord(queryInput) || !isRecord(data) || !Array.isArray(data.rows))
             return undefined
+          // A filing names the folders each message is expected in after it, so a row that stays
+          // on the list shows them — and the actions they decide — on the click.
+          if (id === 'file_mails' && isRecord(input.shows)) {
+            const shows = input.shows
+            const refile = (item: unknown): unknown =>
+              isRecord(item) && typeof item.id === 'string' && Array.isArray(shows[item.id])
+                ? { ...item, mailboxes: shows[item.id] }
+                : item
+            data = {
+              ...data,
+              rows: data.rows.map((row) =>
+                isRecord(row)
+                  ? {
+                      ...(refile(row) as Record<string, unknown>),
+                      ...(Array.isArray(row.messages)
+                        ? { messages: row.messages.map(refile) }
+                        : {}),
+                    }
+                  : row,
+              ),
+            }
+            if (!input.leaves) return data
+          }
+          if (!isRecord(data) || !Array.isArray(data.rows)) return undefined
           const removing = [
             'move_mails',
             'delete_messages',

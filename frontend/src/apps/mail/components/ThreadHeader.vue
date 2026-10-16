@@ -133,7 +133,7 @@ import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import { folderTicks } from '@/apps/mail/utils/folderTicks'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
-import { archivable, holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
+import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
 import { lastMessageOf } from '@/apps/mail/utils/threadFolding'
 import {
   mailboxForUnifiedFolder,
@@ -222,15 +222,19 @@ const moreActions = computed((): Action[] => [
         mailboxIds.value,
       ),
   },
-  // Archive reversed, in Archive itself. Not in All Inboxes yet, whose list files by its own paths.
+  // Archive reversed, in Archive's place once the received mail is archived. Not in All Inboxes
+  // yet, whose list files by its own paths.
   {
     label: __('Unarchive'),
     onClick: () => emit('unarchiveThread'),
     icon: ArchiveRestore,
     condition: () =>
       route.name !== UNIFIED_THREAD_ROUTE &&
-      mailbox.value === mailboxIds.value.archive &&
-      holdsReceived.value,
+      !inDrafts.value &&
+      unarchivable(
+        (thread ?? []).filter((mail: Mail) => mail.id),
+        mailboxIds.value,
+      ),
   },
   {
     label: __('Mark as Junk (!)'),

@@ -253,7 +253,7 @@
                     v-else
                     :mailbox
                     :drafts="mailbox === mailboxIds.drafts"
-                    :unarchive="mailbox === mailboxIds.archive"
+                    :unarchive="!isAllAccountsSearch"
                     :mail="row.thread"
                     :account-id="isAllAccountsSearch ? row.thread.account : undefined"
                     :account-label="
