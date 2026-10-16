@@ -13,13 +13,19 @@ export interface Run {
   attrs: Record<string, unknown>
 }
 
+/** The row wrote each client's clocks from `before` up to `after`. */
+export interface RowClocks {
+  before: Map<number, number>
+  after: Map<number, number>
+}
+
 /**
  * Something of mine a remote row removed without naming it, because the row
  * deleted the block around it. `seen` is the text the row deleted next to mine,
  * and each run sits at its offset in `seen`.
  */
 export type Removal =
-  | { kind: 'text'; seen: string; runs: Run[] }
+  | { kind: 'text'; seen: string; runs: Run[]; written: RowClocks }
   | { kind: 'node'; name: string; attrs: Record<string, unknown> }
 
 /**
@@ -91,7 +97,8 @@ function textRemoval(
   transaction: Y.Transaction,
   named: Y.DeleteSet,
 ) {
-  const removal = { kind: 'text' as const, seen: '', runs: [] as Run[] }
+  const written = { before: transaction.beforeState, after: transaction.afterState }
+  const removal = { kind: 'text' as const, seen: '', runs: [] as Run[], written }
   let attrs: Record<string, unknown> = {}
   let run: Run | null = null
   for (let item = text._start; item; item = item.right) {
@@ -182,12 +189,13 @@ function rawAttrs(element: Y.XmlElement) {
  * Puts a text removal back where exactly one run of text the same transaction
  * wrote equals `seen`. Returns false when there's no such place, or more than one.
  */
-export function typeBack(body: Y.XmlFragment, removal: Removal, transaction: Y.Transaction) {
+export function typeBack(body: Y.XmlFragment, removal: Removal) {
   if (removal.kind !== 'text' || removal.seen.length < MIN_SEEN_LENGTH) {
     return false
   }
 
-  const matches = liveTexts(body).flatMap((text) => placesIn(text, removal.seen, transaction))
+  const { seen, written } = removal
+  const matches = liveTexts(body).flatMap((text) => placesIn(text, seen, written))
   if (matches.length !== 1) {
     return false
   }
@@ -218,9 +226,9 @@ function liveTexts(parent: Y.XmlFragment | Y.XmlElement): Y.XmlText[] {
 }
 
 // Each whole run of live chars the transaction wrote that equals `seen`
-function placesIn(text: Y.XmlText, seen: string, transaction: Y.Transaction) {
+function placesIn(text: Y.XmlText, seen: string, written: RowClocks) {
   const places: { text: Y.XmlText; at: number }[] = []
-  for (const span of rowSpans(text, transaction)) {
+  for (const span of rowSpans(text, written)) {
     if (span.text === seen) {
       places.push({ text, at: span.at })
     }
@@ -229,10 +237,10 @@ function placesIn(text: Y.XmlText, seen: string, transaction: Y.Transaction) {
   return places
 }
 
-function rowSpans(text: Y.XmlText, transaction: Y.Transaction) {
+function rowSpans(text: Y.XmlText, written: RowClocks) {
   const spans: { at: number; text: string }[] = []
   let span: { at: number; text: string } | null = null
-  for (const [at, { char, isFromRow }] of liveChars(text, transaction).entries()) {
+  for (const [at, { char, isFromRow }] of liveChars(text, written).entries()) {
     if (!isFromRow) {
       span = null
       continue
@@ -249,7 +257,7 @@ function rowSpans(text: Y.XmlText, transaction: Y.Transaction) {
   return spans
 }
 
-function liveChars(text: Y.XmlText, transaction: Y.Transaction) {
+function liveChars(text: Y.XmlText, written: RowClocks) {
   const chars: { char: string; isFromRow: boolean }[] = []
   for (let item = text._start; item; item = item.right) {
     if (item.deleted || !(item.content instanceof Y.ContentString)) {
@@ -258,7 +266,7 @@ function liveChars(text: Y.XmlText, transaction: Y.Transaction) {
 
     const { client, clock } = item.id
     for (let index = 0; index < item.length; index++) {
-      const isFromRow = wroteIn(transaction, client, clock + index)
+      const isFromRow = wroteIn(written, client, clock + index)
       chars.push({ char: item.content.str[index], isFromRow })
     }
   }
@@ -266,8 +274,8 @@ function liveChars(text: Y.XmlText, transaction: Y.Transaction) {
   return chars
 }
 
-function wroteIn(transaction: Y.Transaction, client: number, clock: number) {
-  const before = transaction.beforeState.get(client) ?? 0
-  const after = transaction.afterState.get(client) ?? 0
+function wroteIn(written: RowClocks, client: number, clock: number) {
+  const before = written.before.get(client) ?? 0
+  const after = written.after.get(client) ?? 0
   return clock >= before && clock < after
 }

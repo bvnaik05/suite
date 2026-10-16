@@ -86,10 +86,10 @@ export function sendRow(tab: Tab) {
 
 /** Applies a row the way the puller does, then types back or reports what it removed. */
 export function receiveRow(tab: Tab, row: Uint8Array) {
-  const found: { transaction: Y.Transaction; removals: Removal[] }[] = []
+  const found: Removal[] = []
   function detect(transaction: Y.Transaction) {
     if (transaction.origin === REMOTE) {
-      found.push({ transaction, removals: findRemovals(transaction, row) })
+      found.push(...findRemovals(transaction, row))
     }
   }
 
@@ -97,10 +97,8 @@ export function receiveRow(tab: Tab, row: Uint8Array) {
   Y.applyUpdate(tab.ydoc, row, REMOTE)
   tab.ydoc.off('afterTransaction', detect)
   const body = tab.ydoc.getXmlFragment(BODY_FIELD)
-  for (const { transaction, removals } of found) {
-    const unplaced = removals.filter((removal) => !typeBack(body, removal, transaction))
-    tab.reported.push(...unplaced)
-  }
+  const unplaced = found.filter((removal) => !typeBack(body, removal))
+  tab.reported.push(...unplaced)
 }
 
 /** Delivers rows in server order: every tab but the sender receives each one. */

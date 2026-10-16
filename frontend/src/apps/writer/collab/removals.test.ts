@@ -80,7 +80,12 @@ async function sendInOrder(tabs: Tab[], senders: Tab[]) {
   await syncAll(tabs)
 }
 
-const lostQQ = { kind: 'text', seen: 'defgh', runs: [{ offset: 2, text: 'QQ', attrs: {} }] }
+const lostQQ = {
+  kind: 'text',
+  seen: 'defgh',
+  runs: [{ offset: 2, text: 'QQ', attrs: {} }],
+  written: expect.anything(),
+}
 
 describe('text a row removed with the block around it', () => {
   it('types the joined text back when the other tab made the block a heading (R154.1)', async () => {
@@ -191,27 +196,29 @@ describe('text the row could only type back in the wrong place (R278)', () => {
 
     expect(blocks(headingTab)).toEqual(['heading aXb', 'paragraph xyzab'])
     expect(blocks(typingTab)).toEqual(blocks(headingTab))
-    const lost = { kind: 'text', seen: 'ab', runs: [{ offset: 2, text: 'QQ', attrs: {} }] }
+    const runs = [{ offset: 2, text: 'QQ', attrs: {} }]
+    const lost = { kind: 'text', seen: 'ab', runs, written: expect.anything() }
     expect(typingTab.reported).toEqual([lost])
   })
 
   it('reports a removal with nothing seen without looking for a place (R279)', () => {
     const ydoc = new Y.Doc()
     const body = ydoc.getXmlFragment('body')
-    let written: Y.Transaction | null = null
-    ydoc.transact((transaction) => {
-      const line = new Y.XmlText()
-      body.insert(0, [line])
-      line.insert(0, 'abc')
-      written = transaction
-    })
+    const line = new Y.XmlText()
+    body.insert(0, [line])
+    line.insert(0, 'abc')
+    const written = {
+      before: new Map<number, number>(),
+      after: Y.decodeStateVector(Y.encodeStateVector(ydoc)),
+    }
 
     const removal = {
       kind: 'text' as const,
       seen: '',
       runs: [{ offset: 0, text: 'QQ', attrs: {} }],
+      written,
     }
-    expect(typeBack(body, removal, written!)).toBe(false)
+    expect(typeBack(body, removal)).toBe(false)
   })
 })
 
