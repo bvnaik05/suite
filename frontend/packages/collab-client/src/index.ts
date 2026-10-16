@@ -13,7 +13,7 @@ export { covers } from './covers'
 export { judge, type Fault, type Verdict } from './judge'
 export { sizeCheck } from './limits'
 export { openCollabRoom } from './open'
-export { ADOPT, APPLIED_UPDATE, REMOTE } from './origins'
+export { ADOPT, APPLIED_UPDATE, MERGED_UPDATE, REMOTE } from './origins'
 export {
   isRecoverable,
   type Answer,

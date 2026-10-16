@@ -1,4 +1,4 @@
-import { ADOPT, APPLIED_UPDATE, type CollabRoom } from '@suite/collab-client'
+import { ADOPT, APPLIED_UPDATE, MERGED_UPDATE, type CollabRoom } from '@suite/collab-client'
 import * as Y from 'yjs'
 
 import { BODY_FIELD } from './field'
@@ -115,7 +115,8 @@ export function findRemovals(
   const named = Y.mergeDeleteSets(rows.map((row) => row.ds))
   const removals: Removal[] = []
   if (isWritingMine || isAdopting) {
-    unkeptWrites({ transaction, named, removals, lostIds: new Map() }, updates, mine)
+    const merged = transaction.meta.get(MERGED_UPDATE) ?? Y.mergeUpdates(updates)
+    unkeptWrites({ transaction, named, removals, lostIds: new Map() }, merged, mine)
   }
 
   const texts = new Set<Y.AbstractType<unknown>>()
@@ -234,9 +235,9 @@ interface UnkeptContext {
 }
 
 // Yjs keeps what lands in a collected block only as a GC struct, so no deleteSet names it
-function unkeptWrites(context: UnkeptContext, updates: Uint8Array[], mine: ReadonlySet<number>) {
+function unkeptWrites(context: UnkeptContext, merged: Uint8Array, mine: ReadonlySet<number>) {
   const chain: Chain = { lastId: null, attrs: {}, removal: null, run: null }
-  for (const struct of Y.decodeUpdate(Y.mergeUpdates(updates)).structs) {
+  for (const struct of Y.decodeUpdate(merged).structs) {
     if (struct instanceof Y.Item && struct.parentSub === null && mine.has(struct.id.client)) {
       followChain(chain, struct, context)
     }

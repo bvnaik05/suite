@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import { Device } from './device'
-import { ADOPT, APPLIED_UPDATE } from './origins'
+import { ADOPT, APPLIED_UPDATE, MERGED_UPDATE } from './origins'
 import {
   breaksOn,
   device,
@@ -730,6 +730,42 @@ describe('collab room on a device', () => {
 
       const taken = [adopted.length, adopted[0]!.length, applied.getText('t').toString()]
       expect(taken).toEqual([1, 2, 'left behind'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('hands removal watchers the merged update it adopted', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const first = await join(offlinePushes(server), { device: kept })
+      first.doc.getText('t').insert(0, 'left')
+      await vi.advanceTimersByTimeAsync(0)
+      first.doc.getText('t').insert(4, ' behind')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+      const second = await join(server.endpoints(), { device: kept })
+      await idle()
+      const adopted: [Uint8Array[], Uint8Array][] = []
+      second.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+        if (transaction.origin === ADOPT) {
+          adopted.push([transaction.meta.get(APPLIED_UPDATE), transaction.meta.get(MERGED_UPDATE)])
+        }
+      })
+
+      await first.close()
+      await vi.advanceTimersByTimeAsync(60_000)
+      await idle()
+
+      const [[rows, merged]] = adopted
+      const applied = new Y.Doc()
+      Y.applyUpdate(applied, merged)
+      const taken = [adopted.length, applied.getText('t').toString()]
+      expect(taken).toEqual([1, 'left behind'])
+      expect(merged).toEqual(Y.mergeUpdates(rows))
     } finally {
       vi.unstubAllGlobals()
     }

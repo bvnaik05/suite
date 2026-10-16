@@ -4,7 +4,7 @@ import { classifyRefusal, type AccessRoom } from './access'
 import { readReply } from './answers'
 import type { Device } from './device'
 import { holdLock } from './locks'
-import { ADOPT, APPLIED_UPDATE } from './origins'
+import { ADOPT, APPLIED_UPDATE, MERGED_UPDATE } from './origins'
 import { Outbox } from './outbox'
 import type { StoredEntry, StoredSession } from './store'
 import type { Answer, Claim } from './types'
@@ -148,10 +148,12 @@ async function takeOver(
   }
 
   const pending = box.pending.map((entry) => entry.bytes)
+  const merged = Y.mergeUpdates(pending)
   room.ownClients.add(box.cid)
   room.doc.transact((transaction) => {
     transaction.meta.set(APPLIED_UPDATE, pending)
-    Y.applyUpdate(room.doc, Y.mergeUpdates(pending), ADOPT)
+    transaction.meta.set(MERGED_UPDATE, merged)
+    Y.applyUpdate(room.doc, merged, ADOPT)
   }, ADOPT)
   room.outboxes.splice(-1, 0, box)
   return true
