@@ -38,8 +38,6 @@
                     v-if="editor"
                     :editor
                     :should-show="bubbleMenuOpts.shouldShow"
-                    :get-referenced-virtual-element="bubbleMenuOpts.getReferencedVirtualElement"
-                    :options="bubbleMenuOpts.options"
                     class="z-10"
                     data-slot="bubble-menu"
                   >
@@ -286,7 +284,7 @@ const menuButtons = computed(() =>
   }),
 )
 
-const bubbleMenuOpts = computed(() => bubbleMenuOptions({ editor, comments: props.comments }))
+const bubbleMenuOpts = computed(() => bubbleMenuOptions({ comments: props.comments }))
 
 const gridStyle = computed(() => editorColumns(props.settings))
 
