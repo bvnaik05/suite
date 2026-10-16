@@ -40,7 +40,7 @@ import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Thread } from '@/apps/mail/types'
 import { useScreenSize } from '@/apps/mail/utils/composables'
-import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
+import { archivable, unarchivable } from '@/apps/mail/utils/receivedMail'
 
 // The hover actions on a row, for one thread or for a whole collapsed run of them.
 //
@@ -90,11 +90,6 @@ const everyIn = (mailboxId: string) =>
 
 const someUnread = computed(() => threads.some((t) => !t.seen))
 
-// Archive is for mail you received (see receivedMail): a conversation of only your own sent mail has
-// nothing to archive. A search result is a message of its own, with no conversation under it.
-const holdsReceived = computed(() =>
-  threads.some((t) => holdsReceivedMail(t.messages?.length ? t.messages : [t], mailboxIds.sent)),
-)
 // A draft is never starred: each save replaced it with one that dropped the star. Drafts' rows, and a
 // search result that is a draft, have none to offer.
 const starrable = computed(
