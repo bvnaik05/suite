@@ -36,6 +36,8 @@ vi.mock('@/apps/writer/collab/old-media', async (importOriginal) => {
 const schema = getSchema(writerSchema())
 const MAX_STATE = 4 * 1024 * 1024
 const SRC = '/private/files/chart.png'
+// Drive's ink as it saved it on text left at its default
+const INK = 'style="color: rgb(31, 39, 46)"'
 
 // A thread as Drive's earlier editor kept it in the comment mark
 const DRIVE_THREAD = JSON.stringify({
@@ -176,6 +178,16 @@ function paragraph(...content: object[]) {
 
 function words(text: string) {
   return paragraph({ type: 'text', text })
+}
+
+// Each run's text with the colours drawn on it
+function drawnColours(
+  content: { text: string; marks?: { type: string; attrs: Record<string, unknown> }[] }[],
+) {
+  return content.map(({ text, marks = [] }) => [
+    text,
+    marks.filter(({ attrs }) => attrs.color != null).map(({ type, attrs }) => [type, attrs.color]),
+  ])
 }
 
 function page(...content: object[]) {
@@ -466,7 +478,7 @@ describe('convertLegacy', () => {
     expect(() => convertLegacy(legacy, MAX_STATE)).toThrow('conversion bug')
   })
 
-  it('keeps a mention saved in the HTML, its label counted as no lost text', () => {
+  it('keeps a mention saved in the HTML, its words matching its label', () => {
     const mention =
       '<span class="mention" data-type="mention" data-id="x" data-label="Ann">@Ann</span>'
     const legacy = { content: null, html: `<p>hi ${mention}</p>`, collab: 0 }
@@ -523,6 +535,47 @@ describe('convertLegacy', () => {
 
   it('refuses HTML holding media the editor has no place for', () => {
     const legacy = { content: null, html: '<p>a</p><iframe src="x"></iframe>', collab: 0 }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it.each([
+    { name: 'video', html: '<video controls><source src="/v.mp4"></video>' },
+    { name: 'attachment', html: '<p><a data-attachment href="/f">Quarterly report.pdf</a></p>' },
+    {
+      name: 'mention',
+      html:
+        '<p><span class="mention" data-type="mention" data-id="x" data-label="Ann">' +
+        '@Ann and Bob</span></p>',
+    },
+    { name: 'video fallback', html: `<video src="/v.mp4">Can't play</video>` },
+  ])("refuses HTML whose $name holds what the editor wouldn't draw", ({ html }) => {
+    const legacy = { content: null, html, collab: 0 }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('keeps a Drive video whose source repeats its src', () => {
+    const html = '<video src="/v.mp4" controls><source src="/v.mp4" type="video/mp4"></video>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const media = bodyOf(result.state).content.map(({ type, attrs }) => [type, attrs.src])
+    expect(media).toEqual([['video', '/v.mp4']])
+  })
+
+  it('keeps an attachment saved in the HTML with its name', () => {
+    const html = '<p><a data-attachment href="/f.pdf" data-file-name="r.pdf">r.pdf</a></p>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const attachment = { type: 'attachment', attrs: { src: '/f.pdf', fileName: 'r.pdf' } }
+    expect(bodyOf(result.state)).toEqual(page(paragraph(attachment)))
+  })
+
+  it('refuses HTML holding a table of contents, which the editor has no node for', () => {
+    const toc = '<div data-type="toc-node"><ol><li>Intro</li></ol></div>'
+    const legacy = { content: null, html: `${toc}<h2>Intro</h2>`, collab: 0 }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
@@ -839,14 +892,41 @@ describe('convertLegacy', () => {
     const result = convert({ content: null, html, collab: 0 })
 
     const [{ content }] = bodyOf(result.state).content
-    const colours = content.map(({ text, marks = [] }) => [
-      text,
-      marks.map(({ type, attrs }) => [type, attrs.color]),
-    ])
-    expect(colours).toEqual([
+    expect(drawnColours(content)).toEqual([
       ['red', [['textStyle', 'red']]],
       ['lit', [['namedHighlight', 'yellow']]],
-      ['ink', [['textStyle', null]]],
+      ['ink', []],
+    ])
+  })
+
+  it("refuses Drive's ink inside a coloured span, which would draw in that colour", () => {
+    const html = `<p><span style="color: #dc2626">a<span ${INK}>b</span></span></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it("drops Drive's ink inside its ink", () => {
+    const html = `<p><span ${INK}>a<span ${INK}>b</span></span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['ab', []]])
+  })
+
+  it("drops Drive's ink inside a highlight", () => {
+    const html = `<p><mark style="background-color: #fef08a">a<span ${INK}>b</span></mark></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    const yellow = [['namedHighlight', 'yellow']]
+    expect(drawnColours(content)).toEqual([
+      ['a', yellow],
+      ['b', yellow],
     ])
   })
 

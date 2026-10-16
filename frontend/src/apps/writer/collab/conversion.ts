@@ -286,8 +286,24 @@ function atomNameOf(element: Element) {
 // Drive's ink, which it stored as the colour of text left at its default
 const DRIVE_INK = 'rgb(31, 39, 46)'
 
+// Whether a parent still sets a colour, which the editor would draw on Drive's ink inside it;
+// parents are stripped first
+function hasColouredAncestor(element: HTMLElement) {
+  let parent = element.parentElement
+  while (parent) {
+    if (parent.style.getPropertyValue('color')) {
+      return true
+    }
+
+    parent = parent.parentElement
+  }
+
+  return false
+}
+
 // Drive stored its indent on every block and its ink on default text; a highlight also kept its
-// colour in data-color, which the editor reads from the style
+// colour in data-color, which the editor reads from the style, and a video repeated its src in a
+// source
 function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const block of body.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')) {
     if (block.style.getPropertyValue('margin-left') === '0px') {
@@ -296,7 +312,7 @@ function dropDriveHtmlDefaults(body: HTMLElement) {
   }
 
   for (const element of body.querySelectorAll<HTMLElement>('[style]')) {
-    if (element.style.getPropertyValue('color') === DRIVE_INK) {
+    if (element.style.getPropertyValue('color') === DRIVE_INK && !hasColouredAncestor(element)) {
       element.style.removeProperty('color')
     }
   }
@@ -304,6 +320,12 @@ function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const mark of body.querySelectorAll<HTMLElement>('mark[data-color]')) {
     if (mark.style.getPropertyValue('background-color')) {
       mark.removeAttribute('data-color')
+    }
+  }
+
+  for (const source of body.querySelectorAll('video > source')) {
+    if (source.getAttribute('src') === source.parentElement?.getAttribute('src')) {
+      source.remove()
     }
   }
 }
@@ -315,8 +337,7 @@ function drawn(fresh: XmlFragment) {
 }
 
 // The check compares the old HTML, Drive's defaults dropped, with the fresh body as the editor draws
-// it; an atom's own words live in its attributes and count as no text, and whitespace and line
-// breaks aren't compared
+// it; whitespace and line breaks aren't compared
 function fromHtml(html: string) {
   const node = schema.nodeFromJSON(generateJSON(html, extensions))
   const { body } = new DOMParser().parseFromString(html, 'text/html')

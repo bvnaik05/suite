@@ -160,20 +160,17 @@ function addDomText(text: string, formats: Entry[], found: Inventory) {
   }
 }
 
-// An atom's own words, such as a mention's label, live in its attributes and count as no text
+// An atom counts by its name, its attributes and the words it holds, such as a mention's label
 function addElement(element: Element, formats: Entry[], atomName: AtomName, found: Inventory) {
-  const name = atomName(element)
-  if (name) {
-    found.elements.push({ name, entries: attributesOf(element) })
-    return
-  }
-
   if (element.localName === 'br') {
     return
   }
 
+  const name = atomName(element)
   let inner = formats
-  if (FORMATTING_TAGS.has(element.localName)) {
+  if (name) {
+    found.elements.push({ name, entries: attributesOf(element) })
+  } else if (FORMATTING_TAGS.has(element.localName)) {
     inner = withFormat(formats, element)
   } else {
     found.elements.push({ name: element.localName, entries: attributesOf(element) })

@@ -185,12 +185,12 @@ describe('what drawn HTML keeps of the old HTML', () => {
     expect(unkeptHtml('<span style="color: #dc2626">x</span>', 'x')).toEqual(['formatting at 0'])
   })
 
-  it('reads an atom by its name and attributes, leaving out its own words', () => {
+  it('reads an atom by its name, attributes and the words it holds', () => {
     const source = '<p>hi <span data-type="mention" data-id="u1">@Ann</span></p>'
 
     expect(
       unkeptHtml(source, '<p>hi <span data-type="mention" data-id="u1">Ann</span></p>'),
-    ).toEqual([])
+    ).toEqual(['text at 2'])
     expect(
       unkeptHtml(source, '<p>hi <span data-type="mention" data-id="u2">@Ann</span></p>'),
     ).toEqual(['element mention'])
