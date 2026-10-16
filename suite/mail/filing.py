@@ -10,7 +10,7 @@ here, so the lists, All Inboxes and the open thread can't each grow their own.
 | Action      | Mail you received                        | Your sent mail        | A draft   |
 |-------------|------------------------------------------|-----------------------|-----------|
 | archive     | Inbox → Archive (Archive added if not)*  | stays in Sent         | untouched |
-| unarchive   | Archive → Inbox, other folders kept      | untouched             | untouched |
+| unarchive   | Archive → Inbox, other folders kept      | out of Archive        | untouched |
 | move        | leaves every folder for the target       | target, keeps Sent**  | untouched |
 | junk        | leaves every folder for Junk, marked     | stays in Sent         | untouched |
 | not_junk    | Junk → Inbox, mark cleared               | untouched             | untouched |
@@ -86,10 +86,13 @@ def plan(action: Action, emails: list[dict], roles: Roles, target: str | None = 
             if junked:
                 update |= {"keywords/$junk": None, "keywords/$notjunk": True}
         elif action == "unarchive":
-            # Archive reversed: back in the Inbox, every other folder as it was.
-            if own or roles["archive"] not in boxes:
+            # Archive reversed: back in the Inbox, every other folder as it was. Your own mail never goes
+            # into the Inbox, but is let out of Archive all the same — Archive once filed it there too.
+            if roles["archive"] not in boxes:
                 continue
-            update = {f"mailboxIds/{roles['archive']}": None, f"mailboxIds/{roles['inbox']}": True}
+            update = {f"mailboxIds/{roles['archive']}": None}
+            if not own:
+                update[f"mailboxIds/{roles['inbox']}"] = True
         elif action == "move":
             if own:
                 # Filed with the conversation, but never into the Inbox: that holds mail you received.

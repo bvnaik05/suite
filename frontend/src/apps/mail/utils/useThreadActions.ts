@@ -788,6 +788,12 @@ export function useThreadActions(deps: {
                 ? [mailboxIds.sent]
                 : [mailboxIds.sent, target]
               : [target]
+          else if (action === 'unarchive' && ids.includes(mailboxIds.archive))
+            // Out of Archive; back in the Inbox only if you received it.
+            next = [
+              ...ids.filter((id) => id !== mailboxIds.archive && id !== mailboxIds.inbox),
+              ...(own ? [] : [mailboxIds.inbox]),
+            ]
           else if (own) return
           else if (action === 'archive')
             next = [
@@ -801,11 +807,6 @@ export function useThreadActions(deps: {
                   ].includes(id),
               ),
               mailboxIds.archive,
-            ]
-          else if (action === 'unarchive' && ids.includes(mailboxIds.archive))
-            next = [
-              ...ids.filter((id) => id !== mailboxIds.archive && id !== mailboxIds.inbox),
-              mailboxIds.inbox,
             ]
           if (!next) return
           const entries = next.map(entry).filter((m): m is Mailbox => !!m)

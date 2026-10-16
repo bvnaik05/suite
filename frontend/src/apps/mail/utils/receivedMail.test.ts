@@ -37,6 +37,8 @@ it('offers Unarchive exactly where Archive has nothing left to do', () => {
   expect(unarchivable([{ mailboxes: in_('inbox') }, reply], boxes)).toBe(false)
   expect(unarchivable([{ mailboxes: in_('projects') }, reply], boxes)).toBe(false)
   expect(unarchivable([reply], boxes)).toBe(false)
+  // Your own mail that an earlier Archive filed away, with nothing received beside it.
+  expect(unarchivable([{ mailboxes: in_('sent', 'archive') }], boxes)).toBe(true)
 })
 
 it("names where a conversation's received mail is filed, apart from the Inbox", () => {

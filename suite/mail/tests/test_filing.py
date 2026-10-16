@@ -85,6 +85,12 @@ class TestUnarchive(UnitTestCase):
             {"q": {"mailboxIds/archive": None, "mailboxIds/inbox": True}},
         )
 
+    def test_lets_your_own_mail_out_of_archive_without_putting_it_in_the_inbox(self):
+        self.assertEqual(
+            plan("unarchive", [email("r", "sent", "archive")], ROLES),
+            {"r": {"mailboxIds/archive": None}},
+        )
+
     def test_takes_an_archived_conversation_back_to_where_it_was(self):
         archived = apply(QUESTION, plan("archive", [QUESTION], ROLES)["q"])
         unarchived = apply(archived, plan("unarchive", [archived], ROLES)["q"])

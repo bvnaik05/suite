@@ -28,8 +28,10 @@ export const archivable = (
   })
 
 /**
- * Whether Unarchive would do something: the mail you received is archived, and none of it is still
- * in the Inbox. Archive's opposite, so the two share one place and only one of them shows.
+ * Whether Unarchive would do something: some of the conversation is in Archive, and none of the mail
+ * you received is still in the Inbox. Archive's opposite, so the two share one place and only one of
+ * them shows. Your own mail counts here, unlike for Archive: Archive once filed it there too, and
+ * Unarchive lets it out.
  */
 export const unarchivable = (
   mails: Filed[],
@@ -37,9 +39,7 @@ export const unarchivable = (
 ): boolean =>
   !archivable(mails, boxes) &&
   mails.some(
-    (mail) =>
-      isReceived(mail, boxes.sent) &&
-      mail.mailboxes.some((mailbox) => mailbox.mailbox_id === boxes.archive),
+    (mail) => !mail.draft && mail.mailboxes.some((mailbox) => mailbox.mailbox_id === boxes.archive),
   )
 
 /**
