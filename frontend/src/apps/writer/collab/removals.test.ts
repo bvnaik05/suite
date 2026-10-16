@@ -1351,6 +1351,20 @@ describe("work a tab takes on that the doc already held as another tab's (R310)"
     expect(adoptHeld(typeQQAt2, () => {})).toEqual([])
   })
 
+  it('reports nothing of work that waits on a change the doc never got', () => {
+    const writer = docOf(threeParagraphs)
+    const typed: Uint8Array[] = []
+    writer.on('update', (update: Uint8Array) => typed.push(update))
+    oldBlockText(writer).insert(2, 'QQ')
+    oldBlockText(writer).insert(4, 'RR')
+    const reader = docOf(threeParagraphs)
+
+    const found = removalsOnApply(reader, typed.slice(1), writer, ADOPT)
+
+    const isWaiting = !!reader.store.pendingStructs
+    expect([found, oldBlockText(reader).toString(), isWaiting]).toEqual([[], 'defgh', true])
+  })
+
   it('reports nothing of held text someone deleted in a block still there', () => {
     const found = adoptHeld(typeQQAt2, (reader) => oldBlockText(reader).delete(2, 2))
 
