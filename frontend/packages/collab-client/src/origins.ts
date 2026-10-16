@@ -4,5 +4,5 @@ export const REMOTE = Symbol('collab-remote')
 export const ADOPT = Symbol('collab-adopt')
 // This tab's restore of a version, which only the restore's push carries
 export const RESTORE = Symbol('collab-restore')
-// Transaction meta: the bytes a pull applied, so an app can tell what the rows named
+// Transaction meta: each update a pull applied, a row apiece, so an app can tell what each row named
 export const APPLIED_UPDATE = Symbol('collab-applied-update')

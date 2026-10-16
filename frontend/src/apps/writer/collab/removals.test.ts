@@ -100,6 +100,23 @@ const lostQQ = {
   isUncertain: false,
 }
 
+// Turns the room's second block into a heading reading `words`, in one edit
+function makeRoomHeading(room: CollabRoom, words: string) {
+  const body = room.doc.getXmlFragment(BODY_FIELD)
+  const heading = new Y.XmlElement('heading')
+  heading.setAttribute('level', '2')
+  heading.insert(0, [new Y.XmlText(words)])
+  room.doc.transact(() => {
+    body.delete(1, 1)
+    body.insert(1, [heading])
+  })
+}
+
+function roomText(room: CollabRoom, index: number) {
+  const block = room.doc.getXmlFragment(BODY_FIELD).get(index) as Y.XmlElement
+  return block.get(0) as Y.XmlText
+}
+
 // Real rooms on one device: a tab whose pushes fail turns defgh into a heading reading `heading`,
 // this tab types QQ into the old block, then the other tab closes and this one takes its work on
 async function takeOverHeading(heading: string) {
@@ -114,18 +131,10 @@ async function takeOverHeading(heading: string) {
   const reported: Removal[] = []
   watchRemovals(typing, (removals) => reported.push(...removals))
 
-  closing.doc.transact(() => {
-    const body = closing.doc.getXmlFragment(BODY_FIELD)
-    const block = new Y.XmlElement('heading')
-    block.setAttribute('level', '2')
-    block.insert(0, [new Y.XmlText(heading)])
-    body.delete(1, 1)
-    body.insert(1, [block])
-  })
+  makeRoomHeading(closing, heading)
   await vi.advanceTimersByTimeAsync(0)
   await idle()
-  const typed = typing.doc.getXmlFragment(BODY_FIELD).get(1) as Y.XmlElement
-  ;(typed.get(0) as Y.XmlText).insert(2, 'QQ')
+  roomText(typing, 1).insert(2, 'QQ')
   await closing.close()
   await vi.advanceTimersByTimeAsync(60_000)
   await idle()
@@ -538,6 +547,66 @@ describe('a room watching for removals', () => {
     }
   })
 
+  it('types back what a row removed though a row pulled with it typed into its copy (R297)', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const writing = await join(server.endpoints())
+    Y.applyUpdate(writing.doc, threeParagraphs)
+    await writing.flush()
+    const typing = await join(offlinePushes(server))
+    const reported: Removal[] = []
+    watchRemovals(typing, (removals) => reported.push(...removals))
+
+    makeRoomHeading(writing, 'defgh')
+    await writing.flush()
+    roomText(writing, 1).insert(5, 'ZZ')
+    await writing.flush()
+    roomText(typing, 1).insert(4, 'RR')
+    await typing.pull()
+
+    expect(roomBlocks(typing)).toEqual(['paragraph abc', 'heading defgRRhZZ', 'paragraph xyz'])
+    expect(reported).toEqual([])
+  })
+
+  // One pull: a row deletes `de` in place, then a row from another tab makes the block a heading
+  async function deleteThenRestructure(hasSeenDelete: boolean) {
+    fakeTime()
+    const server = fakeServer()
+    const deleting = await join(server.endpoints())
+    Y.applyUpdate(deleting.doc, threeParagraphs)
+    await deleting.flush()
+    const restructuring = await join(server.endpoints())
+    const typing = await join(offlinePushes(server))
+    const reported: Removal[] = []
+    watchRemovals(typing, (removals) => reported.push(...removals))
+
+    roomText(deleting, 1).delete(0, 2)
+    await deleting.flush()
+    if (hasSeenDelete) {
+      await restructuring.pull()
+    }
+
+    makeRoomHeading(restructuring, roomText(restructuring, 1).toString())
+    await restructuring.flush()
+    roomText(typing, 1).insert(2, 'QQ')
+    await typing.pull()
+    return { typing, reported }
+  }
+
+  it('reports what a restructure removed when a row pulled before it deleted part of the old text', async () => {
+    const { typing, reported } = await deleteThenRestructure(true)
+
+    expect(roomBlocks(typing)).toEqual(['paragraph abc', 'heading fgh', 'paragraph xyz'])
+    expect(reported).toEqual([lostQQ])
+  })
+
+  it('types back what a restructure removed when a row pulled with it deleted old text the restructure copied', async () => {
+    const { typing, reported } = await deleteThenRestructure(false)
+
+    expect(roomBlocks(typing)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+    expect(reported).toEqual([])
+  })
+
   it('reports instead of typing back when the room cannot write (R282)', async () => {
     const tabs = await openTabs(threeParagraphs, 2)
     const [headingTab, typingTab] = tabs
@@ -573,7 +642,7 @@ describe('a room watching for removals', () => {
     typeQQ(typingTab, 'defgh')
     const row = sendRow(headingTab)!
     typingTab.ydoc.transact((transaction) => {
-      transaction.meta.set(APPLIED_UPDATE, row)
+      transaction.meta.set(APPLIED_UPDATE, [row])
       Y.applyUpdate(typingTab.ydoc, row, REMOTE)
     }, REMOTE)
 

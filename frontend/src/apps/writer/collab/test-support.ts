@@ -108,7 +108,7 @@ export function sendRow(tab: Tab) {
 /** Applies a row the way the puller does, or `origin`'s applier, then tells the room's listeners. */
 export function receiveRow(tab: Tab, row: Uint8Array, origin: unknown = REMOTE) {
   tab.ydoc.transact((transaction) => {
-    transaction.meta.set(APPLIED_UPDATE, row)
+    transaction.meta.set(APPLIED_UPDATE, [row])
     Y.applyUpdate(tab.ydoc, row, origin)
   }, origin)
   for (const listener of tab.room.listeners) {

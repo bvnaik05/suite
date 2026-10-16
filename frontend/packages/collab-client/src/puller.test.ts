@@ -111,7 +111,26 @@ describe('collab room', () => {
     await writer.flush()
     await reader.pull()
     expect(text(reader)).toBe('two')
-    expect(transactions).toEqual([[true, server.rows[1].bytes]])
+    expect(transactions).toEqual([[true, [server.rows[1].bytes]]])
+  })
+
+  it('carries each row a pull applies together on its own', async () => {
+    const server = fakeServer()
+    const writer = await join(server.endpoints())
+    const reader = await join(server.endpoints())
+    const applied: unknown[] = []
+    reader.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+      applied.push(transaction.meta.get(APPLIED_UPDATE))
+    })
+
+    writer.doc.getText('t').insert(0, 'one')
+    await writer.flush()
+    writer.doc.getText('t').insert(3, ' two')
+    await writer.flush()
+    await reader.pull()
+
+    expect(text(reader)).toBe('one two')
+    expect(applied).toEqual([server.rows.map((row) => row.bytes)])
   })
 
   it('tells listeners of a pulled row that throws only once the room cannot write', async () => {

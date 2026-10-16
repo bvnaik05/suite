@@ -100,7 +100,7 @@ export class Puller {
       if (bytes) {
         const applied = bytes
         room.doc.transact((transaction) => {
-          transaction.meta.set(APPLIED_UPDATE, applied)
+          transaction.meta.set(APPLIED_UPDATE, parts)
           Y.applyUpdate(room.doc, applied, REMOTE)
         }, REMOTE)
       }

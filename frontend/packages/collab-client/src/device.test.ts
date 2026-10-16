@@ -712,7 +712,7 @@ describe('collab room on a device', () => {
       await idle()
       const second = await join(server.endpoints(), { device: kept })
       await idle()
-      const adopted: (Uint8Array | undefined)[] = []
+      const adopted: (Uint8Array[] | undefined)[] = []
       second.doc.on('afterTransaction', (transaction: Y.Transaction) => {
         if (transaction.origin === ADOPT) {
           adopted.push(transaction.meta.get(APPLIED_UPDATE))
@@ -724,8 +724,12 @@ describe('collab room on a device', () => {
       await idle()
 
       const applied = new Y.Doc()
-      Y.applyUpdate(applied, adopted[0]!)
-      expect([adopted.length, applied.getText('t').toString()]).toEqual([1, 'left behind'])
+      for (const entry of adopted[0]!) {
+        Y.applyUpdate(applied, entry)
+      }
+
+      const taken = [adopted.length, adopted[0]!.length, applied.getText('t').toString()]
+      expect(taken).toEqual([1, 2, 'left behind'])
     } finally {
       vi.unstubAllGlobals()
     }

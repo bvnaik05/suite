@@ -8,6 +8,7 @@ export const TYPE_BACK = Symbol('writer-type-back')
 
 // Yjs exports no DeleteSet type
 type DeleteSet = ReturnType<typeof Y.createDeleteSet>
+type DecodedRow = ReturnType<typeof Y.decodeUpdate>
 
 // Shorter text can match in the wrong place, so it's reported instead
 const MIN_SEEN_LENGTH = 3
@@ -44,9 +45,9 @@ export function watchRemovals(
 ) {
   const found: Removal[] = []
   function collect(transaction: Y.Transaction) {
-    const update: Uint8Array | undefined = transaction.meta.get(APPLIED_UPDATE)
-    if (update) {
-      found.push(...findRemovals(transaction, update, room.ownClients))
+    const updates: Uint8Array[] | undefined = transaction.meta.get(APPLIED_UPDATE)
+    if (updates) {
+      found.push(...findRemovals(transaction, updates, room.ownClients))
     }
   }
 
@@ -82,12 +83,12 @@ function typeBackAll(room: Pick<CollabRoom, 'doc' | 'canWrite'>, removals: Remov
 }
 
 /**
- * Text and nodes of the clients in `mine` that `transaction` deleted though its `update`
- * didn't name them. Call from afterTransaction: deleted text is collected right after it.
+ * Text and nodes of the clients in `mine` that `transaction` deleted though none of its
+ * `updates` named them. Call from afterTransaction: deleted text is collected right after it.
  */
 export function findRemovals(
   transaction: Y.Transaction,
-  update: Uint8Array,
+  updates: Uint8Array[],
   mine: ReadonlySet<number>,
 ): Removal[] {
   const deleted = myDeletedItems(transaction, mine)
@@ -95,7 +96,8 @@ export function findRemovals(
     return []
   }
 
-  const named = Y.decodeUpdate(update).ds
+  const rows = updates.map((update) => Y.decodeUpdate(update))
+  const named = Y.mergeDeleteSets(rows.map((row) => row.ds))
   const removals: Removal[] = []
   const texts = new Set<Y.AbstractType<unknown>>()
   for (const item of deleted) {
@@ -108,7 +110,7 @@ export function findRemovals(
   }
 
   for (const text of texts) {
-    removals.push(textRemoval(text, transaction, named, mine))
+    removals.push(textRemoval(text, transaction, rows, named, mine))
   }
 
   return removals
@@ -151,20 +153,21 @@ function elementIn(item: Y.Item) {
 function textRemoval(
   text: Y.AbstractType<unknown>,
   transaction: Y.Transaction,
+  rows: DecodedRow[],
   named: DeleteSet,
   mine: ReadonlySet<number>,
 ) {
-  const written = { before: transaction.beforeState, after: transaction.afterState }
   const removal = {
     kind: 'text' as const,
     seen: '',
     runs: [] as Run[],
-    written,
+    written: clocksOf([]),
     isUncertain: false,
   }
   const gaps = new Set<number>()
   let attrs: Record<string, unknown> = {}
   let run: Run | null = null
+  const seenIds: Y.ID[] = []
   for (let item = text._start; item; item = item.right) {
     if (item.content instanceof Y.ContentFormat && wasLive(item, transaction)) {
       attrs = withFormat(attrs, item.content)
@@ -177,13 +180,31 @@ function textRemoval(
 
     for (let index = 0; index < item.length; index++) {
       const id = Y.createID(item.id.client, item.id.clock + index)
-      const state = { ...charState(id, transaction, named, mine), attrs }
-      run = addChar(removal, gaps, run, item.content.str[index], state)
+      const state = { ...charState(id, transaction, named, mine), attrs, id }
+      run = addChar(removal, { gaps, seenIds }, run, item.content.str[index], state)
     }
   }
 
+  const namingRows = rows.filter((row) => seenIds.some((id) => Y.isDeleted(row.ds, id)))
+  removal.written = clocksOf(namingRows)
   removal.isUncertain = removal.runs.some((lost) => gaps.has(lost.offset))
   return removal
+}
+
+// Only the rows that deleted the old text wrote its copy; rows pulled with them may write around it
+function clocksOf(rows: DecodedRow[]): RowClocks {
+  const written: RowClocks = { before: new Map(), after: new Map() }
+  for (const struct of rows.flatMap((row) => row.structs)) {
+    if (struct instanceof Y.Skip) {
+      continue
+    }
+
+    const { client, clock } = struct.id
+    written.before.set(client, Math.min(written.before.get(client) ?? clock, clock))
+    written.after.set(client, Math.max(written.after.get(client) ?? 0, clock + struct.length))
+  }
+
+  return written
 }
 
 // Lost: deleted without the row naming it, mine or someone else's. Seen: deleted and named by the row
@@ -220,6 +241,7 @@ function withFormat(attrs: Record<string, unknown>, format: Y.ContentFormat) {
 }
 
 interface CharState {
+  id: Y.ID
   isLost: boolean
   isOtherLost: boolean
   isSeen: boolean
@@ -229,7 +251,7 @@ interface CharState {
 // Returns the run the next lost char joins; `gaps` gets the offsets of other clients' lost chars
 function addChar(
   removal: { seen: string; runs: Run[] },
-  gaps: Set<number>,
+  { gaps, seenIds }: { gaps: Set<number>; seenIds: Y.ID[] },
   run: Run | null,
   char: string,
   state: CharState,
@@ -241,6 +263,7 @@ function addChar(
   if (!state.isLost) {
     if (state.isSeen) {
       removal.seen += char
+      seenIds.push(state.id)
     }
 
     return null
