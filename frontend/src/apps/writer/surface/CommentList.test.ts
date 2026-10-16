@@ -342,6 +342,14 @@ async function settled() {
   await nextTick()
 }
 
+// Vue skips a handler attached in the same millisecond as the event
+async function letHandlersAttach() {
+  const calledAt = Date.now()
+  while (Date.now() <= calledAt) {
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+}
+
 function openRows(host: Element) {
   return [...host.querySelectorAll('li:not([role="none"]) > button[aria-expanded="true"]')].map(
     (button) => button.closest('li')!.dataset.thread ?? '',
@@ -620,6 +628,7 @@ describe('replying in an open thread', () => {
 
   async function press(options: KeyboardEventInit) {
     const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, ...options })
+    await letHandlersAttach()
     replyBox()!.dispatchEvent(event)
     await settled()
     return event.defaultPrevented
@@ -726,6 +735,7 @@ describe('replying in an open thread', () => {
     await type('Agreed')
 
     const enter = { key: 'Enter', cancelable: true }
+    await letHandlersAttach()
     replyBox()!.dispatchEvent(new KeyboardEvent('keydown', enter))
     replyBox()!.dispatchEvent(new KeyboardEvent('keydown', enter))
     await settled()
@@ -1208,6 +1218,7 @@ describe('editing and deleting a comment', () => {
     await pick(host, 'Thanks', 'Edit')
     await type('Changed my mind')
 
+    await letHandlersAttach()
     editBox()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await nextTick()
 
