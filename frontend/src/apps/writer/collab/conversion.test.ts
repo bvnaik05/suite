@@ -699,6 +699,47 @@ describe('convertLegacy', () => {
     expect(convert(stored(legacyDoc(yParagraph('one')))).anchors).toEqual({})
   })
 
+  it('anchors a comment in three places far apart on the first, recording both copies', () => {
+    const comment = { comment: { commentId: 'c1' } }
+    const doc = legacyDoc(
+      yRuns(['one '], ['two', comment]),
+      yParagraph('filler'),
+      yRuns(['copy', comment]),
+      yParagraph('filler'),
+      yRuns(['again', comment]),
+    )
+
+    const result = convert(stored(doc))
+
+    expect(shown(openConverted(result.state), result.anchors.c1)).toEqual({
+      from: 5,
+      to: 8,
+      text: 'two',
+    })
+    expect(result.dropped).toEqual([
+      { kind: 'comment-copy', id: 'c1', text: 'copy' },
+      { kind: 'comment-copy', id: 'c1', text: 'again' },
+    ])
+  })
+
+  it.each([
+    {
+      name: 'Yjs',
+      legacy: stored(legacyDoc(yMarked('see', { comment: { commentId: '__proto__' } }))),
+    },
+    {
+      name: 'HTML',
+      legacy: {
+        content: null,
+        html: '<p><span data-comment-id="__proto__">see</span></p>',
+        collab: 0,
+      },
+    },
+  ])('refuses a comment whose id names the prototype, from $name', ({ legacy }) => {
+    // Its anchor can't be kept under that key, so the comment would lose its thread
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
   it('refuses a Yjs body whose link holds an attribute the link mark lacks', () => {
     const legacy = stored(legacyDoc(yMarked('go', { link: { href: '/a', tracking: 'x1' } })))
 
