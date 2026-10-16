@@ -148,12 +148,12 @@ async function takeOver(
   }
 
   const pending = box.pending.map((entry) => entry.bytes)
+  room.ownClients.add(box.cid)
   room.doc.transact((transaction) => {
     transaction.meta.set(APPLIED_UPDATE, pending)
     Y.applyUpdate(room.doc, Y.mergeUpdates(pending), ADOPT)
   }, ADOPT)
   room.outboxes.splice(-1, 0, box)
-  room.ownClients.add(box.cid)
   return true
 }
 

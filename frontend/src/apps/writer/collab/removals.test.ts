@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
-import { typeBack, watchRemovals, type Removal } from '@/apps/writer/collab/removals'
+import { findRemovals, typeBack, watchRemovals, type Removal } from '@/apps/writer/collab/removals'
 import {
   blocks,
   deliver,
@@ -99,6 +99,53 @@ const lostQQ = {
   written: expect.anything(),
   pulled: expect.anything(),
   isUncertain: false,
+}
+
+// Text of mine yjs never kept, because it was written into a block already gone
+function neverKept(lost: string) {
+  return {
+    kind: 'text',
+    seen: '',
+    runs: [{ offset: 0, text: lost, attrs: {} }],
+    written: expect.anything(),
+    pulled: expect.anything(),
+    isUncertain: false,
+  }
+}
+
+function mention() {
+  const element = new Y.XmlElement('mention')
+  element.setAttribute('id', 'someone')
+  return element
+}
+
+function docOf(update: Uint8Array) {
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, update)
+  return doc
+}
+
+function oldBlockText(doc: Y.Doc) {
+  const block = doc.getXmlFragment(BODY_FIELD).get(1) as Y.XmlElement
+  return block.get(0) as Y.XmlText
+}
+
+function removeOldBlock(doc: Y.Doc) {
+  const body = doc.getXmlFragment(BODY_FIELD)
+  doc.transact(() => {
+    body.delete(1, 1)
+    body.insert(1, [new Y.XmlElement('heading')])
+  })
+}
+
+// Applies `updates` to `doc` as one pulled transaction and returns what it removed of `writer`'s
+function removalsOnApply(doc: Y.Doc, updates: Uint8Array[], writer: Y.Doc) {
+  const found: Removal[] = []
+  doc.on('afterTransaction', (transaction: Y.Transaction) => {
+    found.push(...findRemovals(transaction, updates, new Set([writer.clientID])))
+  })
+  doc.transact(() => Y.applyUpdate(doc, Y.mergeUpdates(updates)), REMOTE)
+  return found
 }
 
 // Turns the room's second block into a heading reading `words`, in one edit
@@ -574,9 +621,12 @@ describe('a room watching for removals', () => {
     }
   })
 
-  // A tab types QQ into defgh and closes without sending it, another makes the block a heading and sends it,
-  // then a tab opens on the same device without the network, watched before it applies anything
-  async function reopenAfterRestructure() {
+  // A tab types into defgh and closes without sending it, another makes the block a heading and sends it,
+  // then a tab opens on the same device, with or without the network, watched before it applies anything
+  async function reopenAfterRestructure(
+    isOnline: boolean,
+    typeOffline = (old: Y.XmlText) => old.insert(2, 'QQ'),
+  ) {
     fakeTime()
     const server = fakeServer()
     const first = await join(server.endpoints())
@@ -584,13 +634,13 @@ describe('a room watching for removals', () => {
     await first.flush()
     const kept = await device()
     const closing = await join(offlinePushes(server), { device: kept })
-    roomText(closing, 1).insert(2, 'QQ')
+    typeOffline(roomText(closing, 1))
     await vi.advanceTimersByTimeAsync(0)
     await idle()
     await closing.close()
     makeRoomHeading(first, 'defgh')
     await first.flush()
-    server.access.online = false
+    server.access.online = isOnline
     const reported: Removal[] = []
     const reopened = await join(server.endpoints(), {
       device: kept,
@@ -611,7 +661,7 @@ describe('a room watching for removals', () => {
   it('types back what a restructure removed from the work a tab opened offline took on, once it claims (R299)', async () => {
     fakeLocks()
     try {
-      const { rooms, reported } = await reopenAfterRestructure()
+      const { rooms, reported } = await reopenAfterRestructure(false)
 
       for (const room of rooms) {
         expect(roomBlocks(room)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
@@ -621,6 +671,169 @@ describe('a room watching for removals', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('reports what a restructure removed from the work a tab takes on as it opens (R308)', async () => {
+    fakeLocks()
+    try {
+      const { rooms, reported } = await reopenAfterRestructure(true)
+
+      for (const room of rooms) {
+        expect(roomBlocks(room)).toEqual(['paragraph abc', 'heading defgh', 'paragraph xyz'])
+      }
+
+      expect(reported).toEqual([neverKept('QQ')])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports nothing of what the closed tab typed and deleted itself as a tab takes it on (R308)', async () => {
+    fakeLocks()
+    try {
+      const { rooms, reported } = await reopenAfterRestructure(true, (old) => {
+        old.insert(2, 'QQ')
+        old.delete(2, 2)
+      })
+
+      expect([roomBlocks(rooms[1]), reported]).toEqual([
+        ['paragraph abc', 'heading defgh', 'paragraph xyz'],
+        [],
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports only what the closed tab typed and kept as a tab takes it on (R308)', async () => {
+    fakeLocks()
+    try {
+      const { reported } = await reopenAfterRestructure(true, (old) => {
+        old.insert(2, 'QQRR')
+        old.delete(2, 2)
+      })
+
+      expect(reported).toEqual([neverKept('RR')])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports bold text the closed tab typed as bold as a tab takes it on (R308)', async () => {
+    fakeLocks()
+    try {
+      const { reported } = await reopenAfterRestructure(true, (old) =>
+        old.insert(2, 'QQ', { bold: {} }),
+      )
+
+      expect(reported).toEqual([
+        { ...neverKept('QQ'), runs: [{ offset: 0, text: 'QQ', attrs: { bold: {} } }] },
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('reports a mention the closed tab added as one lost node as a tab takes it on (R308)', async () => {
+    fakeLocks()
+    try {
+      const { reported } = await reopenAfterRestructure(true, (old) =>
+        (old.parent as Y.XmlElement).insert(1, [mention()]),
+      )
+
+      expect(reported).toEqual([{ kind: 'node', name: 'mention', attrs: {} }])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("reports a closed tab's typing a tab takes on after it pulled the restructure (R308)", async () => {
+    fakeLocks()
+    fakeTime()
+    try {
+      const server = fakeServer()
+      const first = await join(server.endpoints())
+      Y.applyUpdate(first.doc, threeParagraphs)
+      await first.flush()
+      const kept = await device()
+      const typing = await join(server.endpoints(), { device: kept })
+      const closing = await join(offlinePushes(server), { device: kept })
+      const reported: Removal[] = []
+      watchRemovals(typing, (removals) => reported.push(...removals))
+      roomText(closing, 1).insert(2, 'QQ')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+
+      makeRoomHeading(first, 'defgh')
+      await first.flush()
+      await typing.pull()
+      await closing.close()
+      await vi.advanceTimersByTimeAsync(60_000)
+      await idle()
+
+      expect([roomBlocks(typing), reported]).toEqual([
+        ['paragraph abc', 'heading defgh', 'paragraph xyz'],
+        [neverKept('QQ')],
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("doesn't report another tab's text or mention written into a block already gone (R308)", async () => {
+    fakeTime()
+    const server = fakeServer()
+    const first = await join(server.endpoints())
+    Y.applyUpdate(first.doc, threeParagraphs)
+    await first.flush()
+    const typing = await join(server.endpoints())
+    const other = await join(server.endpoints())
+    const reported: Removal[] = []
+    watchRemovals(typing, (removals) => reported.push(...removals))
+
+    makeRoomHeading(first, 'defgh')
+    await first.flush()
+    await typing.pull()
+    roomText(other, 1).insert(2, 'ZZ')
+    ;(roomText(other, 1).parent as Y.XmlElement).insert(1, [mention()])
+    await other.flush()
+    await typing.pull()
+
+    expect([roomBlocks(typing), reported]).toEqual([
+      ['paragraph abc', 'heading defgh', 'paragraph xyz'],
+      [],
+    ])
+  })
+
+  it('reports only the part of an update of mine the doc never held before it was gone (R308)', () => {
+    const writer = docOf(threeParagraphs)
+    const reader = docOf(threeParagraphs)
+    const base = Y.encodeStateVector(writer)
+    oldBlockText(writer).insert(2, 'QQ')
+    const typedQQ = Y.encodeStateAsUpdate(writer, base)
+    oldBlockText(writer).insert(4, 'RR')
+    const typedBoth = Y.encodeStateAsUpdate(writer, base)
+    Y.applyUpdate(reader, typedQQ)
+    removeOldBlock(reader)
+
+    const found = removalsOnApply(reader, [typedBoth], writer)
+
+    expect(found).toEqual([neverKept('RR')])
+  })
+
+  it("reports only my text of one apply that also wrote another's into a block already gone (R308)", () => {
+    const writer = docOf(threeParagraphs)
+    const other = docOf(threeParagraphs)
+    const reader = docOf(threeParagraphs)
+    const base = Y.encodeStateVector(writer)
+    oldBlockText(writer).insert(2, 'QQ')
+    oldBlockText(other).insert(2, 'ZZ')
+    const typed = [Y.encodeStateAsUpdate(writer, base), Y.encodeStateAsUpdate(other, base)]
+    removeOldBlock(reader)
+
+    const found = removalsOnApply(reader, typed, writer)
+
+    expect(found).toEqual([neverKept('QQ')])
   })
 
   // A third tab sends ZZ at `offset` in the old block once the type-back is out, so the taking-on

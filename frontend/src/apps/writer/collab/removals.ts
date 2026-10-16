@@ -9,6 +9,7 @@ export const TYPE_BACK = Symbol('writer-type-back')
 // Yjs exports no DeleteSet type
 type DeleteSet = ReturnType<typeof Y.createDeleteSet>
 type DecodedRow = ReturnType<typeof Y.decodeUpdate>
+type TextRemoval = Extract<Removal, { kind: 'text' }>
 
 // Shorter text can match in the wrong place, so it's reported instead
 const MIN_SEEN_LENGTH = 3
@@ -92,7 +93,8 @@ function typeBackAll(room: Pick<CollabRoom, 'doc' | 'canWrite'>, removals: Remov
 
 /**
  * Text and nodes of the clients in `mine` that `transaction` deleted though none of its
- * `updates` named them. Call from afterTransaction: deleted text is collected right after it.
+ * `updates` named them, or that its updates wrote into a block yjs had already collected.
+ * Call from afterTransaction: deleted text is collected right after it.
  */
 export function findRemovals(
   transaction: Y.Transaction,
@@ -100,13 +102,18 @@ export function findRemovals(
   mine: ReadonlySet<number>,
 ): Removal[] {
   const deleted = myDeletedItems(transaction, mine)
-  if (!deleted.length) {
+  const isWritingMine = [...mine].some((client) => hasWritten(transaction, client))
+  if (!deleted.length && !isWritingMine) {
     return []
   }
 
   const rows = updates.map((update) => Y.decodeUpdate(update))
   const named = Y.mergeDeleteSets(rows.map((row) => row.ds))
   const removals: Removal[] = []
+  if (isWritingMine) {
+    unkeptWrites({ transaction, named, removals }, updates, mine)
+  }
+
   const texts = new Set<Y.AbstractType<unknown>>()
   for (const item of deleted) {
     const element = elementIn(item)
@@ -170,7 +177,7 @@ function textRemoval(
     seen: '',
     runs: [] as Run[],
     written: clocksOf([]),
-    pulled: { before: new Map(transaction.beforeState), after: new Map(transaction.afterState) },
+    pulled: pulledOf(transaction),
     isUncertain: false,
   }
   const gaps = new Set<number>()
@@ -198,6 +205,116 @@ function textRemoval(
   removal.written = clocksOf(namingRows)
   removal.isUncertain = removal.runs.some((lost) => gaps.has(lost.offset))
   return removal
+}
+
+function pulledOf(transaction: Y.Transaction): RowClocks {
+  return { before: new Map(transaction.beforeState), after: new Map(transaction.afterState) }
+}
+
+function hasWritten(transaction: Y.Transaction, client: number) {
+  return (transaction.afterState.get(client) ?? 0) > (transaction.beforeState.get(client) ?? 0)
+}
+
+interface Chain {
+  lastId: Y.ID | null
+  attrs: Record<string, unknown>
+  removal: TextRemoval | null
+  run: Run | null
+}
+
+interface UnkeptContext {
+  transaction: Y.Transaction
+  named: DeleteSet
+  removals: Removal[]
+}
+
+// Yjs keeps what lands in a collected block only as a GC struct, so no deleteSet names it
+function unkeptWrites(context: UnkeptContext, updates: Uint8Array[], mine: ReadonlySet<number>) {
+  const chain: Chain = { lastId: null, attrs: {}, removal: null, run: null }
+  for (const struct of Y.decodeUpdate(Y.mergeUpdates(updates)).structs) {
+    if (struct instanceof Y.Item && struct.parentSub === null && mine.has(struct.id.client)) {
+      followChain(chain, struct, context)
+    }
+  }
+}
+
+// Text typed in one go chains by origin, so a chain's formats and runs belong together
+function followChain(chain: Chain, item: Y.Item, context: UnkeptContext) {
+  if (!Y.compareIDs(item.origin, chain.lastId)) {
+    Object.assign(chain, { attrs: {}, removal: null, run: null })
+  }
+
+  chain.lastId = item.lastId
+  const { content } = item
+  if (content instanceof Y.ContentString) {
+    addUnkeptText(chain, item, content.str, context)
+  } else if (content instanceof Y.ContentFormat) {
+    chain.attrs = withFormat(chain.attrs, content)
+    chain.run = null
+  } else if (content instanceof Y.ContentType) {
+    addUnkeptNode(item, content.type, context)
+    chain.run = null
+  }
+}
+
+// What the update deleted of its own text doesn't end the run around it
+function addUnkeptText(chain: Chain, item: Y.Item, str: string, context: UnkeptContext) {
+  for (let index = 0; index < item.length; index++) {
+    const id = Y.createID(item.id.client, item.id.clock + index)
+    if (Y.isDeleted(context.named, id)) {
+      continue
+    }
+
+    if (!isUnkept(id, context.transaction)) {
+      chain.run = null
+      continue
+    }
+
+    extendRun(chain, context, str[index])
+  }
+}
+
+function extendRun(chain: Chain, { transaction, removals }: UnkeptContext, char: string) {
+  if (!chain.removal) {
+    chain.removal = {
+      kind: 'text',
+      seen: '',
+      runs: [],
+      written: clocksOf([]),
+      pulled: pulledOf(transaction),
+      isUncertain: false,
+    }
+    removals.push(chain.removal)
+  }
+
+  if (!chain.run) {
+    chain.run = { offset: 0, text: '', attrs: chain.attrs }
+    chain.removal.runs.push(chain.run)
+  }
+
+  chain.run.text += char
+}
+
+function addUnkeptNode(
+  item: Y.Item,
+  type: Y.AbstractType<unknown>,
+  { transaction, named, removals }: UnkeptContext,
+) {
+  if (
+    type instanceof Y.XmlElement &&
+    !Y.isDeleted(named, item.id) &&
+    isUnkept(item.id, transaction)
+  ) {
+    removals.push({ kind: 'node', name: type.nodeName, attrs: {} })
+  }
+}
+
+// Written by this transaction, yet the doc holds only a GC struct there
+function isUnkept(id: Y.ID, transaction: Y.Transaction) {
+  const pulled = { before: transaction.beforeState, after: transaction.afterState }
+  return (
+    wroteIn(pulled, id.client, id.clock) && Y.getItem(transaction.doc.store, id) instanceof Y.GC
+  )
 }
 
 // Only the rows that deleted the old text wrote its copy; rows pulled with them may write around it
