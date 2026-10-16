@@ -19,7 +19,7 @@ function renderedId(text: string, occurrence: number) {
 }
 
 // Counts each heading text in document order, so repeated headings get ids of their own
-function renderedIds() {
+export function renderedIds() {
   const occurrencesByText = new Map<string, number>()
   return function nextRenderedId(text: string) {
     const occurrence = occurrencesByText.get(text) ?? 0
