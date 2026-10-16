@@ -319,6 +319,8 @@ describe('text the row could only type back in the wrong place (R278)', () => {
       seen: '',
       runs: [{ offset: 0, text: 'QQ', attrs: {} }],
       written,
+      pulled: written,
+      isUncertain: false,
     }
     expect(typeBack(body, removal)).toBe(false)
   })

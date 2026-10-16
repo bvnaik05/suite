@@ -16,7 +16,7 @@ export const reply = (status: number, body: unknown): Answer => ({
 export function frame(
   header: object,
   rows: { rev: number; bytes: Uint8Array }[] = [],
-  checkpoint = new Uint8Array(),
+  checkpoint: Uint8Array = new Uint8Array(),
 ): Answer {
   const json = new TextEncoder().encode(JSON.stringify(header))
   const size =
@@ -62,7 +62,7 @@ export function fakeServer(state = 'live', lineage = 'L') {
   // The highest editor schema any stored row was written with
   const schema = { now: 1 }
   // Rows through `base` folded into one state, as a compaction leaves them
-  const checkpoint = { base: 0, bytes: new Uint8Array() }
+  const checkpoint: { base: number; bytes: Uint8Array } = { base: 0, bytes: new Uint8Array() }
   // The judge's count and last verdict; `answer` is what a report of a rev gets back.
   // `held`: the document waits for an admin, so pushes are refused for a while
   const judge = {
@@ -241,7 +241,8 @@ export function fakeServer(state = 'live', lineage = 'L') {
         return reply(409, { collab: 'restored', restore_rev: restore.rev })
       if (header.from > session.acked + 1)
         return reply(409, { collab: 'seq', acked: session.acked })
-      let bytes = inline
+
+      let bytes: Uint8Array = inline
       if (header.stage_id) {
         const staged = assemble(header.stage_id)
         if (!staged) {
