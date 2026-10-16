@@ -284,6 +284,25 @@ test("a tab that joins late is answered with the carets already in its rooms, ea
 	late.close();
 });
 
+test("a tab that joins late hears how long another has been idle and hidden, counted to now", async (context) => {
+	context.mock.timers.enable({ apis: ["Date"] });
+	const nsp = fakeSite();
+	const writer = connect(nsp, "writer@example.com");
+	await writer.joinRooms([roomA]);
+	writer.sendPresence([roomA], { cursor: { at: 1 }, idleFor: 1000, hiddenFor: 0 });
+	context.mock.timers.tick(70_000);
+
+	const late = connect(nsp, "late@example.com");
+	const joinReply = await late.joinRooms([roomA]);
+
+	assert.deepEqual(
+		joinReply.carets.map((caret) => [caret.state.idleFor, caret.state.hiddenFor]),
+		[[71_000, 70_000]],
+	);
+	writer.close();
+	late.close();
+});
+
 test("a room shows at most fifty carets, ten of them guests", async () => {
 	const nsp = fakeSite();
 	const watcher = connect(nsp, "watcher@example.com");

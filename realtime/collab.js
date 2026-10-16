@@ -97,6 +97,7 @@ const collab_handlers = (socket) => {
 
 				const hasCaret = state.cursor != null && has_caret_slot(members, entry);
 				entry.state = hasCaret || state.cursor == null ? state : { ...state, cursor: null };
+				entry.stateAt = Date.now();
 				entry.hasCaret = hasCaret;
 				entry.updates++;
 				if (!site.dirty.has(room)) {
@@ -273,14 +274,31 @@ function site_of(socket) {
 	return sites.get(name);
 }
 
+// A tab sends how long it has been idle or hidden only when that changes, so the time since is added
 function presence_state(entry) {
+	const elapsed = Date.now() - entry.stateAt;
+	const state = {
+		...entry.state,
+		idleFor: grown(entry.state.idleFor, elapsed),
+		hiddenFor: grown(entry.state.hiddenFor, elapsed),
+	};
 	return {
 		pid: entry.pid,
 		user: entry.user,
 		arrival: entry.arrival,
 		n: entry.updates,
-		state: entry.state,
+		state,
 	};
+}
+
+// Anything but a duration is passed on as the tab sent it
+function grown(duration, elapsed) {
+	const isDuration = typeof duration === "number" && Number.isFinite(duration) && duration >= 0;
+	if (!isDuration) {
+		return duration;
+	}
+
+	return duration + elapsed;
 }
 
 function schedule_flush() {
