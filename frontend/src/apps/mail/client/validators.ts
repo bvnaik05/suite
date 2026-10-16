@@ -135,6 +135,8 @@ import type {
   FetchMailAsEmlOutput,
   FetchPushSubscriptionsInput,
   FetchPushSubscriptionsOutput,
+  FileMailsInput,
+  FileMailsOutput,
   GetAccountOptionsInput,
   GetAccountOptionsOutput,
   GetAccountRequestInput,
@@ -8306,6 +8308,69 @@ export const operationMoveMails: Validators<MoveMailsInput, MoveMailsOutput> = {
   },
   validateOutput(value: unknown): asserts value is MoveMailsOutput {
     assertSchema(value, { type: 'null' }, 'move_mails output')
+  },
+}
+
+export const operationFileMails: Validators<FileMailsInput, FileMailsOutput> = {
+  validateInput(value: unknown): asserts value is FileMailsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+          action: {
+            enum: ['archive', 'unarchive', 'move', 'junk', 'not_junk', 'trash'],
+            title: 'Action',
+            type: 'string',
+          },
+          mailbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailbox' },
+          screen_action: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Screen Action' },
+          leaves: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Leaves' },
+          shows: {
+            anyOf: [
+              {
+                additionalProperties: { items: { $ref: '#/$defs/ShownFolder' }, type: 'array' },
+                type: 'object',
+              },
+              { type: 'null' },
+            ],
+            title: 'Shows',
+          },
+        },
+        required: ['account', 'ids', 'action'],
+        additionalProperties: false,
+        $defs: {
+          ShownFolder: {
+            properties: {
+              mailbox: { title: 'Mailbox', type: 'string' },
+              mailbox_id: { title: 'Mailbox Id', type: 'string' },
+              mailbox_name: { title: 'Mailbox Name', type: 'string' },
+            },
+            required: ['mailbox', 'mailbox_id', 'mailbox_name'],
+            title: 'ShownFolder',
+            type: 'object',
+          },
+        },
+      },
+      'file_mails input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is FileMailsOutput {
+    assertSchema(
+      value,
+      {
+        properties: {
+          updated: { items: { type: 'string' }, title: 'Updated', type: 'array' },
+          left_inbox: { title: 'Left Inbox', type: 'boolean' },
+        },
+        required: ['updated', 'left_inbox'],
+        title: 'FiledResult',
+        type: 'object',
+      },
+      'file_mails output',
+    )
   },
 }
 

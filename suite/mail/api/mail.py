@@ -68,6 +68,7 @@ from suite.mail.doctype.user_account.user_account import (
     get_user_personal_jmap_account,
     is_jmap_account_belongs_to_user,
 )
+from suite.mail.filing import Filed, file_messages
 from suite.mail.jmap import (
     get_account_client,
     get_cached_mailboxes,
@@ -1335,6 +1336,30 @@ def move_mails(account: str, ids: list[str], mailbox: str, clear_junk: bool = Fa
     if clear_junk:
         set_spam_status(account, ids, spam=False)
     move_messages_to_mailbox(account, ids, mailbox)
+
+
+@frappe.whitelist()
+def file_mails(
+    account: str,
+    ids: list[str],
+    action: str,
+    mailbox: str | None = None,
+    screen_action: str | None = None,
+    leaves: str | None = None,
+    shows: dict | None = None,
+) -> Filed:
+    """Archives, unarchives, moves, junks, un-junks or trashes the given mails — a conversation's, usually — by
+    the filing rules (see `suite.mail.filing`), optionally screening their senders with
+    `screen_action` (Spam on Junk, Accepted on Not junk) in the same request.
+
+    `leaves` names the list the conversation leaves (a mailbox id, or an All Inboxes folder), if it
+    does, and `shows` the folders each message is expected in after: the client's own hints, for
+    taking rows off that list and showing the rest refiled before the answer comes. The server has
+    no use for either."""
+
+    filed = file_messages(account, ids, action, mailbox)
+    _screen_senders(account, filed["updated"], screen_action)
+    return filed
 
 
 @frappe.whitelist()

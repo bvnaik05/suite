@@ -243,7 +243,11 @@
           "
           @move-thread="(mailboxId: string) => moveOpenThread(mailboxId)"
           @delete-thread="isTrashFolder ? confirmDelete([openRow!]) : handleTrash(openRow!)"
-          @archive-thread="handleArchive(openRow!)"
+          @archive-thread="
+            folder === 'sent' && openRow?.archive
+              ? handleAddToMailbox(openRow.archive)
+              : handleArchive(openRow!)
+          "
           @sync-unseen="handleSyncUnseen"
           @add-thread-to-mailbox="handleAddToMailbox"
           @remove-thread-from-mailbox="handleRemoveFromMailbox"

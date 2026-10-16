@@ -18627,6 +18627,155 @@
       "bytes": false
     },
     {
+      "id": "file_mails",
+      "kind": "mutation",
+      "publicName": "messages.file",
+      "page": null,
+      "envelope": "message",
+      "method": "POST",
+      "path": "/api/method/suite.mail.api.mail.file_mails",
+      "pathParams": [],
+      "query": null,
+      "body": {
+        "$defs": {
+          "ShownFolder": {
+            "properties": {
+              "mailbox": {
+                "title": "Mailbox",
+                "type": "string"
+              },
+              "mailbox_id": {
+                "title": "Mailbox Id",
+                "type": "string"
+              },
+              "mailbox_name": {
+                "title": "Mailbox Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mailbox",
+              "mailbox_id",
+              "mailbox_name"
+            ],
+            "title": "ShownFolder",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "action": {
+            "enum": [
+              "archive",
+              "unarchive",
+              "move",
+              "junk",
+              "not_junk",
+              "trash"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "mailbox": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mailbox"
+          },
+          "screen_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen Action"
+          },
+          "leaves": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaves"
+          },
+          "shows": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "$ref": "#/$defs/ShownFolder"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shows"
+          }
+        },
+        "required": [
+          "account",
+          "ids",
+          "action"
+        ],
+        "title": "FileInput",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "updated": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Updated",
+            "type": "array"
+          },
+          "left_inbox": {
+            "title": "Left Inbox",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated",
+          "left_inbox"
+        ],
+        "title": "FiledResult",
+        "type": "object"
+      },
+      "errors": [
+        "PermissionError",
+        "ValidationError"
+      ],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
       "id": "add_mails_to_mailbox",
       "kind": "mutation",
       "publicName": "messages.addToFolder",
