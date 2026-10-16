@@ -138,18 +138,6 @@ describe('oldCommentAnchors', () => {
     })
   })
 
-  it('anchors two comments on overlapping words, each under its own mark name', () => {
-    const first = { 'comment--a+/=bC9z': { commentId: 'k1' } }
-    const second = { 'comment--Zx9/+=Qw': { commentId: 'k2' } }
-    const doc = docWith(yParagraph(['ove', first], ['rl', { ...first, ...second }], ['ap', second]))
-
-    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
-
-    const text = 'overlap'
-    expect(placed(doc, anchors.k1)).toEqual({ start: [text, 0], end: [text, 5], quote: 'overl' })
-    expect(placed(doc, anchors.k2)).toEqual({ start: [text, 3], end: [text, 7], quote: 'rlap' })
-  })
-
   it('quotes a comment holding a mention as the editor quotes it', () => {
     const doc = docWith(yInline(yText('hi ', 'c1'), yMention('c1'), yText(' there', 'c1')))
 
@@ -176,6 +164,39 @@ describe('oldCommentAnchors', () => {
     const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
     expect(editorRange(doc, anchors.c1)).toEqual({ from: 1, to: 5, quote: 'hi @Ann' })
+  })
+
+  it('anchors a comment after an empty list the editor hides on the words it covers', () => {
+    const list = new XmlElement('bulletList')
+    const doc = docWith(list, yParagraph(['say '], ['hello', comment('c1')]))
+
+    const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
+
+    const text = 'say hello'
+    expect(placed(doc, anchors.c1)).toEqual({ start: [text, 4], end: [text, 9], quote: 'hello' })
+  })
+
+  it('gives no anchor to a comment the editor has no place for, after a node it lacks', () => {
+    const doc = docWith(new XmlElement('callout'), yParagraph(['say '], ['hello', comment('c1')]))
+
+    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({})
+  })
+
+  it.each([
+    { name: 'no thread id', mark: { comment: { commentId: null } } },
+    { name: 'an empty thread id', mark: { comment: { commentId: '' } } },
+    { name: 'a number for its thread id', mark: { comment: { commentId: 7 } } },
+  ])('gives no anchor to a comment mark with $name', ({ mark }) => {
+    const doc = docWith(yParagraph(['hello', mark]))
+
+    expect(oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)).toEqual({})
+  })
+
+  it('reads a comment only from text and inline nodes, not from a block holding the key', () => {
+    const block = yParagraph(['hello'])
+    block.setAttribute('comment', comment('c1').comment as never)
+
+    expect(oldCommentAnchors(docWith(block).getXmlFragment(BODY_FIELD), schema)).toEqual({})
   })
 
   it('gives no anchor when no text carries a comment', () => {

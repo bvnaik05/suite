@@ -26,7 +26,7 @@ import {
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { domInventory, inventory, unkept } from '@/apps/writer/collab/inventory'
-import { unreadableThreads } from '@/apps/writer/collab/old-comments'
+import { OLD_THREAD_TAGS, unreadableThreads } from '@/apps/writer/collab/old-comments'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
@@ -246,9 +246,6 @@ function fromYjs(old: Doc) {
 const atomRules = Object.values(schema.nodes)
   .filter((type) => isAtomName(type.name))
   .flatMap((type) => (type.spec.parseDOM ?? []).map((rule) => ({ rule, name: type.name })))
-
-// Drive's comment marks, holding a whole thread or an annotation id
-const OLD_THREAD_TAGS = 'span[data-comment], span[data-annotation-id]'
 
 function atomNameOf(element: Element) {
   const found = atomRules.find(

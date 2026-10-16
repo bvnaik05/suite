@@ -14,12 +14,16 @@ import { encodeAnchor } from '@/apps/writer/collab/anchors'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { quoteBetween } from '@/apps/writer/collab/places'
 
-// The old comment mark, under its own name or the binding's name for an overlapping copy
-const COMMENT_KEY = /^comment(--[a-zA-Z0-9+/=]{8})?$/
+// The old comment mark, which excludes itself, so the binding keeps it under its own name
+const COMMENT_KEY = 'comment'
 
-// Drive's later comment mark, and the list its threads were kept in
+// Drive's later comment mark, which could overlap itself (`excludes: ''`), so the binding keeps
+// each under a hashed name; and the list its threads were kept in
 const ANNOTATION_KEY = /^annotation(--[a-zA-Z0-9+/=]{8})?$/
 const ANNOTATIONS_ROOT = 'docAnnotations'
+
+// Drive's comment marks in HTML, holding a whole thread or an annotation id
+export const OLD_THREAD_TAGS = 'span[data-comment], span[data-annotation-id]'
 
 interface Run {
   type: AbstractType<unknown>
@@ -27,35 +31,24 @@ interface Run {
   to: number
 }
 
+// The binding keeps inline nodes as elements, so a text holds only strings
 interface Insert {
-  insert: unknown
+  insert: string
   attributes?: Record<string, unknown>
 }
 
-// An embed takes one place in its text's indexes
-function insertedText({ insert }: Insert) {
-  if (typeof insert === 'string') {
-    return insert
+function threadId(attrs: unknown): string | undefined {
+  const id = (attrs as { commentId?: unknown } | null)?.commentId
+  if (typeof id === 'string' && id) {
+    return id
   }
 
-  return ' '
-}
-
-function commentIds(attributes: Record<string, unknown> = {}) {
-  return Object.entries(attributes)
-    .filter(([key]) => COMMENT_KEY.test(key))
-    .map(([, attrs]) => (attrs as { commentId?: unknown } | null)?.commentId)
-    .filter((id): id is string => typeof id === 'string' && !!id)
+  return undefined
 }
 
 // An annotation, or a comment mark with no thread id, as Drive's earlier one that held its whole thread
 function isUnreadableMark([key, attrs]: [string, unknown]) {
-  if (ANNOTATION_KEY.test(key)) {
-    return true
-  }
-
-  const id = (attrs as { commentId?: unknown } | null)?.commentId
-  return COMMENT_KEY.test(key) && (typeof id !== 'string' || !id)
+  return ANNOTATION_KEY.test(key) || (key === COMMENT_KEY && threadId(attrs) === undefined)
 }
 
 function markEntries(type: AbstractType<unknown>): [string, unknown][] {
@@ -89,11 +82,13 @@ export function unreadableThreads(old: Doc) {
 function textRuns(text: XmlText) {
   const runs: [string, Run][] = []
   let from = 0
-  for (const op of text.toDelta() as Insert[]) {
-    const to = from + insertedText(op).length
-    runs.push(
-      ...commentIds(op.attributes).map((id): [string, Run] => [id, { type: text, from, to }]),
-    )
+  for (const { insert, attributes } of text.toDelta() as Insert[]) {
+    const to = from + insert.length
+    const id = threadId(attributes?.[COMMENT_KEY])
+    if (id !== undefined) {
+      runs.push([id, { type: text, from, to }])
+    }
+
     from = to
   }
 
@@ -101,16 +96,25 @@ function textRuns(text: XmlText) {
 }
 
 // An inline atom such as a mention keeps its comment in its attributes and its place by index
-function atomRuns(parent: AbstractType<unknown>, child: unknown, index: number): [string, Run][] {
-  if (!(child instanceof XmlElement)) {
+function atomRuns(
+  parent: AbstractType<unknown>,
+  child: unknown,
+  index: number,
+  schema: Schema,
+): [string, Run][] {
+  if (!(child instanceof XmlElement && schema.nodes[child.nodeName]?.isInline)) {
     return []
   }
 
-  const run = { type: parent, from: index, to: index + 1 }
-  return commentIds(child.getAttributes()).map((id): [string, Run] => [id, run])
+  const id = threadId(child.getAttribute(COMMENT_KEY))
+  if (id === undefined) {
+    return []
+  }
+
+  return [[id, { type: parent, from: index, to: index + 1 }]]
 }
 
-function commentRuns(type: AbstractType<unknown>): [string, Run][] {
+function commentRuns(type: AbstractType<unknown>, schema: Schema): [string, Run][] {
   if (type instanceof XmlText) {
     return textRuns(type)
   }
@@ -121,23 +125,30 @@ function commentRuns(type: AbstractType<unknown>): [string, Run][] {
 
   return type
     .toArray()
-    .flatMap((child, index) => [...atomRuns(type, child, index), ...commentRuns(child)])
+    .flatMap((child, index) => [
+      ...atomRuns(type, child, index, schema),
+      ...commentRuns(child, schema),
+    ])
 }
 
-// A body just built from an editor document has no hidden parts
+// Where the editor shows `position`, or null when it can't
 function placeOf(
   body: XmlFragment,
   built: ReturnType<typeof initProseMirrorDoc>,
   position: RelativePosition,
 ) {
-  return relativePositionToAbsolutePosition(body.doc!, body, position, built.mapping, new Set())!
+  const { mapping, meta } = built
+  return relativePositionToAbsolutePosition(body.doc!, body, position, mapping, meta.hidden)
 }
 
-/** Each old comment's anchor in `body`, from the first character or atom its mark covers to the last. */
+/**
+ * Each old comment's anchor in `body`, from the first character or atom its mark covers to the
+ * last; a comment the editor can't place gets none
+ */
 export function oldCommentAnchors(body: XmlFragment, schema: Schema): Record<string, string> {
   const built = initProseMirrorDoc(body, schema)
   const runs = new Map<string, Run[]>()
-  for (const [id, run] of commentRuns(body)) {
+  for (const [id, run] of commentRuns(body, schema)) {
     const known = runs.get(id) ?? []
     runs.set(id, [...known, run])
   }
@@ -147,8 +158,11 @@ export function oldCommentAnchors(body: XmlFragment, schema: Schema): Record<str
     const end = rest.at(-1) ?? start
     const from = createRelativePositionFromTypeIndex(start.type, start.from, 0)
     const to = createRelativePositionFromTypeIndex(end.type, end.to, -1)
-    const quote = quoteBetween(built.doc, placeOf(body, built, from), placeOf(body, built, to))
-    anchors[id] = encodeAnchor(from, to, quote)
+    const fromPlace = placeOf(body, built, from)
+    const toPlace = placeOf(body, built, to)
+    if (fromPlace !== null && toPlace !== null) {
+      anchors[id] = encodeAnchor(from, to, quoteBetween(built.doc, fromPlace, toPlace))
+    }
   }
 
   return anchors

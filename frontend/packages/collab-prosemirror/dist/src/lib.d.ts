@@ -101,10 +101,7 @@ export function yXmlFragmentToProseMirrorFragment(yXmlFragment: Y.XmlFragment, s
 export function yXmlFragmentToProseMirrorRootNode(yXmlFragment: Y.XmlFragment, schema: Schema): Node;
 export function initProseMirrorDoc(yXmlFragment: Y.XmlFragment, schema: Schema): {
     doc: Node;
-    meta: {
-        mapping: Map<any, any>;
-        isOMark: Map<any, any>;
-    };
+    meta: import('./plugins/sync-plugin.js').BindingMetadata;
     mapping: Map<any, any>;
 };
 /**
