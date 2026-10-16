@@ -1,4 +1,4 @@
-import { APPLIED_UPDATE, REMOTE, type CollabRoom } from '@suite/collab-client'
+import { ADOPT, APPLIED_UPDATE, REMOTE, type CollabRoom } from '@suite/collab-client'
 import {
   device,
   fakeLocks,
@@ -110,6 +110,7 @@ function neverKept(lost: string) {
     written: expect.anything(),
     pulled: expect.anything(),
     isUncertain: false,
+    key: expect.any(String),
   }
 }
 
@@ -139,12 +140,12 @@ function removeOldBlock(doc: Y.Doc) {
 }
 
 // Applies `updates` to `doc` as one pulled transaction and returns what it removed of `writer`'s
-function removalsOnApply(doc: Y.Doc, updates: Uint8Array[], writer: Y.Doc) {
+function removalsOnApply(doc: Y.Doc, updates: Uint8Array[], writer: Y.Doc, origin = REMOTE) {
   const found: Removal[] = []
   doc.on('afterTransaction', (transaction: Y.Transaction) => {
     found.push(...findRemovals(transaction, updates, new Set([writer.clientID])))
   })
-  doc.transact(() => Y.applyUpdate(doc, Y.mergeUpdates(updates)), REMOTE)
+  doc.transact(() => Y.applyUpdate(doc, Y.mergeUpdates(updates)), origin)
   return found
 }
 
@@ -1019,7 +1020,9 @@ describe('a room watching for removals', () => {
         (old.parent as Y.XmlElement).insert(1, [mention()]),
       )
 
-      expect(reported).toEqual([{ kind: 'node', name: 'mention', attrs: {} }])
+      expect(reported).toEqual([
+        { kind: 'node', name: 'mention', attrs: {}, key: expect.any(String) },
+      ])
     } finally {
       vi.unstubAllGlobals()
     }
@@ -1303,6 +1306,208 @@ describe('a room watching for removals', () => {
 
     for (const tab of tabs) {
       expect(blocks(tab)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+    }
+  })
+})
+
+describe("work a tab takes on that the doc already held as another tab's (R310)", () => {
+  // A row that makes the old block a heading, from a tab that never saw the typing
+  function unseenRestructure() {
+    const other = docOf(threeParagraphs)
+    const base = Y.encodeStateVector(other)
+    removeOldBlock(other)
+    return Y.encodeStateAsUpdate(other, base)
+  }
+
+  // The writer types into the old block, an update per edit as its outbox keeps them, the reader
+  // pulls that as another tab's row, `after` runs on the reader, then the reader takes the work on
+  function adoptHeld(
+    type: (old: Y.XmlText) => void,
+    after: (reader: Y.Doc) => void,
+    reader = docOf(threeParagraphs),
+  ) {
+    const writer = docOf(threeParagraphs)
+    const typed: Uint8Array[] = []
+    writer.on('update', (update: Uint8Array) => typed.push(update))
+    type(oldBlockText(writer))
+    Y.applyUpdate(reader, Y.mergeUpdates(typed), REMOTE)
+    after(reader)
+    return removalsOnApply(reader, typed, writer, ADOPT)
+  }
+
+  function typeQQAt2(old: Y.XmlText) {
+    old.insert(2, 'QQ')
+  }
+
+  function applyRestructure(reader: Y.Doc) {
+    Y.applyUpdate(reader, unseenRestructure(), REMOTE)
+  }
+
+  it('reports my text the doc held once a row removed its block', () => {
+    expect(adoptHeld(typeQQAt2, applyRestructure)).toEqual([neverKept('QQ')])
+  })
+
+  it('reports nothing of held text still in the doc', () => {
+    expect(adoptHeld(typeQQAt2, () => {})).toEqual([])
+  })
+
+  it('reports nothing of held text someone deleted in a block still there', () => {
+    const found = adoptHeld(typeQQAt2, (reader) => oldBlockText(reader).delete(2, 2))
+
+    expect(found).toEqual([])
+  })
+
+  function typeAndDeleteQQ(old: Y.XmlText) {
+    old.insert(2, 'QQ')
+    old.delete(2, 2)
+  }
+
+  it('reports nothing of held text the closed tab deleted itself', () => {
+    expect(adoptHeld(typeAndDeleteQQ, applyRestructure)).toEqual([])
+  })
+
+  it('reports held text in a removed block the doc keeps uncollected', () => {
+    const reader = new Y.Doc({ gc: false })
+    Y.applyUpdate(reader, threeParagraphs)
+
+    expect(adoptHeld(typeQQAt2, applyRestructure, reader)).toEqual([neverKept('QQ')])
+  })
+
+  it('reports held bold text as bold', () => {
+    const found = adoptHeld((old) => old.insert(2, 'QQ', { bold: {} }), applyRestructure)
+
+    expect(found).toEqual([
+      { ...neverKept('QQ'), runs: [{ offset: 0, text: 'QQ', attrs: { bold: {} } }] },
+    ])
+  })
+
+  // A restructure that saw the typing carries it into the heading, which no adopt can tell
+  function carryIntoHeading(reader: Y.Doc) {
+    const words = oldBlockText(reader).toString()
+    const heading = new Y.XmlElement('heading')
+    heading.insert(0, [new Y.XmlText(words)])
+    const body = reader.getXmlFragment(BODY_FIELD)
+    reader.transact(() => {
+      body.delete(1, 1)
+      body.insert(1, [heading])
+    })
+  }
+
+  it('reports held text a restructure carried into its heading, as a spare copy', () => {
+    const reader = docOf(threeParagraphs)
+
+    const found = adoptHeld(typeQQAt2, carryIntoHeading, reader)
+
+    expect([oldBlockText(reader).toString(), found]).toEqual(['deQQfgh', [neverKept('QQ')]])
+  })
+
+  it('keys lost text by every lost character, alike each time the same work is taken on', () => {
+    const writer = docOf(threeParagraphs)
+    const base = Y.encodeStateVector(writer)
+    oldBlockText(writer).insert(2, 'QQ')
+    const typedQQ = Y.encodeStateAsUpdate(writer, base)
+    oldBlockText(writer).insert(4, 'R')
+    const typedQQR = Y.encodeStateAsUpdate(writer, base)
+
+    const keys = [typedQQ, typedQQ, typedQQR].map((typed) => {
+      const reader = docOf(threeParagraphs)
+      Y.applyUpdate(reader, typed, REMOTE)
+      applyRestructure(reader)
+      return removalsOnApply(reader, [typed], writer, ADOPT).map((removal) => removal.key)
+    })
+
+    const id = writer.clientID
+    expect(keys).toEqual([[`${id}:0+2`], [`${id}:0+2`], [`${id}:0+3`]])
+  })
+
+  it('keys a lost mention by its own item, alike each time the same work is taken on', () => {
+    const writer = docOf(threeParagraphs)
+    const base = Y.encodeStateVector(writer)
+    ;(oldBlockText(writer).parent as Y.XmlElement).insert(1, [mention()])
+    const typed = Y.encodeStateAsUpdate(writer, base)
+
+    const keys = [typed, typed].map((update) => {
+      const reader = docOf(threeParagraphs)
+      Y.applyUpdate(reader, update, REMOTE)
+      applyRestructure(reader)
+      return removalsOnApply(reader, [update], writer, ADOPT).map((removal) => removal.key)
+    })
+
+    const id = writer.clientID
+    expect(keys).toEqual([[`${id}:0+1`], [`${id}:0+1`]])
+  })
+
+  function typeAndCut(old: Y.XmlText) {
+    old.insert(2, 'QQ')
+    old.insert(4, 'RR')
+    old.delete(3, 1)
+  }
+
+  it('keys a lost run the closed tab deleted inside by each stretch it lost', () => {
+    const found = adoptHeld(typeAndCut, applyRestructure)
+
+    const runs = found.map((removal) => removal.kind === 'text' && removal.runs[0].text)
+    expect([runs, found.map((removal) => removal.key)]).toEqual([
+      ['QRR'],
+      [expect.stringMatching(/^\d+:0\+1,\d+:2\+2$/)],
+    ])
+  })
+
+  it('reports a held mention as one lost node', () => {
+    const found = adoptHeld(
+      (old) => (old.parent as Y.XmlElement).insert(1, [mention()]),
+      applyRestructure,
+    )
+
+    expect(found).toEqual([{ kind: 'node', name: 'mention', attrs: {}, key: expect.any(String) }])
+  })
+
+  // Endpoints whose pushes reach the server and whose answers never come back, as a closing page's keepalive
+  function unansweredPushes(server: FakeServer) {
+    const endpoints = { ...server.endpoints() }
+    const push = endpoints.push
+    endpoints.push = async (body, request) => {
+      await push(body, request)
+      throw new TypeError('Failed to fetch')
+    }
+
+    return endpoints
+  }
+
+  it("reports a closed tab's sent typing a live tab pulled as another's, once it takes the work on", async () => {
+    fakeLocks()
+    fakeTime()
+    try {
+      const server = fakeServer()
+      const first = await join(server.endpoints())
+      Y.applyUpdate(first.doc, threeParagraphs)
+      await first.flush()
+      const kept = await device()
+      const live = await join(server.endpoints(), { device: kept })
+      const closing = await join(unansweredPushes(server), { device: kept, pollMs: 3_600_000 })
+      const reported: Removal[] = []
+      watchRemovals(live, (removals) => reported.push(...removals))
+
+      makeRoomHeading(first, 'defgh')
+      roomText(closing, 1).insert(2, 'QQ')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+      await first.flush()
+      await live.pull()
+      const isPulledFirst = live.doc.store.clients.has(closing.doc.clientID)
+      const pulledReports = [...reported]
+      await closing.close()
+      await vi.advanceTimersByTimeAsync(60_000)
+      await idle()
+
+      expect([isPulledFirst, pulledReports, roomBlocks(live), reported]).toEqual([
+        true,
+        [],
+        ['paragraph abc', 'heading defgh', 'paragraph xyz'],
+        [neverKept('QQ')],
+      ])
+    } finally {
+      vi.unstubAllGlobals()
     }
   })
 })

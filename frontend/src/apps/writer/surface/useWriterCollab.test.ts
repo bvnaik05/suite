@@ -545,6 +545,19 @@ describe('writer collab rebuild', () => {
     expect(collab.copiesKept.value).toBe(0)
   })
 
+  it('says nothing of a removal whose copy is kept already', async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    const collab = await openCollab()
+    keepRemovedWork.mockResolvedValueOnce(null)
+    const callsBefore = keepRemovedWork.mock.calls.length
+
+    watched.get(fakeRooms.room)!([{ kind: 'node', name: 'image', attrs: {} }])
+
+    await vi.waitFor(() => expect(keepRemovedWork.mock.calls.length).toBe(callsBefore + 1))
+    await Promise.resolve()
+    expect([collab.banner.value, collab.copiesKept.value]).toEqual([null, 0])
+  })
+
   it("still says text couldn't be kept once a later removal's copy is kept", async () => {
     fakeRooms.room = fakeRooms.makeRoom()
     const collab = await openCollab()

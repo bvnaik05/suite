@@ -86,6 +86,75 @@ describe('Writer recovery copies', () => {
     expect(await listCopies('node-1')).toEqual([])
   })
 
+  it('keeps a keyed loss once however often it is reported', async () => {
+    const lost = { ...lostText('', [{ offset: 0, text: 'QQ' }]), key: '7:0+2' }
+
+    expect(await keepRemovedWork('node-1', 'Plan', [lost])).toBe('kept')
+    expect(await keepRemovedWork('node-1', 'Plan', [lost])).toBeNull()
+
+    expect(summary(await listCopies('node-1'))).toEqual([['node-1', 'Plan', 'QQ']])
+  })
+
+  it('keeps a bigger keyed loss in a copy of its own holding all of it', async () => {
+    const lostQQ = { ...lostText('', [{ offset: 0, text: 'QQ' }]), key: '7:0+2' }
+    const lostQQR = { ...lostText('', [{ offset: 0, text: 'QQR' }]), key: '7:0+3' }
+
+    expect(await keepRemovedWork('node-1', 'Plan', [lostQQ])).toBe('kept')
+    expect(await keepRemovedWork('node-1', 'Plan', [lostQQR])).toBe('kept')
+
+    const texts = (await listCopies('node-1')).map((copy) => copy.text)
+    expect(texts.sort()).toEqual(['QQ', 'QQR'])
+  })
+
+  it('keeps keyed and unkeyed losses of one report in one copy', async () => {
+    const keyed = { ...lostText('', [{ offset: 0, text: 'QQ' }]), key: '7:0+2' }
+    const unkeyed = lostText('defgh', [{ offset: 2, text: 'RR' }])
+
+    expect(await keepRemovedWork('node-1', 'Plan', [keyed, unkeyed])).toBe('kept')
+
+    expect(summary(await listCopies('node-1'))).toEqual([['node-1', 'Plan', 'QQ\nRR']])
+  })
+
+  it('keeps of a report only the losses not kept already, in one copy', async () => {
+    const lostQQ = { ...lostText('', [{ offset: 0, text: 'QQ' }]), key: '7:0+2' }
+    const lostRR = { ...lostText('', [{ offset: 0, text: 'RR' }]), key: '7:4+2' }
+
+    expect(await keepRemovedWork('node-1', 'Plan', [lostQQ])).toBe('kept')
+    expect(await keepRemovedWork('node-1', 'Plan', [lostQQ, lostRR])).toBe('kept')
+
+    const texts = (await listCopies('node-1')).map((copy) => copy.text)
+    expect(texts.sort()).toEqual(['QQ', 'RR'])
+  })
+
+  it('keeps a keyed lost mention once however often it is reported', async () => {
+    const mention = { kind: 'node' as const, name: 'mention', attrs: {}, key: '7:0+1' }
+
+    expect(await keepRemovedWork('node-1', 'Plan', [mention])).toBe('kept')
+    expect(await keepRemovedWork('node-1', 'Plan', [mention])).toBeNull()
+
+    expect(await listCopies('node-1')).toHaveLength(1)
+  })
+
+  it('keeps a keyed loss again when a copy on the device cannot be read', async () => {
+    const store = (await writerDeviceStore())!
+    const bytes = new Uint8Array([1, 2, 3])
+    const garbled = { doc: 'node-1', sid: 'g', seq: 0, bytes, sha: '', seenRev: 0 }
+    await store.recover('node-1', ['g'], 'restructure', [garbled], {
+      state: new Uint8Array([255, 255]),
+      title: 'Plan',
+    })
+    const lost = { ...lostText('', [{ offset: 0, text: 'QQ' }]), key: '7:0+2' }
+
+    try {
+      expect(await keepRemovedWork('node-1', 'Plan', [lost])).toBe('kept')
+
+      expect(summary(await listCopies('node-1'))).toEqual([['node-1', 'Plan', 'QQ']])
+    } finally {
+      const records = await store.allRecovery()
+      await Promise.all(records.map((record) => store.discard(record.id!)))
+    }
+  })
+
   it("says the text another edit removed couldn't be kept where the browser has no store", async () => {
     vi.mocked(writerDeviceStore).mockResolvedValueOnce(null)
 

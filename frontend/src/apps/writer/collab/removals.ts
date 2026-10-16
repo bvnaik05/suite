@@ -1,4 +1,4 @@
-import { APPLIED_UPDATE, type CollabRoom } from '@suite/collab-client'
+import { ADOPT, APPLIED_UPDATE, type CollabRoom } from '@suite/collab-client'
 import * as Y from 'yjs'
 
 import { BODY_FIELD } from './field'
@@ -31,7 +31,8 @@ export interface RowClocks {
  * Something of mine a remote row removed without naming it, because the row
  * deleted the block around it. `seen` is the text the row deleted next to mine,
  * and each run sits at its offset in `seen`. `written` is what the rows that deleted
- * `seen` wrote, and `pulled` all that the same transaction wrote.
+ * `seen` wrote, and `pulled` all that the same transaction wrote. `key`, on text the doc
+ * never kept or lost since, names every lost character, so a loss reported again is known.
  */
 export type Removal =
   | {
@@ -41,8 +42,9 @@ export type Removal =
       written: RowClocks
       pulled: RowClocks
       isUncertain: boolean
+      key?: string
     }
-  | { kind: 'node'; name: string; attrs: Record<string, unknown> }
+  | { kind: 'node'; name: string; attrs: Record<string, unknown>; key?: string }
 
 /**
  * Types back what the room's pulled rows removed of its work, or hands it to `report`
@@ -94,6 +96,7 @@ function typeBackAll(room: Pick<CollabRoom, 'doc' | 'canWrite'>, removals: Remov
 /**
  * Text and nodes of the clients in `mine` that `transaction` deleted though none of its
  * `updates` named them, or that its updates wrote into a block yjs had already collected.
+ * An adopt also reports what of its work the doc already held and lost with its block since.
  * Call from afterTransaction: deleted text is collected right after it.
  */
 export function findRemovals(
@@ -103,15 +106,16 @@ export function findRemovals(
 ): Removal[] {
   const deleted = myDeletedItems(transaction, mine)
   const isWritingMine = [...mine].some((client) => hasWritten(transaction, client))
-  if (!deleted.length && !isWritingMine) {
+  const isAdopting = transaction.origin === ADOPT
+  if (!deleted.length && !isWritingMine && !isAdopting) {
     return []
   }
 
   const rows = updates.map((update) => Y.decodeUpdate(update))
   const named = Y.mergeDeleteSets(rows.map((row) => row.ds))
   const removals: Removal[] = []
-  if (isWritingMine) {
-    unkeptWrites({ transaction, named, removals }, updates, mine)
+  if (isWritingMine || isAdopting) {
+    unkeptWrites({ transaction, named, removals, lostIds: new Map() }, updates, mine)
   }
 
   const texts = new Set<Y.AbstractType<unknown>>()
@@ -226,6 +230,7 @@ interface UnkeptContext {
   transaction: Y.Transaction
   named: DeleteSet
   removals: Removal[]
+  lostIds: Map<TextRemoval, Y.ID[]>
 }
 
 // Yjs keeps what lands in a collected block only as a GC struct, so no deleteSet names it
@@ -236,6 +241,26 @@ function unkeptWrites(context: UnkeptContext, updates: Uint8Array[], mine: Reado
       followChain(chain, struct, context)
     }
   }
+
+  for (const [removal, ids] of context.lostIds) {
+    removal.key = keyOf(ids)
+  }
+}
+
+// A client:clock+length per stretch of lost IDs in a row
+function keyOf(ids: Y.ID[]) {
+  const stretches: { client: number; clock: number; length: number }[] = []
+  for (const { client, clock } of ids) {
+    const last = stretches.at(-1)
+    const canExtendLast = last?.client === client && last.clock + last.length === clock
+    if (canExtendLast) {
+      last.length++
+    } else {
+      stretches.push({ client, clock, length: 1 })
+    }
+  }
+
+  return stretches.map(({ client, clock, length }) => `${client}:${clock}+${length}`).join(',')
 }
 
 // Text typed in one go chains by origin, so a chain's formats and runs belong together
@@ -270,11 +295,16 @@ function addUnkeptText(chain: Chain, item: Y.Item, str: string, context: UnkeptC
       continue
     }
 
-    extendRun(chain, context, str[index])
+    extendRun(chain, context, str[index], id)
   }
 }
 
-function extendRun(chain: Chain, { transaction, removals }: UnkeptContext, char: string) {
+function extendRun(
+  chain: Chain,
+  { transaction, removals, lostIds }: UnkeptContext,
+  char: string,
+  id: Y.ID,
+) {
   if (!chain.removal) {
     chain.removal = {
       kind: 'text',
@@ -285,6 +315,7 @@ function extendRun(chain: Chain, { transaction, removals }: UnkeptContext, char:
       isUncertain: false,
     }
     removals.push(chain.removal)
+    lostIds.set(chain.removal, [])
   }
 
   if (!chain.run) {
@@ -293,6 +324,7 @@ function extendRun(chain: Chain, { transaction, removals }: UnkeptContext, char:
   }
 
   chain.run.text += char
+  lostIds.get(chain.removal)?.push(id)
 }
 
 function addUnkeptNode(
@@ -305,16 +337,30 @@ function addUnkeptNode(
     !Y.isDeleted(named, item.id) &&
     isUnkept(item.id, transaction)
   ) {
-    removals.push({ kind: 'node', name: type.nodeName, attrs: {} })
+    removals.push({ kind: 'node', name: type.nodeName, attrs: {}, key: keyOf([item.id]) })
   }
 }
 
-// Written by this transaction, yet the doc holds only a GC struct there
+// Written by this transaction, yet the doc holds only a GC struct there; or adopted work the doc
+// already held, pulled as another tab's, that has gone with its block since
 function isUnkept(id: Y.ID, transaction: Y.Transaction) {
   const pulled = { before: transaction.beforeState, after: transaction.afterState }
-  return (
-    wroteIn(pulled, id.client, id.clock) && Y.getItem(transaction.doc.store, id) instanceof Y.GC
-  )
+  if (wroteIn(pulled, id.client, id.clock)) {
+    return Y.getItem(transaction.doc.store, id) instanceof Y.GC
+  }
+
+  const isHeld = id.clock < (transaction.beforeState.get(id.client) ?? 0)
+  return transaction.origin === ADOPT && isHeld && isGoneWithBlock(transaction, id)
+}
+
+function isGoneWithBlock(transaction: Y.Transaction, id: Y.ID) {
+  const struct: Y.Item | Y.GC = Y.getItem(transaction.doc.store, id)
+  if (struct instanceof Y.GC) {
+    return true
+  }
+
+  const parent = struct.parent as Y.AbstractType<unknown>
+  return struct.deleted && !!parent._item?.deleted
 }
 
 // Only the rows that deleted the old text wrote its copy; rows pulled with them may write around it

@@ -43,20 +43,21 @@ export function keepPageCopy(node: string, title: string, html: string, now = ne
 }
 
 const schema = getSchema(writerSchema())
+const KEPT_FIELD = 'kept'
 
 /**
- * Keeps what someone else's edit removed as one recovery copy of `node`: a paragraph per lost
- * run and the removed images and the like, never where they sat. Resolves to null when none of
- * it reads on its own, such as an empty paragraph, spaces or a line break, else whether the
- * device kept it.
+ * Keeps what someone else's edit removed as a recovery copy of `node`: a paragraph per lost
+ * run and the removed images and the like, never where they sat. A removal with a key is
+ * kept once however often it is reported. Resolves to null when none of it reads on its own,
+ * such as an empty paragraph, spaces or a line break, or all of it is kept already, else
+ * whether the device kept it.
  */
 export async function keepRemovedWork(
   node: string,
   title: string,
   removals: Removal[],
 ): Promise<'kept' | 'unkept' | null> {
-  const blocks = removals.flatMap(blocksOf)
-  if (!blocks.length) {
+  if (!removals.flatMap(blocksOf).length) {
     return null
   }
 
@@ -65,10 +66,19 @@ export async function keepRemovedWork(
     return 'unkept'
   }
 
+  const records = await store.recovery(node).catch(() => [])
+  const kept = keptKeys(records)
+  const fresh = removals.filter((removal) => !removal.key || !kept.has(removal.key))
+  const blocks = fresh.flatMap(blocksOf)
+  if (!blocks.length) {
+    return null
+  }
+
   // A sid of its own, since recover() files the copy under it and forgets that session
   const id = crypto.randomUUID()
   const sid = `restructure-${id}`
-  const state = removedDoc(blocks)
+  const keys = fresh.flatMap((removal) => removal.key ?? [])
+  const state = removedDoc(blocks, keys)
   const entry = { doc: node, sid, seq: 0, bytes: state, sha: '', seenRev: 0 }
   try {
     await store.recover(node, [sid], 'restructure', [entry], { state, title })
@@ -78,9 +88,29 @@ export async function keepRemovedWork(
   }
 }
 
-function removedDoc(blocks: yjs.XmlElement[]) {
+// The keys of the losses this device's copies hold; a copy that can't be read holds none
+function keptKeys(records: RecoveryRecord[]) {
+  const restructures = records.filter((record) => record.reason === 'restructure')
+  return new Set(restructures.flatMap(keysIn))
+}
+
+function keysIn(record: RecoveryRecord) {
+  const updates = record.entries.map((entry) => entry.bytes)
+  const doc = new yjs.Doc()
+  try {
+    yjs.applyUpdate(doc, record.state ?? yjs.mergeUpdates(updates))
+  } catch {
+    return []
+  }
+
+  return doc.getArray<string>(KEPT_FIELD).toArray()
+}
+
+// The copy names the losses it holds beside its body, where no render reads
+function removedDoc(blocks: yjs.XmlElement[], keys: string[]) {
   const doc = new yjs.Doc()
   doc.getXmlFragment(BODY_FIELD).insert(0, blocks)
+  doc.getArray<string>(KEPT_FIELD).push(keys)
   return yjs.encodeStateAsUpdate(doc)
 }
 
