@@ -40,7 +40,7 @@ import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Thread } from '@/apps/mail/types'
 import { useScreenSize } from '@/apps/mail/utils/composables'
-import { holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
+import { archivable, holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
 
 // The hover actions on a row, for one thread or for a whole collapsed run of them.
 //
@@ -119,7 +119,15 @@ const actions = computed(() =>
       label: many.value ? __('Archive {0} threads', [count.value]) : __('Archive'),
       onClick: () => emit('archive'),
       icon: Archive,
-      condition: !drafts && holdsReceived.value && !everyIn(archiveId.value),
+      condition:
+        !drafts &&
+        threads.some((t) =>
+          archivable(t.messages?.length ? t.messages : [t], {
+            sent: mailboxIds.sent,
+            archive: archiveId.value,
+            inbox: t.inbox ?? mailboxIds.inbox,
+          }),
+        ),
     },
     {
       label: many.value ? __('Unarchive {0} threads', [count.value]) : __('Unarchive'),

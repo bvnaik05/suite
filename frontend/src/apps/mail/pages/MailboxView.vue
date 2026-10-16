@@ -717,6 +717,8 @@ const selectActions = buildSelectActions(
     trash: mailbox === mailboxIds.trash,
     drafts: mailbox === mailboxIds.drafts,
     sent: mailboxIds.sent,
+    archiveId: mailboxIds.archive,
+    inboxId: mailboxIds.inbox,
   }),
   {
     star: () => setFlaggedByThreadIDs(selections.value, true),

@@ -133,7 +133,7 @@ import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import { folderTicks } from '@/apps/mail/utils/folderTicks'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
-import { holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
+import { archivable, holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
 import { lastMessageOf } from '@/apps/mail/utils/threadFolding'
 import {
   mailboxForUnifiedFolder,
@@ -217,8 +217,10 @@ const moreActions = computed((): Action[] => [
     icon: Archive,
     condition: () =>
       !inDrafts.value &&
-      holdsReceived.value &&
-      !threadMailboxes.value.includes(mailboxIds.value.archive),
+      archivable(
+        (thread ?? []).filter((mail: Mail) => mail.id),
+        mailboxIds.value,
+      ),
   },
   // Archive reversed, in Archive itself. Not in All Inboxes yet, whose list files by its own paths.
   {

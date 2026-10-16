@@ -11,7 +11,7 @@ import {
 } from 'lucide-vue-next'
 
 import type { Thread } from '@/apps/mail/types'
-import { holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
+import { archivable, holdsReceivedMail } from '@/apps/mail/utils/receivedMail'
 
 export interface SelectAction {
   label: string
@@ -48,7 +48,14 @@ export const selectActions = (
   selected: () => Thread[],
   // `sent`: the account's Sent, where your own mail is kept — Archive and Junk act only on mail you
   // received (see receivedMail). Left out where the list spans accounts.
-  folder: () => { archive: boolean; trash: boolean; drafts: boolean; sent?: string },
+  folder: () => {
+    archive: boolean
+    trash: boolean
+    drafts: boolean
+    sent?: string
+    archiveId?: string
+    inboxId?: string
+  },
   run: SelectHandlers,
 ): SelectAction[] => {
   const some = (test: (thread: Thread) => boolean) => () => selected().some(test)
@@ -76,7 +83,17 @@ export const selectActions = (
       shortLabel: __('Archive'),
       onClick: run.archive,
       icon: Archive,
-      condition: () => !folder().archive && notDrafts(received)(),
+      condition: () =>
+        !folder().archive &&
+        notDrafts((t) =>
+          folder().archiveId
+            ? archivable(t.messages?.length ? t.messages : [t], {
+                sent: folder().sent,
+                archive: folder().archiveId,
+                inbox: folder().inboxId,
+              })
+            : received(t),
+        )(),
     },
     {
       label: __('Unarchive'),

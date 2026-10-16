@@ -11,3 +11,18 @@ export const isReceived = (mail: Filed, sentId?: string): boolean =>
 /** Whether any of these messages is mail you received. */
 export const holdsReceivedMail = (mails: Filed[], sentId?: string): boolean =>
   mails.some((mail) => isReceived(mail, sentId))
+
+/**
+ * Whether Archive would still do something to these messages: some mail you received is outside
+ * Archive, or still in the Inbox. Asked of the messages you received, not of a row's own message —
+ * in Sent that is your reply, which Archive never touches, so it never reads as archived.
+ */
+export const archivable = (
+  mails: Filed[],
+  boxes: { sent?: string; archive?: string; inbox?: string },
+): boolean =>
+  mails.some((mail) => {
+    if (!isReceived(mail, boxes.sent)) return false
+    const ids = mail.mailboxes.map((mailbox) => mailbox.mailbox_id)
+    return !ids.includes(boxes.archive ?? '') || ids.includes(boxes.inbox ?? '')
+  })

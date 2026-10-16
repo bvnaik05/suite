@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 
-import { holdsReceivedMail, isReceived } from './receivedMail'
+import { archivable, holdsReceivedMail, isReceived } from './receivedMail'
 
 const in_ = (...ids: string[]) => ids.map((mailbox_id) => ({ mailbox_id }))
 
@@ -14,4 +14,12 @@ it('finds nothing to archive in a conversation of only your own mail', () => {
   const outreach = [{ mailboxes: in_('sent') }, { draft: 1, mailboxes: in_('drafts') }]
   expect(holdsReceivedMail(outreach, 'sent')).toBe(false)
   expect(holdsReceivedMail([...outreach, { mailboxes: in_('inbox') }], 'sent')).toBe(true)
+})
+
+it('stops offering Archive once the received mail is archived, whatever your reply says', () => {
+  const boxes = { sent: 'sent', archive: 'archive', inbox: 'inbox' }
+  const reply = { mailboxes: in_('sent') }
+  expect(archivable([{ mailboxes: in_('inbox') }, reply], boxes)).toBe(true)
+  expect(archivable([{ mailboxes: in_('archive', 'projects') }, reply], boxes)).toBe(false)
+  expect(archivable([reply], boxes)).toBe(false)
 })
