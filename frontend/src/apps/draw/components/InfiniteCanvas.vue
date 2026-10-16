@@ -149,15 +149,6 @@ const props = defineProps<{ activeTool: DrawingTool | null }>()
 const persistence = useDrawingPersistence()
 const { loadDrawing, queueSave, warnUnsaved, saveDrawing, drawingLoading, editable } = persistence
 const emit = defineEmits<{
-  activateRectangle: []
-  activateDiamond: []
-  activateEllipse: []
-  activateLine: []
-  activateArrow: []
-  activateText: []
-  activateImage: []
-  activateDraw: []
-  activateEraser: []
   cancelTool: []
   rectangleCreated: []
   diamondCreated: []
@@ -3770,33 +3761,6 @@ function onKeyDown(event: KeyboardEvent) {
     propertyToolbarVisible.value
   ) {
     updatePropertyPopupOpen('color', true)
-    event.preventDefault()
-  } else if (event.key.toLowerCase() === 'r') {
-    emit('activateRectangle')
-    event.preventDefault()
-  } else if (key === 'd') {
-    emit('activateDiamond')
-    event.preventDefault()
-  } else if (key === 'c' || key === 'o') {
-    emit('activateEllipse')
-    event.preventDefault()
-  } else if (key === 'l') {
-    emit('activateLine')
-    event.preventDefault()
-  } else if (key === 'a') {
-    emit('activateArrow')
-    event.preventDefault()
-  } else if (key === 't' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    emit('activateText')
-    event.preventDefault()
-  } else if (key === 'i' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    emit('activateImage')
-    event.preventDefault()
-  } else if (key === 'p') {
-    emit('activateDraw')
-    event.preventDefault()
-  } else if (key === 'e' || event.key === '0') {
-    emit('activateEraser')
     event.preventDefault()
   } else if (event.key === 'Escape') {
     cancelGesture()
