@@ -74,27 +74,24 @@ function onToolShortcut(event: KeyboardEvent) {
   if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
   const target = event.target instanceof HTMLElement ? event.target : null
   if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return
-  if (event.key.toLowerCase() === 't') {
+  const shortcuts: Record<string, DrawingTool> = {
+    r: 'rectangle',
+    d: 'diamond',
+    c: 'ellipse',
+    o: 'ellipse',
+    l: 'line',
+    a: 'arrow',
+    t: 'text',
+    i: 'image',
+    k: 'laser',
+    p: 'draw',
+    e: 'eraser',
+    '0': 'eraser',
+  }
+  const tool = shortcuts[event.key.toLowerCase()]
+  if (tool) {
     event.preventDefault()
-    selectTool('text')
-  } else if (event.key.toLowerCase() === 'i') {
-    event.preventDefault()
-    selectTool('image')
-  } else if (event.key.toLowerCase() === 'k') {
-    event.preventDefault()
-    selectTool('laser')
-  } else if (event.key.toLowerCase() === 'p') {
-    event.preventDefault()
-    selectTool('draw')
-  } else if (event.key.toLowerCase() === 'e' || event.key === '0') {
-    event.preventDefault()
-    selectTool('eraser')
-  } else if (event.key.toLowerCase() === 'd') {
-    event.preventDefault()
-    selectTool('diamond')
-  } else if (event.key.toLowerCase() === 'a') {
-    event.preventDefault()
-    selectTool('arrow')
+    selectTool(tool)
   }
 }
 
@@ -193,15 +190,6 @@ onBeforeUnmount(() => {
     <InfiniteCanvas
       ref="canvas"
       :active-tool="activeTool"
-      @activate-rectangle="activeTool = 'rectangle'"
-      @activate-diamond="activeTool = 'diamond'"
-      @activate-ellipse="activeTool = 'ellipse'"
-      @activate-line="activeTool = 'line'"
-      @activate-arrow="activeTool = 'arrow'"
-      @activate-text="activeTool = 'text'"
-      @activate-image="selectTool('image')"
-      @activate-draw="activeTool = 'draw'"
-      @activate-eraser="selectTool('eraser')"
       @cancel-tool="cancelTool"
       @rectangle-created="finishTool"
       @diamond-created="finishTool"

@@ -186,11 +186,11 @@ function textX(shape: TextShape): number {
     <svg
       v-if="visible"
       ref="svg"
-      @click.stop="navigateTo"
       class="canvas-minimap"
       :viewBox="viewBoxValue"
       role="img"
       :aria-label="__('Drawing overview. Click to move the viewport.')"
+      @click.stop="navigateTo"
     >
       <g
         v-for="shape in shapes"

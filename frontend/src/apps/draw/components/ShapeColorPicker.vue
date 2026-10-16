@@ -304,13 +304,13 @@ async function pickScreenColor() {
   <span :class="['color-trigger-anchor', { 'property-color-control': isProperty }]">
     <Popover
       :auto-focus="false"
-      @open="focusPicker"
       :open="isProperty ? open : undefined"
       :side="isProperty ? 'top' : 'left'"
       :align="isProperty ? 'center' : 'start'"
       :offset="isProperty ? 11 : 20"
       :collision-padding="16"
       arrow
+      @open="focusPicker"
       @update:open="emit('update:open', $event)"
     >
       <template #trigger>
