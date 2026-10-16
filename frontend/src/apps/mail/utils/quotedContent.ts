@@ -11,8 +11,15 @@
  *
  * `findQuoteRoots` normalises all of that into a list of outermost elements, one per trail.
  * Sibling-run trails (Outlook, Thunderbird with its attribution line) are wrapped in a fresh
- * `<div>` first so each trail is a single node the caller can hide and toggle. The backend's
- * `preview_from_html` applies the same rules — keep the two in step.
+ * `<div>` first so each trail is a single node the caller can hide and toggle.
+ *
+ * Not every block in that markup is history the reader has already seen. A forward travels in
+ * the same containers, and it is the message. A writer who answers inline types between the
+ * quoted lines, inside the trail. And a mail can be nothing but a quote. Each of those stays on
+ * view, or the reader opens a reply and finds it blank above a "Show trimmed content" button.
+ *
+ * The backend's `preview_from_html` strips every trail it finds, forwards and inline answers
+ * included, so the preview may say less than the reader shows but never shows what it hides.
  */
 
 const QUOTE_CLASS =
@@ -22,6 +29,13 @@ const CITE_PREFIX_CLASS = /^(?:x_)?moz-cite-prefix$/
 // Outlook on the web: an empty marker, then the header the original message follows.
 const OUTLOOK_MARKER_ID = /^(?:x_)?appendonsend$/
 const OUTLOOK_WEB_HEADER_ID = /^(?:x_)?divRplyFwdMsg$/
+// Gmail's reply and ours quote the original in a <blockquote> right under the container; around a
+// forward the same containers hold the message itself. Read from the markup, so it holds in every
+// language Gmail writes its "Forwarded message" line in.
+const QUOTING_CONTAINER_CLASS = /^(?:x_)?(?:gmail_quote|frappe_mail_quote)$/
+// The line a forward opens with: Gmail's and Proton's "Forwarded message", Apple Mail's "Begin
+// forwarded message:".
+const FORWARD_LINE = /forwarded message/i
 
 const hasClass = (el: Element, pattern: RegExp) =>
   Array.from(el.classList).some((c) => pattern.test(c))
@@ -58,6 +72,43 @@ const attributionBefore = (quote: Element) => {
   return prev && hasClass(prev, CITE_PREFIX_CLASS) ? prev : null
 }
 
+// The first line of a trail: its first child that holds anything.
+const firstLine = (trail: Element) => {
+  for (const node of Array.from(trail.childNodes)) {
+    if (node.nodeName === 'BR' || !node.textContent?.trim()) continue
+    return node.textContent
+  }
+  return ''
+}
+
+// The line above a cite blockquote, where iPhone Mail puts "Begin forwarded message:".
+const lineBefore = (quote: Element) => {
+  let prev = quote.previousElementSibling
+  while (prev?.tagName === 'BR') prev = prev.previousElementSibling
+  return prev?.textContent ?? ''
+}
+
+const isForward = (trail: Element) =>
+  FORWARD_LINE.test(firstLine(trail)) ||
+  (trail.tagName === 'BLOCKQUOTE' && FORWARD_LINE.test(lineBefore(trail))) ||
+  (trail.tagName !== 'BLOCKQUOTE' &&
+    hasClass(trail, QUOTING_CONTAINER_CLASS) &&
+    !trail.querySelector(':scope > blockquote'))
+
+// Text a reader would see: not the stylesheet a mail carries in its body.
+const textNodes = (root: Node) => {
+  const doc = root.ownerDocument ?? (root as Document)
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement?.closest('style, script, title') || !node.textContent?.trim()
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  })
+  const nodes: Text[] = []
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text)
+  return nodes
+}
+
 export const findQuoteRoots = (root: ParentNode): Element[] => {
   const candidates = new Set<Element>()
 
@@ -75,9 +126,53 @@ export const findQuoteRoots = (root: ParentNode): Element[] => {
     candidates.add(attribution ? wrapRun([attribution, el]) : el)
   })
 
-  // Only the outermost of each trail: hiding it hides whatever is quoted inside it.
-  return Array.from(candidates).filter((el) => {
-    for (let p = el.parentElement; p; p = p.parentElement) if (candidates.has(p)) return false
-    return true
-  })
+  // The trails directly inside `within` (or the whole message): hiding one hides whatever is
+  // quoted inside it.
+  const outermost = (within?: Element) =>
+    Array.from(candidates).filter((el) => {
+      if (el === within || (within && !within.contains(el))) return false
+      for (let p = el.parentElement; p && p !== within; p = p.parentElement)
+        if (candidates.has(p)) return false
+      return true
+    })
+
+  // What the writer typed inside a trail, around the lines they quote.
+  const isQuoted = (node: Node, trail: Element) => {
+    for (let p = node.parentElement; p && p !== trail; p = p.parentElement)
+      if (p.tagName === 'BLOCKQUOTE' || candidates.has(p)) return true
+    return false
+  }
+  const hasWriterTextAfter = (trail: Element, quote: Element) =>
+    textNodes(trail).some(
+      (node) =>
+        !quote.contains(node) &&
+        quote.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        !isQuoted(node, trail),
+    )
+  // Only a container can hold an answer: everything inside a quoted blockquote is the quoted
+  // author's, their own inline answers included, and Outlook's trail is quoted as a whole.
+  const firstQuote = (trail: Element) =>
+    trail.tagName !== 'BLOCKQUOTE' && hasClass(trail, QUOTE_CLASS)
+      ? Array.from(trail.querySelectorAll('*')).find(
+          (el) => el.tagName === 'BLOCKQUOTE' || candidates.has(el),
+        )
+      : undefined
+
+  // A forward stays, and so does a trail the writer answered inside — of those, only history
+  // with nothing of theirs after it folds away.
+  const trailsIn = (trail: Element): Element[] => {
+    if (isForward(trail)) return outermost(trail).flatMap(trailsIn)
+    const quote = firstQuote(trail)
+    if (quote && hasWriterTextAfter(trail, quote))
+      return outermost(trail)
+        .filter((inner) => !hasWriterTextAfter(trail, inner))
+        .flatMap(trailsIn)
+    return [trail]
+  }
+
+  const trails = outermost().flatMap(trailsIn)
+
+  // A mail that is nothing but a quote is shown as it is — there is nothing else to read.
+  const hidden = (node: Node) => trails.some((trail) => trail.contains(node))
+  return textNodes(root as Node).some((node) => !hidden(node)) ? trails : []
 }
