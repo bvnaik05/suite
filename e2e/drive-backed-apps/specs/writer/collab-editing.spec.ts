@@ -8,6 +8,7 @@ import {
 	expectConverged,
 	expectSaved,
 	openForCollab,
+	pasteHtml,
 	serverBlocks,
 	startCodeAndBold,
 	trimmedRev,
@@ -92,6 +93,28 @@ test.describe("Writer collaboration", () => {
 		await openWriterDocument(owner.page, node);
 
 		await expect.poll(() => editorBlocks(owner.page)).toEqual(convergedBlocks);
+	});
+
+	test("bold over a mention shows in the other tab and after a reload", async ({
+		owner,
+		collaborator,
+	}) => {
+		const mentionLine =
+			'<p>a<span class="mention" data-type="mention" data-id="ann" data-label="Ann">@Ann</span>b</p>';
+		await openWriterDocument(owner.page, node);
+		await openWriterDocument(collaborator.page, node);
+		await pasteHtml(owner.page, mentionLine);
+		await expect(writerEditor(owner.page).getByText("Ann")).toBeVisible();
+
+		await owner.page.keyboard.press("Shift+Home");
+		await owner.page.getByRole("button", { name: "Bold" }).click();
+		await expectSaved(owner.page);
+
+		await expect(boldMention(owner.page)).toBeVisible();
+		await expect(boldMention(collaborator.page)).toBeVisible();
+		await collaborator.page.reload();
+		await openWriterDocument(collaborator.page, node);
+		await expect(boldMention(collaborator.page)).toBeVisible();
 	});
 
 	test("undo takes back this tab's typing and leaves the other person's", async ({
@@ -412,4 +435,8 @@ async function unsentCount(page: Page): Promise<string> {
 	const count = page.getByText(/^\d+ unsent$/);
 	await expect(count).toBeVisible();
 	return (await count.textContent()) ?? "";
+}
+
+function boldMention(page: Page) {
+	return writerEditor(page).locator("strong", { hasText: "Ann" });
 }

@@ -244,7 +244,15 @@ export async function pasteText(page: Page, text: string): Promise<void> {
 	await writerEditor(page).evaluate(dispatchPaste, clipboard);
 }
 
-// These three run in the page, so they read nothing from this module
+/** Paste HTML at the end of the document, as content copied from another document would be. */
+export async function pasteHtml(page: Page, html: string): Promise<void> {
+	await writerEditor(page).click();
+	await page.keyboard.press("ControlOrMeta+End");
+	const clipboard = await page.evaluateHandle(htmlClipboard, html);
+	await writerEditor(page).evaluate(dispatchPaste, clipboard);
+}
+
+// These four run in the page, so they read nothing from this module
 function pictureClipboard() {
 	const pngBase64 =
 		"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGklEQVR4nGP4z8BAEhrVMKphVMOohlENQ1UDAOWw/wF6FG3VAAAAAElFTkSuQmCC";
@@ -258,6 +266,12 @@ function pictureClipboard() {
 function textClipboard(text: string) {
 	const clipboard = new DataTransfer();
 	clipboard.setData("text/plain", text);
+	return clipboard;
+}
+
+function htmlClipboard(html: string) {
+	const clipboard = new DataTransfer();
+	clipboard.setData("text/html", html);
 	return clipboard;
 }
 
