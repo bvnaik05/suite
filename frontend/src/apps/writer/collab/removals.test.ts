@@ -521,6 +521,55 @@ describe('text typed into a block as another tab restructures it (R291)', () => 
 
     expect(allReported(tabs)).toEqual([])
   })
+
+  it.each(orders)('keeps it in a block emptied and split in one step ($name)', async (order) => {
+    const abcdLast = stored(paragraph(text('one')), paragraph(text('abcd')))
+    const tabs = await restructureWhileTyping(
+      order,
+      (tab) =>
+        tab.editor
+          .chain()
+          .setTextSelection({ from: inside(tab, 'abcd', 0), to: inside(tab, 'abcd', 4) })
+          .splitBlock()
+          .run(),
+      abcdLast,
+      (tab) => typeAt(tab, 'abcd', 2, 'XY'),
+    )
+
+    for (const tab of tabs) {
+      expect(blocks(tab)).toEqual(['paragraph one', 'paragraph XY', 'paragraph '])
+    }
+
+    expect(allReported(tabs)).toEqual([])
+  })
+
+  it.each(orders)(
+    'keeps it in a block emptied in the step that edits the next one ($name)',
+    async (order) => {
+      const abcdMid = stored(
+        paragraph(text('one')),
+        paragraph(text('abcd')),
+        paragraph(text('xyz')),
+      )
+      const tabs = await restructureWhileTyping(
+        order,
+        (tab) =>
+          tab.editor
+            .chain()
+            .insertContentAt(inside(tab, 'xyz', 3), 'W')
+            .deleteRange({ from: inside(tab, 'abcd', 0), to: inside(tab, 'abcd', 4) })
+            .run(),
+        abcdMid,
+        (tab) => typeAt(tab, 'abcd', 2, 'XY'),
+      )
+
+      for (const tab of tabs) {
+        expect(blocks(tab)).toEqual(['paragraph one', 'paragraph XY', 'paragraph xyzW'])
+      }
+
+      expect(allReported(tabs)).toEqual([])
+    },
+  )
 })
 
 // The row also typed inside the block it restructured, so no run it wrote equals `seen` there
