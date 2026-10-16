@@ -1172,6 +1172,7 @@ function openImagePicker(point = center()) {
 async function flush() {
   finishTextEditor()
   cancelGesture()
+  await nextTick()
   await saveDrawing()
 }
 defineExpose({ openImagePicker, flush })
@@ -1751,7 +1752,9 @@ function sceneWithTextDraft() {
 watch(
   textEditor,
   (editor) => {
-    if (editor && editable.value) persistence.retainScene(sceneWithTextDraft())
+    if (!editable.value) return
+    if (editor) persistence.retainScene(sceneWithTextDraft())
+    else if (persistence.dirty.value) queueSave(copyScene())
   },
   { deep: true },
 )
@@ -4184,8 +4187,8 @@ onBeforeUnmount(() => {
           </g>
           <g
             v-for="text in !isLine(object) && isText(object) ? [object] : []"
-            :key="text.id"
             v-show="textEditor?.shapeId !== text.id"
+            :key="text.id"
             :transform="`rotate(${text.rotation} ${text.x + text.width / 2} ${text.y + text.height / 2})`"
           >
             <rect
@@ -4357,8 +4360,8 @@ onBeforeUnmount(() => {
             class="selection-outline"
           />
           <circle
-            v-show="!selectedLine || hasMultipleSelection"
             v-for="(corner, name) in selectionCorners"
+            v-show="!selectedLine || hasMultipleSelection"
             :key="name"
             :cx="corner.x"
             :cy="corner.y"
@@ -4391,8 +4394,8 @@ onBeforeUnmount(() => {
             />
           </template>
           <circle
-            v-show="(!selectedLine || hasMultipleSelection) && showCurveControls"
             v-for="(curve, name) in visibleCurveHandles"
+            v-show="(!selectedLine || hasMultipleSelection) && showCurveControls"
             :key="`curve-${name}`"
             :cx="curve.x"
             :cy="curve.y"
