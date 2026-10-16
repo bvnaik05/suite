@@ -75,7 +75,7 @@
 				     of them it meant; the list row stars the thread as a whole. -->
                 <!-- Not from Drafts, which offers only Discard. -->
                 <Button
-                  v-if="isSingleMessage && mailbox !== mailboxIds.drafts"
+                  v-if="isSingleMessage && !isDraftAlone && mailbox !== mailboxIds.drafts"
                   variant="ghost"
                   class="shrink-0"
                   :tooltip="isThreadFlagged ? __('Unstar') : __('Star')"

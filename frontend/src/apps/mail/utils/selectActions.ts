@@ -69,7 +69,8 @@ export const selectActions = (
       shortLabel: __('Star'),
       onClick: run.star,
       icon: Star,
-      condition: notDrafts((t) => t.flagged === 0),
+      // Never on a draft: a search result that is one has nothing to star.
+      condition: notDrafts((t) => t.flagged === 0 && !(t.draft && !t.messages?.length)),
     },
     {
       label: __('Unstar'),

@@ -114,15 +114,19 @@ const actions = computed(() =>
       label: many.value ? __('Archive {0} threads', [count.value]) : __('Archive'),
       onClick: () => emit('archive'),
       icon: Archive,
+      // Lists that don't file by the rules yet (All Inboxes) keep the old test: their rows span
+      // accounts, and the active account's Sent can't tell another account's replies apart.
       condition:
         !drafts &&
-        threads.some((t) =>
-          archivable(t.messages?.length ? t.messages : [t], {
-            sent: mailboxIds.sent,
-            archive: archiveId.value,
-            inbox: t.inbox ?? mailboxIds.inbox,
-          }),
-        ),
+        (unarchive
+          ? threads.some((t) =>
+              archivable(t.messages?.length ? t.messages : [t], {
+                sent: mailboxIds.sent,
+                archive: archiveId.value,
+                inbox: t.inbox ?? mailboxIds.inbox,
+              }),
+            )
+          : !everyIn(archiveId.value)),
     },
     {
       label: many.value ? __('Unarchive {0} threads', [count.value]) : __('Unarchive'),

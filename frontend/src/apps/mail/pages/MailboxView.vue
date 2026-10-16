@@ -231,6 +231,7 @@
                   <StackListItem
                     v-if="row.type === 'stack'"
                     :drafts="mailbox === mailboxIds.drafts"
+                    :unarchive="true"
                     :threads="row.threads"
                     :expanded="row.expanded"
                     :is-selected="isStackSelected(row.threads.map((t) => t.thread_id))"
@@ -239,6 +240,7 @@
                     @toggle="toggleStack(row)"
                     @set-seen="(seen: boolean) => stackSetSeen(row.threads, seen)"
                     @archive-threads="stackArchive(row.threads)"
+                    @unarchive-threads="handleUnarchiveThreads(stackIDs(row.threads))"
                     @trash-threads="stackTrash(row.threads)"
                     @delete-threads="stackDelete(row.threads)"
                     @set-selected="
@@ -263,7 +265,7 @@
                     :selection-mode="mobileSelectionMode"
                     :is-selected="selections.includes(row.thread.thread_id)"
                     :hide-sender="row.inStack"
-                    :draggable="!isMobile && !isAllAccountsSearch"
+                    :draggable="!isMobile && !isAllAccountsSearch && mailbox !== mailboxIds.drafts"
                     :screened="screener.active.value && screener.isScreened(row.thread)"
                     :class="rowClasses(row)"
                     :data-row-key="row.key"
@@ -436,6 +438,7 @@ import { selectActions as buildSelectActions } from '@/apps/mail/utils/selectAct
 import { threadRow } from '@/apps/mail/utils/threadRows'
 import { mailboxParam } from '@/apps/mail/utils/unifiedFolders'
 import { useThreadActions } from '@/apps/mail/utils/useThreadActions'
+import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
 import { appPageMeta } from '@/platform/page-meta'
 
 const {
@@ -666,15 +669,23 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
     })
   }
 
-  // Archive (e)
+  // Archive (e): Archive and Unarchive share a place, so E does whichever it shows — and nothing
+  // where neither has anything to do.
+  const acted = threadRows.value.filter((t) => thread_ids.includes(t.thread_id))
+  const boxes = { sent: mailboxIds.sent, archive: mailboxIds.archive, inbox: mailboxIds.inbox }
+  const messagesOf = (t: Thread) => (t.messages?.length ? t.messages : [t])
   if (key === 'e') {
     e.preventDefault()
-    return handleArchiveThreads(thread_ids)
+    if (acted.some((t) => archivable(messagesOf(t), boxes))) return handleArchiveThreads(thread_ids)
+    if (acted.some((t) => unarchivable(messagesOf(t), boxes)))
+      return handleUnarchiveThreads(thread_ids)
+    return
   }
 
-  // Mark as junk (!)
+  // Mark as junk (!): only mail you received is junked.
   if (key === '!') {
     e.preventDefault()
+    if (!acted.some((t) => holdsReceivedMail(messagesOf(t), mailboxIds.sent))) return
     return junkOrDeleteThreads(thread_ids, true)
   }
 }

@@ -34,7 +34,7 @@
         </Button>
         <!-- On desktop the star sits beside the subject, in the thread (MailThread). -->
         <Button
-          v-if="isMobile && !inDrafts"
+          v-if="isMobile && !inDrafts && thread.some((mail) => !mail.draft)"
           variant="ghost"
           class="max-sm:!h-8 max-sm:!w-8"
           :tooltip="isFlagged ? __('Unstar') : __('Star')"

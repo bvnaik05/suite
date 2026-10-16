@@ -369,10 +369,15 @@ function messagePolicy<I, O>(id: string): Policy<I, O> {
               isRecord(item) && typeof item.id === 'string' && Array.isArray(shows[item.id])
                 ? { ...item, mailboxes: shows[item.id] }
                 : item
+            // Ids are per account: a merged list's row from another account is someone else's mail.
+            const elsewhere = (row: Record<string, unknown>) =>
+              typeof row.account === 'string' &&
+              typeof input.account === 'string' &&
+              row.account !== input.account
             data = {
               ...data,
               rows: data.rows.map((row) =>
-                isRecord(row)
+                isRecord(row) && !elsewhere(row)
                   ? {
                       ...(refile(row) as Record<string, unknown>),
                       ...(Array.isArray(row.messages)

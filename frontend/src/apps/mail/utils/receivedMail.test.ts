@@ -28,6 +28,8 @@ it('stops offering Archive once the received mail is archived, whatever your rep
   expect(archivable([{ mailboxes: in_('inbox') }, reply], boxes)).toBe(true)
   expect(archivable([{ mailboxes: in_('archive', 'projects') }, reply], boxes)).toBe(false)
   expect(archivable([reply], boxes)).toBe(false)
+  // A reply an earlier move filed in the Inbox: Archive still has it to clear.
+  expect(archivable([{ mailboxes: in_('sent', 'inbox') }], boxes)).toBe(true)
 })
 
 it('offers Unarchive exactly where Archive has nothing left to do', () => {
@@ -53,4 +55,10 @@ it("names where a conversation's received mail is filed, apart from the Inbox", 
     'archive',
   ])
   expect(receivedFolders([{ mailboxes: in_('inbox') }], boxes, 'sent')).toEqual([])
+})
+
+it('names where your own outreach is filed, when nothing was received', () => {
+  const boxes = { sent: 'sent', inbox: 'inbox', drafts: 'drafts' }
+  const outreach = [{ mailboxes: in_('sent', 'clients') }]
+  expect(receivedFolders(outreach, boxes, 'sent').map((f) => f.mailbox_id)).toEqual(['clients'])
 })

@@ -14,7 +14,7 @@ export const holdsReceivedMail = (mails: Filed[], sentId?: string): boolean =>
 
 /**
  * Whether Archive would still do something to these messages: some mail you received is outside
- * Archive, or still in the Inbox. Asked of the messages you received, not of a row's own message —
+ * Archive, or anything is still in the Inbox. Asked of the messages you received, not of a row's own message —
  * in Sent that is your reply, which Archive never touches, so it never reads as archived.
  */
 export const archivable = (
@@ -22,8 +22,11 @@ export const archivable = (
   boxes: { sent?: string; archive?: string; inbox?: string },
 ): boolean =>
   mails.some((mail) => {
-    if (!isReceived(mail, boxes.sent)) return false
+    if (mail.draft) return false
     const ids = mail.mailboxes.map((mailbox) => mailbox.mailbox_id)
+    // Your own mail is never archived, but Archive clears it out of the Inbox, where an earlier
+    // move could have filed it.
+    if (!isReceived(mail, boxes.sent)) return ids.includes(boxes.inbox ?? '')
     return !ids.includes(boxes.archive ?? '') || ids.includes(boxes.inbox ?? '')
   })
 
@@ -53,11 +56,15 @@ export const receivedFolders = <F extends { mailbox_id: string }>(
   shown: string,
 ): F[] => {
   const usual = [boxes.inbox, boxes.sent, boxes.drafts, shown]
+  // A conversation of nothing but your own mail has no received mail to describe: then it is your
+  // sent mail that says where you filed it.
+  const described = holdsReceivedMail(mails, boxes.sent)
+    ? mails.filter((mail) => isReceived(mail, boxes.sent))
+    : mails.filter((mail) => !mail.draft)
   const folders = new Map<string, F>()
-  for (const mail of mails)
-    if (isReceived(mail, boxes.sent))
-      for (const folder of mail.mailboxes)
-        if (!usual.includes(folder.mailbox_id) && !folders.has(folder.mailbox_id))
-          folders.set(folder.mailbox_id, folder)
+  for (const mail of described)
+    for (const folder of mail.mailboxes)
+      if (!usual.includes(folder.mailbox_id) && !folders.has(folder.mailbox_id))
+        folders.set(folder.mailbox_id, folder)
   return [...folders.values()]
 }
