@@ -47,7 +47,8 @@ const schema = getSchema(writerSchema())
 /**
  * Keeps what someone else's edit removed as one recovery copy of `node`: a paragraph per lost
  * run and the removed images and the like, never where they sat. Resolves to null when none of
- * it reads on its own, such as an empty paragraph, else whether the device kept it.
+ * it reads on its own, such as an empty paragraph, spaces or a line break, else whether the
+ * device kept it.
  */
 export async function keepRemovedWork(
   node: string,
@@ -85,16 +86,19 @@ function removedDoc(blocks: yjs.XmlElement[]) {
 
 function blocksOf(removal: Removal) {
   if (removal.kind === 'text') {
-    return removal.runs.map((run) => {
-      const text = new yjs.XmlText()
-      text.insert(0, run.text, { ...run.attrs })
-      return inParagraph(text)
-    })
+    // Spaces alone would open as a blank copy
+    return removal.runs
+      .filter((run) => run.text.trim())
+      .map((run) => {
+        const text = new yjs.XmlText()
+        text.insert(0, run.text, { ...run.attrs })
+        return inParagraph(text)
+      })
   }
 
   // A removed block's text comes as text removals, so only leaves like images are kept
   const type = schema.nodes[removal.name]
-  if (!type?.isLeaf) {
+  if (!type?.isLeaf || removal.name === 'hardBreak') {
     return []
   }
 

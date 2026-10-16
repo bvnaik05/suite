@@ -16,6 +16,11 @@ import {
   type RecoveryCopy,
 } from './copies'
 
+vi.mock('@/apps/writer/collab', async (importOriginal) => {
+  const collab = await importOriginal<typeof import('@/apps/writer/collab')>()
+  return { ...collab, writerDeviceStore: vi.fn(collab.writerDeviceStore) }
+})
+
 function bodyState(words: string) {
   const doc = new yjs.Doc()
   const paragraph = new yjs.XmlElement('paragraph')
@@ -72,8 +77,28 @@ describe('Writer recovery copies', () => {
 
   it('keeps no copy when nothing another edit removed reads on its own', async () => {
     const paragraph = { kind: 'node' as const, name: 'paragraph', attrs: {} }
+    const spaces = lostText('defgh', [{ offset: 2, text: ' \u00a0\n' }])
+    const lineBreak = { kind: 'node' as const, name: 'hardBreak', attrs: {} }
 
     expect(await keepRemovedWork('node-1', 'Plan', [paragraph])).toBeNull()
+    expect(await keepRemovedWork('node-1', 'Plan', [spaces, lineBreak])).toBeNull()
+
+    expect(await listCopies('node-1')).toEqual([])
+  })
+
+  it("says the text another edit removed couldn't be kept where the browser has no store", async () => {
+    vi.mocked(writerDeviceStore).mockResolvedValueOnce(null)
+
+    const lost = [lostText('defgh', [{ offset: 2, text: 'QQ' }])]
+    expect(await keepRemovedWork('node-1', 'Plan', lost)).toBe('unkept')
+  })
+
+  it("says the text another edit removed couldn't be kept when the store refuses it, keeping none", async () => {
+    const store = (await writerDeviceStore())!
+    vi.spyOn(store, 'recover').mockRejectedValueOnce(new Error('QuotaExceededError'))
+
+    const lost = [lostText('defgh', [{ offset: 2, text: 'QQ' }])]
+    expect(await keepRemovedWork('node-1', 'Plan', lost)).toBe('unkept')
 
     expect(await listCopies('node-1')).toEqual([])
   })

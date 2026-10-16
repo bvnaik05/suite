@@ -496,6 +496,22 @@ describe('writer collab rebuild', () => {
     expect(collab.copiesKept.value).toBe(0)
   })
 
+  it("still says text couldn't be kept once a later removal's copy is kept", async () => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    const collab = await openCollab()
+    const report = watched.get(fakeRooms.room)!
+    keepRemovedWork.mockResolvedValueOnce('unkept').mockResolvedValueOnce('kept')
+
+    report([{ kind: 'node', name: 'image', attrs: {} }])
+    await vi.waitFor(() => expect(collab.banner.value).not.toBeNull())
+    report([{ kind: 'node', name: 'image', attrs: {} }])
+
+    await vi.waitFor(() => expect(collab.copiesKept.value).toBe(1))
+    expect(collab.banner.value?.text).toBe(
+      "Someone else's edit removed text you typed, and it couldn't be kept on this device.",
+    )
+  })
+
   it('counts the unsent work other tabs of the document hold on this device', async () => {
     fakeRooms.room = fakeRooms.makeRoom()
     const collab = await openCollab()

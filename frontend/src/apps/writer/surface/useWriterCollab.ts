@@ -113,7 +113,10 @@ export function useWriterCollab(
       removedCopies.value++
     }
 
-    removedWork.value = kept ?? removedWork.value
+    // A later kept copy mustn't hide that earlier text couldn't be kept
+    if (removedWork.value !== 'unkept') {
+      removedWork.value = kept ?? removedWork.value
+    }
   }
 
   // Mirrors the room's state for the page, or rebuilds the room once it asks for that
