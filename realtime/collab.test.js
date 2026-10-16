@@ -238,6 +238,63 @@ test("a room hears a tab's latest presence once per tick", async () => {
 	watcher.close();
 });
 
+test("a tab's count keeps rising as it moves from one room to the next, so no room hears it go back", async () => {
+	const nsp = fakeSite();
+	const writer = connect(nsp);
+	const watcher = connect(nsp, "watcher@example.com");
+	await watcher.joinRooms([roomA, roomB]);
+	const moves = [[roomA], [roomA], [roomA, roomB], [roomB]];
+
+	for (const [at, rooms] of moves.entries()) {
+		await writer.joinRooms(rooms);
+		writer.sendPresence(rooms, { cursor: { at } });
+		await waitForFlush();
+	}
+
+	const heard = watcher
+		.heard("suite_collab_presence")
+		.flatMap((batch) => batch.states.map((state) => [batch.room, state.n]));
+	assert.deepEqual(heard, [
+		[roomA, 1],
+		[roomA, 2],
+		[roomA, 3],
+		[roomB, 3],
+		[roomB, 4],
+	]);
+	writer.close();
+	watcher.close();
+});
+
+test("a tab that leaves its rooms and joins them again counts on from where it was", async () => {
+	const nsp = fakeSite();
+	const writer = connect(nsp);
+	const watcher = connect(nsp, "watcher@example.com");
+	await watcher.joinRooms([roomA]);
+	await writer.joinRooms([roomA]);
+
+	for (const at of [1, 2]) {
+		writer.sendPresence([roomA], { cursor: { at } });
+		await waitForFlush();
+	}
+
+	await writer.joinRooms([]);
+	await writer.joinRooms([roomA]);
+	writer.sendPresence([roomA], { cursor: { at: 3 } });
+	await waitForFlush();
+
+	const heard = watcher.heard("suite_collab_presence").flatMap((batch) => batch.states);
+	assert.deepEqual(
+		heard.map((state) => [state.n, state.state.cursor.at]),
+		[
+			[1, 1],
+			[2, 2],
+			[3, 3],
+		],
+	);
+	writer.close();
+	watcher.close();
+});
+
 test("presence past fifty messages a second, over 2 KiB or for a room not joined is ignored", async () => {
 	const nsp = fakeSite();
 	const flooder = connect(nsp);

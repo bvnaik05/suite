@@ -27,6 +27,8 @@ const is_room = (room) => typeof room === "string" && ROOM_PATTERN.test(room);
 const collab_handlers = (socket) => {
 	const pid = 2 ** 31 + crypto.randomInt(2 ** 31);
 	let arrival = null;
+	// The pid's clock: one count across all its rooms, so a tab moving rooms is never heard going back
+	let clock = 0;
 	const user = socket.user;
 	const isGuest = !user || user === "Guest";
 	const joinedRooms = new Set();
@@ -89,6 +91,7 @@ const collab_handlers = (socket) => {
 				Buffer.byteLength(JSON.stringify(state)) <= STATE_BYTES_MAX;
 			if (!stateFits) return;
 
+			clock++;
 			const site = site_of(socket);
 			for (const room of namedRooms) {
 				const members = site.rooms.get(room);
@@ -99,7 +102,7 @@ const collab_handlers = (socket) => {
 				entry.state = hasCaret || state.cursor == null ? state : { ...state, cursor: null };
 				entry.stateAt = Date.now();
 				entry.hasCaret = hasCaret;
-				entry.updates++;
+				entry.clock = clock;
 				if (!site.dirty.has(room)) {
 					site.dirty.set(room, new Set());
 				}
@@ -161,7 +164,7 @@ const collab_handlers = (socket) => {
 				isGuest,
 				state: null,
 				hasCaret: false,
-				updates: 0,
+				clock: 0,
 			};
 			site.rooms.get(room).set(pid, entry);
 			socket.join(room);
@@ -286,7 +289,7 @@ function presence_state(entry) {
 		pid: entry.pid,
 		user: entry.user,
 		arrival: entry.arrival,
-		n: entry.updates,
+		n: entry.clock,
 		state,
 	};
 }

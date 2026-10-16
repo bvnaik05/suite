@@ -125,6 +125,36 @@ describe('collab presence', () => {
     expect([presence.peers, remoteStates().size]).toEqual([[], 0])
   })
 
+  it('draws a peer’s caret from its other room once the first is gone, its count rising across both', () => {
+    const { answer, hear, remoteStates } = setup()
+    answer()
+    hear('_join', { room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' })
+    hear('_join', { room: OWN_ROOMS[1], pid: PEER_PID, user: 'b@x.com' })
+    hear('', {
+      room: OWN_ROOMS[0],
+      states: [{ pid: PEER_PID, user: 'b@x.com', n: 4, state: { cursor } }],
+    })
+    hear('_gone', { room: OWN_ROOMS[0], pid: PEER_PID })
+
+    const moved = { anchor: { ...caret.anchor, item: { client: 7, clock: 9 } } }
+    hear('', {
+      room: OWN_ROOMS[1],
+      states: [
+        {
+          pid: PEER_PID,
+          user: 'b@x.com',
+          n: 5,
+          state: { cursor: { ...moved, head: moved.anchor } },
+        },
+      ],
+    })
+
+    expect(remoteStates().get(PEER_PID)?.cursor).toEqual({
+      anchor: moved.anchor,
+      head: moved.anchor,
+    })
+  })
+
   it('draws a peer’s caret under its pid with the verified user, whatever user the tab claimed', () => {
     const { hear, answer, remoteStates, presence } = setup()
     answer([{ room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' }])
