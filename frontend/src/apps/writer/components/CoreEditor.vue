@@ -81,7 +81,7 @@
         </div>
         <slot name="cover" />
         <div
-          v-if="commentsPainted && comments?._map.size && !$slots.cover"
+          v-if="paintedComments?._map.size && !$slots.cover"
           class="hidden md:block absolute top-4 right-4"
         >
           <Dropdown :options="commentFilterOptions" align="end">
@@ -203,6 +203,15 @@ const showComments = ref<boolean>(JSON.parse(localStorage.getItem('show-comments
 const showResolved = ref(false)
 const showUnanchored = ref(false)
 
+// The comments map, once its extension has painted it
+const paintedComments = computed(() => {
+  if (!commentsPainted.value) {
+    return undefined
+  }
+
+  return props.comments
+})
+
 watch(activeComment, () => rebuild(editor.value))
 watch(showComments, (isShown) => localStorage.setItem('show-comments', String(isShown)))
 
@@ -224,20 +233,24 @@ watch(
 )
 
 const showUnanchoredButton = computed(() => {
-  if (!commentsPainted.value) return false
+  const comments = paintedComments.value
+  if (!comments) {
+    return false
+  }
 
-  return Array.from(props.comments!._map).some(([, value]) => {
+  return Array.from(comments._map).some(([, value]) => {
     const [first] = value.content.getContent()
     return !document.querySelector(`[data-comment-name='${first?.id}']`)
   })
 })
 
 const commentFilterOptions = computed(() => {
-  if (!commentsPainted.value || !props.comments) {
+  const comments = paintedComments.value
+  if (!comments) {
     return []
   }
 
-  const hasResolved = Array.from(props.comments._map).some(([, value]) => {
+  const hasResolved = Array.from(comments._map).some(([, value]) => {
     const [first] = value.content.getContent()
     return first?.resolved
   })

@@ -1,6 +1,7 @@
-import mitt, { type EventType } from 'mitt'
+import mitt from 'mitt'
 
-interface WriterEvents extends Record<EventType, unknown> {
+// A type, not an interface: mitt needs the implicit index signature, and an explicit one would accept typos
+type WriterEvents = {
   'print-file': undefined
   'manual-save': () => void
 }
