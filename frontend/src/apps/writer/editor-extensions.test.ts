@@ -76,4 +76,25 @@ describe('bubble menu', () => {
     expect(bubbleMenuOptions({ comments }).shouldShow({ state, from, to })).toBe(false)
     editor.destroy()
   })
+
+  const CASES = [
+    { label: 'no comments', entries: [], isShown: true },
+    { label: 'a saved comment', entries: [{ id: 'old' }], isShown: true },
+    { label: 'a comment being written', entries: [{ id: 'draft', new: true }], isShown: false },
+    { label: 'a comment being edited', entries: [{ id: 'old', edit: true }], isShown: false },
+  ]
+
+  it.each(CASES)('over a selection with $label, shows: $isShown', ({ entries, isShown }) => {
+    const editor = writerEditor('<p>plain text</p>')
+    editor.commands.setTextSelection({ from: 1, to: 6 })
+    const { state } = editor
+    const { from, to } = state.selection
+    const comments = new Y.Doc().getMap('comments')
+    for (const [index, entry] of entries.entries()) {
+      comments.set(`comment-${index}`, entry)
+    }
+
+    expect(bubbleMenuOptions({ comments }).shouldShow({ state, from, to })).toBe(isShown)
+    editor.destroy()
+  })
 })
