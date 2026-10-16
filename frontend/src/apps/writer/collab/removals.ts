@@ -63,6 +63,11 @@ export function watchRemovals(
   return () => {
     room.doc.off('afterTransaction', collect)
     stopListening()
+    // Removals the room never told of, as when it closed mid-adopt, can no longer be typed back
+    const untold = found.splice(0)
+    if (untold.length) {
+      report(untold)
+    }
   }
 }
 

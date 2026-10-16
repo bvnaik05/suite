@@ -1,18 +1,29 @@
+import { APPLIED_UPDATE, REMOTE, type CollabRoom } from '@suite/collab-client'
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
+import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { typeBack, watchRemovals, type Removal } from '@/apps/writer/collab/removals'
 import {
   blocks,
   deliver,
   inside,
   openTabs,
-  receiveRow,
   sendRow,
   stored,
   syncAll,
   type Tab,
 } from '@/apps/writer/collab/test-support'
+
+import {
+  device,
+  fakeLocks,
+  fakeServer,
+  fakeTime,
+  idle,
+  join,
+  offlinePushes,
+} from '../../../../packages/collab-client/src/test-support'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
@@ -87,6 +98,46 @@ const lostQQ = {
   runs: [{ offset: 2, text: 'QQ', attrs: {} }],
   written: expect.anything(),
   isUncertain: false,
+}
+
+// Real rooms on one device: a tab whose pushes fail turns defgh into a heading reading `heading`,
+// this tab types QQ into the old block, then the other tab closes and this one takes its work on
+async function takeOverHeading(heading: string) {
+  fakeTime()
+  const server = fakeServer()
+  const first = await join(server.endpoints())
+  Y.applyUpdate(first.doc, threeParagraphs)
+  await first.flush()
+  const kept = await device()
+  const typing = await join(server.endpoints(), { device: kept })
+  const closing = await join(offlinePushes(server), { device: kept })
+  const reported: Removal[] = []
+  watchRemovals(typing, (removals) => reported.push(...removals))
+
+  closing.doc.transact(() => {
+    const body = closing.doc.getXmlFragment(BODY_FIELD)
+    const block = new Y.XmlElement('heading')
+    block.setAttribute('level', '2')
+    block.insert(0, [new Y.XmlText(heading)])
+    body.delete(1, 1)
+    body.insert(1, [block])
+  })
+  await vi.advanceTimersByTimeAsync(0)
+  await idle()
+  const typed = typing.doc.getXmlFragment(BODY_FIELD).get(1) as Y.XmlElement
+  ;(typed.get(0) as Y.XmlText).insert(2, 'QQ')
+  await closing.close()
+  await vi.advanceTimersByTimeAsync(60_000)
+  await idle()
+  return { typing, reported }
+}
+
+function roomBlocks(room: CollabRoom) {
+  const body = room.doc.getXmlFragment(BODY_FIELD).toArray() as Y.XmlElement[]
+  return body.map((block) => {
+    const words = block.get(0).toString()
+    return `${block.nodeName} ${words}`
+  })
 }
 
 describe('text a row removed with the block around it', () => {
@@ -464,14 +515,27 @@ describe('a room watching for removals', () => {
   })
 
   it("types back what a closed tab's restructure removed once this tab takes it on (R298)", async () => {
-    const [typingTab, closedTab] = await openTabs(threeParagraphs, 2)
-    typeQQ(typingTab, 'defgh')
-    makeHeading(closedTab, 'defgh')
+    fakeLocks()
+    try {
+      const { typing, reported } = await takeOverHeading('defgh')
 
-    receiveRow(typingTab, sendRow(closedTab)!, 'adopt')
+      expect(roomBlocks(typing)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+      expect(reported).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 
-    expect(blocks(typingTab)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
-    expect(typingTab.reported).toEqual([])
+  it("reports what a closed tab's restructure removed when this tab takes it on and can't place it (R298)", async () => {
+    fakeLocks()
+    try {
+      const { typing, reported } = await takeOverHeading('defghX')
+
+      expect(roomBlocks(typing)).toEqual(['paragraph abc', 'heading defghX', 'paragraph xyz'])
+      expect(reported).toEqual([lostQQ])
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('reports instead of typing back when the room cannot write (R282)', async () => {
@@ -499,6 +563,24 @@ describe('a room watching for removals', () => {
     await sendInOrder(tabs, tabs)
 
     expect([typingTab.reported, stoppedReports]).toEqual([[lostQQ], []])
+  })
+
+  it('reports what it collected but was never told of once stopped, typing none of it back', async () => {
+    const [headingTab, typingTab] = await openTabs(threeParagraphs, 2)
+    const stoppedReports: Removal[] = []
+    const stop = watchRemovals(typingTab.room, (removals) => stoppedReports.push(...removals))
+    makeHeading(headingTab, 'defgh')
+    typeQQ(typingTab, 'defgh')
+    const row = sendRow(headingTab)!
+    typingTab.ydoc.transact((transaction) => {
+      transaction.meta.set(APPLIED_UPDATE, row)
+      Y.applyUpdate(typingTab.ydoc, row, REMOTE)
+    }, REMOTE)
+
+    stop()
+
+    expect(blocks(typingTab)).toEqual(['paragraph abc', 'heading defgh', 'paragraph xyz'])
+    expect([stoppedReports, typingTab.reported]).toEqual([[lostQQ], []])
   })
 
   it('leaves typed-back text in place when the tab undoes', async () => {

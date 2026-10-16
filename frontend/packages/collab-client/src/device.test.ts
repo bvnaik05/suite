@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import { Device } from './device'
+import { ADOPT, APPLIED_UPDATE } from './origins'
 import {
   breaksOn,
   device,
@@ -692,6 +693,39 @@ describe('collab room on a device', () => {
 
       const seen = [text(second), server.rows.length, second.othersUnsent, second.saveState]
       expect(seen).toEqual(['left behind', 1, 0, 'clean'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('an open tab takes on a closed tab’s work in one transaction that carries the work it applies', async () => {
+    fakeTime()
+    fakeLocks()
+    try {
+      const server = fakeServer()
+      const kept = await device()
+      const first = await join(offlinePushes(server), { device: kept })
+      first.doc.getText('t').insert(0, 'left')
+      await vi.advanceTimersByTimeAsync(0)
+      first.doc.getText('t').insert(4, ' behind')
+      await vi.advanceTimersByTimeAsync(0)
+      await idle()
+      const second = await join(server.endpoints(), { device: kept })
+      await idle()
+      const adopted: (Uint8Array | undefined)[] = []
+      second.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+        if (transaction.origin === ADOPT) {
+          adopted.push(transaction.meta.get(APPLIED_UPDATE))
+        }
+      })
+
+      await first.close()
+      await vi.advanceTimersByTimeAsync(60_000)
+      await idle()
+
+      const applied = new Y.Doc()
+      Y.applyUpdate(applied, adopted[0]!)
+      expect([adopted.length, applied.getText('t').toString()]).toEqual([1, 'left behind'])
     } finally {
       vi.unstubAllGlobals()
     }
