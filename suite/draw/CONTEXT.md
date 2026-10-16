@@ -64,6 +64,29 @@ context. The mixin prevents reassignment of an existing node. Linked saves
 require Edit, and successful body changes touch the node. Drive callbacks join
 the caller's transaction and do not commit.
 
+## Document surface and saves
+
+Draw registers a document surface with Suite's shared Home, Files, and document
+host. It has no separate homepage. Drive owns creation, titles, sharing, and
+navigation. The editor keeps its toolbar and property bar.
+The `/draw/` entry redirects to Home. Existing `/draw/editor?drawing=<name>`
+links open the adopted node through the document host.
+
+Authenticated Draw routes read and save scenes by Drive node. Saves lock the
+document, check Edit access, and compare the submitted revision. A stale save
+returns a conflict without replacing the saved scene. Successful saves take a
+Drive version in the same transaction.
+
+Each editor keeps its unsynced draft in a separate IndexedDB record. A successful
+save removes only the acknowledged draft revision. Conflicting drafts remain
+available for download or a recovered copy. Recovery actions require the same
+signed-in account. Unfinished text remains in recovery storage until the user
+finishes editing it.
+
+Read-only sessions hide the property bar and disable editing and history
+actions. Navigation attempts to save first. If changes remain unsynced, it keeps
+the recovery draft and asks before leaving.
+
 ## Manual verification after activation
 
 Use two ordinary users and an isolated Suite site with a recorded backup.

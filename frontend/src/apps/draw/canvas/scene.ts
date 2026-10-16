@@ -85,7 +85,9 @@ export type FreeDrawShape = RectangleShape & {
 export function isClosedFreeDraw(shape: FreeDrawShape): boolean {
   const first = shape.points[0]
   const last = shape.points.at(-1)
-  return Boolean(shape.points.length > 2 && first && last && first.x === last.x && first.y === last.y)
+  return Boolean(
+    shape.points.length > 2 && first && last && first.x === last.x && first.y === last.y,
+  )
 }
 
 export function freeDrawPath(shape: FreeDrawShape): string {
@@ -93,7 +95,8 @@ export function freeDrawPath(shape: FreeDrawShape): string {
   if (shape.points.length === 1) return `M ${shape.points[0]!.x} ${shape.points[0]!.y} l .01 0`
   let path = `M ${shape.points[0]!.x} ${shape.points[0]!.y}`
   for (let index = 1; index < shape.points.length - 1; index++) {
-    const point = shape.points[index]!, next = shape.points[index + 1]!
+    const point = shape.points[index]!,
+      next = shape.points[index + 1]!
     path += ` Q ${point.x} ${point.y} ${(point.x + next.x) / 2} ${(point.y + next.y) / 2}`
   }
   const last = shape.points.at(-1)!
@@ -151,18 +154,34 @@ export function diamondPath(shape: RectangleShape): string {
     const previous = vertices[(index + vertices.length - 1) % vertices.length]!
     const next = vertices[(index + 1) % vertices.length]!
     return {
-      entry: { x: vertex.x + (previous.x - vertex.x) * offset, y: vertex.y + (previous.y - vertex.y) * offset },
-      exit: { x: vertex.x + (next.x - vertex.x) * offset, y: vertex.y + (next.y - vertex.y) * offset },
+      entry: {
+        x: vertex.x + (previous.x - vertex.x) * offset,
+        y: vertex.y + (previous.y - vertex.y) * offset,
+      },
+      exit: {
+        x: vertex.x + (next.x - vertex.x) * offset,
+        y: vertex.y + (next.y - vertex.y) * offset,
+      },
     }
   })
-  return rounded.map((corner, index) => {
-    const vertex = vertices[index]!
-    const next = rounded[(index + 1) % rounded.length]!
-    return `${index === 0 ? 'M' : 'L'} ${corner.entry.x} ${corner.entry.y} Q ${vertex.x} ${vertex.y} ${corner.exit.x} ${corner.exit.y} L ${next.entry.x} ${next.entry.y}`
-  }).join(' ') + ' Z'
+  return (
+    rounded
+      .map((corner, index) => {
+        const vertex = vertices[index]!
+        const next = rounded[(index + 1) % rounded.length]!
+        return `${index === 0 ? 'M' : 'L'} ${corner.entry.x} ${corner.entry.y} Q ${vertex.x} ${vertex.y} ${corner.exit.x} ${corner.exit.y} L ${next.entry.x} ${next.entry.y}`
+      })
+      .join(' ') + ' Z'
+  )
 }
 
-export function lineFromPoints(start: Point, end: Point, id: string, constrainAngle = false, kind: LineShape['kind'] = 'line'): LineShape {
+export function lineFromPoints(
+  start: Point,
+  end: Point,
+  id: string,
+  constrainAngle = false,
+  kind: LineShape['kind'] = 'line',
+): LineShape {
   const constrainedEnd = constrainAngle ? angleConstrainedEndPoint(start, end) : end
   return { id, kind, start: { ...start }, end: { ...constrainedEnd } }
 }
@@ -213,5 +232,5 @@ function angleConstrainedEndPoint(start: Point, end: Point): Point {
 
 export function createId(prefix: string): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16))
-  return prefix + '-' + Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return prefix + '-' + Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
