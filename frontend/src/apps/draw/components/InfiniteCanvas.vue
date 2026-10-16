@@ -1,15 +1,29 @@
 <script setup lang="ts">
-import { loadDrawing, queueSave, drawingTitle, warnUnsaved, saveDrawing, drawingLoading } from '../canvas/persistence'
-import { bounds, transformShape, isFreeDraw, isLine, parseScene, type Shape } from '../canvas/selection'
-import { applyLassoSelection, shapesIntersectingLasso, type LassoOperation } from '../canvas/lasso-selection'
 import { Button, Icon, Select, TextInput, Tooltip, TooltipProvider } from 'frappe-ui'
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, ChevronUp, Italic, Minus, Plus, Redo2, Underline, Undo2 } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import ArrowShape from './ArrowShape.vue'
 import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  ChevronDown,
+  ChevronUp,
+  Italic,
+  Minus,
+  Plus,
+  Redo2,
+  Underline,
+  Undo2,
+} from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+
+import { translate as __ } from '@/platform/translation'
+
+import rotateCursorSvg from '../assets/rotate-cursor-white.svg?raw'
+import {
+  dotInterval,
   MAX_SCALE,
   MIN_SCALE,
-  dotInterval,
   nextZoomStep,
   positiveModulo,
   resizeAroundCenter,
@@ -20,83 +34,120 @@ import {
   type Viewport,
 } from '../canvas/geometry'
 import {
+  applyLassoSelection,
+  shapesIntersectingLasso,
+  type LassoOperation,
+} from '../canvas/lasso-selection'
+import {
+  moveLine,
+  rotateLineEndpoint,
+  setLineCurve,
+  type LineHandle,
+} from '../canvas/line-interactions'
+import { useDrawingPersistence } from '../canvas/persistence'
+import {
+  containsPoint,
+  moveRectangle,
+  rectangleCenter,
+  rectangleCorners,
+  resizeFromCorner,
+  resizeFromEdge,
+  rotatePoint,
+  rotateRectangle,
+  setCornerRadius,
+  type Corner,
+  type Edge,
+} from '../canvas/rectangle-interactions'
+import {
   createId,
   diamondFromPoints,
   diamondPath,
   ellipseFromPoints,
   freeDrawPath,
   isClosedFreeDraw,
-  lineFromPoints,
   lineControlPoint,
-  linePointAt,
+  lineFromPoints,
   linePath,
-  type ImageShape,
-  type FreeDrawShape,
+  linePointAt,
   rectangleFromPoints,
+  type FreeDrawShape,
+  type ImageShape,
   type LineShape,
   type RectangleShape,
   type TextAlign,
-  type TextShape,
   type TextFontFamily,
+  type TextShape,
 } from '../canvas/scene'
 import {
-  containsPoint,
-  moveRectangle,
-  rectangleCenter,
-  rectangleCorners,
-  rotatePoint,
-  rotateRectangle,
-  resizeFromEdge,
-  resizeFromCorner,
-  setCornerRadius,
-  type Corner,
-  type Edge,
-} from '../canvas/rectangle-interactions'
-import { moveLine, rotateLineEndpoint, setLineCurve, type LineHandle } from '../canvas/line-interactions'
+  bounds,
+  isFreeDraw,
+  isLine,
+  parseScene,
+  transformShape,
+  type Shape,
+} from '../canvas/selection'
 import {
   snapResizeHandlePoint,
   snapShapeMove,
   type AlignmentGuide,
   type SpacingMarker,
 } from '../canvas/snapping'
-import type { DrawingTool } from '../canvas/tools'
 import { layoutText, TEXT_FONT_FAMILIES, TEXT_LINE_HEIGHT } from '../canvas/text-layout'
-import SnapGuides from './SnapGuides.vue'
-import LaserTrail from './LaserTrail.vue'
+import type { DrawingTool } from '../canvas/tools'
+import ArrowShape from './ArrowShape.vue'
 import CanvasMinimap from './CanvasMinimap.vue'
-import rotateCursorSvg from '../assets/rotate-cursor-white.svg?raw'
+import LaserTrail from './LaserTrail.vue'
 import ShapeColorPicker from './ShapeColorPicker.vue'
+import SnapGuides from './SnapGuides.vue'
 
 type PointerSample = Point & { pointerType: string }
-type TextStylePatch = Partial<Pick<TextShape, 'fill' | 'backgroundColor' | 'fontFamily' | 'fontWeight' | 'fontStyle' | 'textDecoration' | 'textAlign' | 'opacity' | 'fontSize'>>
+type TextStylePatch = Partial<
+  Pick<
+    TextShape,
+    | 'fill'
+    | 'backgroundColor'
+    | 'fontFamily'
+    | 'fontWeight'
+    | 'fontStyle'
+    | 'textDecoration'
+    | 'textAlign'
+    | 'opacity'
+    | 'fontSize'
+  >
+>
 type ObjectColor = { label: string; border: string; fill: string }
 type SolidColor = { label: string; color: string }
 
 const objectColors: ObjectColor[] = [
-  { label: 'Blue', border: '#0070cc', fill: '#e6f4ff' },
-  { label: 'Green', border: '#278f5e', fill: '#e4faeb' },
-  { label: 'Red', border: '#b52a2a', fill: '#ffe7e7' },
+  { label: __('Blue'), border: '#0070cc', fill: '#e6f4ff' },
+  { label: __('Green'), border: '#278f5e', fill: '#e4faeb' },
+  { label: __('Red'), border: '#b52a2a', fill: '#ffe7e7' },
 ]
 const solidColors: SolidColor[] = objectColors.map(({ label, border: color }) => ({ label, color }))
 const fontOptions = [
-  { label: 'Shantell', value: 'shantell' },
-  { label: 'Inter', value: 'inter' },
-  { label: 'Georgia', value: 'georgia' },
-  { label: 'Monospace', value: 'mono' },
+  { label: __('Shantell'), value: 'shantell' },
+  { label: __('Inter'), value: 'inter' },
+  { label: __('Georgia'), value: 'georgia' },
+  { label: __('Monospace'), value: 'mono' },
 ] satisfies { label: string; value: TextFontFamily }[]
-const fontSizeOptions = [12, 14, 16, 18, 20, 24, 32, 48].map(value => ({ label: `${value}`, value }))
+const fontSizeOptions = [12, 14, 16, 18, 20, 24, 32, 48].map((value) => ({
+  label: __('{0}', [value]),
+  value,
+}))
 const MAX_FONT_SIZE = 999
 function normalizeFontSize(fontSize: number) {
   return Number.isFinite(fontSize) ? Math.min(MAX_FONT_SIZE, Math.max(1, Math.round(fontSize))) : 16
 }
 const textAlignOptions = [
-  { value: 'left', label: 'Align left', icon: AlignLeft },
-  { value: 'center', label: 'Align center', icon: AlignCenter },
-  { value: 'right', label: 'Align right', icon: AlignRight },
-  { value: 'justify', label: 'Justify', icon: AlignJustify },
+  { value: 'left', label: __('Align left'), icon: AlignLeft },
+  { value: 'center', label: __('Align center'), icon: AlignCenter },
+  { value: 'right', label: __('Align right'), icon: AlignRight },
+  { value: 'justify', label: __('Justify'), icon: AlignJustify },
 ] satisfies { value: TextAlign; label: string; icon: typeof AlignLeft }[]
 
 const props = defineProps<{ activeTool: DrawingTool | null }>()
+const persistence = useDrawingPersistence()
+const { loadDrawing, queueSave, warnUnsaved, saveDrawing, drawingLoading, editable } = persistence
 const emit = defineEmits<{
   activateRectangle: []
   activateDiamond: []
@@ -142,10 +193,17 @@ const pendingLine = ref<LineShape>()
 const pendingText = ref<RectangleShape>()
 const pendingDraw = ref<FreeDrawShape>()
 const erasedShapeIds = ref<string[]>([])
-const drawStyle = reactive({ stroke: '#171717' as string | null, fill: 'none', strokeWidth: 3, strokeStyle: 'solid' as const, opacity: 1 })
+const drawStyle = reactive({
+  stroke: '#171717' as string | null,
+  fill: 'none',
+  strokeWidth: 3,
+  strokeStyle: 'solid' as const,
+  opacity: 1,
+})
 const croppingImageId = ref<string>()
 const cropFrame = ref<RectangleShape>()
 const textEditor = ref<TextEditor>()
+let textDraftId = createId('text')
 const propertyToolbarInteracting = ref(false)
 const propertyPopupOpen = ref<'color' | 'font' | 'size'>()
 const propertyFontSizeEditing = ref(false)
@@ -166,9 +224,7 @@ const latestGesturePoint = ref<Point>()
 
 let resizeObserver: ResizeObserver | undefined
 let singlePointerStart: { point: Point; viewport: Viewport } | undefined
-let pinchStart:
-  | { distance: number; centroid: Point; viewport: Viewport }
-  | undefined
+let pinchStart: { distance: number; centroid: Point; viewport: Viewport } | undefined
 let announceTimer: number | undefined
 let viewportFrame: number | undefined
 let pendingViewport: Viewport | undefined
@@ -183,19 +239,60 @@ let marqueeGesture: { pointerId: number; start: Point; previous: string[] } | un
 const lassoOutline = ref<Point[]>([])
 let lassoGesture: { pointerId: number; points: Point[]; operation: LassoOperation } | undefined
 const enteredGroup = ref<string>()
-const armedTextStyle = reactive<Pick<TextShape, 'fill' | 'backgroundColor' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'fontStyle' | 'textDecoration' | 'textAlign'>>({
-  fill: '#171717', backgroundColor: undefined, fontFamily: 'shantell', fontSize: 16, fontWeight: 400, fontStyle: 'normal', textDecoration: 'none', textAlign: 'left',
+const armedTextStyle = reactive<
+  Pick<
+    TextShape,
+    | 'fill'
+    | 'backgroundColor'
+    | 'fontFamily'
+    | 'fontSize'
+    | 'fontWeight'
+    | 'fontStyle'
+    | 'textDecoration'
+    | 'textAlign'
+  >
+>({
+  fill: '#171717',
+  backgroundColor: undefined,
+  fontFamily: 'shantell',
+  fontSize: 16,
+  fontWeight: 400,
+  fontStyle: 'normal',
+  textDecoration: 'none',
+  textAlign: 'left',
 })
-const allShapes = computed(() => [...lines.value, ...rectangles.value].sort((a,b) => (a.order ?? 0) - (b.order ?? 0)))
-const selectedShapes = computed(() => allShapes.value.filter(s => selectedShapeIds.value.includes(s.id)))
-const selectedTextShapes = computed(() => selectedShapes.value.every(isText) ? selectedShapes.value as TextShape[] : [])
+const allShapes = computed(() =>
+  [...lines.value, ...rectangles.value].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+)
+const selectedShapes = computed(() =>
+  allShapes.value.filter((s) => selectedShapeIds.value.includes(s.id)),
+)
+const selectedTextShapes = computed(() =>
+  selectedShapes.value.every(isText) ? (selectedShapes.value as TextShape[]) : [],
+)
 const selectedLabel = computed(() => {
-  if (selectedShapeIds.value.length !== 1 || selectedLabelId.value !== selectedShapeIds.value[0]) return undefined
-  const shape = rectangles.value.find(shape => shape.id === selectedLabelId.value)
-  return shape && !isText(shape) && !isImage(shape) && !isFreeDraw(shape) && shape.label ? shape : undefined
+  if (selectedShapeIds.value.length !== 1 || selectedLabelId.value !== selectedShapeIds.value[0])
+    return undefined
+  const shape = rectangles.value.find((shape) => shape.id === selectedLabelId.value)
+  return shape && !isText(shape) && !isImage(shape) && !isFreeDraw(shape) && shape.label
+    ? shape
+    : undefined
 })
-const textPropertyControlsEnabled = computed(() => props.activeTool !== 'draw' && (Boolean(textEditor.value) || selectedTextShapes.value.length > 0 || Boolean(selectedLabel.value) || (!selectedShapes.value.length && props.activeTool === 'text')))
-const usesSolidColorPalette = computed(() => props.activeTool === 'draw' || selectedShapes.value.some(shape => isLine(shape) || isFreeDraw(shape) || isText(shape)) || Boolean(selectedLabel.value) || (!selectedShapes.value.length && textPropertyControlsEnabled.value))
+const textPropertyControlsEnabled = computed(
+  () =>
+    props.activeTool !== 'draw' &&
+    (Boolean(textEditor.value) ||
+      selectedTextShapes.value.length > 0 ||
+      Boolean(selectedLabel.value) ||
+      (!selectedShapes.value.length && props.activeTool === 'text')),
+)
+const usesSolidColorPalette = computed(
+  () =>
+    props.activeTool === 'draw' ||
+    selectedShapes.value.some((shape) => isLine(shape) || isFreeDraw(shape) || isText(shape)) ||
+    Boolean(selectedLabel.value) ||
+    (!selectedShapes.value.length && textPropertyControlsEnabled.value),
+)
 const propertyColorKind = computed<'shape' | 'text' | 'draw' | 'arrow' | 'line'>(() => {
   if (props.activeTool === 'draw') return 'draw'
   const shape = selectedShapes.value.at(-1)
@@ -203,13 +300,25 @@ const propertyColorKind = computed<'shape' | 'text' | 'draw' | 'arrow' | 'line'>
   if (isLine(shape)) return shape.kind
   return 'shape'
 })
-const propertyColorTarget = computed<'border' | 'fill'>(() => props.activeTool === 'draw' ? 'fill' : selectedShapes.value.some(shape => isLine(shape) || isFreeDraw(shape)) ? 'border' : 'fill')
+const propertyColorTarget = computed<'border' | 'fill'>(() =>
+  props.activeTool === 'draw'
+    ? 'fill'
+    : selectedShapes.value.some((shape) => isLine(shape) || isFreeDraw(shape))
+      ? 'border'
+      : 'fill',
+)
 const activePropertyColor = computed(() => {
   if (props.activeTool === 'draw') return drawStyle.fill
   const shape = selectedShapes.value.at(-1)
   return shape
-    ? (isLine(shape) || isFreeDraw(shape) ? (isLine(shape) && shape.kind === 'arrow' ? shape.arrowHeadFill ?? shape.stroke : shape.stroke) : shape === selectedLabel.value ? shape.labelFill : shape.fill)
-    : textEditor.value?.fill ?? armedTextStyle.fill
+    ? isLine(shape) || isFreeDraw(shape)
+      ? isLine(shape) && shape.kind === 'arrow'
+        ? (shape.arrowHeadFill ?? shape.stroke)
+        : shape.stroke
+      : shape === selectedLabel.value
+        ? shape.labelFill
+        : shape.fill
+    : (textEditor.value?.fill ?? armedTextStyle.fill)
 })
 const activePropertyBorderColor = computed(() => {
   if (props.activeTool === 'draw') return drawStyle.stroke
@@ -217,35 +326,87 @@ const activePropertyBorderColor = computed(() => {
   if (text) return text.backgroundColor
   if (textEditor.value?.kind === 'text') return textEditor.value.backgroundColor
   if (selectedLabel.value) return selectedLabel.value.fill ?? '#e6f4ff'
-  if (!selectedShapes.value.length && textPropertyControlsEnabled.value) return armedTextStyle.backgroundColor
+  if (!selectedShapes.value.length && textPropertyControlsEnabled.value)
+    return armedTextStyle.backgroundColor
   return selectedShapes.value.at(-1)?.stroke
 })
-const activePropertyStrokeWidth = computed(() => props.activeTool === 'draw' ? drawStyle.strokeWidth : selectedShapes.value.at(-1)?.strokeWidth ?? 2)
-const activePropertyStrokeStyle = computed(() => props.activeTool === 'draw' ? drawStyle.strokeStyle : selectedShapes.value.at(-1)?.strokeStyle ?? 'solid')
-const propertyToolbarVisible = computed(() => props.activeTool !== 'eraser' && Boolean(props.activeTool === 'draw' || selectedShapes.value.length || textPropertyControlsEnabled.value))
-watch(propertyToolbarVisible, visible => {
+const activePropertyStrokeWidth = computed(() =>
+  props.activeTool === 'draw'
+    ? drawStyle.strokeWidth
+    : (selectedShapes.value.at(-1)?.strokeWidth ?? 2),
+)
+const activePropertyStrokeStyle = computed(() =>
+  props.activeTool === 'draw'
+    ? drawStyle.strokeStyle
+    : (selectedShapes.value.at(-1)?.strokeStyle ?? 'solid'),
+)
+const propertyToolbarVisible = computed(
+  () =>
+    editable.value &&
+    props.activeTool !== 'eraser' &&
+    Boolean(
+      props.activeTool === 'draw' ||
+      selectedShapes.value.length ||
+      textPropertyControlsEnabled.value,
+    ),
+)
+watch(propertyToolbarVisible, (visible) => {
   if (!visible) propertyPopupOpen.value = undefined
 })
 const propertyTextStyle = computed(() => {
   const editor = textEditor.value
   const text = selectedTextShapes.value.at(-1)
   return {
-    fontFamily: editor?.fontFamily ?? text?.fontFamily ?? selectedLabel.value?.labelFontFamily ?? armedTextStyle.fontFamily ?? 'shantell',
-    fontSize: editor?.fontSize ?? text?.fontSize ?? selectedLabel.value?.labelFontSize ?? armedTextStyle.fontSize ?? 16,
-    fontWeight: editor?.fontWeight ?? text?.fontWeight ?? selectedLabel.value?.labelFontWeight ?? armedTextStyle.fontWeight ?? 400,
-    fontStyle: editor?.fontStyle ?? text?.fontStyle ?? selectedLabel.value?.labelFontStyle ?? armedTextStyle.fontStyle ?? 'normal',
-    textDecoration: editor?.textDecoration ?? text?.textDecoration ?? selectedLabel.value?.labelTextDecoration ?? armedTextStyle.textDecoration ?? 'none',
-    textAlign: editor?.textAlign ?? text?.textAlign ?? selectedLabel.value?.labelTextAlign ?? armedTextStyle.textAlign ?? 'center',
+    fontFamily:
+      editor?.fontFamily ??
+      text?.fontFamily ??
+      selectedLabel.value?.labelFontFamily ??
+      armedTextStyle.fontFamily ??
+      'shantell',
+    fontSize:
+      editor?.fontSize ??
+      text?.fontSize ??
+      selectedLabel.value?.labelFontSize ??
+      armedTextStyle.fontSize ??
+      16,
+    fontWeight:
+      editor?.fontWeight ??
+      text?.fontWeight ??
+      selectedLabel.value?.labelFontWeight ??
+      armedTextStyle.fontWeight ??
+      400,
+    fontStyle:
+      editor?.fontStyle ??
+      text?.fontStyle ??
+      selectedLabel.value?.labelFontStyle ??
+      armedTextStyle.fontStyle ??
+      'normal',
+    textDecoration:
+      editor?.textDecoration ??
+      text?.textDecoration ??
+      selectedLabel.value?.labelTextDecoration ??
+      armedTextStyle.textDecoration ??
+      'none',
+    textAlign:
+      editor?.textAlign ??
+      text?.textAlign ??
+      selectedLabel.value?.labelTextAlign ??
+      armedTextStyle.textAlign ??
+      'center',
   }
 })
 const propertyFontSize = computed(() => normalizeFontSize(propertyTextStyle.value.fontSize))
 const propertyFontSizeOptions = computed(() => {
   const fontSize = propertyFontSize.value
-  return fontSizeOptions.some(option => option.value === fontSize)
+  return fontSizeOptions.some((option) => option.value === fontSize)
     ? fontSizeOptions
     : [...fontSizeOptions, { label: String(fontSize), value: fontSize }]
 })
-const propertyTextAlignOption = computed(() => textAlignOptions.find(option => option.value === propertyTextStyle.value.textAlign) ?? textAlignOptions[0]!)
+const propertyTextAlignOption = computed(
+  () =>
+    textAlignOptions.find((option) => option.value === propertyTextStyle.value.textAlign) ??
+    textAlignOptions[0]!,
+)
 const layerActions = computed(() => ({
   front: Boolean(reorderedSelectedShapes('front')),
   forward: Boolean(reorderedSelectedShapes('forward')),
@@ -265,7 +426,10 @@ let textGesture: { pointerId: number; start: Point; end?: Point } | undefined
 let cropGesture: { pointerId: number; start: Point } | undefined
 let historyIndex = 0
 const historyVersion = ref(0)
-type SceneSnapshot = { rectangles: (RectangleShape | TextShape | ImageShape | FreeDrawShape)[]; lines: LineShape[] }
+type SceneSnapshot = {
+  rectangles: (RectangleShape | TextShape | ImageShape | FreeDrawShape)[]
+  lines: LineShape[]
+}
 type TextEditor = {
   kind: 'text' | 'label'
   text: string
@@ -342,14 +506,25 @@ const zoomLabel = computed(() => `${Math.round(viewport.scale * 100)}%`)
 const cursorClass = computed(() => ({
   'is-pan-ready': isSpacePressed.value && !isPanning.value,
   'is-panning': isPanning.value,
-  'is-drawing-shape': ['rectangle', 'diamond', 'ellipse', 'line', 'arrow', 'draw', 'image'].includes(props.activeTool ?? ''),
+  'is-drawing-shape': [
+    'rectangle',
+    'diamond',
+    'ellipse',
+    'line',
+    'arrow',
+    'draw',
+    'image',
+  ].includes(props.activeTool ?? ''),
   'is-lasso-ready': props.activeTool === 'lasso' && !isSpacePressed.value && !isPanning.value,
   'is-erasing': props.activeTool === 'eraser',
   'is-text-ready': props.activeTool === 'text',
   'is-laser-ready': props.activeTool === 'laser' && !isSpacePressed.value && !isPanning.value,
   'is-rotation-ready': isRotateHandle(hoveredSelectionHandle.value) && !isRotating.value,
   'is-rotating': isRotating.value,
-  'is-curve-ready': !isCurving.value && (hoveredSelectionHandle.value === 'line-curve' || Boolean(hoveredSelectionHandle.value && isCurveHandle(hoveredSelectionHandle.value))),
+  'is-curve-ready':
+    !isCurving.value &&
+    (hoveredSelectionHandle.value === 'line-curve' ||
+      Boolean(hoveredSelectionHandle.value && isCurveHandle(hoveredSelectionHandle.value))),
   'is-curving': isCurving.value,
   'is-move-ready': isMoveReady.value,
   'is-resize-ns': resizeCursor(hoveredSelectionHandle.value) === 'ns',
@@ -375,18 +550,20 @@ const rotationCursorStyle = computed(() => {
 const selectedRectangle = computed(() =>
   rectangles.value.find((rectangle) => rectangle.id === selectedShapeIds.value.at(-1)),
 )
-const selectedLine = computed(() => lines.value.find((line) => line.id === selectedShapeIds.value.at(-1)))
+const selectedLine = computed(() =>
+  lines.value.find((line) => line.id === selectedShapeIds.value.at(-1)),
+)
 const croppingImage = computed(() => {
-  const shape = rectangles.value.find(candidate => candidate.id === croppingImageId.value)
+  const shape = rectangles.value.find((candidate) => candidate.id === croppingImageId.value)
   return shape && isImage(shape) ? shape : undefined
 })
 const hasMultipleSelection = computed(() => selectedShapeIds.value.length > 1)
 const canUndo = computed(() => {
-  historyVersion.value
+  void historyVersion.value
   return historyIndex > 0
 })
 const canRedo = computed(() => {
-  historyVersion.value
+  void historyVersion.value
   return historyIndex < history.length - 1
 })
 const selectionFrame = computed<RectangleShape | undefined>(() => {
@@ -398,7 +575,9 @@ const selectionFrame = computed<RectangleShape | undefined>(() => {
 })
 const selectionItemFrames = computed(() =>
   hasMultipleSelection.value
-    ? selectedShapes.value.filter((shape): shape is RectangleShape => !isLine(shape)).map(selectionOutline)
+    ? selectedShapes.value
+        .filter((shape): shape is RectangleShape => !isLine(shape))
+        .map(selectionOutline)
     : [],
 )
 
@@ -422,8 +601,16 @@ const selectionEdges = computed(() => {
   const center = rectangleCenter(rectangle)
   return {
     north: rotatePoint({ x: center.x, y: rectangle.y }, center, rectangle.rotation),
-    east: rotatePoint({ x: rectangle.x + rectangle.width, y: center.y }, center, rectangle.rotation),
-    south: rotatePoint({ x: center.x, y: rectangle.y + rectangle.height }, center, rectangle.rotation),
+    east: rotatePoint(
+      { x: rectangle.x + rectangle.width, y: center.y },
+      center,
+      rectangle.rotation,
+    ),
+    south: rotatePoint(
+      { x: center.x, y: rectangle.y + rectangle.height },
+      center,
+      rectangle.rotation,
+    ),
     west: rotatePoint({ x: rectangle.x, y: center.y }, center, rectangle.rotation),
   } satisfies Record<Edge, Point>
 })
@@ -437,20 +624,39 @@ const curveHandles = computed(() => {
     rectangle.height / 3,
   )
   return {
-    northwest: rotatePoint({ x: rectangle.x + offset, y: rectangle.y + offset }, center, rectangle.rotation),
-    northeast: rotatePoint({ x: rectangle.x + rectangle.width - offset, y: rectangle.y + offset }, center, rectangle.rotation),
-    southeast: rotatePoint({ x: rectangle.x + rectangle.width - offset, y: rectangle.y + rectangle.height - offset }, center, rectangle.rotation),
-    southwest: rotatePoint({ x: rectangle.x + offset, y: rectangle.y + rectangle.height - offset }, center, rectangle.rotation),
+    northwest: rotatePoint(
+      { x: rectangle.x + offset, y: rectangle.y + offset },
+      center,
+      rectangle.rotation,
+    ),
+    northeast: rotatePoint(
+      { x: rectangle.x + rectangle.width - offset, y: rectangle.y + offset },
+      center,
+      rectangle.rotation,
+    ),
+    southeast: rotatePoint(
+      { x: rectangle.x + rectangle.width - offset, y: rectangle.y + rectangle.height - offset },
+      center,
+      rectangle.rotation,
+    ),
+    southwest: rotatePoint(
+      { x: rectangle.x + offset, y: rectangle.y + rectangle.height - offset },
+      center,
+      rectangle.rotation,
+    ),
   } satisfies Record<Corner, Point>
 })
 const curveHandleRadius = computed(() => {
   const rectangle = selectedRectangle.value
-  return rectangle ? Math.min(3 / viewport.scale, rectangle.width * 0.15, rectangle.height * 0.15) : 0
+  return rectangle
+    ? Math.min(3 / viewport.scale, rectangle.width * 0.15, rectangle.height * 0.15)
+    : 0
 })
 const visibleCurveHandles = computed((): Record<string, Point> | undefined => {
   const rectangle = selectedRectangle.value
   const handles = curveHandles.value
-  if (!rectangle || !handles || Math.min(rectangle.width, rectangle.height) * viewport.scale >= 48) return handles
+  if (!rectangle || !handles || Math.min(rectangle.width, rectangle.height) * viewport.scale >= 48)
+    return handles
   return rectangle.width >= rectangle.height
     ? {
         northwest: midpoint(handles.northwest, handles.southwest),
@@ -462,7 +668,15 @@ const visibleCurveHandles = computed((): Record<string, Point> | undefined => {
       }
 })
 const showCurveControls = computed(() =>
-  Boolean(!selectedLabel.value && !hasMultipleSelection.value && selectedRectangle.value && !isEllipse(selectedRectangle.value) && !isDiamond(selectedRectangle.value) && !isText(selectedRectangle.value) && isHoveringSelectedShape.value),
+  Boolean(
+    !selectedLabel.value &&
+    !hasMultipleSelection.value &&
+    selectedRectangle.value &&
+    !isEllipse(selectedRectangle.value) &&
+    !isDiamond(selectedRectangle.value) &&
+    !isText(selectedRectangle.value) &&
+    isHoveringSelectedShape.value,
+  ),
 )
 const rotationHandles = computed<Record<Corner, Point> | undefined>(() => {
   const corners = selectionCorners.value
@@ -476,15 +690,32 @@ const rotationHandles = computed<Record<Corner, Point> | undefined>(() => {
     southwest: rotationHandlePoint(worldToScreen(corners.southwest, viewport), center),
   }
 })
-const isTextSelected = computed(() => Boolean(!hasMultipleSelection.value && (selectedLabel.value || (selectedRectangle.value && isText(selectedRectangle.value)))))
-const textLayouts = computed(() => new Map(rectangles.value.filter(isText).map((shape) => [
-  shape.id, layoutText(shape.text, shape.width, shape.fontSize, shape.wrap, shape),
-])))
+const isTextSelected = computed(() =>
+  Boolean(
+    !hasMultipleSelection.value &&
+    (selectedLabel.value || (selectedRectangle.value && isText(selectedRectangle.value))),
+  ),
+)
+const textLayouts = computed(
+  () =>
+    new Map(
+      rectangles.value
+        .filter(isText)
+        .map((shape) => [
+          shape.id,
+          layoutText(shape.text, shape.width, shape.fontSize, shape.wrap, shape),
+        ]),
+    ),
+)
 const textEditorStyle = computed(() => {
   const editor = textEditor.value
   if (!editor) return undefined
   const origin = editor.original
-    ? rotatePoint({ x: editor.x, y: editor.y }, rectangleCenter(editor.original), editor.original.rotation)
+    ? rotatePoint(
+        { x: editor.x, y: editor.y },
+        rectangleCenter(editor.original),
+        editor.original.rotation,
+      )
     : { x: editor.x, y: editor.y }
   const point = worldToScreen(origin, viewport)
   return {
@@ -500,7 +731,8 @@ const textEditorStyle = computed(() => {
     fontWeight: editor.fontWeight ?? 400,
     fontStyle: editor.fontStyle ?? 'normal',
     textDecoration: editor.textDecoration ?? 'none',
-    textAlign: editor.kind === 'label' ? editor.textAlign ?? 'center' : editor.textAlign ?? 'left',
+    textAlign:
+      editor.kind === 'label' ? (editor.textAlign ?? 'center') : (editor.textAlign ?? 'left'),
     transform: `scale(${viewport.scale}) rotate(${editor.original?.rotation ?? 0}deg)`,
     transformOrigin: 'top left',
   }
@@ -555,7 +787,7 @@ function center(): Point {
 function announceZoom() {
   window.clearTimeout(announceTimer)
   announceTimer = window.setTimeout(() => {
-    liveMessage.value = `Zoom ${Math.round(viewport.scale * 1000) / 10}%`
+    liveMessage.value = __('Zoom {0}%', [Math.round(viewport.scale * 1000) / 10])
   }, 180)
 }
 
@@ -571,9 +803,19 @@ function resetZoom() {
   setZoom(1)
 }
 
-function copyScene(scene: SceneSnapshot = { rectangles: rectangles.value, lines: lines.value }): SceneSnapshot {
+function copyScene(
+  scene: SceneSnapshot = { rectangles: rectangles.value, lines: lines.value },
+): SceneSnapshot {
   return {
-    rectangles: scene.rectangles.map((rectangle) => isFreeDraw(rectangle) ? { ...rectangle, points: rectangle.points.map(point => ({ ...point })), pressures: [...rectangle.pressures] } : { ...rectangle }),
+    rectangles: scene.rectangles.map((rectangle) =>
+      isFreeDraw(rectangle)
+        ? {
+            ...rectangle,
+            points: rectangle.points.map((point) => ({ ...point })),
+            pressures: [...rectangle.pressures],
+          }
+        : { ...rectangle },
+    ),
     lines: scene.lines.map((line) => ({ ...line, start: { ...line.start }, end: { ...line.end } })),
   }
 }
@@ -583,12 +825,14 @@ function scenesMatch(left: SceneSnapshot, right: SceneSnapshot): boolean {
 }
 
 function commitScene(previousSelection = selectedShapeIds.value) {
-  let order = Math.max(0, ...allShapes.value.map(s => s.order ?? 0))
+  let order = Math.max(0, ...allShapes.value.map((s) => s.order ?? 0))
   for (const shape of allShapes.value) if (shape.order === undefined) shape.order = ++order
   const next = copyScene()
   if (scenesMatch(history[historyIndex], next)) return
-  const previousIds = new Set([...history[historyIndex]!.rectangles, ...history[historyIndex]!.lines].map(s => s.id))
-  const surviving = previousSelection.filter(id => previousIds.has(id))
+  const previousIds = new Set(
+    [...history[historyIndex]!.rectangles, ...history[historyIndex]!.lines].map((s) => s.id),
+  )
+  const surviving = previousSelection.filter((id) => previousIds.has(id))
   if (surviving.length) historySelections[historyIndex] = surviving
   historySelections.splice(historyIndex + 1)
   historySelections.push([...selectedShapeIds.value])
@@ -607,9 +851,13 @@ function restoreScene(index: number) {
   const scene = copyScene(history[index])
   rectangles.value = scene.rectangles
   lines.value = scene.lines
-  const available = new Set([...scene.rectangles, ...scene.lines].map(s => s.id))
-  const surviving = selectedShapeIds.value.filter(id => available.has(id))
-  setSelection(surviving.length ? surviving : (historySelections[index] ?? []).filter(id => available.has(id)))
+  const available = new Set([...scene.rectangles, ...scene.lines].map((s) => s.id))
+  const surviving = selectedShapeIds.value.filter((id) => available.has(id))
+  setSelection(
+    surviving.length
+      ? surviving
+      : (historySelections[index] ?? []).filter((id) => available.has(id)),
+  )
   hoveredSelectionHandle.value = undefined
   isHoveringSelectedShape.value = false
   isMoveReady.value = false
@@ -644,9 +892,9 @@ function deleteSelectedShape(): boolean {
 function deleteShapes(ids: string[]): boolean {
   if (!ids.length) return false
   const previousSelection = [...selectedShapeIds.value]
-  rectangles.value = rectangles.value.filter(shape => !ids.includes(shape.id))
-  lines.value = lines.value.filter(shape => !ids.includes(shape.id))
-  setSelection(selectedShapeIds.value.filter(id => !ids.includes(id)))
+  rectangles.value = rectangles.value.filter((shape) => !ids.includes(shape.id))
+  lines.value = lines.value.filter((shape) => !ids.includes(shape.id))
+  setSelection(selectedShapeIds.value.filter((id) => !ids.includes(id)))
   commitScene(previousSelection.length ? previousSelection : ids)
   return true
 }
@@ -656,20 +904,27 @@ function clearSelection() {
 }
 
 function selectShape(shape: RectangleShape | LineShape, append = false): boolean {
-  const ids = shape.groupId && shape.groupId !== enteredGroup.value
-    ? allShapes.value.filter(candidate => candidate.groupId === shape.groupId).map(candidate => candidate.id)
-    : [shape.id]
-  const wasSelected = ids.every(id => selectedShapeIds.value.includes(id))
-  setSelection(append
-    ? wasSelected ? selectedShapeIds.value.filter(id => !ids.includes(id)) : [...new Set([...selectedShapeIds.value, ...ids])]
-    : ids)
+  const ids =
+    shape.groupId && shape.groupId !== enteredGroup.value
+      ? allShapes.value
+          .filter((candidate) => candidate.groupId === shape.groupId)
+          .map((candidate) => candidate.id)
+      : [shape.id]
+  const wasSelected = ids.every((id) => selectedShapeIds.value.includes(id))
+  setSelection(
+    append
+      ? wasSelected
+        ? selectedShapeIds.value.filter((id) => !ids.includes(id))
+        : [...new Set([...selectedShapeIds.value, ...ids])]
+      : ids,
+  )
   return !(append && wasSelected)
 }
 
 function selectLabel(shape: RectangleShape) {
   setSelection([shape.id])
   selectedLabelId.value = shape.id
-  liveMessage.value = 'Text selected'
+  liveMessage.value = __('Text selected')
 }
 
 function groupSelectedShapes(): boolean {
@@ -686,16 +941,22 @@ function groupSelectedShapes(): boolean {
 }
 
 function setSelection(ids: string[]) {
-  const available = new Set(allShapes.value.map(shape => shape.id))
-  const selected = [...new Set(ids)].filter(id => available.has(id))
+  const available = new Set(allShapes.value.map((shape) => shape.id))
+  const selected = [...new Set(ids)].filter((id) => available.has(id))
   selectedLabelId.value = undefined
   selectedShapeIds.value = selected
-  multiSelectionFrame.value = selected.length > 1 ? selectionOutline(bounds(allShapes.value.filter(shape => selected.includes(shape.id)))!) : undefined
-  liveMessage.value = `${selected.length} objects selected`
+  multiSelectionFrame.value =
+    selected.length > 1
+      ? selectionOutline(bounds(allShapes.value.filter((shape) => selected.includes(shape.id)))!)
+      : undefined
+  liveMessage.value = __('{0} objects selected', [selected.length])
 }
 
 function selectionScene(): SceneSnapshot {
-  return copyScene({ rectangles: rectangles.value.filter(s => selectedShapeIds.value.includes(s.id)), lines: lines.value.filter(s => selectedShapeIds.value.includes(s.id)) })
+  return copyScene({
+    rectangles: rectangles.value.filter((s) => selectedShapeIds.value.includes(s.id)),
+    lines: lines.value.filter((s) => selectedShapeIds.value.includes(s.id)),
+  })
 }
 function copySelectedShape(): boolean {
   if (!selectedShapeIds.value.length) return false
@@ -704,18 +965,34 @@ function copySelectedShape(): boolean {
 }
 function insertScene(scene: SceneSnapshot, offset = 10, commit = true) {
   const groups = new Map<string, string>()
-  let order = Math.max(0, ...allShapes.value.map(shape => shape.order ?? 0))
+  let order = Math.max(0, ...allShapes.value.map((shape) => shape.order ?? 0))
   const clone = (shape: Shape): Shape => {
-    const groupId = shape.groupId ? groups.get(shape.groupId) ?? createId('group') : undefined
+    const groupId = shape.groupId ? (groups.get(shape.groupId) ?? createId('group')) : undefined
     if (shape.groupId && groupId) groups.set(shape.groupId, groupId)
     return isLine(shape)
-      ? { ...shape, id: createId('line'), order: ++order, groupId, start: { x: shape.start.x + offset, y: shape.start.y + offset }, end: { x: shape.end.x + offset, y: shape.end.y + offset } }
-      : { ...shape, id: createId('rectangle'), order: ++order, groupId, x: shape.x + offset, y: shape.y + offset }
+      ? {
+          ...shape,
+          id: createId('line'),
+          order: ++order,
+          groupId,
+          start: { x: shape.start.x + offset, y: shape.start.y + offset },
+          end: { x: shape.end.x + offset, y: shape.end.y + offset },
+        }
+      : {
+          ...shape,
+          id: createId('rectangle'),
+          order: ++order,
+          groupId,
+          x: shape.x + offset,
+          y: shape.y + offset,
+        }
   }
-  const shapes = [...scene.lines, ...scene.rectangles].sort((a,b) => (a.order ?? 0) - (b.order ?? 0)).map(clone)
+  const shapes = [...scene.lines, ...scene.rectangles]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map(clone)
   lines.value.push(...shapes.filter(isLine))
   rectangles.value.push(...shapes.filter((s): s is RectangleShape => !isLine(s)))
-  setSelection(shapes.map(s => s.id))
+  setSelection(shapes.map((s) => s.id))
   if (commit) commitScene()
 }
 function duplicateSelection(offset = 10, commit = true) {
@@ -724,11 +1001,11 @@ function duplicateSelection(offset = 10, commit = true) {
 function readImage(file: File): Promise<{ src: string; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Could not read image.'))
+    reader.onerror = () => reject(new Error(__('Could not read image.')))
     reader.onload = () => {
       const src = typeof reader.result === 'string' ? reader.result : ''
       const image = new Image()
-      image.onerror = () => reject(new Error('Could not decode image.'))
+      image.onerror = () => reject(new Error(__('Could not decode image.')))
       image.onload = () => resolve({ src, width: image.naturalWidth, height: image.naturalHeight })
       image.src = src
     }
@@ -739,7 +1016,7 @@ function imageDimensions(src: string): Promise<{ width: number; height: number }
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
-    image.onerror = () => reject(new Error('Could not decode image.'))
+    image.onerror = () => reject(new Error(__('Could not decode image.')))
     image.src = src
   })
 }
@@ -751,35 +1028,53 @@ function cropSourceBounds(image: ImageShape) {
   return {
     x: image.x - (crop.x / crop.width) * image.width,
     y: image.y - (crop.y / crop.height) * image.height,
-    width: image.width / crop.width * image.naturalWidth!,
-    height: image.height / crop.height * image.naturalHeight!,
+    width: (image.width / crop.width) * image.naturalWidth!,
+    height: (image.height / crop.height) * image.naturalHeight!,
   }
 }
 function cropPoint(image: ImageShape, point: Point): Point {
-  const local = rotatePoint(screenToWorld(point, latestViewport()), rectangleCenter(image), -image.rotation)
+  const local = rotatePoint(
+    screenToWorld(point, latestViewport()),
+    rectangleCenter(image),
+    -image.rotation,
+  )
   const bounds = cropSourceBounds(image)
-  return { x: Math.max(bounds.x, Math.min(bounds.x + bounds.width, local.x)), y: Math.max(bounds.y, Math.min(bounds.y + bounds.height, local.y)) }
+  return {
+    x: Math.max(bounds.x, Math.min(bounds.x + bounds.width, local.x)),
+    y: Math.max(bounds.y, Math.min(bounds.y + bounds.height, local.y)),
+  }
 }
 async function beginCrop() {
-  let image = selectedShapes.value.length === 1 && isImage(selectedShapes.value[0]!) ? selectedShapes.value[0] : undefined
+  let image =
+    selectedShapes.value.length === 1 && isImage(selectedShapes.value[0]!)
+      ? selectedShapes.value[0]
+      : undefined
   if (!image) return
   if (!image.naturalWidth || !image.naturalHeight) {
     try {
       const dimensions = await imageDimensions(image.src)
       image = { ...image, naturalWidth: dimensions.width, naturalHeight: dimensions.height }
       replaceRectangle(image)
-    } catch { liveMessage.value = 'Could not prepare image for cropping.'; return }
+    } catch {
+      liveMessage.value = __('Could not prepare image for cropping.')
+      return
+    }
   }
   croppingImageId.value = image.id
   cropFrame.value = { ...image, id: 'crop', rotation: 0, cornerRadius: 0 }
-  liveMessage.value = 'Drag over the image to keep an area. Press Escape to cancel.'
+  liveMessage.value = __('Drag over the image to keep an area. Press Escape to cancel.')
 }
 function beginCropSelection(event: PointerEvent, point: Point): boolean {
   const image = croppingImage.value
   if (!image) return false
   const start = cropPoint(image, point)
   const bounds = cropSourceBounds(image)
-  if (start.x <= bounds.x || start.x >= bounds.x + bounds.width || start.y <= bounds.y || start.y >= bounds.y + bounds.height) {
+  if (
+    start.x <= bounds.x ||
+    start.x >= bounds.x + bounds.width ||
+    start.y <= bounds.y ||
+    start.y >= bounds.y + bounds.height
+  ) {
     cancelCrop()
     return true
   }
@@ -803,10 +1098,10 @@ function finishCrop(event: PointerEvent): boolean {
     replaceRectangle({
       ...image,
       crop: {
-        x: (frame.x - bounds.x) / bounds.width * image.naturalWidth!,
-        y: (frame.y - bounds.y) / bounds.height * image.naturalHeight!,
-        width: frame.width / bounds.width * image.naturalWidth!,
-        height: frame.height / bounds.height * image.naturalHeight!,
+        x: ((frame.x - bounds.x) / bounds.width) * image.naturalWidth!,
+        y: ((frame.y - bounds.y) / bounds.height) * image.naturalHeight!,
+        width: (frame.width / bounds.width) * image.naturalWidth!,
+        height: (frame.height / bounds.height) * image.naturalHeight!,
       },
     } as ImageShape)
     commitScene()
@@ -828,8 +1123,14 @@ function cropMaskPath(image: ImageShape, frame: RectangleShape) {
   return `M${bounds.x} ${bounds.y}h${bounds.width}v${bounds.height}h-${bounds.width}zM${frame.x} ${frame.y}h${frame.width}v${frame.height}h-${frame.width}z`
 }
 async function insertImages(files: Iterable<File>, point = center()) {
-  const imageFiles = [...files].filter(file => IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES)
-  if (!imageFiles.length) { liveMessage.value = 'Use a PNG, JPEG, GIF, or WebP image up to 10 MB.'; return }
+  if (!editable.value) return
+  const imageFiles = [...files].filter(
+    (file) => IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES,
+  )
+  if (!imageFiles.length) {
+    liveMessage.value = __('Use a PNG, JPEG, GIF, or WebP image up to 10 MB.')
+    return
+  }
   const start = screenToWorld(point, latestViewport())
   const added: ImageShape[] = []
   for (const [index, file] of imageFiles.entries()) {
@@ -838,18 +1139,42 @@ async function insertImages(files: Iterable<File>, point = center()) {
       const scale = Math.min(1, 480 / Math.max(image.width, image.height))
       const width = Math.max(24, Math.round(image.width * scale))
       const height = Math.max(24, Math.round(image.height * scale))
-      added.push({ id: createId('image'), kind: 'image', src: image.src, naturalWidth: image.width, naturalHeight: image.height, x: start.x + index * 16, y: start.y + index * 16, width, height, rotation: 0, cornerRadius: 0, stroke: null })
-    } catch { liveMessage.value = `Could not add ${file.name}.` }
+      added.push({
+        id: createId('image'),
+        kind: 'image',
+        src: image.src,
+        naturalWidth: image.width,
+        naturalHeight: image.height,
+        x: start.x + index * 16,
+        y: start.y + index * 16,
+        width,
+        height,
+        rotation: 0,
+        cornerRadius: 0,
+        stroke: null,
+      })
+    } catch {
+      liveMessage.value = __('Could not add {0}.', [file.name])
+    }
   }
-  if (!added.length) return
+  if (!added.length || !editable.value) return
   rectangles.value.push(...added)
-  setSelection(added.map(image => image.id))
+  setSelection(added.map((image) => image.id))
   commitScene()
-  liveMessage.value = `${added.length} image${added.length === 1 ? '' : 's'} added`
+  liveMessage.value = __('{0} image{1} added', [added.length, added.length === 1 ? '' : 's'])
   if (props.activeTool === 'image') emit('cancelTool')
 }
-function openImagePicker(point = center()) { imageInsertPoint = point; fileInput.value?.click() }
-defineExpose({ openImagePicker })
+function openImagePicker(point = center()) {
+  if (!editable.value) return
+  imageInsertPoint = point
+  fileInput.value?.click()
+}
+async function flush() {
+  finishTextEditor()
+  cancelGesture()
+  await saveDrawing()
+}
+defineExpose({ openImagePicker, flush })
 function onImageInput(event: Event) {
   const input = event.target as HTMLInputElement
   if (input.files) void insertImages(input.files, imageInsertPoint)
@@ -860,17 +1185,19 @@ function onDragOver(event: DragEvent) {
   if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault()
 }
 function onDrop(event: DragEvent) {
+  if (!editable.value) return
   const files = event.dataTransfer?.files
   if (!files?.length) return
   event.preventDefault()
   void insertImages(files, localPoint(event))
 }
 function onClipboard(event: ClipboardEvent) {
+  if (!editable.value) return
   if (drawingLoading.value || editableTarget(event.target)) return
   if (event.type === 'paste') {
     const imageFiles = [...(event.clipboardData?.items ?? [])]
-      .filter(item => IMAGE_TYPES.has(item.type))
-      .map(item => item.getAsFile())
+      .filter((item) => IMAGE_TYPES.has(item.type))
+      .map((item) => item.getAsFile())
       .filter((file): file is File => Boolean(file))
     if (imageFiles.length) {
       event.preventDefault()
@@ -882,7 +1209,9 @@ function onClipboard(event: ClipboardEvent) {
       if (data.format !== 'draw') return
       insertScene(parseScene(data.scene))
       event.preventDefault()
-    } catch { liveMessage.value = 'Clipboard does not contain a valid Draw drawing.' }
+    } catch {
+      liveMessage.value = __('Clipboard does not contain a valid Draw drawing.')
+    }
   } else if (copySelectedShape()) {
     event.clipboardData?.setData('text/plain', JSON.stringify({ format: 'draw', scene: clipboard }))
     event.preventDefault()
@@ -896,7 +1225,18 @@ function ungroupSelection() {
 }
 
 function shapeLabel(shape: Shape) {
-  return isLine(shape) ? (shape.kind === 'arrow' ? 'Arrow' : 'Line') : isFreeDraw(shape) ? 'Drawing' : isImage(shape) ? 'Image' : isText(shape) ? shape.text : shape.label || (isDiamond(shape) ? 'Diamond' : isEllipse(shape) ? 'Ellipse' : 'Rectangle')
+  return isLine(shape)
+    ? shape.kind === 'arrow'
+      ? 'Arrow'
+      : 'Line'
+    : isFreeDraw(shape)
+      ? 'Drawing'
+      : isImage(shape)
+        ? 'Image'
+        : isText(shape)
+          ? shape.text
+          : shape.label ||
+            (isDiamond(shape) ? 'Diamond' : isEllipse(shape) ? 'Ellipse' : 'Rectangle')
 }
 
 function textX(shape: TextShape): number {
@@ -907,12 +1247,20 @@ function textX(shape: TextShape): number {
 
 function cyclePropertyTextAlign() {
   if (!textPropertyControlsEnabled.value) return
-  const index = textAlignOptions.findIndex(option => option.value === propertyTextStyle.value.textAlign)
-  updatePropertyTextStyle({ textAlign: textAlignOptions[(index + 1) % textAlignOptions.length]!.value })
+  const index = textAlignOptions.findIndex(
+    (option) => option.value === propertyTextStyle.value.textAlign,
+  )
+  updatePropertyTextStyle({
+    textAlign: textAlignOptions[(index + 1) % textAlignOptions.length]!.value,
+  })
 }
 
 function constrainDelta(delta: Point): Point {
-  return isShiftPressed.value ? Math.abs(delta.x) >= Math.abs(delta.y) ? { x: delta.x, y: 0 } : { x: 0, y: delta.y } : delta
+  return isShiftPressed.value
+    ? Math.abs(delta.x) >= Math.abs(delta.y)
+      ? { x: delta.x, y: 0 }
+      : { x: 0, y: delta.y }
+    : delta
 }
 
 function moveSelectedShape(x: number, y: number): boolean {
@@ -928,7 +1276,11 @@ function moveSelectedShapes(scene: SceneSnapshot, delta: Point) {
     if (!original || !selectedShapeIds.value.includes(shape.id)) return shape
     const moved = moveRectangle(original, delta)
     return isFreeDraw(original)
-      ? { ...original, ...moved, points: original.points.map(point => ({ x: point.x + delta.x, y: point.y + delta.y })) }
+      ? {
+          ...original,
+          ...moved,
+          points: original.points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y })),
+        }
       : moved
   })
   lines.value = lines.value.map((shape) => {
@@ -979,7 +1331,10 @@ function updateLasso(event: PointerEvent) {
   }
   autoPan(point)
   const pannedViewport = latestViewport()
-  if (pannedViewport.translationX !== sampleViewport.translationX || pannedViewport.translationY !== sampleViewport.translationY) {
+  if (
+    pannedViewport.translationX !== sampleViewport.translationX ||
+    pannedViewport.translationY !== sampleViewport.translationY
+  ) {
     addLassoPoint(screenToWorld(point, pannedViewport), pannedViewport.scale)
   }
   event.preventDefault()
@@ -992,13 +1347,22 @@ function finishLasso(event: PointerEvent): boolean {
   if (event.type === 'pointerup') {
     updateLassoOperation(event)
     addLassoPoint(screenToWorld(localPoint(event), latestViewport()))
-    if (gesture.points.length >= 3 && Math.abs(polygonArea(gesture.points)) > 1 / latestViewport().scale ** 2) {
+    if (
+      gesture.points.length >= 3 &&
+      Math.abs(polygonArea(gesture.points)) > 1 / latestViewport().scale ** 2
+    ) {
       const hits = shapesIntersectingLasso(allShapes.value, gesture.points)
-      const hitIds = new Set(hits.map(shape => shape.id))
-      const groups = new Set(hits.map(shape => shape.groupId).filter((id): id is string => Boolean(id && id !== enteredGroup.value)))
+      const hitIds = new Set(hits.map((shape) => shape.id))
+      const groups = new Set(
+        hits
+          .map((shape) => shape.groupId)
+          .filter((id): id is string => Boolean(id && id !== enteredGroup.value)),
+      )
       const selectedIds = allShapes.value
-        .filter(shape => hitIds.has(shape.id) || Boolean(shape.groupId && groups.has(shape.groupId)))
-        .map(shape => shape.id)
+        .filter(
+          (shape) => hitIds.has(shape.id) || Boolean(shape.groupId && groups.has(shape.groupId)),
+        )
+        .map((shape) => shape.id)
       setSelection(applyLassoSelection(selectedShapeIds.value, selectedIds, gesture.operation))
       selectionCompleted = true
     }
@@ -1038,7 +1402,7 @@ function polygonArea(points: Point[]): number {
 function lassoPathData(points: Point[]): string {
   const [first, ...rest] = points
   if (!first) return ''
-  return `M ${first.x} ${first.y} ${rest.map(point => `L ${point.x} ${point.y}`).join(' ')}`
+  return `M ${first.x} ${first.y} ${rest.map((point) => `L ${point.x} ${point.y}`).join(' ')}`
 }
 
 function autoPan(point: Point) {
@@ -1046,12 +1410,17 @@ function autoPan(point: Point) {
   const y = edgePanDelta(point.y, size.y)
   if (x === 0 && y === 0) return
   const current = latestViewport()
-  queueViewport({ ...current, translationX: current.translationX + x, translationY: current.translationY + y })
+  queueViewport({
+    ...current,
+    translationX: current.translationX + x,
+    translationY: current.translationY + y,
+  })
 }
 
 function edgePanDelta(value: number, maximum: number): number {
   if (value < AUTO_PAN_EDGE) return Math.min(AUTO_PAN_SPEED, AUTO_PAN_EDGE - value)
-  if (value > maximum - AUTO_PAN_EDGE) return -Math.min(AUTO_PAN_SPEED, value - (maximum - AUTO_PAN_EDGE))
+  if (value > maximum - AUTO_PAN_EDGE)
+    return -Math.min(AUTO_PAN_SPEED, value - (maximum - AUTO_PAN_EDGE))
   return 0
 }
 
@@ -1080,6 +1449,7 @@ function beginPinch() {
 }
 
 function startTextEditor(editor: TextEditor) {
+  textDraftId = createId('text')
   clearSelection()
   hoveredSelectionHandle.value = undefined
   isMoveReady.value = false
@@ -1100,8 +1470,14 @@ function beginText(event: PointerEvent, point: Point) {
   const start = screenToWorld(point, latestViewport())
   const hit = [...rectangles.value].reverse().find((shape) => containsPoint(shape, start))
   if (hit) {
-    if (isImage(hit)) { selectShape(hit); emit('cancelTool'); event.preventDefault(); return }
-    isText(hit) ? editText(hit) : editLabel(hit)
+    if (isImage(hit)) {
+      selectShape(hit)
+      emit('cancelTool')
+      event.preventDefault()
+      return
+    }
+    if (isText(hit)) editText(hit)
+    else editLabel(hit)
     emit('cancelTool')
     event.preventDefault()
     return
@@ -1134,8 +1510,8 @@ function finishText(event: PointerEvent) {
   startTextEditor({
     kind: 'text',
     text: '',
-    x: dragged ? draft?.x ?? start.x : start.x,
-    y: dragged ? draft?.y ?? start.y : start.y - 10,
+    x: dragged ? (draft?.x ?? start.x) : start.x,
+    y: dragged ? (draft?.y ?? start.y) : start.y - 10,
     width: dragged ? Math.max(24, draft?.width ?? Math.abs(end.x - start.x)) : 16,
     height: 20,
     fill: armedTextStyle.fill,
@@ -1174,7 +1550,12 @@ function editText(shape: TextShape) {
 }
 
 function editLabel(shape: RectangleShape) {
-  const fitted = fitLabel(shape, shape.label ?? '', shape.labelFontSize ?? 16, shape.labelFontFamily ?? 'shantell')
+  const fitted = fitLabel(
+    shape,
+    shape.label ?? '',
+    shape.labelFontSize ?? 16,
+    shape.labelFontFamily ?? 'shantell',
+  )
   startTextEditor({
     kind: 'label',
     shapeId: shape.id,
@@ -1204,7 +1585,17 @@ function updateTextEditor(event: Event) {
     const shape = rectangles.value.find((candidate) => candidate.id === editor.shapeId)
     if (!shape || isText(shape)) return
     const fitted = fitLabel(shape, editor.text, editor.fontSize, editor.fontFamily, editor)
-    replaceRectangle({ ...fitted.shape, label: editor.text || undefined, labelFontSize: editor.fontSize, labelFontFamily: editor.fontFamily, labelFill: editor.fill, labelFontWeight: editor.fontWeight, labelFontStyle: editor.fontStyle, labelTextDecoration: editor.textDecoration, labelTextAlign: editor.textAlign })
+    replaceRectangle({
+      ...fitted.shape,
+      label: editor.text || undefined,
+      labelFontSize: editor.fontSize,
+      labelFontFamily: editor.fontFamily,
+      labelFill: editor.fill,
+      labelFontWeight: editor.fontWeight,
+      labelFontStyle: editor.fontStyle,
+      labelTextDecoration: editor.textDecoration,
+      labelTextAlign: editor.textAlign,
+    })
     editor.x = labelTextX(fitted.shape)
     editor.y = fitted.shape.y + (fitted.shape.height - fitted.layout.height) / 2
     editor.width = labelTextWidth(fitted.shape)
@@ -1226,7 +1617,7 @@ function updatePropertyTextStyle(patch: TextStylePatch) {
     }
     if (selectedLabel.value) {
       const shape = selectedLabel.value
-      rectangles.value = rectangles.value.map(candidate => {
+      rectangles.value = rectangles.value.map((candidate) => {
         if (candidate.id !== shape.id) return candidate
         const styled = {
           ...candidate,
@@ -1236,10 +1627,15 @@ function updatePropertyTextStyle(patch: TextStylePatch) {
           ...(patch.fontSize !== undefined ? { labelFontSize: patch.fontSize } : {}),
           ...(patch.fontWeight !== undefined ? { labelFontWeight: patch.fontWeight } : {}),
           ...(patch.fontStyle !== undefined ? { labelFontStyle: patch.fontStyle } : {}),
-          ...(patch.textDecoration !== undefined ? { labelTextDecoration: patch.textDecoration } : {}),
+          ...(patch.textDecoration !== undefined
+            ? { labelTextDecoration: patch.textDecoration }
+            : {}),
           ...(patch.textAlign !== undefined ? { labelTextAlign: patch.textAlign } : {}),
         }
-        return fitLabel(styled, styled.label ?? '', styled.labelFontSize, styled.labelFontFamily, styled).shape
+        return fitLabel(styled, styled.label ?? '', styled.labelFontSize, styled.labelFontFamily, {
+          fontWeight: styled.labelFontWeight,
+          fontStyle: styled.labelFontStyle,
+        }).shape
       })
       commitScene()
       return
@@ -1251,9 +1647,22 @@ function updatePropertyTextStyle(patch: TextStylePatch) {
   if (editor.kind === 'label' && editor.shapeId) {
     const shape = rectangles.value.find((candidate) => candidate.id === editor.shapeId)
     if (!shape || isText(shape)) return
-    const styledShape = { ...shape, ...('backgroundColor' in patch ? { fill: patch.backgroundColor } : {}) }
+    const styledShape = {
+      ...shape,
+      ...('backgroundColor' in patch ? { fill: patch.backgroundColor } : {}),
+    }
     const fitted = fitLabel(styledShape, editor.text, editor.fontSize, editor.fontFamily, editor)
-    replaceRectangle({ ...fitted.shape, label: editor.text || undefined, labelFontSize: editor.fontSize, labelFontFamily: editor.fontFamily, labelFill: editor.fill, labelFontWeight: editor.fontWeight, labelFontStyle: editor.fontStyle, labelTextDecoration: editor.textDecoration, labelTextAlign: editor.textAlign })
+    replaceRectangle({
+      ...fitted.shape,
+      label: editor.text || undefined,
+      labelFontSize: editor.fontSize,
+      labelFontFamily: editor.fontFamily,
+      labelFill: editor.fill,
+      labelFontWeight: editor.fontWeight,
+      labelFontStyle: editor.fontStyle,
+      labelTextDecoration: editor.textDecoration,
+      labelTextAlign: editor.textAlign,
+    })
     editor.x = labelTextX(fitted.shape)
     editor.y = fitted.shape.y + (fitted.shape.height - fitted.layout.height) / 2
     editor.width = labelTextWidth(fitted.shape)
@@ -1289,13 +1698,31 @@ function finishTextEditor(event?: FocusEvent) {
     updateLabel(editor.shapeId, editor.text)
     return
   }
+  const shape = textEditorShape(editor)
+  if (editor.shapeId) replaceRectangle(shape)
+  else rectangles.value.push(shape)
+  selectShape(shape)
+  if (!editor.shapeId) window.setTimeout(() => selectShape(shape), 0)
+  commitScene()
+}
+
+function textEditorShape(editor: TextEditor): TextShape {
   const layout = layoutText(editor.text, editor.width, editor.fontSize, editor.wrap, editor)
-  const shape: TextShape = {
-    ...fitTextBounds(editor.original ?? {
-      id: '', x: editor.x, y: editor.y, width: editor.width, height: editor.height,
-      rotation: 0, cornerRadius: 0,
-    }, layout.width, layout.height),
-    id: editor.shapeId ?? createId('text'),
+  return {
+    ...fitTextBounds(
+      editor.original ?? {
+        id: '',
+        x: editor.x,
+        y: editor.y,
+        width: editor.width,
+        height: editor.height,
+        rotation: 0,
+        cornerRadius: 0,
+      },
+      layout.width,
+      layout.height,
+    ),
+    id: editor.shapeId ?? textDraftId,
     kind: 'text',
     text: editor.text,
     fontSize: editor.fontSize,
@@ -1310,12 +1737,24 @@ function finishTextEditor(event?: FocusEvent) {
     rotation: editor.original?.rotation ?? 0,
     cornerRadius: editor.original?.cornerRadius ?? 0,
   }
-  if (editor.shapeId) replaceRectangle(shape)
-  else rectangles.value.push(shape)
-  selectShape(shape)
-  if (!editor.shapeId) window.setTimeout(() => selectShape(shape), 0)
-  commitScene()
 }
+
+function sceneWithTextDraft() {
+  const scene = copyScene()
+  const editor = textEditor.value
+  if (!editor || editor.kind === 'label') return scene
+  const id = editor.shapeId ?? textDraftId
+  scene.rectangles = scene.rectangles.filter((shape) => shape.id !== id)
+  if (editor.text.trim()) scene.rectangles.push(textEditorShape(editor))
+  return scene
+}
+watch(
+  textEditor,
+  (editor) => {
+    if (editor && editable.value) persistence.retainScene(sceneWithTextDraft())
+  },
+  { deep: true },
+)
 
 function beginPropertyToolbarInteraction() {
   propertyToolbarInteracting.value = true
@@ -1325,9 +1764,8 @@ function endPropertyToolbarInteraction(event: MouseEvent) {
   propertyToolbarInteracting.value = false
   const activePopup = propertyPopupOpen.value
   if (!activePopup || !(event.target instanceof Element)) return
-  const activeControl = activePopup === 'color'
-    ? '.property-color-control'
-    : `.property-text-control--${activePopup}`
+  const activeControl =
+    activePopup === 'color' ? '.property-color-control' : `.property-text-control--${activePopup}`
   if (event.target.closest(activeControl)) return
   propertyPopupOpen.value = undefined
 }
@@ -1368,7 +1806,12 @@ function cancelPropertyFontSizeEdit() {
 }
 
 function handlePropertyFontSizePointerUp(event: PointerEvent) {
-  if (event.pointerType !== 'touch' || !(event.target instanceof Element) || !event.target.closest('.property-text-control--size')) return
+  if (
+    event.pointerType !== 'touch' ||
+    !(event.target instanceof Element) ||
+    !event.target.closest('.property-text-control--size')
+  )
+    return
   const now = performance.now()
   if (!lastFontSizeTouch || now - lastFontSizeTouch > 400) {
     lastFontSizeTouch = now
@@ -1381,7 +1824,11 @@ function handlePropertyFontSizePointerUp(event: PointerEvent) {
 function updateLabel(id: string, label: string | undefined) {
   const shape = rectangles.value.find((candidate) => candidate.id === id)
   if (!shape || isText(shape)) return
-  replaceRectangle({ ...fitLabel(shape, label ?? '').shape, label, labelFontSize: shape.labelFontSize ?? 16 })
+  replaceRectangle({
+    ...fitLabel(shape, label ?? '').shape,
+    label,
+    labelFontSize: shape.labelFontSize ?? 16,
+  })
   selectShape(shape)
   commitScene()
 }
@@ -1408,11 +1855,19 @@ function updateRectangle(point: Point) {
   pendingRectangle.value = shapeFromPoints(
     rectangleGesture.start,
     screenToWorld(point, latestViewport()),
-    'pending', isShiftPressed.value,
+    'pending',
+    isShiftPressed.value,
   )
   if (modifiers.alt && pendingRectangle.value) {
-    const p = pendingRectangle.value, c = rectangleGesture.start
-    pendingRectangle.value = { ...p, x: c.x - p.width, y: c.y - p.height, width: p.width * 2, height: p.height * 2 }
+    const p = pendingRectangle.value,
+      c = rectangleGesture.start
+    pendingRectangle.value = {
+      ...p,
+      x: c.x - p.width,
+      y: c.y - p.height,
+      width: p.width * 2,
+      height: p.height * 2,
+    }
   }
 }
 
@@ -1470,7 +1925,11 @@ function updateLine(point: Point) {
     isShiftPressed.value,
     lineToolKind(),
   )
-  if (modifiers.alt && pendingLine.value) pendingLine.value.start = { x: 2 * lineGesture.start.x - pendingLine.value.end.x, y: 2 * lineGesture.start.y - pendingLine.value.end.y }
+  if (modifiers.alt && pendingLine.value)
+    pendingLine.value.start = {
+      x: 2 * lineGesture.start.x - pendingLine.value.end.x,
+      y: 2 * lineGesture.start.y - pendingLine.value.end.y,
+    }
 }
 
 function finishLine(event: PointerEvent) {
@@ -1498,18 +1957,26 @@ function startSelection(event: PointerEvent, point: Point) {
   const worldPoint = screenToWorld(point, latestViewport())
   const handle = selectionHandleAt(point)
   const rectangleHandle = handle === 'line-curve' ? undefined : handle
-  const rectangle = hasMultipleSelection.value || selectedLabel.value ? selectionFrame.value : selectedRectangle.value
+  const rectangle =
+    hasMultipleSelection.value || selectedLabel.value
+      ? selectionFrame.value
+      : selectedRectangle.value
   const line = selectedLine.value
   const lineHandle = hasMultipleSelection.value ? undefined : lineSelectionHandleAt(point)
   cycleClickPoint = (event.metaKey || event.ctrlKey) && !handle ? point : undefined
   cycleClickShape = undefined
   if (cycleClickPoint) {
-    const hits = [...allShapes.value].reverse().filter(s => isLine(s) ? containsLine(s, point) : containsPoint(s, worldPoint))
-    cycleClickShape = hits[(hits.findIndex(s => selectedShapeIds.value.includes(s.id)) + 1) % hits.length]
+    const hits = [...allShapes.value]
+      .reverse()
+      .filter((s) => (isLine(s) ? containsLine(s, point) : containsPoint(s, worldPoint)))
+    cycleClickShape =
+      hits[(hits.findIndex((s) => selectedShapeIds.value.includes(s.id)) + 1) % hits.length]
   }
   shiftClickShape = undefined
   if (event.shiftKey && !rectangleHandle && !lineHandle) {
-    const hit = [...allShapes.value].reverse().find(s => isLine(s) ? containsLine(s, point) : containsPoint(s, worldPoint))
+    const hit = [...allShapes.value]
+      .reverse()
+      .find((s) => (isLine(s) ? containsLine(s, point) : containsPoint(s, worldPoint)))
     if (hit && selectedShapeIds.value.includes(hit.id)) shiftClickShape = hit
     else if (hit) selectShape(hit, true)
   }
@@ -1526,21 +1993,43 @@ function startSelection(event: PointerEvent, point: Point) {
     hoveredSelectionHandle.value = rectangleHandle
     selectionGesture = {
       pointerId: event.pointerId,
-      kind: isRotateHandle(rectangleHandle) ? 'rotate' : isCurveHandle(rectangleHandle) ? 'curve' : 'resize',
-      handle: isRotateHandle(rectangleHandle) ? undefined : isCurveHandle(rectangleHandle) ? curveCorner(rectangleHandle) : rectangleHandle,
+      kind: isRotateHandle(rectangleHandle)
+        ? 'rotate'
+        : isCurveHandle(rectangleHandle)
+          ? 'curve'
+          : 'resize',
+      handle: isRotateHandle(rectangleHandle)
+        ? undefined
+        : isCurveHandle(rectangleHandle)
+          ? curveCorner(rectangleHandle)
+          : rectangleHandle,
       start: worldPoint,
       original: { ...rectangle },
       originalScene: copyScene(),
       labelOriginal: selectedLabel.value ? { ...selectedLabel.value } : undefined,
-      handleStart: isRotateHandle(rectangleHandle) || isCurveHandle(rectangleHandle) ? undefined : resizeHandlePoint(rectangle, rectangleHandle),
+      handleStart:
+        isRotateHandle(rectangleHandle) || isCurveHandle(rectangleHandle)
+          ? undefined
+          : resizeHandlePoint(rectangle, rectangleHandle),
     }
     isRotating.value = isRotateHandle(rectangleHandle)
   } else {
-    const topHit = [...allShapes.value].reverse().find(s => isLine(s) ? containsLine(s, point) : containsPoint(s, worldPoint))
+    const topHit = [...allShapes.value]
+      .reverse()
+      .find((s) => (isLine(s) ? containsLine(s, point) : containsPoint(s, worldPoint)))
     const hit = topHit && !isLine(topHit) ? topHit : undefined
     isHoveringSelectedShape.value = Boolean(hit)
     if (hit) {
-      const labelHit = !event.shiftKey && !event.metaKey && !event.ctrlKey && !isText(hit) && !isImage(hit) && !isFreeDraw(hit) && Boolean(hit.label) && (!hit.groupId || hit.groupId === enteredGroup.value) && containsLabelPoint(hit, worldPoint)
+      const labelHit =
+        !event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !isText(hit) &&
+        !isImage(hit) &&
+        !isFreeDraw(hit) &&
+        Boolean(hit.label) &&
+        (!hit.groupId || hit.groupId === enteredGroup.value) &&
+        containsLabelPoint(hit, worldPoint)
       if (labelHit) selectLabel(hit)
       else selectedLabelId.value = undefined
       if (!selectedShapeIds.value.includes(hit.id) && !selectShape(hit, event.shiftKey)) return
@@ -1552,7 +2041,11 @@ function startSelection(event: PointerEvent, point: Point) {
         originalScene: copyScene(),
       }
     } else {
-      if (hasMultipleSelection.value && selectionFrame.value && containsPoint(selectionFrame.value, worldPoint)) {
+      if (
+        hasMultipleSelection.value &&
+        selectionFrame.value &&
+        containsPoint(selectionFrame.value, worldPoint)
+      ) {
         selectionGesture = {
           pointerId: event.pointerId,
           kind: 'move',
@@ -1563,7 +2056,8 @@ function startSelection(event: PointerEvent, point: Point) {
       } else {
         const lineHit = topHit && isLine(topHit) ? topHit : undefined
         if (lineHit) {
-          if (!selectedShapeIds.value.includes(lineHit.id) && !selectShape(lineHit, event.shiftKey)) return
+          if (!selectedShapeIds.value.includes(lineHit.id) && !selectShape(lineHit, event.shiftKey))
+            return
           lineSelectionGesture = {
             pointerId: event.pointerId,
             kind: 'move',
@@ -1572,7 +2066,11 @@ function startSelection(event: PointerEvent, point: Point) {
             originalScene: copyScene(),
           }
         } else {
-          marqueeGesture = { pointerId: event.pointerId, start: worldPoint, previous: event.shiftKey ? [...selectedShapeIds.value] : [] }
+          marqueeGesture = {
+            pointerId: event.pointerId,
+            start: worldPoint,
+            previous: event.shiftKey ? [...selectedShapeIds.value] : [],
+          }
           root.value?.setPointerCapture(event.pointerId)
           if (!event.shiftKey) clearSelection()
         }
@@ -1581,11 +2079,18 @@ function startSelection(event: PointerEvent, point: Point) {
   }
 
   if (hasMultipleSelection.value && lineSelectionGesture?.kind === 'move' && selectionFrame.value) {
-    selectionGesture = { pointerId: event.pointerId, kind: 'move', start: worldPoint, original: { ...selectionFrame.value }, originalScene: copyScene() }
+    selectionGesture = {
+      pointerId: event.pointerId,
+      kind: 'move',
+      start: worldPoint,
+      original: { ...selectionFrame.value },
+      originalScene: copyScene(),
+    }
     lineSelectionGesture = undefined
     isCurving.value = false
   }
-  duplicateOnDrag = event.altKey && (selectionGesture?.kind === 'move' || lineSelectionGesture?.kind === 'move')
+  duplicateOnDrag =
+    event.altKey && (selectionGesture?.kind === 'move' || lineSelectionGesture?.kind === 'move')
   if (!selectionGesture && !lineSelectionGesture) return
   root.value?.setPointerCapture(event.pointerId)
   event.preventDefault()
@@ -1613,31 +2118,52 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
   const pointer = screenToWorld(point, latestViewport())
   const { original } = selectionGesture
   if (isText(original) && !selectionGesture.dragStarted) {
-    if (distance(pointer, selectionGesture.start) * latestViewport().scale < TEXT_DRAG_THRESHOLD) return
+    if (distance(pointer, selectionGesture.start) * latestViewport().scale < TEXT_DRAG_THRESHOLD)
+      return
     selectionGesture.dragStarted = true
     selectionGesture.start = pointer
     return
   }
-  constrainProportions ||= selectionGesture.kind === 'resize' && hasMultipleSelection.value && selectedShapes.value.some(s => !isLine(s) && (s.rotation % 90 !== 0 || isText(s)))
+  constrainProportions ||=
+    selectionGesture.kind === 'resize' &&
+    hasMultipleSelection.value &&
+    selectedShapes.value.some((s) => !isLine(s) && (s.rotation % 90 !== 0 || isText(s)))
   const textCornerResize = Boolean(
-    (isText(original) || selectionGesture.labelOriginal) && selectionGesture.kind === 'resize' && selectionGesture.handle && isCorner(selectionGesture.handle),
+    (isText(original) || selectionGesture.labelOriginal) &&
+    selectionGesture.kind === 'resize' &&
+    selectionGesture.handle &&
+    isCorner(selectionGesture.handle),
   )
-  const moved = moveRectangle(original, constrainDelta({
-    x: pointer.x - selectionGesture.start.x,
-    y: pointer.y - selectionGesture.start.y,
-  }))
-  const moveSnap = selectionGesture.kind === 'move' && !modifiers.bypass && !isShiftPressed.value
-    ? snapShapeMove(moved, rectangles.value.filter(s => !selectedShapeIds.value.includes(s.id)), viewport.scale)
-    : undefined
-  const resizeSnap = selectionGesture.kind === 'resize' && selectionGesture.handle && !constrainProportions && !textCornerResize && !modifiers.bypass && !modifiers.alt
-    ? snapResizeHandlePoint(
-        resizePointer(pointer),
-        original,
-        selectionGesture.handle,
-        rectangles.value.filter(s => !selectedShapeIds.value.includes(s.id)),
-        viewport.scale,
-      )
-    : undefined
+  const moved = moveRectangle(
+    original,
+    constrainDelta({
+      x: pointer.x - selectionGesture.start.x,
+      y: pointer.y - selectionGesture.start.y,
+    }),
+  )
+  const moveSnap =
+    selectionGesture.kind === 'move' && !modifiers.bypass && !isShiftPressed.value
+      ? snapShapeMove(
+          moved,
+          rectangles.value.filter((s) => !selectedShapeIds.value.includes(s.id)),
+          viewport.scale,
+        )
+      : undefined
+  const resizeSnap =
+    selectionGesture.kind === 'resize' &&
+    selectionGesture.handle &&
+    !constrainProportions &&
+    !textCornerResize &&
+    !modifiers.bypass &&
+    !modifiers.alt
+      ? snapResizeHandlePoint(
+          resizePointer(pointer),
+          original,
+          selectionGesture.handle,
+          rectangles.value.filter((s) => !selectedShapeIds.value.includes(s.id)),
+          viewport.scale,
+        )
+      : undefined
   if (moveSnap) {
     alignmentGuides.value = moveSnap.alignmentGuides
     spacingMarkers.value = moveSnap.spacingMarkers
@@ -1649,7 +2175,7 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
   }
   let next =
     selectionGesture.kind === 'move'
-      ? moveSnap?.shape ?? moved
+      ? (moveSnap?.shape ?? moved)
       : selectionGesture.kind === 'resize' && selectionGesture.handle
         ? isCorner(selectionGesture.handle)
           ? resizeFromCorner(
@@ -1664,13 +2190,15 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
               resizeSnap?.point ?? centeredResizePointer(pointer),
               constrainProportions,
             )
-        : selectionGesture.kind === 'curve' && selectionGesture.handle && isCorner(selectionGesture.handle)
+        : selectionGesture.kind === 'curve' &&
+            selectionGesture.handle &&
+            isCorner(selectionGesture.handle)
           ? setCornerRadius(
               original,
               selectionGesture.handle,
               curvePointer(original, selectionGesture.handle, pointer, selectionGesture.start),
             )
-        : rotateRectangle(original, selectionGesture.start, pointer, constrainProportions)
+          : rotateRectangle(original, selectionGesture.start, pointer, constrainProportions)
   if (selectionGesture.kind === 'resize' && modifiers.alt) {
     const c = rectangleCenter(original)
     next = { ...next, x: c.x - next.width / 2, y: c.y - next.height / 2 }
@@ -1689,7 +2217,8 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
     for (const shape of [...source.rectangles, ...source.lines]) {
       if (!selectedShapeIds.value.includes(shape.id)) continue
       const transformed = transformShape(shape, original, next)
-      if (isLine(transformed)) replaceLine(transformed); else replaceRectangle(transformed)
+      if (isLine(transformed)) replaceLine(transformed)
+      else replaceRectangle(transformed)
     }
     return
   }
@@ -1702,7 +2231,9 @@ function updateSelection(point: Point, constrainProportions = isShiftPressed.val
     const transformed = transformShape(original, original, next)
     if (isFreeDraw(transformed)) replaceRectangle(transformed)
   } else if (isText(original)) {
-    replaceRectangle(selectionGesture.kind === 'resize' ? resizeText(original, next, textCornerResize) : next)
+    replaceRectangle(
+      selectionGesture.kind === 'resize' ? resizeText(original, next, textCornerResize) : next,
+    )
   } else replaceRectangle(resizeLabel(original, next))
 }
 
@@ -1713,10 +2244,13 @@ function updateLineSelection(point: Point) {
   const { kind } = lineSelectionGesture
   if (kind === 'move') {
     clearSnapFeedback()
-    const moved = moveLine(original, constrainDelta({
-      x: pointer.x - lineSelectionGesture.start.x,
-      y: pointer.y - lineSelectionGesture.start.y,
-    }))
+    const moved = moveLine(
+      original,
+      constrainDelta({
+        x: pointer.x - lineSelectionGesture.start.x,
+        y: pointer.y - lineSelectionGesture.start.y,
+      }),
+    )
     moveSelectedShapes(lineSelectionGesture.originalScene, {
       x: moved.start.x - original.start.x,
       y: moved.start.y - original.start.y,
@@ -1726,7 +2260,12 @@ function updateLineSelection(point: Point) {
 
   if (kind === 'curve') {
     const control = lineControlPoint(original)
-    replaceLine(setLineCurve(original, { x: control.x + pointer.x - lineSelectionGesture.start.x, y: control.y + pointer.y - lineSelectionGesture.start.y }))
+    replaceLine(
+      setLineCurve(original, {
+        x: control.x + pointer.x - lineSelectionGesture.start.x,
+        y: control.y + pointer.y - lineSelectionGesture.start.y,
+      }),
+    )
     return
   }
 
@@ -1743,7 +2282,8 @@ function finishSelection(event: PointerEvent, restore = false): boolean {
   shiftClickShape = undefined
   duplicateOnDrag = false
   if (lineSelectionGesture?.pointerId === event.pointerId) {
-    if (restore) restoreGestureScene(lineSelectionGesture.rollbackScene ?? lineSelectionGesture.originalScene)
+    if (restore)
+      restoreGestureScene(lineSelectionGesture.rollbackScene ?? lineSelectionGesture.originalScene)
     lineSelectionGesture = undefined
     isCurving.value = false
     latestGesturePoint.value = undefined
@@ -1753,7 +2293,11 @@ function finishSelection(event: PointerEvent, restore = false): boolean {
     return true
   }
   if (!selectionGesture || selectionGesture.pointerId !== event.pointerId) return false
-  if (restore) restoreGestureScene(selectionGesture.rollbackScene ?? selectionGesture.originalScene, selectionGesture.original)
+  if (restore)
+    restoreGestureScene(
+      selectionGesture.rollbackScene ?? selectionGesture.originalScene,
+      selectionGesture.original,
+    )
   selectionGesture = undefined
   latestGesturePoint.value = undefined
   isRotating.value = false
@@ -1767,24 +2311,31 @@ function selectionHandleAt(point: Point): SelectionHandle | undefined {
   if (selectedLine.value && !hasMultipleSelection.value) return undefined
   if (!selectionCorners.value) return undefined
   const frame = selectionFrame.value
-  const cornerRadius = isTextSelected.value && frame
-    ? Math.min(8, frame.height * viewport.scale / 4, frame.width * viewport.scale / 4)
-    : HANDLE_HIT_RADIUS
-  const corner = (Object.entries(selectionCorners.value) as [Corner, Point][]).find(([, cornerPoint]) =>
-    distance(point, worldToScreen(cornerPoint, latestViewport())) <= cornerRadius,
+  const cornerRadius =
+    isTextSelected.value && frame
+      ? Math.min(8, (frame.height * viewport.scale) / 4, (frame.width * viewport.scale) / 4)
+      : HANDLE_HIT_RADIUS
+  const corner = (Object.entries(selectionCorners.value) as [Corner, Point][]).find(
+    ([, cornerPoint]) =>
+      distance(point, worldToScreen(cornerPoint, latestViewport())) <= cornerRadius,
   )?.[0]
   if (corner) return corner
   if (showCurveControls.value && visibleCurveHandles.value) {
-    const curve = (Object.entries(visibleCurveHandles.value) as [Corner, Point][]).find(([, curvePoint]) =>
-      distance(point, worldToScreen(curvePoint, latestViewport())) <= HANDLE_HIT_RADIUS,
+    const curve = (Object.entries(visibleCurveHandles.value) as [Corner, Point][]).find(
+      ([, curvePoint]) =>
+        distance(point, worldToScreen(curvePoint, latestViewport())) <= HANDLE_HIT_RADIUS,
     )?.[0]
     if (curve) return `curve-${curve}`
   }
   const rotationHandle = rotationHandleAt(point)
   if (rotationHandle) return rotationHandle
-  const edgeHitRadius = isTextSelected.value && frame
-    ? Math.min(HANDLE_HIT_RADIUS, Math.max(4, Math.min(frame.width, frame.height) * viewport.scale / 4))
-    : HANDLE_HIT_RADIUS
+  const edgeHitRadius =
+    isTextSelected.value && frame
+      ? Math.min(
+          HANDLE_HIT_RADIUS,
+          Math.max(4, (Math.min(frame.width, frame.height) * viewport.scale) / 4),
+        )
+      : HANDLE_HIT_RADIUS
   return edgeAtPoint(point, edgeHitRadius)
 }
 
@@ -1800,34 +2351,52 @@ function replaceLine(next: LineShape) {
 
 function shapeStyle(shape: Shape) {
   return {
-    stroke: shape.stroke === null ? 'none' : shape.stroke ?? '#171717',
-    fill: isLine(shape) || isImage(shape) || (isFreeDraw(shape) && !isClosedFreeDraw(shape)) ? 'none' : shape.fill ?? 'none',
+    stroke: shape.stroke === null ? 'none' : (shape.stroke ?? '#171717'),
+    fill:
+      isLine(shape) || isImage(shape) || (isFreeDraw(shape) && !isClosedFreeDraw(shape))
+        ? 'none'
+        : (shape.fill ?? 'none'),
     strokeWidth: `${shape.strokeWidth ?? 2}px`,
-    strokeDasharray: shape.strokeStyle === 'dashed' ? '8 5' : shape.strokeStyle === 'dotted' ? '1 5' : undefined,
-    strokeLinecap: shape.strokeStyle === 'dotted' ? 'round' as const : undefined,
+    strokeDasharray:
+      shape.strokeStyle === 'dashed' ? '8 5' : shape.strokeStyle === 'dotted' ? '1 5' : undefined,
+    strokeLinecap: shape.strokeStyle === 'dotted' ? ('round' as const) : undefined,
     opacity: shape.opacity ?? 1,
   }
 }
 
-function previewSelectedStyle(patch: Pick<RectangleShape, 'stroke' | 'fill' | 'strokeWidth' | 'strokeStyle' | 'opacity'>): boolean {
+function previewSelectedStyle(
+  patch: Pick<RectangleShape, 'stroke' | 'fill' | 'strokeWidth' | 'strokeStyle' | 'opacity'>,
+): boolean {
   if (!selectedShapeIds.value.length) return false
   const selected = new Set(selectedShapeIds.value)
-  rectangles.value = rectangles.value.map(shape => selected.has(shape.id) ? { ...shape, ...patch } : shape)
-  lines.value = lines.value.map(shape => selected.has(shape.id) ? { ...shape, ...patch } : shape)
+  rectangles.value = rectangles.value.map((shape) =>
+    selected.has(shape.id) ? { ...shape, ...patch } : shape,
+  )
+  lines.value = lines.value.map((shape) =>
+    selected.has(shape.id) ? { ...shape, ...patch } : shape,
+  )
   return true
 }
 
-function updateSelectedStyle(patch: Pick<RectangleShape, 'stroke' | 'fill' | 'strokeWidth' | 'strokeStyle' | 'opacity'>) {
+function updateSelectedStyle(
+  patch: Pick<RectangleShape, 'stroke' | 'fill' | 'strokeWidth' | 'strokeStyle' | 'opacity'>,
+) {
   if (previewSelectedStyle(patch)) commitScene()
 }
 
 function previewSelectedTextStyle(patch: TextStylePatch): boolean {
   if (!selectedTextShapes.value.length) return false
   const selected = new Set(selectedShapeIds.value)
-  rectangles.value = rectangles.value.map(shape => {
+  rectangles.value = rectangles.value.map((shape) => {
     if (!selected.has(shape.id) || !isText(shape)) return shape
     const next = { ...shape, ...patch }
-    if (!('fontSize' in patch || 'fontFamily' in patch || 'fontWeight' in patch || 'fontStyle' in patch)) return next
+    if (!(
+      'fontSize' in patch ||
+      'fontFamily' in patch ||
+      'fontWeight' in patch ||
+      'fontStyle' in patch
+    ))
+      return next
     const layout = layoutText(next.text, next.width, next.fontSize, next.wrap, next)
     return fitTextBounds(next, layout.width, layout.height)
   })
@@ -1840,8 +2409,12 @@ function updateSelectedTextStyle(patch: TextStylePatch) {
 
 function applyObjectColor(color: ObjectColor) {
   const selected = new Set(selectedShapeIds.value)
-  rectangles.value = rectangles.value.map(shape => selected.has(shape.id) ? { ...shape, stroke: color.border, fill: color.fill } : shape)
-  lines.value = lines.value.map(shape => selected.has(shape.id) ? { ...shape, stroke: color.border } : shape)
+  rectangles.value = rectangles.value.map((shape) =>
+    selected.has(shape.id) ? { ...shape, stroke: color.border, fill: color.fill } : shape,
+  )
+  lines.value = lines.value.map((shape) =>
+    selected.has(shape.id) ? { ...shape, stroke: color.border } : shape,
+  )
   commitScene()
 }
 
@@ -1859,7 +2432,9 @@ function applySolidColor(color: string) {
     return
   }
   if (selectedLabel.value?.label) {
-    rectangles.value = rectangles.value.map(shape => shape.id === selectedLabel.value?.id ? { ...shape, labelFill: color } : shape)
+    rectangles.value = rectangles.value.map((shape) =>
+      shape.id === selectedLabel.value?.id ? { ...shape, labelFill: color } : shape,
+    )
     commitScene()
     return
   }
@@ -1868,11 +2443,15 @@ function applySolidColor(color: string) {
     return
   }
   const selected = new Set(selectedShapeIds.value)
-  rectangles.value = rectangles.value.map(shape => {
+  rectangles.value = rectangles.value.map((shape) => {
     if (!selected.has(shape.id)) return shape
     return isFreeDraw(shape) ? { ...shape, stroke: color } : { ...shape, fill: color }
   })
-  lines.value = lines.value.map(shape => selected.has(shape.id) ? { ...shape, stroke: color, ...(shape.kind === 'arrow' ? { arrowHeadFill: color } : {}) } : shape)
+  lines.value = lines.value.map((shape) =>
+    selected.has(shape.id)
+      ? { ...shape, stroke: color, ...(shape.kind === 'arrow' ? { arrowHeadFill: color } : {}) }
+      : shape,
+  )
   commitScene()
 }
 
@@ -1883,14 +2462,18 @@ function applyCustomPropertyColor(color: string | undefined, target?: 'border' |
     return
   }
   if (textPropertyControlsEnabled.value) {
-    return updatePropertyTextStyle(target === 'border' ? { backgroundColor: color } : { fill: color })
+    return updatePropertyTextStyle(
+      target === 'border' ? { backgroundColor: color } : { fill: color },
+    )
   }
   const line = selectedShapes.value.at(-1)
   if (line && isLine(line) && selectedShapes.value.every(isLine) && target === 'fill') {
     const selected = new Set(selectedShapeIds.value)
-    lines.value = lines.value.map(shape => {
+    lines.value = lines.value.map((shape) => {
       if (!selected.has(shape.id)) return shape
-      return shape.kind === 'arrow' ? { ...shape, arrowHeadFill: color } : { ...shape, stroke: color ?? null }
+      return shape.kind === 'arrow'
+        ? { ...shape, arrowHeadFill: color }
+        : { ...shape, stroke: color ?? null }
     })
     commitScene()
     return
@@ -1901,7 +2484,8 @@ function applyCustomPropertyColor(color: string | undefined, target?: 'border' |
     armedTextStyle.fill = undefined
     return
   }
-  if (selectedShapes.value.some(isFreeDraw)) return updateSelectedStyle(target === 'border' ? { stroke: color } : { fill: color })
+  if (selectedShapes.value.some(isFreeDraw))
+    return updateSelectedStyle(target === 'border' ? { stroke: color } : { fill: color })
   if (usesSolidColorPalette.value) return applySolidColor(color)
   updateSelectedStyle(target === 'border' ? { stroke: color } : { fill: color })
 }
@@ -1918,26 +2502,38 @@ function reorderedSelectedShapes(action: 'front' | 'forward' | 'backward' | 'bac
   const selected = new Set(selectedShapeIds.value)
   let ordered = [...allShapes.value]
   if (!selected.size) return
-  if (action === 'front') ordered = [...ordered.filter(shape => !selected.has(shape.id)), ...ordered.filter(shape => selected.has(shape.id))]
-  else if (action === 'back') ordered = [...ordered.filter(shape => selected.has(shape.id)), ...ordered.filter(shape => !selected.has(shape.id))]
+  if (action === 'front')
+    ordered = [
+      ...ordered.filter((shape) => !selected.has(shape.id)),
+      ...ordered.filter((shape) => selected.has(shape.id)),
+    ]
+  else if (action === 'back')
+    ordered = [
+      ...ordered.filter((shape) => selected.has(shape.id)),
+      ...ordered.filter((shape) => !selected.has(shape.id)),
+    ]
   else if (action === 'forward') {
     for (let index = ordered.length - 1; index > 0; index--) {
-      if (selected.has(ordered[index - 1]!.id) && !selected.has(ordered[index]!.id)) [ordered[index - 1], ordered[index]] = [ordered[index]!, ordered[index - 1]!]
+      if (selected.has(ordered[index - 1]!.id) && !selected.has(ordered[index]!.id))
+        [ordered[index - 1], ordered[index]] = [ordered[index]!, ordered[index - 1]!]
     }
   } else {
     for (let index = 0; index < ordered.length - 1; index++) {
-      if (selected.has(ordered[index + 1]!.id) && !selected.has(ordered[index]!.id)) [ordered[index], ordered[index + 1]] = [ordered[index + 1]!, ordered[index]!]
+      if (selected.has(ordered[index + 1]!.id) && !selected.has(ordered[index]!.id))
+        [ordered[index], ordered[index + 1]] = [ordered[index + 1]!, ordered[index]!]
     }
   }
-  return ordered.some((shape, index) => shape.id !== allShapes.value[index]!.id) ? ordered : undefined
+  return ordered.some((shape, index) => shape.id !== allShapes.value[index]!.id)
+    ? ordered
+    : undefined
 }
 
 function reorderSelectedShapes(action: 'front' | 'forward' | 'backward' | 'back') {
   const ordered = reorderedSelectedShapes(action)
   if (!ordered) return
   const order = new Map(ordered.map((shape, index) => [shape.id, index + 1]))
-  rectangles.value = rectangles.value.map(shape => ({ ...shape, order: order.get(shape.id) }))
-  lines.value = lines.value.map(shape => ({ ...shape, order: order.get(shape.id) }))
+  rectangles.value = rectangles.value.map((shape) => ({ ...shape, order: order.get(shape.id) }))
+  lines.value = lines.value.map((shape) => ({ ...shape, order: order.get(shape.id) }))
   commitScene()
 }
 
@@ -1963,17 +2559,26 @@ function updateSelectionHover(point: Point) {
     return
   }
   isMoveReady.value =
-    (hasMultipleSelection.value && selectionFrame.value && containsPoint(selectionFrame.value, worldPoint)) ||
+    (hasMultipleSelection.value &&
+      selectionFrame.value &&
+      containsPoint(selectionFrame.value, worldPoint)) ||
     rectangles.value.some((rectangle) => containsPoint(rectangle, worldPoint)) ||
     lines.value.some((line) => containsLine(line, point))
 }
 
 function updateLinkHover(point: Point) {
   const worldPoint = screenToWorld(point, latestViewport())
-  const shape = [...allShapes.value].reverse().find(candidate =>
-    candidate.link && (isLine(candidate) ? containsLine(candidate, point) : containsPoint(candidate, worldPoint)),
-  )
-  if (!shape?.link) { linkHover.value = undefined; return }
+  const shape = [...allShapes.value]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.link &&
+        (isLine(candidate) ? containsLine(candidate, point) : containsPoint(candidate, worldPoint)),
+    )
+  if (!shape?.link) {
+    linkHover.value = undefined
+    return
+  }
   const frame = bounds([shape])!
   linkHover.value = {
     link: shape.link.replace(/^https?:\/\//i, '').replace(/\/$/, ''),
@@ -1984,16 +2589,20 @@ function updateLinkHover(point: Point) {
 function lineSelectionHandleAt(point: Point): LineHandle | undefined {
   const line = selectedLine.value
   if (!line) return undefined
-  if (distance(point, worldToScreen(line.start, latestViewport())) <= HANDLE_HIT_RADIUS) return 'start'
+  if (distance(point, worldToScreen(line.start, latestViewport())) <= HANDLE_HIT_RADIUS)
+    return 'start'
   if (distance(point, worldToScreen(line.end, latestViewport())) <= HANDLE_HIT_RADIUS) return 'end'
-  if (distance(point, worldToScreen(lineControlPoint(line), latestViewport())) <= HANDLE_HIT_RADIUS) return 'curve'
+  if (distance(point, worldToScreen(lineControlPoint(line), latestViewport())) <= HANDLE_HIT_RADIUS)
+    return 'curve'
   return undefined
 }
 
 function centeredResizePointer(pointer: Point): Point {
   const point = resizePointer(pointer)
   const start = selectionGesture?.handleStart
-  return modifiers.alt && start ? { x: start.x + 2 * (point.x - start.x), y: start.y + 2 * (point.y - start.y) } : point
+  return modifiers.alt && start
+    ? { x: start.x + 2 * (point.x - start.x), y: start.y + 2 * (point.y - start.y) }
+    : point
 }
 function resizePointer(pointer: Point): Point {
   if (!selectionGesture?.handleStart) return pointer
@@ -2003,11 +2612,22 @@ function resizePointer(pointer: Point): Point {
   }
 }
 
-function curvePointer(rectangle: RectangleShape, corner: Corner, pointer: Point, start: Point): Point {
+function curvePointer(
+  rectangle: RectangleShape,
+  corner: Corner,
+  pointer: Point,
+  start: Point,
+): Point {
   const radius = rectangle.cornerRadius
   const center = rectangleCenter(rectangle)
-  const x = corner === 'northwest' || corner === 'southwest' ? rectangle.x + radius : rectangle.x + rectangle.width - radius
-  const y = corner === 'northwest' || corner === 'northeast' ? rectangle.y + radius : rectangle.y + rectangle.height - radius
+  const x =
+    corner === 'northwest' || corner === 'southwest'
+      ? rectangle.x + radius
+      : rectangle.x + rectangle.width - radius
+  const y =
+    corner === 'northwest' || corner === 'northeast'
+      ? rectangle.y + radius
+      : rectangle.y + rectangle.height - radius
   const origin = rotatePoint({ x, y }, center, rectangle.rotation)
   return { x: origin.x + pointer.x - start.x, y: origin.y + pointer.y - start.y }
 }
@@ -2020,8 +2640,8 @@ function rotationHandlePoint(corner: Point, center: Point): Point {
   const direction = { x: corner.x - center.x, y: corner.y - center.y }
   const length = Math.hypot(direction.x, direction.y) || 1
   return {
-    x: corner.x + direction.x / length * ROTATION_HANDLE_OFFSET,
-    y: corner.y + direction.y / length * ROTATION_HANDLE_OFFSET,
+    x: corner.x + (direction.x / length) * ROTATION_HANDLE_OFFSET,
+    y: corner.y + (direction.y / length) * ROTATION_HANDLE_OFFSET,
   }
 }
 
@@ -2035,8 +2655,8 @@ function rotationCursorUrl(angle: number): string {
 function rotationHandleAt(point: Point): RotationHandle | undefined {
   const handles = rotationHandles.value
   if (!handles) return undefined
-  const corner = (Object.entries(handles) as [Corner, Point][]).find(([, handle]) =>
-    distance(point, handle) <= ROTATION_HIT_RADIUS,
+  const corner = (Object.entries(handles) as [Corner, Point][]).find(
+    ([, handle]) => distance(point, handle) <= ROTATION_HIT_RADIUS,
   )?.[0]
   return corner ? `rotate-${corner}` : undefined
 }
@@ -2054,8 +2674,16 @@ function resizeHandlePoint(rectangle: RectangleShape, handle: ResizeHandle): Poi
   const center = rectangleCenter(rectangle)
   const points: Record<Edge, Point> = {
     north: rotatePoint({ x: center.x, y: rectangle.y }, center, rectangle.rotation),
-    east: rotatePoint({ x: rectangle.x + rectangle.width, y: center.y }, center, rectangle.rotation),
-    south: rotatePoint({ x: center.x, y: rectangle.y + rectangle.height }, center, rectangle.rotation),
+    east: rotatePoint(
+      { x: rectangle.x + rectangle.width, y: center.y },
+      center,
+      rectangle.rotation,
+    ),
+    south: rotatePoint(
+      { x: center.x, y: rectangle.y + rectangle.height },
+      center,
+      rectangle.rotation,
+    ),
     west: rotatePoint({ x: rectangle.x, y: center.y }, center, rectangle.rotation),
   }
   return points[handle]
@@ -2074,8 +2702,13 @@ function edgeAtPoint(point: Point, hitRadius: number): Edge | undefined {
     delete edges.north
     delete edges.south
   }
-  return (Object.entries(edges) as [Edge, [Point, Point]][]).find(([, [start, end]]) =>
-    distanceToSegment(point, worldToScreen(start, latestViewport()), worldToScreen(end, latestViewport())) <= hitRadius,
+  return (Object.entries(edges) as [Edge, [Point, Point]][]).find(
+    ([, [start, end]]) =>
+      distanceToSegment(
+        point,
+        worldToScreen(start, latestViewport()),
+        worldToScreen(end, latestViewport()),
+      ) <= hitRadius,
   )?.[0]
 }
 
@@ -2092,8 +2725,15 @@ function distanceToSegment(point: Point, start: Point, end: Point): number {
 
 function containsLine(line: LineShape, point: Point): boolean {
   const samples = 20
-  const hitRadius = Math.max(LINE_HIT_RADIUS, line.kind === 'arrow' ? (line.strokeWidth ?? 2) * 2.2 : 0)
-  for (let index = 1, previous = worldToScreen(linePointAt(line, 0), latestViewport()); index <= samples; index++) {
+  const hitRadius = Math.max(
+    LINE_HIT_RADIUS,
+    line.kind === 'arrow' ? (line.strokeWidth ?? 2) * 2.2 : 0,
+  )
+  for (
+    let index = 1, previous = worldToScreen(linePointAt(line, 0), latestViewport());
+    index <= samples;
+    index++
+  ) {
     const current = worldToScreen(linePointAt(line, index / samples), latestViewport())
     if (distanceToSegment(point, previous, current) <= hitRadius) return true
     previous = current
@@ -2102,7 +2742,12 @@ function containsLine(line: LineShape, point: Point): boolean {
 }
 
 function copyLine(line: LineShape): LineShape {
-  return { ...line, start: { ...line.start }, end: { ...line.end }, curve: typeof line.curve === 'object' ? { ...line.curve } : line.curve }
+  return {
+    ...line,
+    start: { ...line.start },
+    end: { ...line.end },
+    curve: typeof line.curve === 'object' ? { ...line.curve } : line.curve,
+  }
 }
 
 function releasePointer(pointerId: number) {
@@ -2110,7 +2755,12 @@ function releasePointer(pointerId: number) {
 }
 
 function isCorner(handle: ResizeHandle): handle is Corner {
-  return handle === 'northwest' || handle === 'northeast' || handle === 'southeast' || handle === 'southwest'
+  return (
+    handle === 'northwest' ||
+    handle === 'northeast' ||
+    handle === 'southeast' ||
+    handle === 'southwest'
+  )
 }
 
 function curveCorner(handle: CurveHandle): Corner {
@@ -2152,18 +2802,30 @@ function resizeText(original: TextShape, next: RectangleShape, scaleFont: boolea
     x: handle === 'west' || handle === 'northwest' || handle === 'southwest' ? 1 : 0,
     y: handle === 'northwest' || handle === 'northeast' ? 1 : 0,
   }
-  const bounds = fitTextBounds(next, layout.width, layout.height, modifiers.alt ? { x: 0.5, y: 0.5 } : anchor)
+  const bounds = fitTextBounds(
+    next,
+    layout.width,
+    layout.height,
+    modifiers.alt ? { x: 0.5, y: 0.5 } : anchor,
+  )
   return { ...original, ...bounds, fontSize, wrap }
 }
 
-function fitTextBounds(shape: RectangleShape, width: number, height: number, anchor: Point = { x: 0, y: 0 }): RectangleShape {
+function fitTextBounds(
+  shape: RectangleShape,
+  width: number,
+  height: number,
+  anchor: Point = { x: 0, y: 0 },
+): RectangleShape {
   const anchorPoint = rotatePoint(
     { x: shape.x + shape.width * anchor.x, y: shape.y + shape.height * anchor.y },
-    rectangleCenter(shape), shape.rotation,
+    rectangleCenter(shape),
+    shape.rotation,
   )
   const center = rotatePoint(
     { x: anchorPoint.x + width * (0.5 - anchor.x), y: anchorPoint.y + height * (0.5 - anchor.y) },
-    anchorPoint, shape.rotation,
+    anchorPoint,
+    shape.rotation,
   )
   return { ...shape, x: center.x - width / 2, y: center.y - height / 2, width, height }
 }
@@ -2171,7 +2833,12 @@ function fitTextBounds(shape: RectangleShape, width: number, height: number, anc
 function resizeLabel(original: RectangleShape, next: RectangleShape): RectangleShape {
   if (!original.label) return next
   const scale = Math.min(next.width / original.width, next.height / original.height)
-  return { ...next, labelFontSize: normalizeFontSize(Math.max(MIN_LABEL_FONT_SIZE, (original.labelFontSize ?? 16) * scale)) }
+  return {
+    ...next,
+    labelFontSize: normalizeFontSize(
+      Math.max(MIN_LABEL_FONT_SIZE, (original.labelFontSize ?? 16) * scale),
+    ),
+  }
 }
 
 function labelTextWidth(shape: RectangleShape): number {
@@ -2186,19 +2853,35 @@ function labelTextX(shape: RectangleShape): number {
 function labelSelectionBounds(shape: RectangleShape): RectangleShape {
   const layout = labelLayout(shape, shape.label ?? '')
   const innerWidth = labelTextWidth(shape)
-  const width = labelTextAlign(shape) === 'justify' && layout.lines.length > 1
-    ? innerWidth
-    : Math.min(innerWidth, Math.max(shape.labelFontSize ?? 16, layout.contentWidth))
-  const x = labelTextAlign(shape) === 'left' || labelTextAlign(shape) === 'justify'
-    ? labelTextX(shape)
-    : labelTextAlign(shape) === 'right' ? labelTextX(shape) + innerWidth - width : shape.x + (shape.width - width) / 2
-  return { ...shape, x, y: shape.y + (shape.height - layout.height) / 2, width, height: layout.height, cornerRadius: 0 }
+  const width =
+    labelTextAlign(shape) === 'justify' && layout.lines.length > 1
+      ? innerWidth
+      : Math.min(innerWidth, Math.max(shape.labelFontSize ?? 16, layout.contentWidth))
+  const x =
+    labelTextAlign(shape) === 'left' || labelTextAlign(shape) === 'justify'
+      ? labelTextX(shape)
+      : labelTextAlign(shape) === 'right'
+        ? labelTextX(shape) + innerWidth - width
+        : shape.x + (shape.width - width) / 2
+  return {
+    ...shape,
+    x,
+    y: shape.y + (shape.height - layout.height) / 2,
+    width,
+    height: layout.height,
+    cornerRadius: 0,
+  }
 }
 
 function containsLabelPoint(shape: RectangleShape, point: Point): boolean {
   const local = rotatePoint(point, rectangleCenter(shape), -shape.rotation)
   const box = labelSelectionBounds(shape)
-  return local.x >= box.x && local.x <= box.x + box.width && local.y >= box.y && local.y <= box.y + box.height
+  return (
+    local.x >= box.x &&
+    local.x <= box.x + box.width &&
+    local.y >= box.y &&
+    local.y <= box.y + box.height
+  )
 }
 
 function labelTextAlign(shape: RectangleShape): NonNullable<TextShape['textAlign']> {
@@ -2212,10 +2895,18 @@ function labelLines(shape: RectangleShape): string[] {
 function labelLineX(shape: RectangleShape): number {
   return labelTextAlign(shape) === 'left' || labelTextAlign(shape) === 'justify'
     ? labelTextX(shape)
-    : labelTextAlign(shape) === 'right' ? labelTextX(shape) + labelTextWidth(shape) : shape.x + shape.width / 2
+    : labelTextAlign(shape) === 'right'
+      ? labelTextX(shape) + labelTextWidth(shape)
+      : shape.x + shape.width / 2
 }
 
-function labelLayout(shape: RectangleShape, text: string, fontSize = shape.labelFontSize ?? 16, fontFamily: TextFontFamily = shape.labelFontFamily ?? 'shantell', style: Pick<TextShape, 'fontWeight' | 'fontStyle'> = {}) {
+function labelLayout(
+  shape: RectangleShape,
+  text: string,
+  fontSize = shape.labelFontSize ?? 16,
+  fontFamily: TextFontFamily = shape.labelFontFamily ?? 'shantell',
+  style: Pick<TextShape, 'fontWeight' | 'fontStyle'> = {},
+) {
   return layoutText(text, labelTextWidth(shape), fontSize, true, {
     fontFamily,
     fontWeight: style.fontWeight ?? shape.labelFontWeight ?? 400,
@@ -2223,11 +2914,23 @@ function labelLayout(shape: RectangleShape, text: string, fontSize = shape.label
   })
 }
 
-function fitLabel(shape: RectangleShape, text: string, fontSize = shape.labelFontSize ?? 16, fontFamily: TextFontFamily = shape.labelFontFamily ?? 'shantell', style: Pick<TextShape, 'fontWeight' | 'fontStyle'> = {}) {
+function fitLabel(
+  shape: RectangleShape,
+  text: string,
+  fontSize = shape.labelFontSize ?? 16,
+  fontFamily: TextFontFamily = shape.labelFontFamily ?? 'shantell',
+  style: Pick<TextShape, 'fontWeight' | 'fontStyle'> = {},
+) {
   const layout = labelLayout(shape, text, fontSize, fontFamily, style)
-  const scale = isEllipse(shape) || isDiamond(shape) ? Math.max(1, (layout.height + LABEL_PADDING * 2) * Math.SQRT2 / shape.height) : 1
+  const scale =
+    isEllipse(shape) || isDiamond(shape)
+      ? Math.max(1, ((layout.height + LABEL_PADDING * 2) * Math.SQRT2) / shape.height)
+      : 1
   const width = shape.width * scale
-  const height = isEllipse(shape) || isDiamond(shape) ? shape.height * scale : Math.max(shape.height, layout.height + LABEL_PADDING * 2)
+  const height =
+    isEllipse(shape) || isDiamond(shape)
+      ? shape.height * scale
+      : Math.max(shape.height, layout.height + LABEL_PADDING * 2)
   return {
     shape: {
       ...shape,
@@ -2240,7 +2943,12 @@ function fitLabel(shape: RectangleShape, text: string, fontSize = shape.labelFon
   }
 }
 
-function shapeFromPoints(start: Point, end: Point, id: string, constrainProportions = false): RectangleShape {
+function shapeFromPoints(
+  start: Point,
+  end: Point,
+  id: string,
+  constrainProportions = false,
+): RectangleShape {
   if (props.activeTool === 'ellipse') return ellipseFromPoints(start, end, id, constrainProportions)
   if (props.activeTool === 'diamond') return diamondFromPoints(start, end, id, constrainProportions)
   return rectangleFromPoints(start, end, id, constrainProportions)
@@ -2250,10 +2958,22 @@ function beginDraw(event: PointerEvent, point: Point) {
   const world = screenToWorld(point, latestViewport())
   drawPointerId = event.pointerId
   pendingDraw.value = {
-    id: 'pending-draw', kind: 'freedraw', points: [world], pressures: [event.pressure],
-    simulatePressure: true, x: world.x, y: world.y, width: 0, height: 0,
-    rotation: 0, cornerRadius: 0, stroke: drawStyle.stroke, fill: drawStyle.fill, strokeWidth: drawStyle.strokeWidth,
-    strokeStyle: drawStyle.strokeStyle, opacity: drawStyle.opacity,
+    id: 'pending-draw',
+    kind: 'freedraw',
+    points: [world],
+    pressures: [event.pressure],
+    simulatePressure: true,
+    x: world.x,
+    y: world.y,
+    width: 0,
+    height: 0,
+    rotation: 0,
+    cornerRadius: 0,
+    stroke: drawStyle.stroke,
+    fill: drawStyle.fill,
+    strokeWidth: drawStyle.strokeWidth,
+    strokeStyle: drawStyle.strokeStyle,
+    opacity: drawStyle.opacity,
   }
   root.value?.setPointerCapture(event.pointerId)
   event.preventDefault()
@@ -2274,14 +2994,25 @@ function updateDraw(event: PointerEvent) {
   if (shape.points.length > 2 && distance(first, last) * viewport.scale <= 12) {
     shape.points[shape.points.length - 1] = { ...first }
   }
-  const xs = shape.points.map(point => point.x), ys = shape.points.map(point => point.y)
-  Object.assign(shape, { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) })
+  const xs = shape.points.map((point) => point.x),
+    ys = shape.points.map((point) => point.y)
+  Object.assign(shape, {
+    x: Math.min(...xs),
+    y: Math.min(...ys),
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys),
+  })
 }
 
 function finishDraw(event: PointerEvent) {
   if (drawPointerId !== event.pointerId || !pendingDraw.value) return false
   if (event.type === 'pointerup') updateDraw(event)
-  const shape = { ...pendingDraw.value, id: createId('draw'), points: [...pendingDraw.value.points], pressures: [...pendingDraw.value.pressures] }
+  const shape = {
+    ...pendingDraw.value,
+    id: createId('draw'),
+    points: [...pendingDraw.value.points],
+    pressures: [...pendingDraw.value.pressures],
+  }
   rectangles.value.push(shape)
   pendingDraw.value = undefined
   drawPointerId = undefined
@@ -2307,29 +3038,46 @@ function updateErase(event: PointerEvent) {
   const previous = eraserLastPoint ?? next
   eraserLastPoint = next
   eraserTrail.value?.add(next, false, event.timeStamp)
-  const hits = allShapes.value.filter(shape => eraseHit(shape, previous, next)).flatMap(shape =>
-    shape.groupId ? allShapes.value.filter(candidate => candidate.groupId === shape.groupId).map(candidate => candidate.id) : [shape.id],
-  )
+  const hits = allShapes.value
+    .filter((shape) => eraseHit(shape, previous, next))
+    .flatMap((shape) =>
+      shape.groupId
+        ? allShapes.value
+            .filter((candidate) => candidate.groupId === shape.groupId)
+            .map((candidate) => candidate.id)
+        : [shape.id],
+    )
   const ids = new Set(erasedShapeIds.value)
-  for (const id of hits) event.altKey ? ids.delete(id) : ids.add(id)
+  for (const id of hits) {
+    if (event.altKey) ids.delete(id)
+    else ids.add(id)
+  }
   erasedShapeIds.value = [...ids]
 }
 
 function eraseHit(shape: Shape, start: Point, end: Point): boolean {
   const radius = Math.max(
     (shape.strokeWidth ?? 2) / 2 + 6 / viewport.scale,
-    isLine(shape) && shape.kind === 'arrow' ? (shape.strokeWidth ?? 2) * 2.2 / viewport.scale : 0,
+    isLine(shape) && shape.kind === 'arrow' ? ((shape.strokeWidth ?? 2) * 2.2) / viewport.scale : 0,
   )
   if (isFreeDraw(shape) && shape.points.length === 1) {
     return distanceToSegment(shape.points[0]!, start, end) <= radius
   }
   const frame = bounds([shape])!
-  if (Math.max(start.x, end.x) < frame.x - radius || Math.min(start.x, end.x) > frame.x + frame.width + radius ||
-      Math.max(start.y, end.y) < frame.y - radius || Math.min(start.y, end.y) > frame.y + frame.height + radius) return false
+  if (
+    Math.max(start.x, end.x) < frame.x - radius ||
+    Math.min(start.x, end.x) > frame.x + frame.width + radius ||
+    Math.max(start.y, end.y) < frame.y - radius ||
+    Math.min(start.y, end.y) > frame.y + frame.height + radius
+  )
+    return false
   if (!isLine(shape) && (isText(shape) || isImage(shape))) {
     if (containsPoint(shape, start) || containsPoint(shape, end)) return true
     const corners = Object.values(rectangleCorners(shape))
-    return corners.some((point, index) => segmentDistance(start, end, point, corners[(index + 1) % corners.length]!) <= radius)
+    return corners.some(
+      (point, index) =>
+        segmentDistance(start, end, point, corners[(index + 1) % corners.length]!) <= radius,
+    )
   }
   const object = root.value?.querySelector(`[data-shape-id="${CSS.escape(shape.id)}"]`)
   const geometry = object?.querySelectorAll<SVGGeometryElement>('path, rect, ellipse')
@@ -2337,14 +3085,16 @@ function eraseHit(shape: Shape, start: Point, end: Point): boolean {
   // Sample the rendered outline so rounded corners and smoothed pen strokes match what is visible.
   for (const element of geometry) {
     const length = element.getTotalLength()
-    const steps = Math.max(1, Math.ceil(length * viewport.scale / 2))
+    const steps = Math.max(1, Math.ceil((length * viewport.scale) / 2))
     const worldPoint = (offset: number): Point => {
       const point = element.getPointAtLength(offset)
-      return isLine(shape) || isFreeDraw(shape) ? point : rotatePoint(point, rectangleCenter(shape), shape.rotation)
+      return isLine(shape) || isFreeDraw(shape)
+        ? point
+        : rotatePoint(point, rectangleCenter(shape), shape.rotation)
     }
     let previous = worldPoint(0)
     for (let index = 1; index <= steps; index++) {
-      const current = worldPoint(length * index / steps)
+      const current = worldPoint((length * index) / steps)
       if (segmentDistance(start, end, previous, current) <= radius) return true
       previous = current
     }
@@ -2353,11 +3103,23 @@ function eraseHit(shape: Shape, start: Point, end: Point): boolean {
 }
 
 function segmentDistance(a: Point, b: Point, c: Point, d: Point): number {
-  const cross = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
-  if (Math.max(a.x, b.x) >= Math.min(c.x, d.x) && Math.max(c.x, d.x) >= Math.min(a.x, b.x) &&
-      Math.max(a.y, b.y) >= Math.min(c.y, d.y) && Math.max(c.y, d.y) >= Math.min(a.y, b.y) &&
-      cross(a, b, c) * cross(a, b, d) <= 0 && cross(c, d, a) * cross(c, d, b) <= 0) return 0
-  return Math.min(distanceToSegment(a, c, d), distanceToSegment(b, c, d), distanceToSegment(c, a, b), distanceToSegment(d, a, b))
+  const cross = (p: Point, q: Point, r: Point) =>
+    (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+  if (
+    Math.max(a.x, b.x) >= Math.min(c.x, d.x) &&
+    Math.max(c.x, d.x) >= Math.min(a.x, b.x) &&
+    Math.max(a.y, b.y) >= Math.min(c.y, d.y) &&
+    Math.max(c.y, d.y) >= Math.min(a.y, b.y) &&
+    cross(a, b, c) * cross(a, b, d) <= 0 &&
+    cross(c, d, a) * cross(c, d, b) <= 0
+  )
+    return 0
+  return Math.min(
+    distanceToSegment(a, c, d),
+    distanceToSegment(b, c, d),
+    distanceToSegment(c, a, b),
+    distanceToSegment(d, a, b),
+  )
 }
 
 function finishErase(event: PointerEvent) {
@@ -2373,8 +3135,11 @@ function finishErase(event: PointerEvent) {
   return true
 }
 
-function resizeCursor(handle: SelectionHandle | undefined): 'ns' | 'ew' | 'nwse' | 'nesw' | undefined {
-  if (!handle || isRotateHandle(handle) || handle === 'line-curve' || isCurveHandle(handle)) return undefined
+function resizeCursor(
+  handle: SelectionHandle | undefined,
+): 'ns' | 'ew' | 'nwse' | 'nesw' | undefined {
+  if (!handle || isRotateHandle(handle) || handle === 'line-curve' || isCurveHandle(handle))
+    return undefined
   const rotation = selectionFrame.value?.rotation ?? 0
   if (handle === 'north' || handle === 'south') return cursorForAngle(rotation + 90)
   if (handle === 'east' || handle === 'west') return cursorForAngle(rotation)
@@ -2388,10 +3153,27 @@ function cursorForAngle(angle: number): 'ns' | 'ew' | 'nwse' | 'nesw' {
 }
 
 function onPointerDown(event: PointerEvent) {
-  if (drawingLoading.value || editableTarget(event.target) || (event.target as Element).closest('button')) return
+  if (
+    drawingLoading.value ||
+    editableTarget(event.target) ||
+    (event.target as Element).closest('button')
+  )
+    return
   root.value?.focus({ preventScroll: true })
   isShiftPressed.value = event.shiftKey
   if (event.button === 2) return
+  if (!editable.value) {
+    const point = localPoint(event)
+    pointers.set(event.pointerId, { ...point, pointerType: event.pointerType })
+    root.value?.setPointerCapture(event.pointerId)
+    if (pointers.size === 2) beginPinch()
+    else {
+      singlePointerStart = { point, viewport: latestViewport() }
+      isPanning.value = true
+    }
+    event.preventDefault()
+    return
+  }
   if (textEditor.value) {
     const creatingText = textEditor.value.kind === 'text' && !textEditor.value.shapeId
     finishTextEditor()
@@ -2406,7 +3188,12 @@ function onPointerDown(event: PointerEvent) {
     beginCropSelection(event, point)
     return
   }
-  if (props.activeTool === 'laser' && event.button === 0 && !isSpacePressed.value && !isPanning.value) {
+  if (
+    props.activeTool === 'laser' &&
+    event.button === 0 &&
+    !isSpacePressed.value &&
+    !isPanning.value
+  ) {
     laserPointerId = event.pointerId
     pointers.set(event.pointerId, { ...point, pointerType: event.pointerType })
     root.value?.setPointerCapture(event.pointerId)
@@ -2429,7 +3216,9 @@ function onPointerDown(event: PointerEvent) {
       for (const [id, sample] of contacts) pointers.set(id, sample)
       pointers.set(event.pointerId, { ...point, pointerType: 'touch' })
       for (const id of pointers.keys()) root.value?.setPointerCapture(id)
-      beginPinch(); event.preventDefault(); return
+      beginPinch()
+      event.preventDefault()
+      return
     }
     pointers.set(event.pointerId, { ...point, pointerType: 'touch' })
   }
@@ -2437,11 +3226,19 @@ function onPointerDown(event: PointerEvent) {
     beginLasso(event, point)
     return
   }
-  if (['rectangle', 'diamond', 'ellipse'].includes(props.activeTool ?? '') && event.button === 0 && !isSpacePressed.value) {
+  if (
+    ['rectangle', 'diamond', 'ellipse'].includes(props.activeTool ?? '') &&
+    event.button === 0 &&
+    !isSpacePressed.value
+  ) {
     beginRectangle(event, point)
     return
   }
-  if (['line', 'arrow'].includes(props.activeTool ?? '') && event.button === 0 && !isSpacePressed.value) {
+  if (
+    ['line', 'arrow'].includes(props.activeTool ?? '') &&
+    event.button === 0 &&
+    !isSpacePressed.value
+  ) {
     beginLine(event, point)
     return
   }
@@ -2455,9 +3252,10 @@ function onPointerDown(event: PointerEvent) {
     return
   }
   if (props.activeTool === 'select' && event.button === 0 && !isSpacePressed.value) {
-    const repeatedClick = lastSelectPointerDown
-      && event.timeStamp - lastSelectPointerDown.time < 500
-      && distance(point, lastSelectPointerDown.point) < 6
+    const repeatedClick =
+      lastSelectPointerDown &&
+      event.timeStamp - lastSelectPointerDown.time < 500 &&
+      distance(point, lastSelectPointerDown.point) < 6
     lastSelectPointerDown = { time: event.timeStamp, point }
     if (repeatedClick) {
       event.preventDefault()
@@ -2465,8 +3263,18 @@ function onPointerDown(event: PointerEvent) {
     }
     if (event.ctrlKey || event.metaKey) {
       const worldPoint = screenToWorld(point, latestViewport())
-      const linked = [...allShapes.value].reverse().find(shape => shape.link && (isLine(shape) ? containsLine(shape, point) : containsPoint(shape, worldPoint)))
-      if (linked?.link) { window.open(linked.link, '_blank', 'noopener,noreferrer'); event.preventDefault(); return }
+      const linked = [...allShapes.value]
+        .reverse()
+        .find(
+          (shape) =>
+            shape.link &&
+            (isLine(shape) ? containsLine(shape, point) : containsPoint(shape, worldPoint)),
+        )
+      if (linked?.link) {
+        window.open(linked.link, '_blank', 'noopener,noreferrer')
+        event.preventDefault()
+        return
+      }
     }
     startSelection(event, point)
     return
@@ -2499,24 +3307,52 @@ function onPointerDown(event: PointerEvent) {
 function onPointerMove(event: PointerEvent) {
   modifiers.alt = event.altKey
   modifiers.bypass = event.ctrlKey || event.metaKey
-  if (drawPointerId === event.pointerId) { updateDraw(event); event.preventDefault(); return }
-  if (eraserPointerId === event.pointerId) { updateErase(event); event.preventDefault(); return }
-  if (pointers.has(event.pointerId)) pointers.set(event.pointerId, { ...localPoint(event), pointerType: event.pointerType })
-  if (lassoGesture?.pointerId === event.pointerId) { updateLasso(event); return }
+  if (drawPointerId === event.pointerId) {
+    updateDraw(event)
+    event.preventDefault()
+    return
+  }
+  if (eraserPointerId === event.pointerId) {
+    updateErase(event)
+    event.preventDefault()
+    return
+  }
+  if (pointers.has(event.pointerId))
+    pointers.set(event.pointerId, { ...localPoint(event), pointerType: event.pointerType })
+  if (lassoGesture?.pointerId === event.pointerId) {
+    updateLasso(event)
+    return
+  }
   if (cropGesture?.pointerId === event.pointerId) {
     updateCropSelection(localPoint(event))
     event.preventDefault()
     return
   }
   if (marqueeGesture?.pointerId === event.pointerId) {
-    const frame = rectangleFromPoints(marqueeGesture.start, screenToWorld(localPoint(event), latestViewport()), 'marquee')
+    const frame = rectangleFromPoints(
+      marqueeGesture.start,
+      screenToWorld(localPoint(event), latestViewport()),
+      'marquee',
+    )
     marquee.value = frame
-    const hits = allShapes.value.filter(shape => {
+    const hits = allShapes.value.filter((shape) => {
       const b = bounds([shape])!
-      return b.x <= frame.x + frame.width && b.x + b.width >= frame.x && b.y <= frame.y + frame.height && b.y + b.height >= frame.y
+      return (
+        b.x <= frame.x + frame.width &&
+        b.x + b.width >= frame.x &&
+        b.y <= frame.y + frame.height &&
+        b.y + b.height >= frame.y
+      )
     })
-    const groups = new Set(hits.map(s => s.groupId).filter(Boolean))
-    setSelection([...new Set([...marqueeGesture.previous, ...allShapes.value.filter(s => hits.includes(s) || (s.groupId && groups.has(s.groupId))).map(s => s.id)])])
+    const groups = new Set(hits.map((s) => s.groupId).filter(Boolean))
+    setSelection([
+      ...new Set([
+        ...marqueeGesture.previous,
+        ...allShapes.value
+          .filter((s) => hits.includes(s) || (s.groupId && groups.has(s.groupId)))
+          .map((s) => s.id),
+      ]),
+    ])
     event.preventDefault()
     return
   }
@@ -2525,7 +3361,11 @@ function onPointerMove(event: PointerEvent) {
     pointers.set(event.pointerId, { ...point, pointerType: event.pointerType })
     const samples = event.getCoalescedEvents?.()
     for (const sample of samples?.length ? samples : [event]) {
-      laserTrail.value?.add(screenToWorld(localPoint(sample), latestViewport()), false, sample.timeStamp)
+      laserTrail.value?.add(
+        screenToWorld(localPoint(sample), latestViewport()),
+        false,
+        sample.timeStamp,
+      )
     }
     event.preventDefault()
     return
@@ -2613,13 +3453,30 @@ function finishPointer(event: PointerEvent) {
   if (finishDraw(event)) return
   if (finishErase(event)) return
   if (finishCrop(event)) return
-  if (!pinchStart && (marqueeGesture || rectangleGesture || lineGesture || textGesture || selectionGesture || lineSelectionGesture)) pointers.delete(event.pointerId)
+  if (
+    !pinchStart &&
+    (marqueeGesture ||
+      rectangleGesture ||
+      lineGesture ||
+      textGesture ||
+      selectionGesture ||
+      lineSelectionGesture)
+  )
+    pointers.delete(event.pointerId)
   if (marqueeGesture?.pointerId === event.pointerId) {
-    marqueeGesture = undefined; marquee.value = undefined; releasePointer(event.pointerId); return
+    marqueeGesture = undefined
+    marquee.value = undefined
+    releasePointer(event.pointerId)
+    return
   }
   if (laserPointerId === event.pointerId) {
     laserPointerId = undefined
-    if (event.type === 'pointerup') laserTrail.value?.add(screenToWorld(localPoint(event), latestViewport()), false, event.timeStamp)
+    if (event.type === 'pointerup')
+      laserTrail.value?.add(
+        screenToWorld(localPoint(event), latestViewport()),
+        false,
+        event.timeStamp,
+      )
   }
   if (finishText(event)) return
   if (finishRectangle(event)) return
@@ -2641,11 +3498,32 @@ function finishPointer(event: PointerEvent) {
 
 function cancelPointer(event: PointerEvent) {
   if (cancellingGesture) return
-  if (lassoGesture?.pointerId === event.pointerId) { cancelLasso(); return }
-  if (drawPointerId === event.pointerId || eraserPointerId === event.pointerId) { cancelGesture(); return }
-  if (cropGesture?.pointerId === event.pointerId) { cancelCrop(); return }
-  if (!pinchStart && (marqueeGesture || rectangleGesture || lineGesture || textGesture || selectionGesture || lineSelectionGesture)) pointers.delete(event.pointerId)
-  if (marqueeGesture?.pointerId === event.pointerId) { cancelGesture(); return }
+  if (lassoGesture?.pointerId === event.pointerId) {
+    cancelLasso()
+    return
+  }
+  if (drawPointerId === event.pointerId || eraserPointerId === event.pointerId) {
+    cancelGesture()
+    return
+  }
+  if (cropGesture?.pointerId === event.pointerId) {
+    cancelCrop()
+    return
+  }
+  if (
+    !pinchStart &&
+    (marqueeGesture ||
+      rectangleGesture ||
+      lineGesture ||
+      textGesture ||
+      selectionGesture ||
+      lineSelectionGesture)
+  )
+    pointers.delete(event.pointerId)
+  if (marqueeGesture?.pointerId === event.pointerId) {
+    cancelGesture()
+    return
+  }
   if (textGesture?.pointerId === event.pointerId) {
     textGesture = undefined
     pendingText.value = undefined
@@ -2673,16 +3551,26 @@ function cancelPointer(event: PointerEvent) {
 
 function restoreGestureScene(scene: SceneSnapshot, frame?: RectangleShape) {
   const restored = copyScene(scene)
-  rectangles.value = restored.rectangles; lines.value = restored.lines
-  multiSelectionFrame.value = hasMultipleSelection.value ? frame ?? selectionOutline(bounds(allShapes.value.filter(shape => selectedShapeIds.value.includes(shape.id)))!) : undefined
+  rectangles.value = restored.rectangles
+  lines.value = restored.lines
+  multiSelectionFrame.value = hasMultipleSelection.value
+    ? (frame ??
+      selectionOutline(
+        bounds(allShapes.value.filter((shape) => selectedShapeIds.value.includes(shape.id)))!,
+      ))
+    : undefined
 }
 function cancelGesture() {
   if (cancellingGesture) return
   cancellingGesture = true
   cancelLasso()
   cancelCrop()
-  if (marqueeGesture) { setSelection(marqueeGesture.previous); releasePointer(marqueeGesture.pointerId) }
-  marqueeGesture = undefined; marquee.value = undefined
+  if (marqueeGesture) {
+    setSelection(marqueeGesture.previous)
+    releasePointer(marqueeGesture.pointerId)
+  }
+  marqueeGesture = undefined
+  marquee.value = undefined
   laserPointerId = undefined
   laserTrail.value?.clear()
   if (drawPointerId !== undefined) releasePointer(drawPointerId)
@@ -2710,9 +3598,14 @@ function cancelGesture() {
   lineGesture = undefined
   pendingText.value = undefined
   textGesture = undefined
-  if (selectionGesture) restoreGestureScene(selectionGesture.rollbackScene ?? selectionGesture.originalScene, selectionGesture.original)
+  if (selectionGesture)
+    restoreGestureScene(
+      selectionGesture.rollbackScene ?? selectionGesture.originalScene,
+      selectionGesture.original,
+    )
   selectionGesture = undefined
-  if (lineSelectionGesture) restoreGestureScene(lineSelectionGesture.rollbackScene ?? lineSelectionGesture.originalScene)
+  if (lineSelectionGesture)
+    restoreGestureScene(lineSelectionGesture.rollbackScene ?? lineSelectionGesture.originalScene)
   lineSelectionGesture = undefined
   isCurving.value = false
   isRotating.value = false
@@ -2754,12 +3647,22 @@ function normalizedWheelDelta(event: WheelEvent): Point {
 
 function editableTarget(target: EventTarget | null): boolean {
   const element = target instanceof HTMLElement ? target : null
-  return Boolean(element?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]'))
+  return Boolean(
+    element?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]'),
+  )
 }
 
 function onKeyDown(event: KeyboardEvent) {
-  if ((event.target as Element)?.closest('button, a') && [' ', 'Enter', 'Tab'].includes(event.key)) return
-  if (drawingLoading.value || editableTarget(event.target) || event.isComposing || event.defaultPrevented) return
+  if (!editable.value) return
+  if ((event.target as Element)?.closest('button, a') && [' ', 'Enter', 'Tab'].includes(event.key))
+    return
+  if (
+    drawingLoading.value ||
+    editableTarget(event.target) ||
+    event.isComposing ||
+    event.defaultPrevented
+  )
+    return
   modifiers.alt = event.altKey
   modifiers.bypass = event.ctrlKey || event.metaKey
   if (['Alt', 'Control', 'Meta'].includes(event.key)) refreshActiveGesture()
@@ -2784,18 +3687,24 @@ function onKeyDown(event: KeyboardEvent) {
   }
   if ((event.ctrlKey || event.metaKey) && ['a', 'd'].includes(key)) {
     event.preventDefault()
-    if (key === 'a') setSelection(allShapes.value.map(s => s.id)); else duplicateSelection()
+    if (key === 'a') setSelection(allShapes.value.map((s) => s.id))
+    else duplicateSelection()
     return
   }
   if (event.key === 'Tab' && event.target === root.value && allShapes.value.length) {
-    const index = allShapes.value.findIndex(s => s.id === selectedShapeIds.value.at(-1))
-    const shape = allShapes.value[(index + (event.shiftKey ? -1 : 1) + allShapes.value.length) % allShapes.value.length]!
+    const index = allShapes.value.findIndex((s) => s.id === selectedShapeIds.value.at(-1))
+    const shape =
+      allShapes.value[
+        (index + (event.shiftKey ? -1 : 1) + allShapes.value.length) % allShapes.value.length
+      ]!
     selectShape(shape)
-    liveMessage.value = `Selected ${shapeLabel(shape)}`
-    event.preventDefault(); return
+    liveMessage.value = __('Selected {0}', [shapeLabel(shape)])
+    event.preventDefault()
+    return
   }
   if ((event.ctrlKey || event.metaKey) && key === 'z') {
-    event.shiftKey ? redoScene() : undoScene()
+    if (event.shiftKey) redoScene()
+    else undoScene()
     event.preventDefault()
     return
   }
@@ -2806,17 +3715,23 @@ function onKeyDown(event: KeyboardEvent) {
   }
   if ((event.ctrlKey || event.metaKey) && ['c', 'v', 'x'].includes(key)) return
   if ((event.ctrlKey || event.metaKey) && key === 'g') {
-    event.shiftKey ? ungroupSelection() : groupSelectedShapes()
+    if (event.shiftKey) ungroupSelection()
+    else groupSelectedShapes()
     event.preventDefault()
     return
   }
-  if (event.key === 'Enter' && props.activeTool === 'select' && selectedRectangle.value && isText(selectedRectangle.value)) {
+  if (
+    event.key === 'Enter' &&
+    props.activeTool === 'select' &&
+    selectedRectangle.value &&
+    isText(selectedRectangle.value)
+  ) {
     event.preventDefault()
     editText(selectedRectangle.value)
     return
   }
   if ((event.key === 'Delete' || event.key === 'Backspace') && deleteSelectedShape()) {
-    liveMessage.value = 'Selection deleted'
+    liveMessage.value = __('Selection deleted')
     event.preventDefault()
     return
   }
@@ -2844,7 +3759,13 @@ function onKeyDown(event: KeyboardEvent) {
   } else if (event.key === '0') {
     resetZoom()
     event.preventDefault()
-  } else if (key === 'f' && !event.ctrlKey && !event.metaKey && !event.altKey && propertyToolbarVisible.value) {
+  } else if (
+    key === 'f' &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    propertyToolbarVisible.value
+  ) {
     updatePropertyPopupOpen('color', true)
     event.preventDefault()
   } else if (event.key.toLowerCase() === 'r') {
@@ -2884,16 +3805,51 @@ function onKeyDown(event: KeyboardEvent) {
 }
 
 function onDoubleClick(event: MouseEvent) {
-  if (props.activeTool !== 'select' || textEditor.value || isSpacePressed.value || editableTarget(event.target)) return
+  if (!editable.value) return
+  if (
+    props.activeTool !== 'select' ||
+    textEditor.value ||
+    isSpacePressed.value ||
+    editableTarget(event.target)
+  )
+    return
   const point = localPoint(event)
   const worldPoint = screenToWorld(point, latestViewport())
-  const hit = [...allShapes.value].reverse().find(shape => isLine(shape) ? containsLine(shape, point) : containsPoint(shape, worldPoint))
-  if (hit?.groupId && enteredGroup.value !== hit.groupId) { enteredGroup.value = hit.groupId; selectShape(hit); return }
-  if (hit && isLine(hit)) { selectShape(hit); event.preventDefault(); return }
-  if (hit && isImage(hit)) { selectShape(hit); void beginCrop(); event.preventDefault(); return }
+  const hit = [...allShapes.value]
+    .reverse()
+    .find((shape) =>
+      isLine(shape) ? containsLine(shape, point) : containsPoint(shape, worldPoint),
+    )
+  if (hit?.groupId && enteredGroup.value !== hit.groupId) {
+    enteredGroup.value = hit.groupId
+    selectShape(hit)
+    return
+  }
+  if (hit && isLine(hit)) {
+    selectShape(hit)
+    event.preventDefault()
+    return
+  }
+  if (hit && isImage(hit)) {
+    selectShape(hit)
+    void beginCrop()
+    event.preventDefault()
+    return
+  }
   if (hit && isText(hit)) editText(hit)
   else if (hit) editLabel(hit)
-  else startTextEditor({ kind: 'text', text: '', x: worldPoint.x, y: worldPoint.y - 10, width: 16, height: 20, fontSize: armedTextStyle.fontSize, fontFamily: armedTextStyle.fontFamily, wrap: false })
+  else
+    startTextEditor({
+      kind: 'text',
+      text: '',
+      x: worldPoint.x,
+      y: worldPoint.y - 10,
+      width: 16,
+      height: 20,
+      fontSize: armedTextStyle.fontSize,
+      fontFamily: armedTextStyle.fontFamily,
+      wrap: false,
+    })
   event.preventDefault()
 }
 
@@ -2934,22 +3890,35 @@ function onVisibilityChange() {
   if (document.hidden) recoverBeforeExit()
 }
 
-watch(() => props.activeTool, (tool, previous) => {
-  if (tool !== 'select') linkHover.value = undefined
-  if (tool !== previous && (drawPointerId !== undefined || eraserPointerId !== undefined)) cancelGesture()
-  if (tool !== previous && lassoGesture) cancelLasso()
-  if (tool !== 'laser' && previous !== 'laser') return
-  cancelGesture()
-  if (tool === 'laser') {
-    finishTextEditor()
+watch(
+  () => props.activeTool,
+  (tool, previous) => {
+    if (tool !== 'select') linkHover.value = undefined
+    if (tool !== previous && (drawPointerId !== undefined || eraserPointerId !== undefined))
+      cancelGesture()
+    if (tool !== previous && lassoGesture) cancelLasso()
+    if (tool !== 'laser' && previous !== 'laser') return
+    cancelGesture()
+    if (tool === 'laser') {
+      finishTextEditor()
+      clearSelection()
+      hoveredSelectionHandle.value = undefined
+      isMoveReady.value = false
+      isHoveringSelectedShape.value = false
+    }
+  },
+)
+
+watch(editable, (value) => {
+  if (!value) {
+    if (textEditor.value) {
+      persistence.retainScene(sceneWithTextDraft())
+      textEditor.value = undefined
+    }
+    cancelGesture()
     clearSelection()
-    hoveredSelectionHandle.value = undefined
-    isMoveReady.value = false
-    isHoveringSelectedShape.value = false
   }
 })
-
-watch(drawingTitle, () => queueSave(copyScene()))
 
 onMounted(async () => {
   document.addEventListener('keydown', onKeyDown)
@@ -3003,8 +3972,6 @@ onBeforeUnmount(() => {
     tabindex="0"
     role="application"
     :aria-label="`Drawing canvas, ${selectionCount} objects selected`"
-
-
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="finishPointer"
@@ -3016,7 +3983,13 @@ onBeforeUnmount(() => {
     @dragover="onDragOver"
     @drop="onDrop"
   >
-    <input ref="fileInput" class="image-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change="onImageInput" />
+    <input
+      ref="fileInput"
+      class="image-input"
+      type="file"
+      accept="image/png,image/jpeg,image/gif,image/webp"
+      @change="onImageInput"
+    />
     <svg
       class="canvas-surface"
       width="100%"
@@ -3036,12 +4009,26 @@ onBeforeUnmount(() => {
         >
           <circle cx="0" cy="0" r="1" class="guide-dot" />
         </pattern>
-        <clipPath v-for="image in rectangles.filter(isImage)" :id="`image-clip-${image.id}`" :key="`image-clip-${image.id}`" clipPathUnits="userSpaceOnUse">
-          <rect :x="image.x" :y="image.y" :width="image.width" :height="image.height" :rx="image.cornerRadius" :ry="image.cornerRadius" />
+        <clipPath
+          v-for="image in rectangles.filter(isImage)"
+          :id="`image-clip-${image.id}`"
+          :key="`image-clip-${image.id}`"
+          clipPathUnits="userSpaceOnUse"
+        >
+          <rect
+            :x="image.x"
+            :y="image.y"
+            :width="image.width"
+            :height="image.height"
+            :rx="image.cornerRadius"
+            :ry="image.cornerRadius"
+          />
         </clipPath>
       </defs>
       <rect width="100%" height="100%" fill="url(#sparse-dot-pattern)" />
-      <g :transform="`translate(${viewport.translationX} ${viewport.translationY}) scale(${viewport.scale})`">
+      <g
+        :transform="`translate(${viewport.translationX} ${viewport.translationY}) scale(${viewport.scale})`"
+      >
         <g
           v-for="(object, index) in allShapes"
           :key="object.id"
@@ -3053,129 +4040,201 @@ onBeforeUnmount(() => {
           :aria-selected="selectedShapeIds.includes(object.id)"
           :class="{ 'will-erase': erasedShapeIds.includes(object.id) }"
         >
-        <path
-          v-for="draw in isFreeDraw(object) ? [object] : []"
-          :key="draw.id"
-          :d="freeDrawPath(draw)"
-          class="free-draw"
-          :style="shapeStyle(draw)"
-        />
-        <ArrowShape
-          v-if="isLine(object) && object.kind === 'arrow'"
-          :shape="object"
-          :gradient-id="`canvas-arrow-${object.id}`"
-          :scale="viewport.scale"
-          :opacity="object.opacity ?? 1"
-        />
-        <path
-          v-else-if="isLine(object)"
-          :d="linePath(object)"
-          class="drawn-line"
-          :style="shapeStyle(object)"
-        />
-        <g
-          v-for="image in !isLine(object) && isImage(object) ? [object] : []"
-          :key="image.id"
-          :transform="`rotate(${image.rotation} ${image.x + image.width / 2} ${image.y + image.height / 2})`"
-          :clip-path="`url(#image-clip-${image.id})`"
-        >
-          <svg
-            v-if="image.crop"
-            :x="image.x"
-            :y="image.y"
-            :width="image.width"
-            :height="image.height"
-            :viewBox="`${image.crop.x} ${image.crop.y} ${image.crop.width} ${image.crop.height}`"
-            preserveAspectRatio="none"
-          ><image :href="image.src" :width="image.naturalWidth" :height="image.naturalHeight" class="drawn-image" :style="shapeStyle(image)" /></svg>
-          <image
-            v-else
-            :x="image.x"
-            :y="image.y"
-            :width="image.width"
-            :height="image.height"
-            :href="image.src"
-            preserveAspectRatio="none"
-            class="drawn-image"
-            :style="shapeStyle(image)"
-          />
-          <rect :x="image.x" :y="image.y" :width="image.width" :height="image.height" :rx="image.cornerRadius" :ry="image.cornerRadius" class="drawn-image-border" :style="shapeStyle(image)" />
-        </g>
-        <g
-          v-for="rectangle in !isLine(object) && !isFreeDraw(object) && !isText(object) && !isImage(object) ? [object] : []"
-          :key="rectangle.id"
-          :transform="`rotate(${rectangle.rotation} ${rectangle.x + rectangle.width / 2} ${rectangle.y + rectangle.height / 2})`"
-        >
           <path
-            v-if="isDiamond(rectangle)"
-            :d="diamondPath(rectangle)"
-            class="drawn-diamond"
-            :style="shapeStyle(rectangle)"
+            v-for="draw in isFreeDraw(object) ? [object] : []"
+            :key="draw.id"
+            :d="freeDrawPath(draw)"
+            class="free-draw"
+            :style="shapeStyle(draw)"
           />
-          <ellipse
-            v-else-if="isEllipse(rectangle)"
-            :cx="rectangle.x + rectangle.width / 2"
-            :cy="rectangle.y + rectangle.height / 2"
-            :rx="rectangle.width / 2"
-            :ry="rectangle.height / 2"
-            class="drawn-ellipse"
-            :style="shapeStyle(rectangle)"
+          <ArrowShape
+            v-if="isLine(object) && object.kind === 'arrow'"
+            :shape="object"
+            :gradient-id="`canvas-arrow-${object.id}`"
+            :scale="viewport.scale"
+            :opacity="object.opacity ?? 1"
           />
-          <rect
-            v-else
-            :x="rectangle.x"
-            :y="rectangle.y"
-            :width="rectangle.width"
-            :height="rectangle.height"
-            :rx="rectangle.cornerRadius"
-            :ry="rectangle.cornerRadius"
-            class="drawn-rectangle"
-            :style="shapeStyle(rectangle)"
+          <path
+            v-else-if="isLine(object)"
+            :d="linePath(object)"
+            class="drawn-line"
+            :style="shapeStyle(object)"
           />
-          <text
-            v-if="rectangle.label && textEditor?.shapeId !== rectangle.id"
-            :x="rectangle.x + rectangle.width / 2"
-            :y="rectangle.y + rectangle.height / 2"
-            :font-size="rectangle.labelFontSize ?? 16"
-            class="shape-label"
-            :style="{ fill: rectangle.labelFill ?? 'var(--ink-gray-9, #171717)', fontFamily: TEXT_FONT_FAMILIES[rectangle.labelFontFamily ?? 'shantell'], fontWeight: rectangle.labelFontWeight ?? 400, fontStyle: rectangle.labelFontStyle ?? 'normal', textDecoration: rectangle.labelTextDecoration ?? 'none', textAnchor: labelTextAlign(rectangle) === 'center' ? 'middle' : labelTextAlign(rectangle) === 'right' ? 'end' : 'start' }"
+          <g
+            v-for="image in !isLine(object) && isImage(object) ? [object] : []"
+            :key="image.id"
+            :transform="`rotate(${image.rotation} ${image.x + image.width / 2} ${image.y + image.height / 2})`"
+            :clip-path="`url(#image-clip-${image.id})`"
           >
-            <tspan
-              v-for="(line, index) in labelLines(rectangle)"
-              :key="index"
-              :x="labelLineX(rectangle)"
-              :dy="index === 0 ? -(labelLines(rectangle).length - 1) * (rectangle.labelFontSize ?? 16) * 0.625 : (rectangle.labelFontSize ?? 16) * 1.25"
-              :textLength="labelTextAlign(rectangle) === 'justify' && index < labelLines(rectangle).length - 1 ? labelTextWidth(rectangle) : undefined"
-              lengthAdjust="spacing"
-            >{{ line }}</tspan>
-          </text>
-        </g>
-        <g
-          v-for="text in !isLine(object) && isText(object) ? [object] : []"
-          :key="text.id"
-          v-show="textEditor?.shapeId !== text.id"
-          :transform="`rotate(${text.rotation} ${text.x + text.width / 2} ${text.y + text.height / 2})`"
-        >
-          <rect
-            v-if="text.backgroundColor"
-            :x="text.x"
-            :y="text.y"
-            :width="text.width"
-            :height="text.height"
-            :rx="text.cornerRadius"
-            :ry="text.cornerRadius"
-            :style="{ fill: text.backgroundColor, opacity: text.opacity ?? 1 }"
-          />
-          <text
-            :x="textX(text)"
-            :y="text.y + (textLayouts.get(text.id)?.baseline ?? text.fontSize)"
-            :font-size="text.fontSize"
-            class="drawn-text"
-            :style="{ fill: text.fill ?? 'var(--ink-gray-9, #171717)', opacity: text.opacity ?? 1, fontFamily: TEXT_FONT_FAMILIES[text.fontFamily ?? 'shantell'], fontWeight: text.fontWeight ?? 400, fontStyle: text.fontStyle ?? 'normal', textDecoration: text.textDecoration ?? 'none', textAnchor: text.textAlign === 'center' ? 'middle' : text.textAlign === 'right' ? 'end' : 'start' }"
+            <svg
+              v-if="image.crop"
+              :x="image.x"
+              :y="image.y"
+              :width="image.width"
+              :height="image.height"
+              :viewBox="`${image.crop.x} ${image.crop.y} ${image.crop.width} ${image.crop.height}`"
+              preserveAspectRatio="none"
+            >
+              <image
+                :href="image.src"
+                :width="image.naturalWidth"
+                :height="image.naturalHeight"
+                class="drawn-image"
+                :style="shapeStyle(image)"
+              />
+            </svg>
+            <image
+              v-else
+              :x="image.x"
+              :y="image.y"
+              :width="image.width"
+              :height="image.height"
+              :href="image.src"
+              preserveAspectRatio="none"
+              class="drawn-image"
+              :style="shapeStyle(image)"
+            />
+            <rect
+              :x="image.x"
+              :y="image.y"
+              :width="image.width"
+              :height="image.height"
+              :rx="image.cornerRadius"
+              :ry="image.cornerRadius"
+              class="drawn-image-border"
+              :style="shapeStyle(image)"
+            />
+          </g>
+          <g
+            v-for="rectangle in !isLine(object) &&
+            !isFreeDraw(object) &&
+            !isText(object) &&
+            !isImage(object)
+              ? [object]
+              : []"
+            :key="rectangle.id"
+            :transform="`rotate(${rectangle.rotation} ${rectangle.x + rectangle.width / 2} ${rectangle.y + rectangle.height / 2})`"
           >
-            <tspan v-for="(line, index) in textLayouts.get(text.id)?.lines" :key="index" :x="textX(text)" :dy="index ? text.fontSize * 1.25 : 0" :textLength="text.textAlign === 'justify' && index < (textLayouts.get(text.id)?.lines.length ?? 0) - 1 ? text.width : undefined" lengthAdjust="spacing">{{ line }}</tspan>
-          </text>
-        </g>
+            <path
+              v-if="isDiamond(rectangle)"
+              :d="diamondPath(rectangle)"
+              class="drawn-diamond"
+              :style="shapeStyle(rectangle)"
+            />
+            <ellipse
+              v-else-if="isEllipse(rectangle)"
+              :cx="rectangle.x + rectangle.width / 2"
+              :cy="rectangle.y + rectangle.height / 2"
+              :rx="rectangle.width / 2"
+              :ry="rectangle.height / 2"
+              class="drawn-ellipse"
+              :style="shapeStyle(rectangle)"
+            />
+            <rect
+              v-else
+              :x="rectangle.x"
+              :y="rectangle.y"
+              :width="rectangle.width"
+              :height="rectangle.height"
+              :rx="rectangle.cornerRadius"
+              :ry="rectangle.cornerRadius"
+              class="drawn-rectangle"
+              :style="shapeStyle(rectangle)"
+            />
+            <text
+              v-if="rectangle.label && textEditor?.shapeId !== rectangle.id"
+              :x="rectangle.x + rectangle.width / 2"
+              :y="rectangle.y + rectangle.height / 2"
+              :font-size="rectangle.labelFontSize ?? 16"
+              class="shape-label"
+              :style="{
+                fill: rectangle.labelFill ?? 'var(--ink-gray-9, #171717)',
+                fontFamily: TEXT_FONT_FAMILIES[rectangle.labelFontFamily ?? 'shantell'],
+                fontWeight: rectangle.labelFontWeight ?? 400,
+                fontStyle: rectangle.labelFontStyle ?? 'normal',
+                textDecoration: rectangle.labelTextDecoration ?? 'none',
+                textAnchor:
+                  labelTextAlign(rectangle) === 'center'
+                    ? 'middle'
+                    : labelTextAlign(rectangle) === 'right'
+                      ? 'end'
+                      : 'start',
+              }"
+            >
+              <tspan
+                v-for="(line, index) in labelLines(rectangle)"
+                :key="index"
+                :x="labelLineX(rectangle)"
+                :dy="
+                  index === 0
+                    ? -(labelLines(rectangle).length - 1) * (rectangle.labelFontSize ?? 16) * 0.625
+                    : (rectangle.labelFontSize ?? 16) * 1.25
+                "
+                :textLength="
+                  labelTextAlign(rectangle) === 'justify' &&
+                  index < labelLines(rectangle).length - 1
+                    ? labelTextWidth(rectangle)
+                    : undefined
+                "
+                lengthAdjust="spacing"
+              >
+                {{ line }}
+              </tspan>
+            </text>
+          </g>
+          <g
+            v-for="text in !isLine(object) && isText(object) ? [object] : []"
+            :key="text.id"
+            v-show="textEditor?.shapeId !== text.id"
+            :transform="`rotate(${text.rotation} ${text.x + text.width / 2} ${text.y + text.height / 2})`"
+          >
+            <rect
+              v-if="text.backgroundColor"
+              :x="text.x"
+              :y="text.y"
+              :width="text.width"
+              :height="text.height"
+              :rx="text.cornerRadius"
+              :ry="text.cornerRadius"
+              :style="{ fill: text.backgroundColor, opacity: text.opacity ?? 1 }"
+            />
+            <text
+              :x="textX(text)"
+              :y="text.y + (textLayouts.get(text.id)?.baseline ?? text.fontSize)"
+              :font-size="text.fontSize"
+              class="drawn-text"
+              :style="{
+                fill: text.fill ?? 'var(--ink-gray-9, #171717)',
+                opacity: text.opacity ?? 1,
+                fontFamily: TEXT_FONT_FAMILIES[text.fontFamily ?? 'shantell'],
+                fontWeight: text.fontWeight ?? 400,
+                fontStyle: text.fontStyle ?? 'normal',
+                textDecoration: text.textDecoration ?? 'none',
+                textAnchor:
+                  text.textAlign === 'center'
+                    ? 'middle'
+                    : text.textAlign === 'right'
+                      ? 'end'
+                      : 'start',
+              }"
+            >
+              <tspan
+                v-for="(line, index) in textLayouts.get(text.id)?.lines"
+                :key="index"
+                :x="textX(text)"
+                :dy="index ? text.fontSize * 1.25 : 0"
+                :textLength="
+                  text.textAlign === 'justify' &&
+                  index < (textLayouts.get(text.id)?.lines.length ?? 0) - 1
+                    ? text.width
+                    : undefined
+                "
+                lengthAdjust="spacing"
+              >
+                {{ line }}
+              </tspan>
+            </text>
+          </g>
         </g>
         <path
           v-if="pendingRectangle && isDiamond(pendingRectangle)"
@@ -3207,12 +4266,13 @@ onBeforeUnmount(() => {
           :scale="viewport.scale"
           :opacity="pendingLine.opacity ?? 1"
         />
+        <path v-else-if="pendingLine" :d="linePath(pendingLine)" class="drawn-line is-pending" />
         <path
-          v-else-if="pendingLine"
-          :d="linePath(pendingLine)"
-          class="drawn-line is-pending"
+          v-if="pendingDraw"
+          :d="freeDrawPath(pendingDraw)"
+          class="free-draw"
+          :style="shapeStyle(pendingDraw)"
         />
-        <path v-if="pendingDraw" :d="freeDrawPath(pendingDraw)" class="free-draw" :style="shapeStyle(pendingDraw)" />
         <rect
           v-if="pendingText"
           :x="pendingText.x"
@@ -3241,15 +4301,28 @@ onBeforeUnmount(() => {
             class="crop-image-preview"
           />
           <path :d="cropMaskPath(croppingImage, cropFrame)" fill-rule="evenodd" class="crop-mask" />
-          <rect :x="cropFrame.x" :y="cropFrame.y" :width="cropFrame.width" :height="cropFrame.height" class="crop-frame" />
+          <rect
+            :x="cropFrame.x"
+            :y="cropFrame.y"
+            :width="cropFrame.width"
+            :height="cropFrame.height"
+            class="crop-frame"
+          />
         </g>
         <g v-if="selectedLine && !hasMultipleSelection" class="selection-overlay">
-          <path
-            :d="linePath(selectedLine)"
-            class="selection-line"
+          <path :d="linePath(selectedLine)" class="selection-line" />
+          <circle
+            :cx="selectedLine.start.x"
+            :cy="selectedLine.start.y"
+            :r="3 / viewport.scale"
+            class="selection-handle"
           />
-          <circle :cx="selectedLine.start.x" :cy="selectedLine.start.y" :r="3 / viewport.scale" class="selection-handle" />
-          <circle :cx="selectedLine.end.x" :cy="selectedLine.end.y" :r="3 / viewport.scale" class="selection-handle" />
+          <circle
+            :cx="selectedLine.end.x"
+            :cy="selectedLine.end.y"
+            :r="3 / viewport.scale"
+            class="selection-handle"
+          />
           <circle
             :cx="lineControlPoint(selectedLine).x"
             :cy="lineControlPoint(selectedLine).y"
@@ -3260,7 +4333,10 @@ onBeforeUnmount(() => {
         <g
           v-if="selectionFrame && selectionCorners && selectionEdges"
           class="selection-overlay"
-          :class="{ 'is-text-selection': isTextSelected, 'is-multiple-selection': hasMultipleSelection }"
+          :class="{
+            'is-text-selection': isTextSelected,
+            'is-multiple-selection': hasMultipleSelection,
+          }"
         >
           <rect
             v-for="item in selectionItemFrames"
@@ -3281,7 +4357,7 @@ onBeforeUnmount(() => {
             class="selection-outline"
           />
           <circle
-            v-if="!selectedLine || hasMultipleSelection"
+            v-show="!selectedLine || hasMultipleSelection"
             v-for="(corner, name) in selectionCorners"
             :key="name"
             :cx="corner.x"
@@ -3315,7 +4391,7 @@ onBeforeUnmount(() => {
             />
           </template>
           <circle
-            v-if="(!selectedLine || hasMultipleSelection) && showCurveControls"
+            v-show="(!selectedLine || hasMultipleSelection) && showCurveControls"
             v-for="(curve, name) in visibleCurveHandles"
             :key="`curve-${name}`"
             :cx="curve.x"
@@ -3324,13 +4400,36 @@ onBeforeUnmount(() => {
             class="curve-handle"
           />
         </g>
-        <rect v-if="marquee" :x="marquee.x" :y="marquee.y" :width="marquee.width" :height="marquee.height" fill="#4285f422" stroke="#4285f4" vector-effect="non-scaling-stroke" />
+        <rect
+          v-if="marquee"
+          :x="marquee.x"
+          :y="marquee.y"
+          :width="marquee.width"
+          :height="marquee.height"
+          fill="#4285f422"
+          stroke="#4285f4"
+          vector-effect="non-scaling-stroke"
+        />
         <template v-if="lassoOutline.length > 1">
-          <path :d="lassoPathData(lassoOutline)" class="lasso-outline lasso-outline--background" aria-hidden="true" />
-          <path :d="lassoPathData(lassoOutline)" class="lasso-outline lasso-outline--foreground" aria-hidden="true" />
+          <path
+            :d="lassoPathData(lassoOutline)"
+            class="lasso-outline lasso-outline--background"
+            aria-hidden="true"
+          />
+          <path
+            :d="lassoPathData(lassoOutline)"
+            class="lasso-outline lasso-outline--foreground"
+            aria-hidden="true"
+          />
         </template>
         <LaserTrail ref="laserTrail" :scale="viewport.scale" />
-        <LaserTrail ref="eraserTrail" :scale="viewport.scale" color="rgb(23 23 23 / 22%)" :radius="2.5" :duration="200" />
+        <LaserTrail
+          ref="eraserTrail"
+          :scale="viewport.scale"
+          color="rgb(23 23 23 / 22%)"
+          :radius="2.5"
+          :duration="200"
+        />
       </g>
     </svg>
 
@@ -3339,18 +4438,23 @@ onBeforeUnmount(() => {
       class="link-hover-tooltip"
       role="tooltip"
       :style="{ left: `${linkHover.point.x}px`, top: `${linkHover.point.y - 12}px` }"
-    >{{ linkHover.link }}</div>
-    <p v-if="croppingImage" class="crop-hint">Drag to crop · Esc to cancel</p>
+    >
+      {{ linkHover.link }}
+    </div>
+    <p v-if="croppingImage" class="crop-hint">{{ __('Drag to crop · Esc to cancel') }}</p>
 
     <textarea
       v-if="textEditor"
       ref="textArea"
       v-model="textEditor.text"
       class="text-editor canvas-text-input"
-      :class="{ 'is-label-editor': textEditor.kind === 'label', 'is-wrapped-editor': textEditor.wrap }"
+      :class="{
+        'is-label-editor': textEditor.kind === 'label',
+        'is-wrapped-editor': textEditor.wrap,
+      }"
       :style="textEditorStyle"
       :wrap="textEditor.wrap ? 'soft' : 'off'"
-      aria-label="Text editor"
+      :aria-label="__('Text editor')"
       spellcheck="false"
       rows="1"
       @pointerdown.stop
@@ -3362,59 +4466,82 @@ onBeforeUnmount(() => {
       @keydown="onTextEditorKeyDown"
     />
 
-    <div v-if="propertyToolbarVisible" class="property-toolbar" role="toolbar" aria-label="Property bar" @pointerdown.capture="beginPropertyToolbarInteraction" @pointerdown.stop @click.capture="endPropertyToolbarInteraction" @dblclick.stop>
+    <div
+      v-if="propertyToolbarVisible"
+      class="property-toolbar"
+      role="toolbar"
+      :aria-label="__('Property bar')"
+      @pointerdown.capture="beginPropertyToolbarInteraction"
+      @pointerdown.stop
+      @click.capture="endPropertyToolbarInteraction"
+      @dblclick.stop
+    >
       <div class="property-color-group">
         <ShapeColorPicker
-            :color="activePropertyColor"
-            :secondary-color="activePropertyBorderColor"
-            :stroke-width="activePropertyStrokeWidth"
-            :stroke-style="activePropertyStrokeStyle"
-            :show-border-options="props.activeTool === 'draw' || (!selectedLabel && Boolean(selectedShapes.length && !selectedTextShapes.length))"
-            :show-stroke-style-options="props.activeTool === 'draw' || !selectedShapes.some(shape => isLine(shape) && shape.kind === 'arrow')"
-            :target="propertyColorTarget"
-            mode="property-object"
-            :property-kind="props.activeTool === 'draw' ? 'shape' : propertyColorKind"
-            :open="propertyPopupOpen === 'color'"
-            label="Custom color"
-            @select="applyCustomPropertyColor"
-            @style="applyCustomPropertyStyle"
-            @update:open="updatePropertyPopupOpen('color', $event)"
+          :color="activePropertyColor"
+          :secondary-color="activePropertyBorderColor"
+          :stroke-width="activePropertyStrokeWidth"
+          :stroke-style="activePropertyStrokeStyle"
+          :show-border-options="
+            props.activeTool === 'draw' ||
+            (!selectedLabel && Boolean(selectedShapes.length && !selectedTextShapes.length))
+          "
+          :show-stroke-style-options="
+            props.activeTool === 'draw' ||
+            !selectedShapes.some((shape) => isLine(shape) && shape.kind === 'arrow')
+          "
+          :target="propertyColorTarget"
+          mode="property-object"
+          :property-kind="props.activeTool === 'draw' ? 'shape' : propertyColorKind"
+          :open="propertyPopupOpen === 'color'"
+          :label="__('Custom color')"
+          @select="applyCustomPropertyColor"
+          @style="applyCustomPropertyStyle"
+          @update:open="updatePropertyPopupOpen('color', $event)"
         />
         <template v-if="usesSolidColorPalette">
-          <Tooltip
-            v-for="color in solidColors"
-            :key="color.color"
-            :text="color.label"
-            side="top"
-          >
+          <Tooltip v-for="color in solidColors" :key="color.color" :text="color.label" side="top">
             <Button
               class="property-color property-color--solid"
               size="xs"
               variant="ghost"
               theme="gray"
               :label="color.label"
-              :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color"
-              :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.color : activePropertyColor === color.color }"
+              :aria-pressed="
+                props.activeTool === 'draw'
+                  ? drawStyle.stroke === color.color
+                  : activePropertyColor === color.color
+              "
+              :class="{
+                selected:
+                  props.activeTool === 'draw'
+                    ? drawStyle.stroke === color.color
+                    : activePropertyColor === color.color,
+              }"
               :style="{ '--property-color': color.color }"
               @click="applySolidColor(color.color)"
             />
           </Tooltip>
         </template>
         <template v-else>
-          <Tooltip
-            v-for="color in objectColors"
-            :key="color.label"
-            :text="color.label"
-            side="top"
-          >
+          <Tooltip v-for="color in objectColors" :key="color.label" :text="color.label" side="top">
             <Button
               class="property-color property-color--object"
               size="xs"
               variant="ghost"
               theme="gray"
               :label="`${color.label} fill and border`"
-              :aria-pressed="props.activeTool === 'draw' ? drawStyle.stroke === color.border && drawStyle.fill === color.fill : activePropertyColor === color.fill"
-              :class="{ selected: props.activeTool === 'draw' ? drawStyle.stroke === color.border && drawStyle.fill === color.fill : activePropertyColor === color.fill }"
+              :aria-pressed="
+                props.activeTool === 'draw'
+                  ? drawStyle.stroke === color.border && drawStyle.fill === color.fill
+                  : activePropertyColor === color.fill
+              "
+              :class="{
+                selected:
+                  props.activeTool === 'draw'
+                    ? drawStyle.stroke === color.border && drawStyle.fill === color.fill
+                    : activePropertyColor === color.fill,
+              }"
               :style="{ '--property-fill': color.fill, '--property-border': color.border }"
               @click="applyObjectColor(color)"
             />
@@ -3428,7 +4555,7 @@ onBeforeUnmount(() => {
         variant="outline"
         size="sm"
         class="property-text-control property-text-control--font"
-        aria-label="Font family"
+        :aria-label="__('Font family')"
         :disabled="!textPropertyControlsEnabled"
         @update:open="updatePropertyPopupOpen('font', $event)"
         @update:model-value="updatePropertyTextStyle({ fontFamily: $event as TextFontFamily })"
@@ -3444,7 +4571,7 @@ onBeforeUnmount(() => {
         variant="outline"
         size="sm"
         class="property-text-control property-text-control--size"
-        aria-label="Font size"
+        :aria-label="__('Font size')"
         :disabled="!textPropertyControlsEnabled"
         @update:model-value="updatePropertyFontSizeDraft"
         @keydown.enter.prevent="commitPropertyFontSizeEdit"
@@ -3459,7 +4586,7 @@ onBeforeUnmount(() => {
         variant="outline"
         size="sm"
         class="property-text-control property-text-control--size"
-        aria-label="Font size"
+        :aria-label="__('Font size')"
         :disabled="!textPropertyControlsEnabled"
         @update:open="updatePropertyPopupOpen('size', $event)"
         @update:model-value="updatePropertyTextStyle({ fontSize: $event as number })"
@@ -3472,72 +4599,193 @@ onBeforeUnmount(() => {
               @pointerup.stop="handlePropertyFontSizePointerUp"
               @click.stop
               @dblclick.stop.prevent="beginPropertyFontSizeEdit"
-            >{{ propertyFontSize }}</span>
+              >{{ propertyFontSize }}</span
+            >
             <Icon :name="ChevronDown" class="property-size-chevron" :stroke-width="1.5" />
           </span>
         </template>
       </Select>
-      <Tooltip text="Bold" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontWeight >= 600 }" label="Bold" :aria-pressed="propertyTextStyle.fontWeight >= 600" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontWeight: propertyTextStyle.fontWeight >= 600 ? 400 : 600 })"><Icon :name="Bold" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-      <Tooltip text="Italic" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.fontStyle === 'italic' }" label="Italic" :aria-pressed="propertyTextStyle.fontStyle === 'italic'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ fontStyle: propertyTextStyle.fontStyle === 'italic' ? 'normal' : 'italic' })"><Icon :name="Italic" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-      <Tooltip text="Underline" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" :class="{ 'is-active': textPropertyControlsEnabled && propertyTextStyle.textDecoration === 'underline' }" label="Underline" :aria-pressed="propertyTextStyle.textDecoration === 'underline'" :disabled="!textPropertyControlsEnabled" @click="updatePropertyTextStyle({ textDecoration: propertyTextStyle.textDecoration === 'underline' ? 'none' : 'underline' })"><Icon :name="Underline" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-      <Tooltip :text="propertyTextAlignOption.label" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Text alignment" :aria-label="propertyTextAlignOption.label" :disabled="!textPropertyControlsEnabled" @click="cyclePropertyTextAlign"><Icon :name="propertyTextAlignOption.icon" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-      <Tooltip text="Bring forward" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Bring forward" :disabled="!selectedShapes.length || !layerActions.forward" @click="reorderSelectedShapes('forward')"><Icon :name="ChevronUp" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
-      <Tooltip text="Send backward" placement="top"><Button class="property-tool" size="sm" variant="ghost" theme="gray" label="Send backward" :disabled="!selectedShapes.length || !layerActions.backward" @click="reorderSelectedShapes('backward')"><Icon :name="ChevronDown" class="property-tool-icon" :stroke-width="1.5" /></Button></Tooltip>
+      <Tooltip text="Bold" placement="top"
+        ><Button
+          class="property-tool"
+          size="sm"
+          variant="ghost"
+          theme="gray"
+          :class="{
+            'is-active': textPropertyControlsEnabled && propertyTextStyle.fontWeight >= 600,
+          }"
+          :label="__('Bold')"
+          :aria-pressed="propertyTextStyle.fontWeight >= 600"
+          :disabled="!textPropertyControlsEnabled"
+          @click="
+            updatePropertyTextStyle({ fontWeight: propertyTextStyle.fontWeight >= 600 ? 400 : 600 })
+          "
+          ><Icon :name="Bold" class="property-tool-icon" :stroke-width="1.5" /></Button
+      ></Tooltip>
+      <Tooltip text="Italic" placement="top"
+        ><Button
+          class="property-tool"
+          size="sm"
+          variant="ghost"
+          theme="gray"
+          :class="{
+            'is-active': textPropertyControlsEnabled && propertyTextStyle.fontStyle === 'italic',
+          }"
+          :label="__('Italic')"
+          :aria-pressed="propertyTextStyle.fontStyle === 'italic'"
+          :disabled="!textPropertyControlsEnabled"
+          @click="
+            updatePropertyTextStyle({
+              fontStyle: propertyTextStyle.fontStyle === 'italic' ? 'normal' : 'italic',
+            })
+          "
+          ><Icon :name="Italic" class="property-tool-icon" :stroke-width="1.5" /></Button
+      ></Tooltip>
+      <Tooltip text="Underline" placement="top"
+        ><Button
+          class="property-tool"
+          size="sm"
+          variant="ghost"
+          theme="gray"
+          :class="{
+            'is-active':
+              textPropertyControlsEnabled && propertyTextStyle.textDecoration === 'underline',
+          }"
+          :label="__('Underline')"
+          :aria-pressed="propertyTextStyle.textDecoration === 'underline'"
+          :disabled="!textPropertyControlsEnabled"
+          @click="
+            updatePropertyTextStyle({
+              textDecoration:
+                propertyTextStyle.textDecoration === 'underline' ? 'none' : 'underline',
+            })
+          "
+          ><Icon :name="Underline" class="property-tool-icon" :stroke-width="1.5" /></Button
+      ></Tooltip>
+      <Tooltip :text="propertyTextAlignOption.label" placement="top"
+        ><Button
+          class="property-tool"
+          size="sm"
+          variant="ghost"
+          theme="gray"
+          :label="__('Text alignment')"
+          :aria-label="propertyTextAlignOption.label"
+          :disabled="!textPropertyControlsEnabled"
+          @click="cyclePropertyTextAlign"
+          ><Icon
+            :name="propertyTextAlignOption.icon"
+            class="property-tool-icon"
+            :stroke-width="1.5" /></Button
+      ></Tooltip>
+      <Tooltip text="Bring forward" placement="top"
+        ><Button
+          class="property-tool"
+          size="sm"
+          variant="ghost"
+          theme="gray"
+          :label="__('Bring forward')"
+          :disabled="!selectedShapes.length || !layerActions.forward"
+          @click="reorderSelectedShapes('forward')"
+          ><Icon :name="ChevronUp" class="property-tool-icon" :stroke-width="1.5" /></Button
+      ></Tooltip>
+      <Tooltip text="Send backward" placement="top"
+        ><Button
+          class="property-tool"
+          size="sm"
+          variant="ghost"
+          theme="gray"
+          :label="__('Send backward')"
+          :disabled="!selectedShapes.length || !layerActions.backward"
+          @click="reorderSelectedShapes('backward')"
+          ><Icon :name="ChevronDown" class="property-tool-icon" :stroke-width="1.5" /></Button
+      ></Tooltip>
     </div>
-    <div class="history-controls" role="group" aria-label="History controls" @pointerdown.stop @dblclick.stop>
+    <div
+      class="history-controls"
+      role="group"
+      :aria-label="__('History controls')"
+      @pointerdown.stop
+      @dblclick.stop
+    >
       <Tooltip text="Undo" side="top">
-        <Button size="md" variant="ghost" theme="gray" label="Undo" :disabled="!canUndo" @click="undoScene">
+        <Button
+          size="md"
+          variant="ghost"
+          theme="gray"
+          :label="__('Undo')"
+          :disabled="!editable || !canUndo"
+          @click="undoScene"
+        >
           <Undo2 class="history-control-icon" aria-hidden="true" />
         </Button>
       </Tooltip>
       <Tooltip text="Redo" side="top">
-        <Button size="md" variant="ghost" theme="gray" label="Redo" :disabled="!canRedo" @click="redoScene">
+        <Button
+          size="md"
+          variant="ghost"
+          theme="gray"
+          :label="__('Redo')"
+          :disabled="!editable || !canRedo"
+          @click="redoScene"
+        >
           <Redo2 class="history-control-icon" aria-hidden="true" />
         </Button>
       </Tooltip>
     </div>
-    <div class="viewport-panel" @pointerdown.stop @pointermove.stop @pointerup.stop @pointercancel.stop @dblclick.stop>
-    <CanvasMinimap :shapes="allShapes" :viewport="viewport" :canvas-size="size" @pan-to="navigateFromMinimap" />
-    <div class="viewport-controls" role="group" aria-label="Canvas zoom controls">
-            <TooltipProvider>
-              <Tooltip text="Zoom out" placement="top">
-                <Button
-                  size="md"
-                  variant="ghost"
-                  theme="gray"
-                  label="Zoom out"
-                  :disabled="viewport.scale <= MIN_SCALE"
-                  @click="stepZoom(-1)"
-                >
-                  <Minus class="viewport-control-icon" aria-hidden="true" />
-                </Button>
-              </Tooltip>
-              <Tooltip text="Reset zoom to 100%" placement="top">
-                <Button
-                  class="zoom-reset"
-                  size="md"
-                  variant="ghost"
-                  theme="gray"
-                  label="Reset zoom to 100%"
-                  @click="resetZoom"
-                >
-                  <span class="zoom-label">{{ zoomLabel }}</span>
-                </Button>
-              </Tooltip>
-              <Tooltip text="Zoom in" placement="top">
-                <Button
-                  size="md"
-                  variant="ghost"
-                  theme="gray"
-                  label="Zoom in"
-                  :disabled="viewport.scale >= MAX_SCALE"
-                  @click="stepZoom(1)"
-                >
-                  <Plus class="viewport-control-icon" aria-hidden="true" />
-                </Button>
-              </Tooltip>
-            </TooltipProvider>
-    </div>
+    <div
+      class="viewport-panel"
+      @pointerdown.stop
+      @pointermove.stop
+      @pointerup.stop
+      @pointercancel.stop
+      @dblclick.stop
+    >
+      <CanvasMinimap
+        :shapes="allShapes"
+        :viewport="viewport"
+        :canvas-size="size"
+        @pan-to="navigateFromMinimap"
+      />
+      <div class="viewport-controls" role="group" :aria-label="__('Canvas zoom controls')">
+        <TooltipProvider>
+          <Tooltip text="Zoom out" placement="top">
+            <Button
+              size="md"
+              variant="ghost"
+              theme="gray"
+              :label="__('Zoom out')"
+              :disabled="viewport.scale <= MIN_SCALE"
+              @click="stepZoom(-1)"
+            >
+              <Minus class="viewport-control-icon" aria-hidden="true" />
+            </Button>
+          </Tooltip>
+          <Tooltip text="Reset zoom to 100%" placement="top">
+            <Button
+              class="zoom-reset"
+              size="md"
+              variant="ghost"
+              theme="gray"
+              :label="__('Reset zoom to 100%')"
+              @click="resetZoom"
+            >
+              <span class="zoom-label">{{ zoomLabel }}</span>
+            </Button>
+          </Tooltip>
+          <Tooltip text="Zoom in" placement="top">
+            <Button
+              size="md"
+              variant="ghost"
+              theme="gray"
+              :label="__('Zoom in')"
+              :disabled="viewport.scale >= MAX_SCALE"
+              @click="stepZoom(1)"
+            >
+              <Plus class="viewport-control-icon" aria-hidden="true" />
+            </Button>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
     </div>
 
     <p v-if="liveMessage.startsWith('Clipboard')" class="command-feedback">{{ liveMessage }}</p>
@@ -3546,7 +4794,19 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.command-feedback { position: absolute; left: 16px; bottom: 68px; max-width: min(440px, calc(100% - 32px)); padding: 10px 12px; border-radius: 8px; background: var(--surface-base); color: var(--ink-gray-9); font-size: 13px; box-shadow: var(--shadow-sm); pointer-events: none; }
+.command-feedback {
+  position: absolute;
+  left: 16px;
+  bottom: 68px;
+  max-width: min(440px, calc(100% - 32px));
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-base);
+  color: var(--ink-gray-9);
+  font-size: 13px;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
 .property-toolbar {
   position: fixed;
   display: flex;
@@ -3570,39 +4830,188 @@ onBeforeUnmount(() => {
   box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
   pointer-events: none;
 }
-.property-toolbar::-webkit-scrollbar { display: none; }
-.property-toolbar :deep(button) { pointer-events: auto; }
-.property-toolbar :deep(.property-text-control--size input) { height: 28px; min-height: 28px; padding: 0 6px; text-align: center; pointer-events: auto; }
-.property-size-chevron { width: 12px; height: 12px; flex: 0 0 auto; }
-.property-color-group { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.property-color { width: 28px !important; height: 28px !important; padding: 0 6px; border-radius: 6px !important; }
-.property-color :deep(.truncate) { display: none; }
-.property-color--object { border: 2px solid var(--property-border) !important; background: var(--property-fill) !important; }
-.property-color--solid { background: var(--property-color) !important; }
-.property-toolbar :deep(.property-tool) { width: 28px; min-width: 28px; height: 28px; padding: 0; border-radius: 6px; }
-.property-toolbar :deep(.property-tool-icon) { width: 16px; height: 16px; flex: 0 0 auto; }
-.property-toolbar :deep(.property-tool.is-active) { color: var(--ink-gray-8); background: var(--surface-gray-3); }
-.property-toolbar :deep(.property-text-control) { flex: 0 0 auto; min-width: 0; }
-.property-toolbar :deep(.property-text-control--font) { width: 116px; }
-.property-toolbar :deep(.property-text-control--size) { flex: 0 0 60px; width: 60px; min-width: 60px; max-width: 60px; }
-.property-text-control :deep(button) { height: 28px; min-height: 28px; padding: 0 8px; }
+.property-toolbar::-webkit-scrollbar {
+  display: none;
+}
+.property-toolbar :deep(button) {
+  pointer-events: auto;
+}
+.property-toolbar :deep(.property-text-control--size input) {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  text-align: center;
+  pointer-events: auto;
+}
+.property-size-chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+.property-color-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.property-color {
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 6px;
+  border-radius: 6px !important;
+}
+.property-color :deep(.truncate) {
+  display: none;
+}
+.property-color--object {
+  border: 2px solid var(--property-border) !important;
+  background: var(--property-fill) !important;
+}
+.property-color--solid {
+  background: var(--property-color) !important;
+}
+.property-toolbar :deep(.property-tool) {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+}
+.property-toolbar :deep(.property-tool-icon) {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.property-toolbar :deep(.property-tool.is-active) {
+  color: var(--ink-gray-8);
+  background: var(--surface-gray-3);
+}
+.property-toolbar :deep(.property-text-control) {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.property-toolbar :deep(.property-text-control--font) {
+  width: 116px;
+}
+.property-toolbar :deep(.property-text-control--size) {
+  flex: 0 0 60px;
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+}
+.property-text-control :deep(button) {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+}
 /* Select and Tooltip both use data-slot="content"; these rules are for Select's listbox only. */
-:global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))),
-:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox'])) { width: 116px !important; min-width: 0 !important; }
-:global(body:has(.property-text-control--font[data-state='open']):not(:has(.property-text-control--size[data-state='open'])) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']),
-:global(body:has(.property-text-control--font[data-state='open']):has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):has(~ div [data-slot='content'][role='listbox']) [data-slot='content'][role='listbox']) { width: 116px !important; min-width: 116px; max-width: 116px; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox']))) { width: 60px !important; min-width: 0 !important; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox']) { width: 60px !important; min-width: 60px; max-width: 60px; }
-:global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])),
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])) { bottom: 50px !important; height: auto !important; min-height: 0 !important; max-height: calc(100vh - 72px) !important; }
-:global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox']):not(:has(~ div [data-slot='content'][role='listbox'])) [data-slot='content'][role='listbox'] .lucide-check) { display: none; }
+:global(
+  body:has(.property-text-control--font[data-state='open']):not(
+      :has(.property-text-control--size[data-state='open'])
+    )
+    > div:has(> [data-slot='content'][role='listbox']):not(
+      :has(~ div [data-slot='content'][role='listbox'])
+    )
+),
+:global(
+  body:has(.property-text-control--font[data-state='open']):has(
+      .property-text-control--size[data-state='open']
+    )
+    > div:has(> [data-slot='content'][role='listbox']):has(
+      ~ div [data-slot='content'][role='listbox']
+    )
+) {
+  width: 116px !important;
+  min-width: 0 !important;
+}
+:global(
+  body:has(.property-text-control--font[data-state='open']):not(
+      :has(.property-text-control--size[data-state='open'])
+    )
+    > div:has(> [data-slot='content'][role='listbox']):not(
+      :has(~ div [data-slot='content'][role='listbox'])
+    )
+    [data-slot='content'][role='listbox']
+),
+:global(
+  body:has(.property-text-control--font[data-state='open']):has(
+      .property-text-control--size[data-state='open']
+    )
+    > div:has(> [data-slot='content'][role='listbox']):has(
+      ~ div [data-slot='content'][role='listbox']
+    )
+    [data-slot='content'][role='listbox']
+) {
+  width: 116px !important;
+  min-width: 116px;
+  max-width: 116px;
+}
+:global(
+  body:has(.property-text-control--size[data-state='open'])
+    > div:has(> [data-slot='content'][role='listbox']):not(
+      :has(~ div [data-slot='content'][role='listbox'])
+    )
+) {
+  width: 60px !important;
+  min-width: 0 !important;
+}
+:global(
+  body:has(.property-text-control--size[data-state='open'])
+    > div:has(> [data-slot='content'][role='listbox']):not(
+      :has(~ div [data-slot='content'][role='listbox'])
+    )
+    [data-slot='content'][role='listbox']
+) {
+  width: 60px !important;
+  min-width: 60px;
+  max-width: 60px;
+}
+:global(
+  body:has(.property-text-control--font[data-state='open'])
+    > div:has(> [data-slot='content'][role='listbox'])
+),
+:global(
+  body:has(.property-text-control--size[data-state='open'])
+    > div:has(> [data-slot='content'][role='listbox'])
+) {
+  bottom: 50px !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: calc(100vh - 72px) !important;
+}
+:global(
+  body:has(.property-text-control--size[data-state='open'])
+    > div:has(> [data-slot='content'][role='listbox']):not(
+      :has(~ div [data-slot='content'][role='listbox'])
+    )
+    [data-slot='content'][role='listbox']
+    .lucide-check
+) {
+  display: none;
+}
 @media (max-width: 760px) {
-  .property-toolbar { right: 16px; bottom: 64px; left: 16px; width: auto; transform: none; }
-  .property-toolbar :deep(.property-text-control--font) { width: 104px; }
+  .property-toolbar {
+    right: 16px;
+    bottom: 64px;
+    left: 16px;
+    width: auto;
+    transform: none;
+  }
+  .property-toolbar :deep(.property-text-control--font) {
+    width: 104px;
+  }
 }
 @media (max-width: 600px) {
-  :global(body:has(.property-text-control--font[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])),
-  :global(body:has(.property-text-control--size[data-state='open']) > div:has(> [data-slot='content'][role='listbox'])) { bottom: 98px !important; }
+  :global(
+    body:has(.property-text-control--font[data-state='open'])
+      > div:has(> [data-slot='content'][role='listbox'])
+  ),
+  :global(
+    body:has(.property-text-control--size[data-state='open'])
+      > div:has(> [data-slot='content'][role='listbox'])
+  ) {
+    bottom: 98px !important;
+  }
 }
 .history-controls {
   position: fixed;
@@ -3701,7 +5110,9 @@ onBeforeUnmount(() => {
 }
 
 .infinite-canvas.is-laser-ready {
-  cursor: url('../assets/laser-pointer.svg') 2 2, crosshair;
+  cursor:
+    url('../assets/laser-pointer.svg') 2 2,
+    crosshair;
 }
 
 .infinite-canvas.is-lasso-ready {
@@ -3716,11 +5127,54 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.image-input { display: none; }
+.image-input {
+  display: none;
+}
 
-.link-hover-tooltip { position: absolute; z-index: 3; max-width: min(280px, calc(100% - 32px)); padding: 6px 10px; overflow: hidden; border-radius: 7px; background: #171717; color: #fff; font-size: 13px; font-weight: 600; line-height: 20px; text-align: center; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; transform: translate(-50%, -100%); }
-.link-hover-tooltip::after { position: absolute; bottom: -5px; left: 50%; width: 10px; height: 10px; background: #171717; content: ''; transform: translateX(-50%) rotate(45deg); }
-.crop-hint { position: absolute; top: 72px; left: 50%; z-index: 3; margin: 0; padding: 7px 10px; border-radius: 7px; background: var(--surface-base); box-shadow: var(--shadow-sm); color: var(--ink-gray-8); font-size: 13px; line-height: 20px; pointer-events: none; transform: translateX(-50%); }
+.link-hover-tooltip {
+  position: absolute;
+  z-index: 3;
+  max-width: min(280px, calc(100% - 32px));
+  padding: 6px 10px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: #171717;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+}
+.link-hover-tooltip::after {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: #171717;
+  content: '';
+  transform: translateX(-50%) rotate(45deg);
+}
+.crop-hint {
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  z-index: 3;
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--surface-base);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink-gray-8);
+  font-size: 13px;
+  line-height: 20px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
 
 .drawn-rectangle,
 .drawn-diamond,
@@ -3740,13 +5194,32 @@ onBeforeUnmount(() => {
   stroke-linejoin: round;
 }
 
-.will-erase { opacity: .22; transition: opacity 180ms ease-out; }
-.infinite-canvas.is-erasing { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Ccircle cx='6' cy='6' r='4.5' fill='white' fill-opacity='.8' stroke='%23171717' stroke-opacity='.55'/%3E%3C/svg%3E") 6 6, crosshair; }
+.will-erase {
+  opacity: 0.22;
+  transition: opacity 180ms ease-out;
+}
+.infinite-canvas.is-erasing {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Ccircle cx='6' cy='6' r='4.5' fill='white' fill-opacity='.8' stroke='%23171717' stroke-opacity='.55'/%3E%3C/svg%3E")
+      6 6,
+    crosshair;
+}
 
-.drawn-image-border { fill: none; }
+.drawn-image-border {
+  fill: none;
+}
 
-.crop-mask { fill: rgb(0 0 0 / 42%); fill-rule: evenodd; }
-.crop-frame { fill: none; stroke: var(--selection-blue); stroke-width: 1px; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.crop-mask {
+  fill: rgb(0 0 0 / 42%);
+  fill-rule: evenodd;
+}
+.crop-frame {
+  fill: none;
+  stroke: var(--selection-blue);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
 
 .drawn-text,
 .shape-label {
@@ -3833,11 +5306,18 @@ onBeforeUnmount(() => {
   animation: lasso-marching-ants 700ms linear infinite;
 }
 
-.lasso-outline--background { stroke: var(--surface-white, #fff); }
-.lasso-outline--foreground { stroke: var(--selection-blue); stroke-dashoffset: 4; }
+.lasso-outline--background {
+  stroke: var(--surface-white, #fff);
+}
+.lasso-outline--foreground {
+  stroke: var(--selection-blue);
+  stroke-dashoffset: 4;
+}
 
 @keyframes lasso-marching-ants {
-  to { stroke-dashoffset: -8; }
+  to {
+    stroke-dashoffset: -8;
+  }
 }
 
 .selection-outline,
@@ -3880,7 +5360,9 @@ onBeforeUnmount(() => {
   color: var(--selection-blue);
   pointer-events: none;
   transform: translate(-50%, -50%);
-  transition: background-color 100ms ease, color 100ms ease;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
 }
 
 .selection-rotate-control.is-highlighted {
@@ -3963,7 +5445,9 @@ onBeforeUnmount(() => {
     height: 52px;
   }
 
-  .property-toolbar { padding: 3px; }
+  .property-toolbar {
+    padding: 3px;
+  }
 
   .property-toolbar :deep(.property-color),
   .property-toolbar :deep(.property-tool),

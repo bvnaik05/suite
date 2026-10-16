@@ -1,7 +1,12 @@
 import type { Point } from './geometry'
-import { containsPoint, rectangleCenter, rectangleCorners, rotatePoint } from './rectangle-interactions'
-import { isFreeDraw, isLine, type Shape } from './selection'
+import {
+  containsPoint,
+  rectangleCenter,
+  rectangleCorners,
+  rotatePoint,
+} from './rectangle-interactions'
 import { isClosedFreeDraw, linePointAt, type DiamondShape } from './scene'
+import { isFreeDraw, isLine, type Shape } from './selection'
 
 const LINE_SAMPLES = 32
 const ELLIPSE_SAMPLES = 32
@@ -9,7 +14,11 @@ const DIAMOND_CORNER_SAMPLES = 8
 
 export type LassoOperation = 'replace' | 'add' | 'subtract'
 
-export function applyLassoSelection(currentIds: string[], lassoIds: string[], operation: LassoOperation): string[] {
+export function applyLassoSelection(
+  currentIds: string[],
+  lassoIds: string[],
+  operation: LassoOperation,
+): string[] {
   const selected = new Set(operation === 'replace' ? [] : currentIds)
   for (const id of lassoIds) {
     if (operation === 'subtract') selected.delete(id)
@@ -25,7 +34,10 @@ export function pointInPolygon(point: Point, polygon: Point[]): boolean {
     const start = polygon[previous]!
     const end = polygon[index]!
     if (pointOnSegment(point, start, end)) return true
-    if ((start.y > point.y) !== (end.y > point.y) && point.x < (end.x - start.x) * (point.y - start.y) / (end.y - start.y) + start.x) {
+    if (
+      start.y > point.y !== end.y > point.y &&
+      point.x < ((end.x - start.x) * (point.y - start.y)) / (end.y - start.y) + start.x
+    ) {
       inside = !inside
     }
   }
@@ -34,27 +46,44 @@ export function pointInPolygon(point: Point, polygon: Point[]): boolean {
 
 export function shapesIntersectingLasso(shapes: Shape[], polygon: Point[]): Shape[] {
   if (polygon.length < 3) return []
-  return shapes.filter(shape => shapeIntersectsPolygon(shape, polygon))
+  return shapes.filter((shape) => shapeIntersectsPolygon(shape, polygon))
 }
 
 function shapeIntersectsPolygon(shape: Shape, polygon: Point[]): boolean {
   const boundary = shapeBoundary(shape)
-  if (boundary.some(point => pointInPolygon(point, polygon))) return true
-  if (polygon.some(point => shapeContainsPoint(shape, point))) return true
+  if (boundary.some((point) => pointInPolygon(point, polygon))) return true
+  if (polygon.some((point) => shapeContainsPoint(shape, point))) return true
 
-  const shapeEdges = edges(boundary, !isLine(shape) && (!isFreeDraw(shape) || isClosedFreeDraw(shape)))
+  const shapeEdges = edges(
+    boundary,
+    !isLine(shape) && (!isFreeDraw(shape) || isClosedFreeDraw(shape)),
+  )
   const polygonEdges = edges(polygon, true)
-  return shapeEdges.some(([start, end]) => polygonEdges.some(([otherStart, otherEnd]) => segmentsIntersect(start, end, otherStart, otherEnd)))
+  return shapeEdges.some(([start, end]) =>
+    polygonEdges.some(([otherStart, otherEnd]) =>
+      segmentsIntersect(start, end, otherStart, otherEnd),
+    ),
+  )
 }
 
 function shapeBoundary(shape: Shape): Point[] {
-  if (isLine(shape)) return Array.from({ length: LINE_SAMPLES + 1 }, (_, index) => linePointAt(shape, index / LINE_SAMPLES))
+  if (isLine(shape))
+    return Array.from({ length: LINE_SAMPLES + 1 }, (_, index) =>
+      linePointAt(shape, index / LINE_SAMPLES),
+    )
   if (isFreeDraw(shape)) return shape.points
   if ((shape as { kind?: string }).kind === 'ellipse') {
     const center = rectangleCenter(shape)
     return Array.from({ length: ELLIPSE_SAMPLES }, (_, index) => {
-      const angle = index * Math.PI * 2 / ELLIPSE_SAMPLES
-      return rotatePoint({ x: center.x + Math.cos(angle) * shape.width / 2, y: center.y + Math.sin(angle) * shape.height / 2 }, center, shape.rotation)
+      const angle = (index * Math.PI * 2) / ELLIPSE_SAMPLES
+      return rotatePoint(
+        {
+          x: center.x + (Math.cos(angle) * shape.width) / 2,
+          y: center.y + (Math.sin(angle) * shape.height) / 2,
+        },
+        center,
+        shape.rotation,
+      )
     })
   }
   if (isDiamond(shape)) return diamondBoundary(shape)
@@ -89,8 +118,14 @@ function diamondBoundary(shape: DiamondShape): Point[] {
     const next = vertices[(index + 1) % vertices.length]!
     return {
       vertex,
-      entry: { x: vertex.x + (previous.x - vertex.x) * offset, y: vertex.y + (previous.y - vertex.y) * offset },
-      exit: { x: vertex.x + (next.x - vertex.x) * offset, y: vertex.y + (next.y - vertex.y) * offset },
+      entry: {
+        x: vertex.x + (previous.x - vertex.x) * offset,
+        y: vertex.y + (previous.y - vertex.y) * offset,
+      },
+      exit: {
+        x: vertex.x + (next.x - vertex.x) * offset,
+        y: vertex.y + (next.y - vertex.y) * offset,
+      },
     }
   })
   const boundary = [corners[0]!.entry]
@@ -101,18 +136,27 @@ function diamondBoundary(shape: DiamondShape): Point[] {
       const progress = sample / DIAMOND_CORNER_SAMPLES
       const inverse = 1 - progress
       boundary.push({
-        x: inverse ** 2 * corner.entry.x + 2 * inverse * progress * corner.vertex.x + progress ** 2 * corner.exit.x,
-        y: inverse ** 2 * corner.entry.y + 2 * inverse * progress * corner.vertex.y + progress ** 2 * corner.exit.y,
+        x:
+          inverse ** 2 * corner.entry.x +
+          2 * inverse * progress * corner.vertex.x +
+          progress ** 2 * corner.exit.x,
+        y:
+          inverse ** 2 * corner.entry.y +
+          2 * inverse * progress * corner.vertex.y +
+          progress ** 2 * corner.exit.y,
       })
     }
     boundary.push(next.entry)
   }
-  return boundary.map(point => rotatePoint(point, center, shape.rotation))
+  return boundary.map((point) => rotatePoint(point, center, shape.rotation))
 }
 
 function edges(points: Point[], closed: boolean): [Point, Point][] {
   const count = closed ? points.length : points.length - 1
-  return Array.from({ length: Math.max(0, count) }, (_, index) => [points[index]!, points[(index + 1) % points.length]!] as [Point, Point])
+  return Array.from(
+    { length: Math.max(0, count) },
+    (_, index) => [points[index]!, points[(index + 1) % points.length]!] as [Point, Point],
+  )
 }
 
 function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
@@ -121,10 +165,12 @@ function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
   const cdA = orientation(c, d, a)
   const cdB = orientation(c, d, b)
   if (abC * abD < 0 && cdA * cdB < 0) return true
-  return (abC === 0 && pointOnSegment(c, a, b))
-    || (abD === 0 && pointOnSegment(d, a, b))
-    || (cdA === 0 && pointOnSegment(a, c, d))
-    || (cdB === 0 && pointOnSegment(b, c, d))
+  return (
+    (abC === 0 && pointOnSegment(c, a, b)) ||
+    (abD === 0 && pointOnSegment(d, a, b)) ||
+    (cdA === 0 && pointOnSegment(a, c, d)) ||
+    (cdB === 0 && pointOnSegment(b, c, d))
+  )
 }
 
 function orientation(a: Point, b: Point, c: Point): number {
@@ -137,9 +183,14 @@ function orientation(a: Point, b: Point, c: Point): number {
 
 function pointOnSegment(point: Point, start: Point, end: Point): boolean {
   if (orientation(start, end, point) !== 0) return false
-  const tolerance = Number.EPSILON * Math.max(1, Math.abs(start.x), Math.abs(start.y), Math.abs(end.x), Math.abs(end.y)) * 8
-  return point.x >= Math.min(start.x, end.x) - tolerance
-    && point.x <= Math.max(start.x, end.x) + tolerance
-    && point.y >= Math.min(start.y, end.y) - tolerance
-    && point.y <= Math.max(start.y, end.y) + tolerance
+  const tolerance =
+    Number.EPSILON *
+    Math.max(1, Math.abs(start.x), Math.abs(start.y), Math.abs(end.x), Math.abs(end.y)) *
+    8
+  return (
+    point.x >= Math.min(start.x, end.x) - tolerance &&
+    point.x <= Math.max(start.x, end.x) + tolerance &&
+    point.y >= Math.min(start.y, end.y) - tolerance &&
+    point.y <= Math.max(start.y, end.y) + tolerance
+  )
 }

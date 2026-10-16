@@ -36,14 +36,7 @@ export type ShapeMoveSnap = {
 }
 
 export type ResizeHandle =
-  | 'northwest'
-  | 'northeast'
-  | 'southeast'
-  | 'southwest'
-  | 'north'
-  | 'east'
-  | 'south'
-  | 'west'
+  'northwest' | 'northeast' | 'southeast' | 'southwest' | 'north' | 'east' | 'south' | 'west'
 
 export type ResizeSnap = {
   point: Point
@@ -104,7 +97,8 @@ export function snapResizeHandlePoint(
     }
   }
 
-  const angle = ((shape.rotation + (handle === 'north' || handle === 'south' ? 90 : 0)) * Math.PI) / 180
+  const angle =
+    ((shape.rotation + (handle === 'north' || handle === 'south' ? 90 : 0)) * Math.PI) / 180
   const normal = { x: Math.cos(angle), y: Math.sin(angle) }
   const candidate = bestEdgeHandleAlignment(point, normal, references, tolerance)
   return {
@@ -177,13 +171,25 @@ function bestPointAlignment(
       const value = axis === 'x' ? point.x : point.y
       const otherValue = axis === 'x' ? point.y : point.x
       const delta = anchor.value - value
-      if (Math.abs(delta) > tolerance || !isBetter(delta, best, anchor.role === 'center' ? 0 : 1)) return
+      if (Math.abs(delta) > tolerance || !isBetter(delta, best, anchor.role === 'center' ? 0 : 1))
+        return
       best = {
         delta,
         priority: anchor.role === 'center' ? 0 : 1,
-        guide: axis === 'x'
-          ? { axis, position: anchor.value, start: Math.min(otherValue, reference.top), end: Math.max(otherValue, reference.bottom) }
-          : { axis, position: anchor.value, start: Math.min(otherValue, reference.left), end: Math.max(otherValue, reference.right) },
+        guide:
+          axis === 'x'
+            ? {
+                axis,
+                position: anchor.value,
+                start: Math.min(otherValue, reference.top),
+                end: Math.max(otherValue, reference.bottom),
+              }
+            : {
+                axis,
+                position: anchor.value,
+                start: Math.min(otherValue, reference.left),
+                end: Math.max(otherValue, reference.right),
+              },
       }
     })
   })
@@ -205,13 +211,25 @@ function bestEdgeHandleAlignment(
         const travel = (anchor.value - point[axis]) / component
         const priority = anchor.role === 'center' ? 0 : 1
         if (Math.abs(travel) > tolerance || !isBetter(travel, best, priority)) return
-        const snappedOther = point[axis === 'x' ? 'y' : 'x'] + normal[axis === 'x' ? 'y' : 'x'] * travel
+        const snappedOther =
+          point[axis === 'x' ? 'y' : 'x'] + normal[axis === 'x' ? 'y' : 'x'] * travel
         best = {
           delta: travel,
           priority,
-          guide: axis === 'x'
-            ? { axis, position: anchor.value, start: Math.min(snappedOther, reference.top), end: Math.max(snappedOther, reference.bottom) }
-            : { axis, position: anchor.value, start: Math.min(snappedOther, reference.left), end: Math.max(snappedOther, reference.right) },
+          guide:
+            axis === 'x'
+              ? {
+                  axis,
+                  position: anchor.value,
+                  start: Math.min(snappedOther, reference.top),
+                  end: Math.max(snappedOther, reference.bottom),
+                }
+              : {
+                  axis,
+                  position: anchor.value,
+                  start: Math.min(snappedOther, reference.left),
+                  end: Math.max(snappedOther, reference.right),
+                },
         }
       })
     })
@@ -308,7 +326,10 @@ function betweenSpacingCandidate(
   second: Bounds,
   scale: number,
 ): AxisCandidate | undefined {
-  if (minimum(active, axis) < maximum(first, axis) || maximum(active, axis) > minimum(second, axis)) {
+  if (
+    minimum(active, axis) < maximum(first, axis) ||
+    maximum(active, axis) > minimum(second, axis)
+  ) {
     return undefined
   }
   const available = minimum(second, axis) - maximum(first, axis) - size(active, axis)
@@ -335,10 +356,25 @@ function chooseSpacingCandidate(
   return isBetter(candidate.delta, current) ? candidate : current
 }
 
-function alignmentGuide(axis: Axis, position: number, active: Bounds, reference: Bounds): AlignmentGuide {
+function alignmentGuide(
+  axis: Axis,
+  position: number,
+  active: Bounds,
+  reference: Bounds,
+): AlignmentGuide {
   return axis === 'x'
-    ? { axis, position, start: Math.min(active.top, reference.top), end: Math.max(active.bottom, reference.bottom) }
-    : { axis, position, start: Math.min(active.left, reference.left), end: Math.max(active.right, reference.right) }
+    ? {
+        axis,
+        position,
+        start: Math.min(active.top, reference.top),
+        end: Math.max(active.bottom, reference.bottom),
+      }
+    : {
+        axis,
+        position,
+        start: Math.min(active.left, reference.left),
+        end: Math.max(active.right, reference.right),
+      }
 }
 
 function spacingMarker(axis: Axis, start: number, end: number, cross: number): SpacingMarker {
@@ -395,17 +431,28 @@ function isBetter(delta: number, current: AxisCandidate | undefined, priority = 
   if (!current) return true
   const distance = Math.abs(delta)
   const currentDistance = Math.abs(current.delta)
-  return distance < currentDistance || (distance === currentDistance && priority < (current.priority ?? 0))
+  return (
+    distance < currentDistance ||
+    (distance === currentDistance && priority < (current.priority ?? 0))
+  )
 }
 
-function alignmentPriority(activeRole: 'edge' | 'center', referenceRole: 'edge' | 'center'): number {
+function alignmentPriority(
+  activeRole: 'edge' | 'center',
+  referenceRole: 'edge' | 'center',
+): number {
   if (activeRole === 'center' && referenceRole === 'center') return 0
   if (activeRole === referenceRole) return 1
   return 2
 }
 
 function isCornerHandle(handle: ResizeHandle): boolean {
-  return handle === 'northwest' || handle === 'northeast' || handle === 'southeast' || handle === 'southwest'
+  return (
+    handle === 'northwest' ||
+    handle === 'northeast' ||
+    handle === 'southeast' ||
+    handle === 'southwest'
+  )
 }
 
 function emptyMoveSnap(shape: RectangleShape): ShapeMoveSnap {

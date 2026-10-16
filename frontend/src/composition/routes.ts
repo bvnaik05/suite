@@ -107,6 +107,19 @@ export const canonicalRoutes: RouteRecordRaw[] = [
 export const routes: RouteRecordRaw[] = [
   ...canonicalRoutes,
   {
+    path: '/draw',
+    redirect: '/home',
+    meta: areaMeta('home', 'Home'),
+  },
+  {
+    path: '/draw/editor',
+    redirect: (to) =>
+      typeof to.query.drawing === 'string' && to.query.drawing
+        ? { name: 'document-host', params: { node: to.query.drawing } }
+        : '/home',
+    meta: areaMeta('files', 'Opening…', { scroll: 'content' }),
+  },
+  {
     path: '/suite/setup',
     name: 'suite-setup',
     component: () => import('@/shell/SetupView.vue'),

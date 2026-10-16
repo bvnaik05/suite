@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import './styles.css'
-import { drawingTitle } from './canvas/persistence'
-import { TextInput } from 'frappe-ui'
+
+import { Button, TextInput } from 'frappe-ui'
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import drawLogo from '@/assets/app-logos/draw.svg'
+
+import { translate as __ } from '@/platform/translation'
+
+import { useDrawingPersistence } from './canvas/persistence'
 import type { DrawingTool } from './canvas/tools'
 import DrawingToolbar from './components/DrawingToolbar.vue'
 import InfiniteCanvas from './components/InfiniteCanvas.vue'
+import drawLogo from './logo.svg'
 
+const persistence = useDrawingPersistence()
+const { drawingTitle, editable, dirty, saving, drawingLoading, loadError } = persistence
 const title = drawingTitle
 const titleDraft = ref(title.value)
 const editingTitle = ref(false)
-const titleInput = ref<{ el: HTMLInputElement | null } | null>(null)
+const titleInput = ref<InstanceType<typeof TextInput> | null>(null)
 const canvas = ref<InstanceType<typeof InfiniteCanvas> | null>(null)
 const activeTool = ref<DrawingTool | null>('select')
 let lastTool: DrawingTool = 'select'
@@ -20,20 +26,36 @@ function startRenaming() {
   titleDraft.value = title.value
   editingTitle.value = true
   nextTick(() => {
-    titleInput.value?.el?.focus()
-    titleInput.value?.el?.select()
+    titleInput.value?.inputElement?.focus()
+    titleInput.value?.inputElement?.select()
   })
 }
 
-function finishRenaming() {
+async function finishRenaming() {
   if (!editingTitle.value) return
-  title.value = titleDraft.value.trim() || 'Untitled Drawing'
   editingTitle.value = false
+  if (editable.value && titleDraft.value.trim() && titleDraft.value.trim() !== title.value) {
+    try {
+      await persistence.session.rename(titleDraft.value.trim())
+    } catch (error) {
+      persistence.error.value =
+        error instanceof Error ? error.message : __('Could not rename the drawing.')
+    }
+  }
   nextTick(() => document.querySelector<HTMLElement>('.infinite-canvas')?.focus())
 }
-function cancelRenaming() { titleDraft.value = title.value; finishRenaming() }
+function cancelRenaming() {
+  titleDraft.value = title.value
+  editingTitle.value = false
+}
+defineExpose({
+  flush: async () => {
+    await canvas.value?.flush()
+  },
+})
 
 function selectTool(tool: DrawingTool) {
+  if (!editable.value) return
   if (tool === 'eraser' && activeTool.value !== 'eraser') lastTool = activeTool.value ?? 'select'
   activeTool.value = tool
   if (tool === 'image') canvas.value?.openImagePicker()
@@ -48,6 +70,7 @@ function cancelTool() {
 }
 
 function onToolShortcut(event: KeyboardEvent) {
+  if (!editable.value) return
   if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
   const target = event.target instanceof HTMLElement ? event.target : null
   if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return
@@ -111,9 +134,9 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="app-shell">
-    <header class="drawing-header" aria-label="Drawing header">
-      <RouterLink to="/suite" aria-label="Back to Suite">
-        <img class="draw-logo" :src="drawLogo" alt="Draw" width="24" height="24" />
+    <header class="drawing-header" :aria-label="__('Drawing header')">
+      <RouterLink to="/home" :aria-label="__('Back to Suite')">
+        <img class="draw-logo" :src="drawLogo" :alt="__('Draw')" width="24" height="24" />
       </RouterLink>
       <h1 class="drawing-title">
         <TextInput
@@ -121,7 +144,7 @@ onBeforeUnmount(() => {
           ref="titleInput"
           v-model="titleDraft"
           class="title-field"
-          aria-label="Drawing title"
+          :aria-label="__('Drawing title')"
           spellcheck="false"
           variant="outline"
           @blur="finishRenaming"
@@ -132,7 +155,8 @@ onBeforeUnmount(() => {
           v-else
           class="title-button"
           type="button"
-          aria-label="Rename drawing"
+          :aria-label="__('Rename drawing')"
+          :disabled="!editable"
           @click="startRenaming"
         >
           {{ title }}
@@ -140,7 +164,30 @@ onBeforeUnmount(() => {
       </h1>
       <DrawingToolbar
         :active-tool="activeTool"
+        :inert="!editable || undefined"
         @select="selectTool"
+      />
+      <span
+        class="ml-auto whitespace-nowrap text-sm text-ink-gray-5"
+        role="status"
+        aria-live="polite"
+      >
+        {{
+          drawingLoading
+            ? __('Loading…')
+            : loadError
+              ? __('Could not load')
+              : saving
+                ? __('Saving…')
+                : dirty
+                  ? __('Unsaved changes')
+                  : __('Saved')
+        }}
+      </span>
+      <Button
+        v-if="persistence.session.canShare.value"
+        :label="__('Share')"
+        @click="persistence.session.share()"
       />
     </header>
     <InfiniteCanvas
@@ -155,7 +202,6 @@ onBeforeUnmount(() => {
       @activate-image="selectTool('image')"
       @activate-draw="activeTool = 'draw'"
       @activate-eraser="selectTool('eraser')"
-
       @cancel-tool="cancelTool"
       @rectangle-created="finishTool"
       @diamond-created="finishTool"

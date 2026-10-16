@@ -13,13 +13,21 @@ export function rectangleCorners(rectangle: RectangleShape): Record<Corner, Poin
   const center = rectangleCenter(rectangle)
   return {
     northwest: rotatePoint({ x: rectangle.x, y: rectangle.y }, center, rectangle.rotation),
-    northeast: rotatePoint({ x: rectangle.x + rectangle.width, y: rectangle.y }, center, rectangle.rotation),
+    northeast: rotatePoint(
+      { x: rectangle.x + rectangle.width, y: rectangle.y },
+      center,
+      rectangle.rotation,
+    ),
     southeast: rotatePoint(
       { x: rectangle.x + rectangle.width, y: rectangle.y + rectangle.height },
       center,
       rectangle.rotation,
     ),
-    southwest: rotatePoint({ x: rectangle.x, y: rectangle.y + rectangle.height }, center, rectangle.rotation),
+    southwest: rotatePoint(
+      { x: rectangle.x, y: rectangle.y + rectangle.height },
+      center,
+      rectangle.rotation,
+    ),
   }
 }
 
@@ -84,22 +92,34 @@ export function resizeFromEdge(
   return resizeAroundFixedAnchor(
     rectangle,
     pointer,
-    isHorizontal ? { x: fixed, y: rectangleCenter(rectangle).y } : { x: rectangleCenter(rectangle).x, y: fixed },
+    isHorizontal
+      ? { x: fixed, y: rectangleCenter(rectangle).y }
+      : { x: rectangleCenter(rectangle).x, y: fixed },
     isHorizontal,
     !isHorizontal,
     constrainProportions,
   )
 }
 
-export function setCornerRadius(rectangle: RectangleShape, corner: Corner, pointer: Point): RectangleShape {
+export function setCornerRadius(
+  rectangle: RectangleShape,
+  corner: Corner,
+  pointer: Point,
+): RectangleShape {
   const local = rotatePoint(pointer, rectangleCenter(rectangle), -rectangle.rotation)
-  const horizontal = corner === 'northwest' || corner === 'southwest'
-    ? local.x - rectangle.x
-    : rectangle.x + rectangle.width - local.x
-  const vertical = corner === 'northwest' || corner === 'northeast'
-    ? local.y - rectangle.y
-    : rectangle.y + rectangle.height - local.y
-  const radius = Math.min(Math.max(0, Math.min(horizontal, vertical)), rectangle.width / 2, rectangle.height / 2)
+  const horizontal =
+    corner === 'northwest' || corner === 'southwest'
+      ? local.x - rectangle.x
+      : rectangle.x + rectangle.width - local.x
+  const vertical =
+    corner === 'northwest' || corner === 'northeast'
+      ? local.y - rectangle.y
+      : rectangle.y + rectangle.height - local.y
+  const radius = Math.min(
+    Math.max(0, Math.min(horizontal, vertical)),
+    rectangle.width / 2,
+    rectangle.height / 2,
+  )
   return { ...rectangle, cornerRadius: radius }
 }
 
@@ -112,7 +132,12 @@ export function rotateRectangle(
   const center = rectangleCenter(rectangle)
   const delta = angleFrom(center, pointer) - angleFrom(center, startPointer)
   const rotation = rectangle.rotation + delta
-  return { ...rectangle, rotation: constrainRotation ? constrainRotationAngle(rotation, 15) : snapRotationAngle(rotation, 45, 4) }
+  return {
+    ...rectangle,
+    rotation: constrainRotation
+      ? constrainRotationAngle(rotation, 15)
+      : snapRotationAngle(rotation, 45, 4),
+  }
 }
 
 export function rotatePoint(point: Point, center: Point, angle: number): Point {
@@ -146,7 +171,9 @@ function resizeAroundFixedAnchor(
     height = constrained.height
     localPointer = {
       x: resizeWidth ? fixed.x + Math.sign(localPointer.x - fixed.x || 1) * width : localPointer.x,
-      y: resizeHeight ? fixed.y + Math.sign(localPointer.y - fixed.y || 1) * height : localPointer.y,
+      y: resizeHeight
+        ? fixed.y + Math.sign(localPointer.y - fixed.y || 1) * height
+        : localPointer.y,
     }
   }
   const localCenter = {
@@ -176,12 +203,16 @@ function constrainedDimensions(
       ? { width, height: width / aspectRatio }
       : { width: height * aspectRatio, height }
   }
-  return resizeWidth ? { width, height: width / aspectRatio } : { width: height * aspectRatio, height }
+  return resizeWidth
+    ? { width, height: width / aspectRatio }
+    : { width: height * aspectRatio, height }
 }
 
 function unrotatedCorner(rectangle: RectangleShape, corner: Corner): Point {
-  const x = corner === 'northwest' || corner === 'southwest' ? rectangle.x : rectangle.x + rectangle.width
-  const y = corner === 'northwest' || corner === 'northeast' ? rectangle.y : rectangle.y + rectangle.height
+  const x =
+    corner === 'northwest' || corner === 'southwest' ? rectangle.x : rectangle.x + rectangle.width
+  const y =
+    corner === 'northwest' || corner === 'northeast' ? rectangle.y : rectangle.y + rectangle.height
   return { x, y }
 }
 
@@ -196,5 +227,8 @@ function oppositeCorner(corner: Corner): Corner {
 }
 
 function clampCornerRadius(rectangle: RectangleShape): RectangleShape {
-  return { ...rectangle, cornerRadius: Math.min(rectangle.cornerRadius, rectangle.width / 2, rectangle.height / 2) }
+  return {
+    ...rectangle,
+    cornerRadius: Math.min(rectangle.cornerRadius, rectangle.width / 2, rectangle.height / 2),
+  }
 }

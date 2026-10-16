@@ -43,11 +43,7 @@ export function zoomAt(viewport: Viewport, screenPoint: Point, requestedScale: n
   }
 }
 
-export function resizeAroundCenter(
-  viewport: Viewport,
-  oldSize: Point,
-  newSize: Point,
-): Viewport {
+export function resizeAroundCenter(viewport: Viewport, oldSize: Point, newSize: Point): Viewport {
   if (oldSize.x <= 0 || oldSize.y <= 0) {
     return { ...viewport, translationX: newSize.x / 2, translationY: newSize.y / 2 }
   }

@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { onBeforeUnmount, shallowRef } from 'vue'
+
 import type { Point } from '../canvas/geometry'
 
 type Sample = Point & { time: number }
 type Stroke = { id: number; points: Sample[] }
 
-const props = withDefaults(defineProps<{ scale: number; color?: string; radius?: number; duration?: number }>(), {
-  color: '#ff0033', radius: 1.25, duration: 1000,
-})
+const props = withDefaults(
+  defineProps<{ scale: number; color?: string; radius?: number; duration?: number }>(),
+  {
+    color: '#ff0033',
+    radius: 1.25,
+    duration: 1000,
+  },
+)
 const paths = shallowRef<{ id: number; path: string; opacity: number }[]>([])
 let strokes: Stroke[] = []
 let nextId = 0
@@ -49,7 +55,10 @@ function smoothPoints(points: Sample[]): Sample[] {
   points.forEach((point, index) => {
     const start = index ? interpolate(points[index - 1], point, 0.5) : point
     const end = points[index + 1] ? interpolate(point, points[index + 1], 0.5) : point
-    const steps = Math.max(1, Math.ceil((distance(start, point) + distance(point, end)) * props.scale / 2))
+    const steps = Math.max(
+      1,
+      Math.ceil(((distance(start, point) + distance(point, end)) * props.scale) / 2),
+    )
     for (let step = index ? 1 : 0; step <= steps; step++) {
       const t = step / steps
       curve.push(interpolate(interpolate(start, point, t), interpolate(point, end, t), t))
@@ -76,27 +85,40 @@ function outline(curve: Sample[], now: number): string {
     const dx = next.x - previous.x
     const dy = next.y - previous.y
     const length = Math.hypot(dx, dy)
-    const radius = props.radius * strength(point.time, now) / props.scale
+    const radius = (props.radius * strength(point.time, now)) / props.scale
     const normal = length ? { x: -dy / length, y: dx / length } : { x: 0, y: 1 }
     left.push({ x: point.x + normal.x * radius, y: point.y + normal.y * radius })
     right.push({ x: point.x - normal.x * radius, y: point.y - normal.y * radius })
   })
-  const headRadius = props.radius * strength(points.at(-1)!.time, now) / props.scale
-  const tailRadius = props.radius * strength(points[0].time, now) / props.scale
+  const headRadius = (props.radius * strength(points.at(-1)!.time, now)) / props.scale
+  const tailRadius = (props.radius * strength(points[0].time, now)) / props.scale
   const head = right.pop()!
-  return `M ${coordinates(left[0])} ${left.slice(1).map((point) => `L ${coordinates(point)}`).join(' ')}
+  return `M ${coordinates(left[0])} ${left
+    .slice(1)
+    .map((point) => `L ${coordinates(point)}`)
+    .join(' ')}
     A ${headRadius} ${headRadius} 0 0 0 ${coordinates(head)}
-    ${right.reverse().map((point) => `L ${coordinates(point)}`).join(' ')}
+    ${right
+      .reverse()
+      .map((point) => `L ${coordinates(point)}`)
+      .join(' ')}
     A ${tailRadius} ${tailRadius} 0 0 0 ${coordinates(left[0])} Z`
 }
 
 function strength(time: number, now: number): number {
-  const remaining = Math.max(0, Math.min(1, (props.duration - (now - time)) / Math.min(500, props.duration)))
+  const remaining = Math.max(
+    0,
+    Math.min(1, (props.duration - (now - time)) / Math.min(500, props.duration)),
+  )
   return remaining * remaining * (3 - 2 * remaining)
 }
 
 function interpolate(a: Sample, b: Sample, t: number): Sample {
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, time: a.time + (b.time - a.time) * t }
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    time: a.time + (b.time - a.time) * t,
+  }
 }
 
 function distance(a: Point, b: Point): number {
@@ -113,15 +135,12 @@ onBeforeUnmount(clear)
 
 <template>
   <g class="laser-trail" :style="{ fill: color }" aria-hidden="true">
-    <path
-      v-for="stroke in paths"
-      :key="stroke.id"
-      :d="stroke.path"
-      :opacity="stroke.opacity"
-    />
+    <path v-for="stroke in paths" :key="stroke.id" :d="stroke.path" :opacity="stroke.opacity" />
   </g>
 </template>
 
 <style scoped>
-.laser-trail { pointer-events: none; }
+.laser-trail {
+  pointer-events: none;
+}
 </style>
