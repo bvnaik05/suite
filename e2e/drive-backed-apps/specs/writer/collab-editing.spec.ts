@@ -363,6 +363,7 @@ test.describe("Writer collaboration", () => {
 			const reopened = {
 				server: await serverBlocks(testApi, node),
 				editor: await collaborator.page.evaluate(editorJson),
+				editorKind: await collaborator.page.evaluate(editorKind),
 				writes,
 			};
 			const report = JSON.stringify(reopened);
@@ -428,6 +429,20 @@ function dropPushes(route: Route) {
 function editorJson() {
 	const root = document.querySelector(".ProseMirror") as { editor?: { getJSON: () => object } } | null;
 	return root?.editor?.getJSON() ?? null;
+}
+
+// Runs in the page: only the collab editor registers Tiptap's collaboration extension
+function editorKind() {
+	interface Mounted {
+		editor?: { extensionManager: { extensions: { name: string }[] } };
+	}
+	const root = document.querySelector(".ProseMirror") as Mounted | null;
+	if (!root?.editor) {
+		return null;
+	}
+
+	const names = root.editor.extensionManager.extensions.map((extension) => extension.name);
+	return names.includes("collaboration") ? "collab" : "plain";
 }
 
 // The header's "<n> unsent", once the tab holds unsent work
