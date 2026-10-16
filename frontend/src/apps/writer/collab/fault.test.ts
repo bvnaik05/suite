@@ -67,6 +67,23 @@ describe('writerFault', () => {
     expect(writerFault(doc)).toBeNull()
   })
 
+  it('passes a bold mention and a bold image', () => {
+    function boldAtoms(fragment: Y.XmlFragment) {
+      const mention = new Y.XmlElement<Record<string, string | object>>('mention')
+      mention.setAttribute('id', 'ann')
+      mention.setAttribute('bold', {})
+      const image = new Y.XmlElement<Record<string, string | object>>('image')
+      image.setAttribute('src', '/files/x.png')
+      image.setAttribute('bold', {})
+      const block = new Y.XmlElement('paragraph')
+      block.insert(0, [new Y.XmlText('a'), mention, image, new Y.XmlText('b')])
+      fragment.insert(0, [block])
+    }
+
+    const doc = docWithBody(boldAtoms)
+    expect(writerFault(doc)).toBeNull()
+  })
+
   it('passes an empty row on a body with content', () => {
     const withContent = docWithBody((fragment) => fragment.insert(0, [paragraph('abc')]))
     const checkpoint = Y.encodeStateAsUpdate(withContent)

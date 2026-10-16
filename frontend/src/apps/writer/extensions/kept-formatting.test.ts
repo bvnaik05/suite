@@ -394,3 +394,108 @@ describe('the code mark', () => {
     expect(code.excludes(schema.marks.keptFormatting)).toBe(false)
   })
 })
+
+// A paragraph holding 'a', an inline `name` with `attributes`, then 'b'
+function aroundAtom(name: string, attributes: Attributes) {
+  const atom = new Y.XmlElement<Record<string, string | object>>(name)
+  for (const [key, value] of Object.entries(attributes)) {
+    atom.setAttribute(key, value as string | object)
+  }
+
+  const node = new Y.XmlElement('paragraph')
+  node.insert(0, [text(['a']), atom, text(['b'])])
+  return stored(node)
+}
+
+// The marks the editor shows on every `name` node
+function atomMarks(tab: Tab, name: string) {
+  const found: (string | Attributes)[] = []
+  tab.editor.state.doc.descendants((node) => {
+    if (node.type.name === name) {
+      found.push(...node.marks.map(asShown))
+    }
+  })
+  return found
+}
+
+function reload(tab: Tab) {
+  return open(Y.encodeStateAsUpdate(tab.ydoc))
+}
+
+describe('marks on an inline atom', () => {
+  const ATOMS: [string, Attributes][] = [
+    ['mention', { id: 'ann', label: 'Ann' }],
+    ['image', { src: '/files/x.png' }],
+  ]
+
+  it.each(ATOMS)(
+    'bold over text and an atom shows on the other tab and after a reload (%s)',
+    (name, attrs) => {
+      const state = aroundAtom(name, attrs)
+      const [author, watcher] = [open(state), open(state)]
+
+      author.editor.chain().setTextSelection({ from: 1, to: 4 }).setBold().run()
+      exchange(author, watcher)
+
+      const tabs = [author, watcher, reload(author)]
+      expect(tabs.map((tab) => atomMarks(tab, name))).toEqual([['bold'], ['bold'], ['bold']])
+      expect(tabs.map((tab) => shownMarks(tab, 'b'))).toEqual([['bold'], ['bold'], ['bold']])
+      expect(tabs.flatMap((tab) => tab.freezes)).toEqual([])
+    },
+  )
+
+  it.each(ATOMS)(
+    'bold on the atom alone shows on the other tab and after a reload (%s)',
+    (name, attrs) => {
+      const state = aroundAtom(name, attrs)
+      const [author, watcher] = [open(state), open(state)]
+
+      author.editor.chain().setTextSelection({ from: 2, to: 3 }).setBold().run()
+      exchange(author, watcher)
+
+      const tabs = [author, watcher, reload(author)]
+      expect(tabs.map((tab) => atomMarks(tab, name))).toEqual([['bold'], ['bold'], ['bold']])
+      expect(tabs.map((tab) => shownMarks(tab, 'b'))).toEqual([[], [], []])
+    },
+  )
+
+  it.each(ATOMS)(
+    'removing bold from an atom clears it on the other tab and after a reload (%s)',
+    (name, attrs) => {
+      const state = aroundAtom(name, { ...attrs, bold: {} })
+      const [author, watcher] = [open(state), open(state)]
+      expect(atomMarks(watcher, name)).toEqual(['bold'])
+
+      author.editor.chain().setTextSelection({ from: 1, to: 4 }).unsetBold().run()
+      exchange(author, watcher)
+
+      const tabs = [author, watcher, reload(author)]
+      expect(tabs.map((tab) => atomMarks(tab, name))).toEqual([[], [], []])
+      expect(tabs.flatMap((tab) => tab.freezes)).toEqual([])
+    },
+  )
+
+  it('keeps formatting the mention cannot show when bold is set over it', () => {
+    const tab = open(aroundAtom('mention', { id: 'ann', ...MYSTERY }))
+
+    tab.editor.chain().setTextSelection({ from: 1, to: 4 }).setBold().run()
+
+    const paragraph = tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement
+    const written = (paragraph.get(1) as Y.XmlElement).getAttributes()
+    expect(written).toEqual({ id: 'ann', bold: {}, ...MYSTERY })
+    expect(atomMarks(reload(tab), 'mention')).toEqual(['bold', MYSTERY])
+  })
+
+  it('is never an attribute of the atom itself', () => {
+    const schema = getSchema(writerSchema())
+    const inline = Object.values(schema.nodes).filter((type) => type.isInline && !type.isText)
+    const clashes = inline.flatMap((type) =>
+      Object.keys(type.attrs)
+        .filter((key) => key in schema.marks)
+        .map((key) => `${type.name}.${key}`),
+    )
+
+    expect(inline.map((type) => type.name)).toEqual(expect.arrayContaining(['mention', 'image']))
+    expect(clashes).toEqual([])
+  })
+})

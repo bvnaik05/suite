@@ -1025,7 +1025,8 @@ const createNodeFromYElement = (
   if (nodeType === undefined) return setAsideUnbuildable(el, schema, meta)
   const children = placeChildren(el, nodeType, schema, meta);
   try {
-    const node = nodeType.createChecked(el.getAttributes(), children);
+    const attrs = el.getAttributes();
+    const node = nodeType.createChecked(attrs, children, storedMarks(el, attrs, nodeType, schema));
     meta.mapping.set(el, node);
     meta.hidden.delete(el);
     return node
@@ -1101,7 +1102,8 @@ const createSnapshotNodeFromYElement = (
         ? computeYChange('added', /** @type {Y.Item} */ (el._item).id)
         : { type: 'added' };
     }
-    const node = schema.node(el.nodeName, attrs, children);
+    const marks = storedMarks(el, attrs, schema.nodes[el.nodeName], schema);
+    const node = schema.node(el.nodeName, attrs, children, marks);
     meta.mapping.set(el, node);
     return node
   } catch (e) {
@@ -1171,11 +1173,9 @@ const createTypeFromTextNodes = (nodes, meta) => {
  */
 const createTypeFromElementNode = (node, meta) => {
   const type = new Y.XmlElement(node.type.name);
-  for (const key in node.attrs) {
-    const val = node.attrs[key];
-    if (val !== null && key !== 'ychange') {
-      type.setAttribute(key, val);
-    }
+  const attrs = storedAttrs(node, meta);
+  for (const key in attrs) {
+    type.setAttribute(key, attrs[key]);
   }
   const kids = normalizePNodeContent(node).map((n) =>
     createTypeFromTextOrElementNode(n, meta)
@@ -1418,7 +1418,7 @@ const equalYTypePNode = (ytype, pnode, meta) => {
     const normalizedContent = normalizePNodeContent(pnode);
     const yChildren = visibleGroups(ytype, meta);
     return yChildren.length === normalizedContent.length &&
-      equalAttrs(ytype.getAttributes(), pnode.attrs) &&
+      equalAttrs(ytype.getAttributes(), storedAttrs(pnode, meta)) &&
       yChildren.every((ychild, i) =>
         equalYTypePNode(ychild, normalizedContent[i], meta)
       )
@@ -1685,6 +1685,44 @@ const marksToAttributes = (marks, meta) => {
 };
 
 /**
+ * The attributes Yjs holds for an element: its own that are set, and the marks on it as text holds them
+ *
+ * @param {PModel.Node} node
+ * @param {BindingMetadata} meta
+ * @return {Object<string, any>}
+ */
+const storedAttrs = (node, meta) => {
+  const attrs = {};
+  for (const key in node.attrs) {
+    if (node.attrs[key] !== null && key !== 'ychange') attrs[key] = node.attrs[key];
+  }
+  const marks = marksToAttributes(node.marks, meta);
+  // Yjs takes only plain objects, and a mark's attrs have no prototype
+  for (const key in marks) attrs[key] = isObject(marks[key]) ? { ...marks[key] } : marks[key];
+  return attrs
+};
+
+/**
+ * The marks an inline element carries in Yjs: the keys its node doesn't declare, read as its parent's text reads them
+ *
+ * @param {Y.XmlElement} el
+ * @param {Object<string, any>} attrs
+ * @param {PModel.NodeType} nodeType
+ * @param {PModel.Schema} schema
+ * @return {ReadonlyArray<PModel.Mark>}
+ */
+const storedMarks = (el, attrs, nodeType, schema) => {
+  if (!nodeType.isInline) return PModel.Mark.none
+  /** @type {Object<string, any>} */
+  const marks = {};
+  for (const key in attrs) {
+    if (key !== 'ychange' && !object.hasProperty(nodeType.attrs, key)) marks[key] = attrs[key];
+  }
+  const parentType = el.parent instanceof Y.XmlElement ? schema.nodes[el.parent.nodeName] : undefined;
+  return textMarks(marks, parentType ?? schema.topNodeType, schema)
+};
+
+/**
  * Update a yDom node by syncing the current content of the prosemirror node.
  *
  * This is a y-prosemirror internal feature that you can use at your own risk.
@@ -1708,14 +1746,10 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
   // update attributes
   if (yDomFragment instanceof Y.XmlElement) {
     const yDomAttrs = yDomFragment.getAttributes();
-    const pAttrs = pNode.attrs;
+    const pAttrs = storedAttrs(pNode, meta);
     for (const key in pAttrs) {
-      if (pAttrs[key] !== null) {
-        if (yDomAttrs[key] !== pAttrs[key] && key !== 'ychange') {
-          yDomFragment.setAttribute(key, pAttrs[key]);
-        }
-      } else {
-        yDomFragment.removeAttribute(key);
+      if (!equalValue(yDomAttrs[key], pAttrs[key])) {
+        yDomFragment.setAttribute(key, pAttrs[key]);
       }
     }
     // remove all keys that are no longer in pAttrs
