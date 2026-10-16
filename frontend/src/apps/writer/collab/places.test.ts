@@ -6,7 +6,8 @@ import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
-import { anchorEnds, DOCUMENT_ANCHOR, encodeAnchor } from './anchors'
+import { writerSchema } from '../schema'
+import { anchorEnds, DOCUMENT_ANCHOR, encodeAnchor, readAnchor } from './anchors'
 import { anchorSelection, placeThread } from './places'
 
 const editors: Editor[] = []
@@ -23,6 +24,27 @@ function openEditor(doc = new Y.Doc()) {
   })
   editors.push(editor)
   return editor
+}
+
+// Writer's own schema, with the mention, tag and line break a quote has to read
+function openWriterEditor(content: string) {
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...writerSchema(), Collaboration.configure({ document: new Y.Doc() })],
+  })
+  editors.push(editor)
+  editor.commands.setContent(content)
+  return editor
+}
+
+function quoteOf(editor: Editor, from: number, to: number) {
+  editor.commands.setTextSelection({ from, to })
+  const read = readAnchor(anchorSelection(editor.state)!)
+  if (read.kind !== 'text') {
+    return read.kind
+  }
+
+  return read.quote
 }
 
 function paragraphText(doc: Y.Doc, index = 0) {
@@ -246,5 +268,28 @@ describe('an anchor on the selection', () => {
     editor.commands.setTextSelection(3)
 
     expect([anchorSelection(editor.state), anchorEnds(DOCUMENT_ANCHOR)]).toEqual([null, []])
+  })
+})
+
+const MENTION = '<span class="mention" data-type="mention" data-id="u1" data-label="Ann"></span>'
+
+describe("an anchor's quote", () => {
+  it('reads a mention as the editor writes it out', () => {
+    const editor = openWriterEditor(`<p>hi ${MENTION} there</p>`)
+
+    expect(quoteOf(editor, 1, 11)).toBe('hi @Ann there')
+  })
+
+  it('quotes a lone mention by its own text', () => {
+    const editor = openWriterEditor(`<p>a${MENTION}b</p>`)
+
+    expect(quoteOf(editor, 2, 3)).toBe('@Ann')
+  })
+
+  it('reads a tag and a line break as the editor writes them out', () => {
+    const tag = '<span class="tag-item" data-tag-id="t1" data-tag-label="urgent"></span>'
+    const editor = openWriterEditor(`<p>see ${tag}<br>now</p>`)
+
+    expect(quoteOf(editor, 1, 10)).toBe('see #urgent\nnow')
   })
 })

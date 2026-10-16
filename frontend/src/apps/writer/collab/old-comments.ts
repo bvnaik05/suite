@@ -10,6 +10,7 @@ import {
 } from 'yjs'
 
 import { encodeAnchor } from '@/apps/writer/collab/anchors'
+import { quoteBetween } from '@/apps/writer/collab/places'
 
 // The old comment mark, under its own name or the binding's name for an overlapping copy
 const COMMENT_KEY = /^comment(--[a-zA-Z0-9+/=]{8})?$/
@@ -102,8 +103,7 @@ export function oldCommentAnchors(body: XmlFragment, schema: Schema): Record<str
     const end = rest.at(-1) ?? start
     const from = createRelativePositionFromTypeIndex(start.type, start.from, 0)
     const to = createRelativePositionFromTypeIndex(end.type, end.to, -1)
-    // Quoted as anchorSelection quotes the same words, mentions included
-    const quote = built.doc.textBetween(placeOf(body, built, from), placeOf(body, built, to), ' ')
+    const quote = quoteBetween(built.doc, placeOf(body, built, from), placeOf(body, built, to))
     anchors[id] = encodeAnchor(from, to, quote)
   }
 

@@ -150,7 +150,6 @@ describe('oldCommentAnchors', () => {
     expect(placed(doc, anchors.k2)).toEqual({ start: [text, 3], end: [text, 7], quote: 'rlap' })
   })
 
-  // The quote follows anchorSelection, which reads a mention as no text
   it('quotes a comment holding a mention as the editor quotes it', () => {
     const doc = docWith(yInline(yText('hi ', 'c1'), yMention('c1'), yText(' there', 'c1')))
 
@@ -159,7 +158,7 @@ describe('oldCommentAnchors', () => {
     expect(placed(doc, anchors.c1)).toEqual({
       start: ['hi ', 0],
       end: [' there', 6],
-      quote: 'hi  there',
+      quote: 'hi @Ann there',
     })
   })
 
@@ -168,7 +167,7 @@ describe('oldCommentAnchors', () => {
 
     const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
-    expect(editorRange(doc, anchors.c1)).toEqual({ from: 1, to: 2, quote: '' })
+    expect(editorRange(doc, anchors.c1)).toEqual({ from: 1, to: 2, quote: '@Ann' })
   })
 
   it('ends a comment closing on a mention just after the mention', () => {
@@ -176,7 +175,7 @@ describe('oldCommentAnchors', () => {
 
     const anchors = oldCommentAnchors(doc.getXmlFragment(BODY_FIELD), schema)
 
-    expect(editorRange(doc, anchors.c1)).toEqual({ from: 1, to: 5, quote: 'hi ' })
+    expect(editorRange(doc, anchors.c1)).toEqual({ from: 1, to: 5, quote: 'hi @Ann' })
   })
 
   it('gives no anchor when no text carries a comment', () => {

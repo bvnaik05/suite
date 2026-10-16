@@ -1,3 +1,4 @@
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState } from '@tiptap/pm/state'
 import {
   absolutePositionToRelativePosition,
@@ -55,7 +56,17 @@ export function anchorSelection(state: EditorState): string | null {
   const { mapping, hidden } = binding
   const start = positionAt(doc, absolutePositionToRelativePosition(from, type, mapping, hidden), 0)
   const end = positionAt(doc, absolutePositionToRelativePosition(to, type, mapping, hidden), -1)
-  return encodeAnchor(start, end, state.doc.textBetween(from, to, ' '))
+  return encodeAnchor(start, end, quoteBetween(state.doc, from, to))
+}
+
+/** The words between two places as a thread quotes them, an atom such as a mention by its own text. */
+export function quoteBetween(doc: PMNode, from: number, to: number) {
+  return doc.textBetween(from, to, ' ', atomText)
+}
+
+// The text the editor writes an atom out as, such as '@Ann' for a mention
+function atomText(node: PMNode): string {
+  return node.type.spec.toText?.({ node }) ?? ''
 }
 
 // The same place, held by the character after it (0) or before it (-1)
