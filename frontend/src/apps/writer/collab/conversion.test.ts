@@ -35,6 +35,12 @@ const schema = getSchema(writerSchema())
 const MAX_STATE = 4 * 1024 * 1024
 const SRC = '/private/files/chart.png'
 
+// A thread as Drive's earlier editor kept it in the comment mark
+const DRIVE_THREAD = JSON.stringify({
+  uuid: 'u1',
+  comments: [{ userName: 'Ann', userImage: null, time: 1700000000000, content: '<p>see</p>' }],
+})
+
 const editors: Editor[] = []
 afterEach(() => {
   for (const editor of editors.splice(0)) {
@@ -50,6 +56,12 @@ function yElement(name: string, ...children: (XmlElement | XmlText)[]) {
 
 function yParagraph(text: string) {
   return yElement('paragraph', new XmlText(text))
+}
+
+function yMarked(text: string, attributes: Record<string, unknown>) {
+  const content = new XmlText()
+  content.insert(0, text, attributes)
+  return yElement('paragraph', content)
 }
 
 function yHeading(text: string, id?: string) {
@@ -204,11 +216,12 @@ describe('convertLegacy', () => {
     expect(result.dropped).toEqual([{ kind: 'pending', text: ' second' }])
   })
 
-  it('holds only the body, leaving the old users, docinfo and annotations behind', () => {
+  it('holds only the body, leaving the old users, docinfo and emptied annotations behind', () => {
     const doc = legacyDoc(yParagraph('one'))
     doc.getMap('users').set('a', 'Ann')
     doc.getMap('docinfo').set('title', 'Old')
     doc.getArray('docAnnotations').insert(0, ['note'])
+    doc.getArray('docAnnotations').delete(0, 1)
 
     const result = convert(stored(doc))
 
@@ -345,5 +358,57 @@ describe('convertLegacy', () => {
     const legacy = { content: null, html: '<p>a</p><iframe src="x"></iframe>', collab: 0 }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it.each([
+    {
+      name: 'a Drive thread kept in its comment mark',
+      mark: { comment: { comment: DRIVE_THREAD } },
+    },
+    { name: 'an annotation', mark: { annotation: { annotationID: 'a1' } } },
+    { name: 'an overlapping annotation', mark: { 'annotation--Ab+/9xY=': { annotationID: 'a2' } } },
+    { name: 'a comment with no id', mark: { comment: { commentId: null } } },
+    { name: 'a comment with an empty id', mark: { comment: { commentId: '' } } },
+    { name: 'a comment with a number for its id', mark: { comment: { commentId: 7 } } },
+  ])('refuses a Yjs body holding $name, which no thread is made from yet', ({ mark }) => {
+    const legacy = stored(legacyDoc(yMarked('see', mark)))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a Yjs body holding an annotation on a mention', () => {
+    const mention = new XmlElement('mention')
+    mention.setAttribute('id', 'x')
+    mention.setAttribute('label', 'Ann')
+    mention.setAttribute('annotation', { annotationID: 'a1' } as never)
+    const legacy = stored(legacyDoc(yElement('paragraph', new XmlText('hi '), mention)))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a Yjs document whose annotations list holds threads', () => {
+    const doc = legacyDoc(yParagraph('one'))
+    doc.getArray('docAnnotations').insert(0, [{ id: 'a1' }])
+
+    expect(convertLegacy(stored(doc), MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it.each([
+    { name: 'a Drive thread kept in its comment mark', span: `data-comment='${DRIVE_THREAD}'` },
+    { name: 'an annotation', span: 'data-annotation-id="a1"' },
+  ])('refuses HTML holding $name', ({ span }) => {
+    const legacy = { content: null, html: `<p><span ${span}>see</span></p>`, collab: 0 }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('converts comments that carry their thread ids, in Yjs, as an overlapping copy and in HTML', () => {
+    const yjs = stored(legacyDoc(yMarked('see', { comment: { commentId: 'c1' } })))
+    const overlap = stored(legacyDoc(yMarked('see', { 'comment--a+/=bC9z': { commentId: 'c2' } })))
+    const html = { content: null, html: '<p><span data-comment-id="c1">see</span></p>', collab: 0 }
+
+    const kinds = [yjs, overlap, html].map((legacy) => convertLegacy(legacy, MAX_STATE).kind)
+
+    expect(kinds).toEqual(['converted', 'converted', 'converted'])
   })
 })

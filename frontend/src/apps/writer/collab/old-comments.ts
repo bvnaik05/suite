@@ -6,14 +6,20 @@ import {
   XmlFragment,
   XmlText,
   type AbstractType,
+  type Doc,
   type RelativePosition,
 } from 'yjs'
 
 import { encodeAnchor } from '@/apps/writer/collab/anchors'
+import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { quoteBetween } from '@/apps/writer/collab/places'
 
 // The old comment mark, under its own name or the binding's name for an overlapping copy
 const COMMENT_KEY = /^comment(--[a-zA-Z0-9+/=]{8})?$/
+
+// Drive's later comment mark, and the list its threads were kept in
+const ANNOTATION_KEY = /^annotation(--[a-zA-Z0-9+/=]{8})?$/
+const ANNOTATIONS_ROOT = 'docAnnotations'
 
 interface Run {
   type: AbstractType<unknown>
@@ -40,6 +46,44 @@ function commentIds(attributes: Record<string, unknown> = {}) {
     .filter(([key]) => COMMENT_KEY.test(key))
     .map(([, attrs]) => (attrs as { commentId?: unknown } | null)?.commentId)
     .filter((id): id is string => typeof id === 'string' && !!id)
+}
+
+// An annotation, or a comment mark with no thread id, as Drive's earlier one that held its whole thread
+function isUnreadableMark([key, attrs]: [string, unknown]) {
+  if (ANNOTATION_KEY.test(key)) {
+    return true
+  }
+
+  const id = (attrs as { commentId?: unknown } | null)?.commentId
+  return COMMENT_KEY.test(key) && (typeof id !== 'string' || !id)
+}
+
+function markEntries(type: AbstractType<unknown>): [string, unknown][] {
+  if (type instanceof XmlText) {
+    return (type.toDelta() as Insert[]).flatMap((op) => Object.entries(op.attributes ?? {}))
+  }
+
+  if (type instanceof XmlElement) {
+    return [...Object.entries(type.getAttributes()), ...type.toArray().flatMap(markEntries)]
+  }
+
+  if (type instanceof XmlFragment) {
+    return type.toArray().flatMap(markEntries)
+  }
+
+  return []
+}
+
+/** The old comment marks and annotations in `old` that no thread can be made from yet */
+export function unreadableThreads(old: Doc) {
+  const found = markEntries(old.getXmlFragment(BODY_FIELD))
+    .filter(isUnreadableMark)
+    .map(([key]) => key)
+  if (old.share.has(ANNOTATIONS_ROOT) && old.getArray(ANNOTATIONS_ROOT).length) {
+    found.push(ANNOTATIONS_ROOT)
+  }
+
+  return found
 }
 
 function textRuns(text: XmlText) {

@@ -17,6 +17,7 @@ import {
 } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { unreadableThreads } from '@/apps/writer/collab/old-comments'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
@@ -161,6 +162,7 @@ function decoded(legacy: LegacyBody) {
 }
 
 function fromYjs(old: Doc) {
+  const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
   convertOldMedia(body)
   const { node, lost } = placeFragment(body, schema)
@@ -177,6 +179,7 @@ function fromYjs(old: Doc) {
     sourceText: textOf(body),
     sourceAtoms,
     droppedAtoms: lost.flatMap(yAtomNames),
+    hasUnreadableThreads,
   }
 }
 
@@ -185,6 +188,9 @@ const atomRules = Object.values(schema.nodes)
   .flatMap((type) => (type.spec.parseDOM ?? []).map((rule) => ({ rule, name: type.name })))
 
 const MEDIA_TAGS = 'iframe, audio, video, img, object, embed'
+
+// Drive's comment marks, holding a whole thread or an annotation id
+const OLD_THREAD_TAGS = 'span[data-comment], span[data-annotation-id]'
 
 function atomNameOf(element: Element) {
   const found = atomRules.find(
@@ -197,6 +203,7 @@ function atomNameOf(element: Element) {
 function fromHtml(html: string) {
   const node = schema.nodeFromJSON(generateJSON(html, extensions))
   const { body } = new DOMParser().parseFromString(html, 'text/html')
+  const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)
   const sourceAtoms: string[] = []
   for (const element of body.querySelectorAll('*')) {
     const name = body.contains(element) && atomNameOf(element)
@@ -212,7 +219,14 @@ function fromHtml(html: string) {
   }
 
   const sourceText = body.textContent ?? ''
-  return { node, dropped: [] as Dropped[], sourceText, sourceAtoms, droppedAtoms: [] as string[] }
+  return {
+    node,
+    dropped: [] as Dropped[],
+    sourceText,
+    sourceAtoms,
+    droppedAtoms: [] as string[],
+    hasUnreadableThreads,
+  }
 }
 
 function read(legacy: LegacyBody) {
@@ -230,7 +244,12 @@ function textWithoutAtoms(node: PMNode) {
 
 /** The old document as a fresh collaborative body, checked to hold the old text and atoms apart from what it drops. */
 export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
-  const { node, dropped, sourceText, sourceAtoms, droppedAtoms, from } = read(legacy)
+  const { node, dropped, sourceText, sourceAtoms, droppedAtoms, hasUnreadableThreads, from } =
+    read(legacy)
+  if (hasUnreadableThreads) {
+    return { kind: 'failed', reason: 'check' }
+  }
+
   const converted = withHeadingIds(node)
   const fresh = new Doc()
   // Old comment marks are carried over as they are
