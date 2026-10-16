@@ -307,6 +307,12 @@ describe('collab stop copy', () => {
     )
   })
 
+  it('says a tab out of step with the server stopped saving, and where the unsent work went', () => {
+    expect(bannerText({ failed: true, stopped: 'clock_gap', recoveryKept: true })).toBe(
+      'This tab fell out of step with the server, so saving stopped. Unsent changes were kept as a recovery copy. Reload to keep editing.',
+    )
+  })
+
   it('says a network refusing uploads is holding the latest changes back, and where they are', () => {
     expect(bannerText({ paused: 'upload_refused' })).toBe(
       "Your network is refusing uploads, so your latest changes aren't saved. They're kept on this device.",

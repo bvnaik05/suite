@@ -50,6 +50,7 @@ const STOP_MESSAGES: Record<string, string> = {
   schema: 'This document was edited in a newer version of Writer, so saving stopped in this tab.',
   restored:
     "A version of this document was restored, so changes made in this tab before it weren't saved.",
+  clock_gap: 'This tab fell out of step with the server, so saving stopped.',
 }
 // Stops a reload would only repeat
 const LASTING_STOPS = new Set(['browser'])
