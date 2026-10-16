@@ -1014,6 +1014,7 @@ describe('commenting on the whole document', () => {
     confirmed.answer = false
     await click(buttonNamed(host, 'Cancel'))
     await settled()
+    await letHandlersAttach()
     documentBox()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await settled()
     const afterNo = documentBox()?.value
