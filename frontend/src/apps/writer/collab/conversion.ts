@@ -4,7 +4,11 @@ import { Transform } from '@tiptap/pm/transform'
 import { placeFragment, prosemirrorToYXmlFragment } from '@tiptap/y-tiptap'
 import {
   applyUpdate,
+  ContentDeleted,
+  ContentEmbed,
+  ContentFormat,
   ContentString,
+  ContentType,
   decodeUpdateV2,
   Doc,
   encodeStateAsUpdate,
@@ -17,6 +21,7 @@ import {
 } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { inventory, unkept, type Inventory } from '@/apps/writer/collab/inventory'
 import { unreadableThreads } from '@/apps/writer/collab/old-comments'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
@@ -32,9 +37,9 @@ export interface LegacyBody {
   collab: number
 }
 
-/** What the conversion couldn't carry over: a part the editor can't hold, or text Yjs held back. */
+/** What the conversion couldn't carry over: a part the editor can't hold, or a change Yjs held back. */
 export type Dropped =
-  { kind: 'node'; name: string; text: string } | { kind: 'pending'; text: string }
+  { kind: 'node'; name: string; text: string } | { kind: 'pending'; text: string; parts: string[] }
 
 export type Converted =
   | { kind: 'converted'; state: Uint8Array; dropped: Dropped[]; from: 'yjs' | 'html' }
@@ -64,16 +69,6 @@ function insertedString(struct: AbstractStruct) {
   return ''
 }
 
-// Text in changes Yjs keeps waiting, in its V2 encoding, for earlier ones that were never stored
-function pendingText(doc: Doc) {
-  const pending = doc.store.pendingStructs
-  if (!pending) {
-    return ''
-  }
-
-  return decodeUpdateV2(pending.update).structs.map(insertedString).join('')
-}
-
 function nameOf(type: AbstractType<unknown>) {
   if (type instanceof XmlElement) {
     return type.nodeName
@@ -82,7 +77,54 @@ function nameOf(type: AbstractType<unknown>) {
   return 'text'
 }
 
-function dropNames(lost: AbstractType<unknown>[]): Dropped[] {
+// What a held-back change adds besides text: a part, a mark or an embed
+function pendingPart(struct: AbstractStruct) {
+  if (!(struct instanceof Item)) {
+    return []
+  }
+
+  const { content } = struct
+  if (content instanceof ContentType) {
+    return [nameOf(content.type)]
+  }
+
+  // A mark's end is stored as the same key set to null
+  if (content instanceof ContentFormat && content.value !== null) {
+    return [`format ${content.key}`]
+  }
+
+  if (content instanceof ContentEmbed) {
+    return ['embed']
+  }
+
+  const isTextOrNone = [ContentString, ContentDeleted, ContentFormat].some(
+    (kind) => content instanceof kind,
+  )
+  if (isTextOrNone) {
+    return []
+  }
+
+  return ['other']
+}
+
+// Changes Yjs keeps waiting, in its V2 encoding, for earlier ones that were never stored
+function pendingDrop(doc: Doc): Dropped[] {
+  const pending = doc.store.pendingStructs
+  if (!pending) {
+    return []
+  }
+
+  const { structs } = decodeUpdateV2(pending.update)
+  const text = structs.map(insertedString).join('')
+  const parts = [...new Set(structs.flatMap(pendingPart))]
+  if (!text && !parts.length) {
+    return []
+  }
+
+  return [{ kind: 'pending', text, parts }]
+}
+
+function lostParts(lost: AbstractType<unknown>[]): Dropped[] {
   return lost.map((type) => ({ kind: 'node', name: nameOf(type), text: textOf(type) }))
 }
 
@@ -119,19 +161,6 @@ function isAtomName(name: string) {
   return !!type && type.isLeaf && !type.isText && name !== 'hardBreak'
 }
 
-function yAtomNames(type: AbstractType<unknown>): string[] {
-  if (!(type instanceof XmlElement || type instanceof XmlFragment)) {
-    return []
-  }
-
-  const inner = type.toArray().flatMap(yAtomNames)
-  if (type instanceof XmlElement && isAtomName(type.nodeName)) {
-    inner.push(type.nodeName)
-  }
-
-  return inner
-}
-
 function atomNames(node: PMNode) {
   const names: string[] = []
   node.descendants((child) => {
@@ -142,8 +171,9 @@ function atomNames(node: PMNode) {
   return names
 }
 
-function decoded(legacy: LegacyBody) {
-  if (legacy.collab === 0 || !legacy.content) {
+function decoded(content: string | null) {
+  // A collaborative body with no Yjs state stored
+  if (!content) {
     return null
   }
 
@@ -151,7 +181,7 @@ function decoded(legacy: LegacyBody) {
   try {
     applyUpdate(
       old,
-      Uint8Array.from(atob(legacy.content), (char) => char.charCodeAt(0)),
+      Uint8Array.from(atob(content), (char) => char.charCodeAt(0)),
     )
   } catch {
     // Bytes Yjs can't read leave the HTML
@@ -161,25 +191,33 @@ function decoded(legacy: LegacyBody) {
   return old
 }
 
+const MEDIA = new Set(['resizableMedia', 'image', 'video'])
+
+// Where each image and video points, in order
+function mediaSources(found: Inventory) {
+  const sources = found.elements
+    .filter((piece) => MEDIA.has(piece.name))
+    .map((piece) => Object.fromEntries(piece.entries).src)
+  return JSON.stringify(sources)
+}
+
+// The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
+// checked on its own by where the media points; the parts the build set aside, lost (recorded) or
+// hidden (holding nothing), left out of the source; and the extras the result may hold, being the
+// filler the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
+  const media = mediaSources(inventory(body))
   convertOldMedia(body)
-  const { node, lost } = placeFragment(body, schema)
-  const dropped = dropNames(lost)
-  const pending = pendingText(old)
-  if (pending) {
-    dropped.push({ kind: 'pending', text: pending })
-  }
-
-  const sourceAtoms = yAtomNames(body)
+  const { node, hidden, lost } = placeFragment(body, schema)
+  const isMediaKept = mediaSources(inventory(body)) === media
+  const source = inventory(body, new Set([...hidden, ...lost]))
   return {
     node,
-    dropped,
-    sourceText: textOf(body),
-    sourceAtoms,
-    droppedAtoms: lost.flatMap(yAtomNames),
+    dropped: [...lostParts(lost), ...pendingDrop(old)],
     hasUnreadableThreads,
+    isKept: (fresh: XmlFragment) => isMediaKept && !unkept(source, inventory(fresh)).length,
   }
 }
 
@@ -222,46 +260,42 @@ function fromHtml(html: string) {
   return {
     node,
     dropped: [] as Dropped[],
-    sourceText,
-    sourceAtoms,
-    droppedAtoms: [] as string[],
     hasUnreadableThreads,
+    isKept: (fresh: XmlFragment, converted: PMNode) =>
+      characters(sourceText) === characters(textWithoutAtoms(converted)) &&
+      tally(sourceAtoms) === tally(atomNames(converted)),
   }
-}
-
-function read(legacy: LegacyBody) {
-  const old = decoded(legacy)
-  if (old) {
-    return { ...fromYjs(old), from: 'yjs' as const }
-  }
-
-  return { ...fromHtml(legacy.html ?? ''), from: 'html' as const }
 }
 
 function textWithoutAtoms(node: PMNode) {
   return node.textBetween(0, node.content.size, '', () => '')
 }
 
+function read(legacy: LegacyBody) {
+  // A body saved without collaboration has only its HTML
+  if (legacy.collab !== 0) {
+    const old = decoded(legacy.content)
+    if (old) {
+      return { ...fromYjs(old), from: 'yjs' as const }
+    }
+  }
+
+  return { ...fromHtml(legacy.html ?? ''), from: 'html' as const }
+}
+
 /** The old document as a fresh collaborative body, checked to hold the old text and atoms apart from what it drops. */
 export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
-  const { node, dropped, sourceText, sourceAtoms, droppedAtoms, hasUnreadableThreads, from } =
-    read(legacy)
+  const { node, dropped, hasUnreadableThreads, isKept, from } = read(legacy)
   if (hasUnreadableThreads) {
     return { kind: 'failed', reason: 'check' }
   }
 
   const converted = withHeadingIds(node)
   const fresh = new Doc()
+  const body = fresh.getXmlFragment(BODY_FIELD)
   // Old comment marks are carried over as they are
-  prosemirrorToYXmlFragment(converted, fresh.getXmlFragment(BODY_FIELD))
-  const droppedText = dropped
-    .filter((drop) => drop.kind === 'node')
-    .map((drop) => drop.text)
-    .join('')
-  const isTextKept =
-    characters(sourceText) === characters(textWithoutAtoms(converted) + droppedText)
-  const isAtomsKept = tally(sourceAtoms) === tally([...atomNames(converted), ...droppedAtoms])
-  if (!isTextKept || !isAtomsKept) {
+  prosemirrorToYXmlFragment(converted, body)
+  if (!isKept(body, converted)) {
     return { kind: 'failed', reason: 'check' }
   }
 

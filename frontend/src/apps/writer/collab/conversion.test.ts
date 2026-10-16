@@ -180,6 +180,14 @@ describe('convertLegacy', () => {
     expect(result.dropped).toEqual([{ kind: 'node', name: 'tocNode', text: '' }])
   })
 
+  it('converts a body holding an empty list, which the editor hides', () => {
+    const doc = legacyDoc(yParagraph('one'), new XmlElement('bulletList'))
+
+    const result = convert(stored(doc))
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one')), []])
+  })
+
   it('records a part the editor cannot hold together with its text', () => {
     const doc = legacyDoc(yParagraph('one'), yElement('callout', yParagraph('note')))
 
@@ -213,7 +221,20 @@ describe('convertLegacy', () => {
     const result = convert({ content, html: '', collab: 1 })
 
     expect(bodyOf(result.state)).toEqual(page(words('kept')))
-    expect(result.dropped).toEqual([{ kind: 'pending', text: ' second' }])
+    expect(result.dropped).toEqual([{ kind: 'pending', text: ' second', parts: [] }])
+  })
+
+  it('records a held-back change that adds a part and no text', () => {
+    const writer = legacyDoc(yParagraph('first'))
+    const before = encodeStateVector(writer)
+    writer.getXmlFragment(BODY_FIELD).insert(1, [new XmlElement('pageBreak')])
+    const later = encodeStateAsUpdate(writer, before)
+    const other = legacyDoc(yParagraph('kept'))
+    const content = toBase64(mergeUpdates([encodeStateAsUpdate(other), later]))
+
+    const result = convert({ content, html: '', collab: 1 })
+
+    expect(result.dropped).toEqual([{ kind: 'pending', text: '', parts: ['pageBreak'] }])
   })
 
   it('holds only the body, leaving the old users, docinfo and emptied annotations behind', () => {
@@ -402,7 +423,7 @@ describe('convertLegacy', () => {
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
-  it('converts comments that carry their thread ids, in Yjs, as an overlapping copy and in HTML', () => {
+  it('converts comments that carry their thread ids, in Yjs, as a lone overlapping copy read by its mark name and in HTML', () => {
     const yjs = stored(legacyDoc(yMarked('see', { comment: { commentId: 'c1' } })))
     const overlap = stored(legacyDoc(yMarked('see', { 'comment--a+/=bC9z': { commentId: 'c2' } })))
     const html = { content: null, html: '<p><span data-comment-id="c1">see</span></p>', collab: 0 }
@@ -410,5 +431,62 @@ describe('convertLegacy', () => {
     const kinds = [yjs, overlap, html].map((legacy) => convertLegacy(legacy, MAX_STATE).kind)
 
     expect(kinds).toEqual(['converted', 'converted', 'converted'])
+  })
+
+  it('keeps two comments on the same words, the second carried as kept formatting', () => {
+    const both = { comment: { commentId: 'c1' }, 'comment--a+/=bC9z': { commentId: 'c2' } }
+
+    const result = convert(stored(legacyDoc(yMarked('see', both))))
+
+    const block = opened(result.state).getXmlFragment(BODY_FIELD).get(0) as XmlElement
+    const attributes = { ...both, comment: { commentId: 'c1', resolved: false } }
+    expect((block.get(0) as XmlText).toDelta()).toEqual([{ insert: 'see', attributes }])
+  })
+
+  it('refuses a Yjs body whose link holds an attribute the link mark lacks', () => {
+    const legacy = stored(legacyDoc(yMarked('go', { link: { href: '/a', tracking: 'x1' } })))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a Yjs body whose paragraph holds an attribute paragraphs lack', () => {
+    const block = yParagraph('one')
+    block.setAttribute('align', 'mid')
+
+    expect(convertLegacy(stored(legacyDoc(block)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('keeps a Yjs link, which gains the link mark defaults', () => {
+    const result = convert(stored(legacyDoc(yMarked('go', { link: { href: '/a' } }))))
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content[0].marks[0].attrs.href).toBe('/a')
+  })
+
+  it('keeps a table whose cell holds its widths and a span at its default', () => {
+    const cell = yElement('tableCell', yParagraph('x'))
+    cell.setAttribute('colwidth', [100] as never)
+    cell.setAttribute('colspan', 1 as never)
+    const doc = legacyDoc(yElement('table', yElement('tableRow', cell)))
+
+    const result = convert(stored(doc))
+
+    const [table] = bodyOf(result.state).content
+    expect(table.content[0].content[0].attrs).toMatchObject({ colwidth: [100], colspan: 1 })
+  })
+
+  it('refuses when converting the old media moves where an image points', () => {
+    vi.mocked(convertOldMedia).mockImplementationOnce((body) => {
+      const image = new XmlElement('image')
+      image.setAttribute('src', '/files/other.png')
+      body.delete(0, 1)
+      body.insert(0, [yElement('paragraph', image)])
+    })
+    const legacy = stored(legacyDoc(oldMedia({ src: SRC, 'media-type': 'img' })))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 })
