@@ -55,6 +55,7 @@ export class Room implements CollabRoom {
   writable: boolean
   bound: boolean
   readonly ownOutbox: Outbox
+  readonly ownClients: Set<number>
   // Tabs' leftovers come first and this tab's own stays last
   outboxes: Outbox[]
   closed = false
@@ -101,6 +102,7 @@ export class Room implements CollabRoom {
     this.device = options.device ? new Device(options.device) : null
     this.ownOutbox = new Outbox(init.sid, init.doc.clientID, () => {})
     this.outboxes = [this.ownOutbox]
+    this.ownClients = new Set([this.ownOutbox.cid])
   }
 
   async start(opening: Opening) {

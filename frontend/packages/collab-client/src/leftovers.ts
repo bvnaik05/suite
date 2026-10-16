@@ -20,6 +20,7 @@ export interface LeftoverRoom extends AccessRoom {
   readonly restoreRev: number
   // Adopted outboxes go in ahead of this tab's own
   readonly outboxes: Outbox[]
+  readonly ownClients: Set<number>
   readonly sender: { scheduleSend(): void }
   lockName(sid: string): string
   onUnreachable(): void
@@ -148,6 +149,7 @@ async function takeOver(
 
   Y.applyUpdate(room.doc, Y.mergeUpdates(box.pending.map((entry) => entry.bytes)), ADOPT)
   room.outboxes.splice(-1, 0, box)
+  room.ownClients.add(box.cid)
   return true
 }
 

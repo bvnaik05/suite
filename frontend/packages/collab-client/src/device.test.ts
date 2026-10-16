@@ -37,6 +37,26 @@ describe('collab room on a device', () => {
     expect(text(await join(server.endpoints()))).toBe('offline work')
   })
 
+  it('a tab counts the work it took on from a closed tab as its own, after sending it too', async () => {
+    fakeTime()
+    const server = fakeServer()
+    const kept = await device()
+    const first = await join(server.endpoints(), { device: kept })
+    const firstClient = first.doc.clientID
+    server.access.online = false
+
+    first.doc.getText('t').insert(0, 'offline work')
+    await vi.advanceTimersByTimeAsync(0)
+    await first.close()
+    server.access.online = true
+    const next = await join(server.endpoints(), { device: kept })
+    await next.flush()
+
+    expect(next.unsent).toBe(0)
+    expect(next.ownClients).toEqual(new Set([next.doc.clientID, firstClient]))
+    expect(next.doc.clientID).not.toBe(firstClient)
+  })
+
   it('a tab still open when another tab tidied the device keeps what it types offline next', async () => {
     fakeTime()
     const server = fakeServer()

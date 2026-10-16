@@ -160,6 +160,8 @@ export interface CollabRoom {
   // Whether unsent work outlives this tab
   readonly onDevice: boolean
   readonly appliedThrough: number
+  // The clientIDs whose work this tab sends: its own and each closed tab's it took on, kept once sent
+  readonly ownClients: ReadonlySet<number>
   // Null when the room was opened without a socket
   readonly live: LiveState | null
   readonly presence: RoomPresence | null
