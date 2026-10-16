@@ -1031,7 +1031,8 @@ export function useThreadActions(deps: {
           const rollbacks = threadMails([threadID.value])
             .filter((m) => isReceived(m, mailboxIds.sent))
             .map((m) => mailThreadRef.value?.removeMailFromView(m.id).rollback)
-          unjunkPane = () => rollbacks.forEach((rollback) => rollback?.())
+          // Last out, first back: each put back where it stood before the ones after it left.
+          unjunkPane = () => [...rollbacks].reverse().forEach((rollback) => rollback?.())
         }
       } else handleSuccessAndRemoveFromList(threadIDs)
       setUndoAction(() => {
