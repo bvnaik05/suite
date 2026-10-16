@@ -10,12 +10,13 @@ here, so the lists, All Inboxes and the open thread can't each grow their own.
 | Action      | Mail you received                        | Your sent mail        | A draft   |
 |-------------|------------------------------------------|-----------------------|-----------|
 | archive     | Inbox → Archive (Archive added if not)*  | stays in Sent         | untouched |
-| move        | leaves every folder for the target       | target, keeps Sent    | untouched |
+| move        | leaves every folder for the target       | target, keeps Sent**  | untouched |
 | junk        | leaves every folder for Junk, marked     | stays in Sent         | untouched |
 | not_junk    | Junk → Inbox, mark cleared               | untouched             | untouched |
 | trash       | Trash                                    | Trash                 | untouched |
 
 * Archived from Junk or Trash, it leaves those too, and loses the junk mark.
+** Not into the Inbox, which holds only mail you received: moved there, your sent mail keeps just Sent.
 """
 
 from typing import Literal, TypedDict
@@ -85,7 +86,11 @@ def plan(action: Action, emails: list[dict], roles: Roles, target: str | None = 
                 update |= {"keywords/$junk": None, "keywords/$notjunk": True}
         elif action == "move":
             if own:
-                update = {"mailboxIds": {roles["sent"]: True, target: True}}
+                # Filed with the conversation, but never into the Inbox: that holds mail you received.
+                kept = (
+                    {roles["sent"]: True} if target == roles["inbox"] else {roles["sent"]: True, target: True}
+                )
+                update = {"mailboxIds": kept}
             else:
                 update = {"mailboxIds": {target: True}}
                 if junked:

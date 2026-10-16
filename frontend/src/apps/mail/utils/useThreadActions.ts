@@ -299,16 +299,19 @@ export function useThreadActions(deps: {
           ;[t, ...(t.messages ?? [])].forEach((item: { mailboxes: Mailbox[] }) => {
             prev.set(item, item.mailboxes)
             const keepsSent = item.mailboxes.some((mb) => mb.mailbox_id === mailboxIds.sent)
+            // Sent mail is filed with the conversation, but never into the Inbox (see filing.py).
             item.mailboxes =
               keepsSent && sentEntry
-                ? [
-                    {
-                      ...targetEntry,
-                    },
-                    {
-                      ...sentEntry,
-                    },
-                  ]
+                ? target === mailboxIds.inbox
+                  ? [{ ...sentEntry }]
+                  : [
+                      {
+                        ...targetEntry,
+                      },
+                      {
+                        ...sentEntry,
+                      },
+                    ]
                 : [
                     {
                       ...targetEntry,

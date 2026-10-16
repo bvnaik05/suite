@@ -75,6 +75,13 @@ class TestMove(UnitTestCase):
             },
         )
 
+    def test_your_sent_mail_never_goes_into_the_inbox(self):
+        archived = [email("q", "archive"), email("r", "sent", "archive")]
+        self.assertEqual(
+            plan("move", archived, ROLES, "inbox"),
+            {"q": {"mailboxIds": {"inbox": True}}, "r": {"mailboxIds": {"sent": True}}},
+        )
+
     def test_moving_junked_mail_out_clears_the_mark(self):
         junked = email("j", "junk", **{"$junk": True})
         self.assertEqual(
