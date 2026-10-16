@@ -84,6 +84,124 @@ export function inventory(body: XmlFragment, skipped: ReadonlySet<unknown> = new
   return found
 }
 
+// Tags that format the text in them rather than hold a part of their own
+const FORMATTING_TAGS = new Set([
+  'a',
+  'b',
+  'big',
+  'cite',
+  'code',
+  'del',
+  'em',
+  'font',
+  'i',
+  'ins',
+  'kbd',
+  'mark',
+  'q',
+  's',
+  'small',
+  'span',
+  'strike',
+  'strong',
+  'sub',
+  'sup',
+  'u',
+])
+
+// The editor snaps a colour to its palette, so a colour counts by being there
+const COLOUR_PROPS = new Set(['color', 'background-color'])
+
+type AtomName = (element: Element) => string | undefined
+
+function styleOf(element: Element) {
+  const { style } = element as HTMLElement
+  const found: Record<string, unknown> = {}
+  for (const property of style) {
+    const value = style.getPropertyValue(property)
+    if (!COLOUR_PROPS.has(property)) {
+      found[property] = value
+    } else if (value !== 'inherit') {
+      found[property] = true
+    }
+  }
+
+  return found
+}
+
+// A class only picks how a part is drawn
+function attributesOf(element: Element): Entry[] {
+  const entries = [...element.attributes]
+    .filter(({ name }) => name !== 'class' && name !== 'style')
+    .map(({ name, value }): Entry => [name, value])
+  const style = styleOf(element)
+  if (Object.keys(style).length) {
+    entries.push(['style', style])
+  }
+
+  return entries
+}
+
+function withFormat(formats: Entry[], element: Element) {
+  const entries = attributesOf(element)
+  if (element.localName === 'span' && !entries.length) {
+    return formats
+  }
+
+  return [...formats, [element.localName, Object.fromEntries(entries)] as Entry]
+}
+
+// The HTML parser folds whitespace, so it isn't compared
+function addDomText(text: string, formats: Entry[], found: Inventory) {
+  for (const char of text) {
+    if (!/\s/.test(char)) {
+      found.characters.push({ char, entries: formats })
+    }
+  }
+}
+
+// An atom's own words, such as a mention's label, live in its attributes and count as no text
+function addElement(element: Element, formats: Entry[], atomName: AtomName, found: Inventory) {
+  const name = atomName(element)
+  if (name) {
+    found.elements.push({ name, entries: attributesOf(element) })
+    return
+  }
+
+  if (element.localName === 'br') {
+    return
+  }
+
+  let inner = formats
+  if (FORMATTING_TAGS.has(element.localName)) {
+    inner = withFormat(formats, element)
+  } else {
+    found.elements.push({ name: element.localName, entries: attributesOf(element) })
+  }
+
+  for (const child of element.childNodes) {
+    addDomNode(child, inner, atomName, found)
+  }
+}
+
+function addDomNode(node: Node, formats: Entry[], atomName: AtomName, found: Inventory) {
+  if (node.nodeType === Node.TEXT_NODE) {
+    addDomText(node.textContent ?? '', formats, found)
+  } else if (node.nodeType === Node.ELEMENT_NODE) {
+    addElement(node as Element, formats, atomName, found)
+  }
+}
+
+/** What the HTML under `root` holds; `atomName` names the elements the editor reads as atoms. */
+export function domInventory(root: ParentNode, atomName: AtomName) {
+  const found: Inventory = { characters: [], elements: [] }
+  for (const child of root.childNodes) {
+    addDomNode(child, [], atomName, found)
+  }
+
+  return found
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

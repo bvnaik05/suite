@@ -500,6 +500,66 @@ describe('convertLegacy', () => {
     })
   })
 
+  it("converts Drive's HTML blocks that hold its default indent (R331)", () => {
+    const indent = 'style="margin-left: 0px!important;"'
+    const html = `<p ${indent}>one</p><h2 ${indent}>Two</h2>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const blocks = bodyOf(result.state).content.map((block) => [block.type, block.content[0].text])
+    expect(blocks).toEqual([
+      ['paragraph', 'one'],
+      ['heading', 'Two'],
+    ])
+  })
+
+  it.each([
+    { name: "indented past Drive's default", html: '<p style="margin-left: 24px">one</p>' },
+    {
+      name: "with a heading line height the editor can't hold",
+      html: '<h1 style="line-height: 150%">Two</h1>',
+    },
+    { name: 'holding formatting the editor has no mark for', html: '<p>x<sup>2</sup></p>' },
+    { name: 'with a block attribute the editor drops', html: '<p dir="rtl">one</p>' },
+    {
+      name: "with a colour the editor can't read",
+      html: '<p><span style="color: hsl(0, 70%, 50%)">red</span></p>',
+    },
+  ])('refuses HTML $name', ({ html }) => {
+    const legacy = { content: null, html, collab: 0 }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it("keeps Drive's HTML text colour and highlight as palette colours, and its ink as none", () => {
+    const highlight = 'data-color="#fef9c3" style="background-color: #fef9c3; color: inherit"'
+    const html = [
+      '<p><span style="color: #dc2626">red</span>',
+      `<mark ${highlight}>lit</mark>`,
+      '<span style="color: #1F272E">ink</span></p>',
+    ].join('')
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    const colours = content.map(({ text, marks = [] }) => [
+      text,
+      marks.map(({ type, attrs }) => [type, attrs.color]),
+    ])
+    expect(colours).toEqual([
+      ['red', [['textStyle', 'red']]],
+      ['lit', [['namedHighlight', 'yellow']]],
+      ['ink', [['textStyle', null]]],
+    ])
+  })
+
+  it('keeps an HTML link, which gains a target and rel', () => {
+    const result = convert({ content: null, html: '<p><a href="/a">go</a></p>', collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content[0].marks[0].attrs.href).toBe('/a')
+  })
+
   it('keeps a Yjs link, which gains the link mark defaults', () => {
     const result = convert(stored(legacyDoc(yMarked('go', { link: { href: '/a' } }))))
 

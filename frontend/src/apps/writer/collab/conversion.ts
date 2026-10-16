@@ -1,7 +1,11 @@
 import { generateJSON, getSchema } from '@tiptap/core'
-import type { Node as PMNode } from '@tiptap/pm/model'
+import { DOMSerializer, type Node as PMNode } from '@tiptap/pm/model'
 import { Transform } from '@tiptap/pm/transform'
-import { placeFragment, prosemirrorToYXmlFragment } from '@tiptap/y-tiptap'
+import {
+  placeFragment,
+  prosemirrorToYXmlFragment,
+  yXmlFragmentToProseMirrorRootNode,
+} from '@tiptap/y-tiptap'
 import {
   applyUpdate,
   ContentDeleted,
@@ -21,7 +25,7 @@ import {
 } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
-import { inventory, unkept, type Inventory } from '@/apps/writer/collab/inventory'
+import { domInventory, inventory, unkept } from '@/apps/writer/collab/inventory'
 import { unreadableThreads } from '@/apps/writer/collab/old-comments'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
@@ -142,33 +146,10 @@ function withHeadingIds(node: PMNode) {
   return transform.doc
 }
 
-function tally(items: Iterable<string>) {
-  const counts = new Map<string, number>()
-  for (const item of items) {
-    counts.set(item, (counts.get(item) ?? 0) + 1)
-  }
-
-  return [...counts].sort().join()
-}
-
-function characters(text: string) {
-  return tally(text.replace(/\s/g, ''))
-}
-
 // A line break the HTML parser had nowhere to put loses no words, so breaks aren't counted
 function isAtomName(name: string) {
   const type = schema.nodes[name]
   return !!type && type.isLeaf && !type.isText && name !== 'hardBreak'
-}
-
-function atomNames(node: PMNode) {
-  const names: string[] = []
-  node.descendants((child) => {
-    if (isAtomName(child.type.name)) {
-      names.push(child.type.name)
-    }
-  })
-  return names
 }
 
 function decoded(content: string | null) {
@@ -194,11 +175,11 @@ function decoded(content: string | null) {
 const MEDIA = new Set(['resizableMedia', 'image', 'video'])
 
 // Where each image and video points, in order
-function mediaSources(found: Inventory) {
-  const sources = found.elements
-    .filter((piece) => MEDIA.has(piece.name))
-    .map((piece) => Object.fromEntries(piece.entries).src)
-  return JSON.stringify(sources)
+function mediaSources(body: XmlFragment) {
+  const media = [
+    ...body.createTreeWalker((type) => type instanceof XmlElement && MEDIA.has(type.nodeName)),
+  ] as XmlElement[]
+  return JSON.stringify(media.map((element) => element.getAttribute('src')))
 }
 
 // Drive stored its indent and heading line height at their defaults, which this editor has no attribute for
@@ -224,11 +205,11 @@ function dropDriveDefaults(body: XmlFragment) {
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
-  const media = mediaSources(inventory(body))
+  const media = mediaSources(body)
   convertOldMedia(body)
   dropDriveDefaults(body)
   const { node, hidden, lost } = placeFragment(body, schema)
-  const isMediaKept = mediaSources(inventory(body)) === media
+  const isMediaKept = mediaSources(body) === media
   const source = inventory(body, new Set([...hidden, ...lost]))
   return {
     node,
@@ -242,8 +223,6 @@ const atomRules = Object.values(schema.nodes)
   .filter((type) => isAtomName(type.name))
   .flatMap((type) => (type.spec.parseDOM ?? []).map((rule) => ({ rule, name: type.name })))
 
-const MEDIA_TAGS = 'iframe, audio, video, img, object, embed'
-
 // Drive's comment marks, holding a whole thread or an annotation id
 const OLD_THREAD_TAGS = 'span[data-comment], span[data-annotation-id]'
 
@@ -254,38 +233,52 @@ function atomNameOf(element: Element) {
   return found?.name
 }
 
-// An atom's own words, such as a mention's label, live in its attributes and count as no text
+// Drive's ink, which it stored as the colour of text left at its default
+const DRIVE_INK = 'rgb(31, 39, 46)'
+
+// Drive stored its indent on every block and its ink on default text; a highlight also kept its
+// colour in data-color, which the editor reads from the style
+function dropDriveHtmlDefaults(body: HTMLElement) {
+  for (const block of body.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')) {
+    if (block.style.getPropertyValue('margin-left') === '0px') {
+      block.style.removeProperty('margin-left')
+    }
+  }
+
+  for (const element of body.querySelectorAll<HTMLElement>('[style]')) {
+    if (element.style.getPropertyValue('color') === DRIVE_INK) {
+      element.style.removeProperty('color')
+    }
+  }
+
+  for (const mark of body.querySelectorAll<HTMLElement>('mark[data-color]')) {
+    if (mark.style.getPropertyValue('background-color')) {
+      mark.removeAttribute('data-color')
+    }
+  }
+}
+
+// The fresh body as the editor draws it
+function drawn(fresh: XmlFragment) {
+  const { content } = yXmlFragmentToProseMirrorRootNode(fresh, schema)
+  return DOMSerializer.fromSchema(schema).serializeFragment(content)
+}
+
+// The check compares the old HTML, Drive's defaults dropped, with the fresh body as the editor draws
+// it; an atom's own words live in its attributes and count as no text, and whitespace and line
+// breaks aren't compared
 function fromHtml(html: string) {
   const node = schema.nodeFromJSON(generateJSON(html, extensions))
   const { body } = new DOMParser().parseFromString(html, 'text/html')
   const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)
-  const sourceAtoms: string[] = []
-  for (const element of body.querySelectorAll('*')) {
-    const name = body.contains(element) && atomNameOf(element)
-    if (name) {
-      sourceAtoms.push(name)
-      element.remove()
-    }
-  }
-
-  // Media no rule takes has nowhere to go, so it fails the atom check
-  for (const element of body.querySelectorAll(MEDIA_TAGS)) {
-    sourceAtoms.push(`<${element.localName}>`)
-  }
-
-  const sourceText = body.textContent ?? ''
+  dropDriveHtmlDefaults(body)
+  const source = domInventory(body, atomNameOf)
   return {
     node,
     dropped: [] as Dropped[],
     hasUnreadableThreads,
-    isKept: (fresh: XmlFragment, converted: PMNode) =>
-      characters(sourceText) === characters(textWithoutAtoms(converted)) &&
-      tally(sourceAtoms) === tally(atomNames(converted)),
+    isKept: (fresh: XmlFragment) => !unkept(source, domInventory(drawn(fresh), atomNameOf)).length,
   }
-}
-
-function textWithoutAtoms(node: PMNode) {
-  return node.textBetween(0, node.content.size, '', () => '')
 }
 
 function read(legacy: LegacyBody) {
@@ -300,7 +293,7 @@ function read(legacy: LegacyBody) {
   return { ...fromHtml(legacy.html ?? ''), from: 'html' as const }
 }
 
-/** The old document as a fresh collaborative body, checked to hold the old text and atoms apart from what it drops. */
+/** The old document as a fresh collaborative body, checked to hold the old text, formatting and parts apart from what it drops. */
 export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   const { node, dropped, hasUnreadableThreads, isKept, from } = read(legacy)
   if (hasUnreadableThreads) {
@@ -312,7 +305,7 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   const body = fresh.getXmlFragment(BODY_FIELD)
   // Old comment marks are carried over as they are
   prosemirrorToYXmlFragment(converted, body)
-  if (!isKept(body, converted)) {
+  if (!isKept(body)) {
     return { kind: 'failed', reason: 'check' }
   }
 

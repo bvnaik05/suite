@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Doc, XmlElement, XmlText } from 'yjs'
 
-import { inventory, unkept } from '@/apps/writer/collab/inventory'
+import { domInventory, inventory, unkept } from '@/apps/writer/collab/inventory'
 
 type Run = [string, Record<string, unknown>?]
 
@@ -147,5 +147,56 @@ describe('what a result keeps of its source', () => {
     const found = inventory(source, new Set([lost]))
 
     expect(unkept(found, inventory(body(paragraph(['one']), paragraph())))).toEqual([])
+  })
+})
+
+function mentionName(node: Element) {
+  return node.matches('span[data-type=mention]') ? 'mention' : undefined
+}
+
+function htmlInventory(html: string) {
+  const parsed = new DOMParser().parseFromString(html, 'text/html')
+  return domInventory(parsed.body, mentionName)
+}
+
+function unkeptHtml(source: string, result: string) {
+  return unkept(htmlInventory(source), htmlInventory(result))
+}
+
+describe('what drawn HTML keeps of the old HTML', () => {
+  it('ignores a class, and a span with nothing else on it', () => {
+    expect(unkeptHtml('<p class="a"><span>hi</span></p>', '<p class="b">hi</p>')).toEqual([])
+  })
+
+  it('compares a style property by property', () => {
+    const both = '<p style="text-align: center; line-height: 2">x</p>'
+
+    expect(unkeptHtml(both, '<p style="line-height: 2; text-align: center">x</p>')).toEqual([])
+    expect(unkeptHtml(both, '<p style="text-align: right; line-height: 2">x</p>')).toEqual([
+      'element p',
+    ])
+  })
+
+  it('compares a colour by its being there, inherit counting as none', () => {
+    const palette = '<span style="color: var(--prose-color-red)">x</span>'
+
+    expect(unkeptHtml('<span style="color: #dc2626">x</span>', palette)).toEqual([])
+    expect(unkeptHtml('<span style="color: inherit">x</span>', 'x')).toEqual([])
+    expect(unkeptHtml('<span style="color: #dc2626">x</span>', 'x')).toEqual(['formatting at 0'])
+  })
+
+  it('reads an atom by its name and attributes, leaving out its own words', () => {
+    const source = '<p>hi <span data-type="mention" data-id="u1">@Ann</span></p>'
+
+    expect(
+      unkeptHtml(source, '<p>hi <span data-type="mention" data-id="u1">Ann</span></p>'),
+    ).toEqual([])
+    expect(
+      unkeptHtml(source, '<p>hi <span data-type="mention" data-id="u2">@Ann</span></p>'),
+    ).toEqual(['element mention'])
+  })
+
+  it('leaves out whitespace and line breaks', () => {
+    expect(unkeptHtml('<p>a b<br>c</p>', '<p>a\u00a0b c</p>')).toEqual([])
   })
 })
