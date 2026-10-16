@@ -30,6 +30,12 @@ import {
   WriterKit,
 } from '@/apps/writer/schema'
 
+declare module '@tiptap/core' {
+  interface Storage {
+    styleClipboard?: { painting: boolean }
+  }
+}
+
 export type WriterEditorOptions = {
   collaborative: boolean
   mentionItems: () => MentionSuggestionItem[]

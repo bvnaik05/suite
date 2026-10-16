@@ -355,7 +355,6 @@ export const TabsExtension = TabNode.extend({
           }
           return true
         },
-      getCurrentTabHTML: () => () => currentTabHTML(this.editor),
     }
   },
 

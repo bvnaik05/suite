@@ -73,7 +73,7 @@
                 :show-comments
                 :show-resolved
                 :show-unanchored
-                :editor
+                :editor="editor!"
                 @save="saveComments"
               />
             </div>
@@ -81,7 +81,7 @@
         </div>
         <slot name="cover" />
         <div
-          v-if="commentsPainted && comments._map.size && !$slots.cover"
+          v-if="commentsPainted && comments?._map.size && !$slots.cover"
           class="hidden md:block absolute top-4 right-4"
         >
           <Dropdown :options="commentFilterOptions" align="end">
@@ -100,7 +100,8 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+import type { AnyExtension, Content } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import { BubbleMenu } from '@tiptap/vue-3/menus'
 import { onKeyDown } from '@vueuse/core'
@@ -114,7 +115,8 @@ import {
   EditorFixedMenu as TextEditorFixedMenu,
 } from 'frappe-ui/editor'
 import { v4 as uuidv4 } from 'uuid'
-import { computed, inject, onBeforeUnmount, provide, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, provide, ref, useTemplateRef, watch } from 'vue'
+import type * as Y from 'yjs'
 
 import { hasDefaultDocumentTitle } from '@/apps/drive'
 import { searchMentions, useUsers } from '@/apps/writer/composables/useUsers'
@@ -122,7 +124,13 @@ import { writerEditorExtensions } from '@/apps/writer/editor-extensions'
 import emitter from '@/apps/writer/emitter'
 import { rebuild } from '@/apps/writer/extensions/comments'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
+import { currentTabHTML } from '@/apps/writer/extensions/tabs'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
+import type {
+  EditorFile,
+  WriterDocument,
+  WriterSettings,
+} from '@/apps/writer/surface/writerDocument'
 import { isModKey, printDoc } from '@/apps/writer/utils'
 import {
   EDITOR_TEXT_CLASS,
@@ -138,26 +146,39 @@ import FloatingComments from './FloatingComments.vue'
 import ToC from './ToC.vue'
 import ToCMobile from './ToCMobile.vue'
 
-const props = defineProps({
-  file: Object,
-  document: Object,
-  settings: Object,
-  editable: Boolean,
-  collaborative: Boolean,
-  yjsDoc: { required: false, default: null },
-  extensions: { type: Array, default: () => [] },
-  comments: Object,
-  newComment: Function,
-  saveComments: Function,
-  rawContent: String,
-  // Takes over the bubble menu's Comment, for editors that comment through Drive
-  commentOnSelection: { type: Function, default: null },
-})
+const props = withDefaults(
+  defineProps<{
+    file: EditorFile
+    document: WriterDocument
+    settings: WriterSettings
+    editable?: boolean
+    collaborative?: boolean
+    yjsDoc?: Y.Doc | null
+    extensions?: AnyExtension[]
+    comments?: Y.Map<unknown>
+    newComment?: (
+      id: string,
+      from: number,
+      to: number,
+      owner: string | null,
+      anchorText: string,
+    ) => void
+    saveComments?: () => Promise<void>
+    rawContent?: string
+    // Takes over the bubble menu's Comment, for editors that comment through Drive
+    commentOnSelection?: (() => void) | null
+  }>(),
+  { yjsDoc: null, extensions: () => [], commentOnSelection: null },
+)
 
-const emit = defineEmits(['save', 'editor-change', 'cleanup'])
+const emit = defineEmits<{
+  save: [manual: boolean, html: string | null, done?: () => void]
+  'editor-change': [value: Content]
+  cleanup: []
+}>()
 
-const showSettings = defineModel('showSettings')
-const edited = defineModel('edited')
+const showSettings = defineModel<boolean>('showSettings')
+const edited = defineModel<boolean>('edited')
 const root = useRootStore()
 
 const localContent = ref(props.rawContent ?? '')
@@ -170,22 +191,22 @@ watch(
   { once: true },
 )
 
-const textEditor = ref(null)
+const textEditor = useTemplateRef('textEditor')
 const editor = computed(() => textEditor.value?.editor)
 provide('editor', editor)
 defineExpose({ editor })
 
-const anchors = ref([])
-const activeComment = ref(null)
+const anchors = ref<unknown[]>([])
+const activeComment = ref<string | null>(null)
 const commentsPainted = ref(false)
-const showComments = ref(JSON.parse(localStorage.getItem('show-comments') || 'false'))
+const showComments = ref<boolean>(JSON.parse(localStorage.getItem('show-comments') || 'false'))
 const showResolved = ref(false)
 const showUnanchored = ref(false)
 
 watch(activeComment, () => rebuild(editor.value))
-watch(showComments, (val) => localStorage.setItem('show-comments', val))
+watch(showComments, (isShown) => localStorage.setItem('show-comments', String(isShown)))
 
-const scrollParent = computed(() => document.querySelector('#editor-scroll-container'))
+const scrollParent = computed(() => document.querySelector<HTMLElement>('#editor-scroll-container'))
 
 // The format painter keeps its flag in plain editor storage, which Vue does
 // not track. Read it again after each transaction.
@@ -204,46 +225,53 @@ watch(
 
 const showUnanchoredButton = computed(() => {
   if (!commentsPainted.value) return false
-  return Array.from(props.comments._map).some(
-    ([, value]) => !document.querySelector(`[data-comment-name='${value.content?.arr?.[0].id}']`),
-  )
+
+  return Array.from(props.comments!._map).some(([, value]) => {
+    const [first] = value.content.getContent()
+    return !document.querySelector(`[data-comment-name='${first?.id}']`)
+  })
 })
 
 const commentFilterOptions = computed(() => {
-  const hasResolved = Array.from(props.comments._map).some(
-    ([, value]) => value.content?.arr?.[0].resolved,
-  )
+  if (!commentsPainted.value || !props.comments) {
+    return []
+  }
+
+  const hasResolved = Array.from(props.comments._map).some(([, value]) => {
+    const [first] = value.content.getContent()
+    return first?.resolved
+  })
   return [
     {
       label: 'Comments',
-      switch: true,
+      switch: true as const,
       switchValue: showComments.value,
       onClick: () => (showComments.value = !showComments.value),
     },
     hasResolved &&
       showComments.value && {
         label: 'Resolved',
-        switch: true,
+        switch: true as const,
         switchValue: showResolved.value,
         onClick: () => (showResolved.value = !showResolved.value),
       },
     showUnanchoredButton.value &&
       showComments.value && {
         label: 'Outdated',
-        switch: true,
+        switch: true as const,
         switchValue: showUnanchored.value,
         onClick: () => (showUnanchored.value = !showUnanchored.value),
       },
-  ].filter(Boolean)
+  ].filter((option) => option !== false)
 })
 
-const onCommentActivated = (id) => {
+function onCommentActivated(id: string) {
   if (!id) return
   activeComment.value = id
   showComments.value = true
   const commentEl =
-    document.querySelector(`span[data-comment-name="${id}"]`) ||
-    document.querySelector(`span[data-comment-id="${id}"]`)
+    document.querySelector<HTMLElement>(`span[data-comment-name="${id}"]`) ||
+    document.querySelector<HTMLElement>(`span[data-comment-id="${id}"]`)
   if (commentEl && !commentEl.offsetParent) {
     commentEl.scrollIntoView({
       behavior: 'smooth',
@@ -261,8 +289,10 @@ const writerEditorOptions = {
   mentionItems: () => users.value,
   onMentionQuery: searchMentions,
   onCommentActivated,
-  onAnchors: (val) => (anchors.value = val),
-  scrollParent: () => scrollParent.value,
+  onAnchors: (found: unknown[]) => {
+    anchors.value = found
+  },
+  scrollParent: () => scrollParent.value!,
   media: inject(DOCUMENT_MEDIA, null),
   comments: props.comments,
   ydoc: props.yjsDoc,
@@ -290,7 +320,7 @@ const gridStyle = computed(() => editorColumns(props.settings))
 
 const editorStyle = computed(() => editorTextStyle(props.settings))
 
-const uploadFunction = (file) => {
+function uploadFunction(file: File) {
   const fileUpload = useFileUpload()
   return fileUpload.upload(file, {
     private: false,
@@ -299,8 +329,8 @@ const uploadFunction = (file) => {
   })
 }
 
-const onBackgroundClick = (e) => {
-  if (e.target.tagName === 'DIV') {
+function onBackgroundClick(event: MouseEvent) {
+  if (event.target instanceof HTMLElement && event.target.tagName === 'DIV') {
     textEditor.value?.editor?.chain?.().focus?.().run?.()
   }
 }
@@ -308,25 +338,25 @@ const onBackgroundClick = (e) => {
 // The owner of `edited` decides what counts as a change: `useYjs` reads the
 // Yjs document, `NonCollabEditor` compares the HTML. This event also fires
 // when the stored body is first put into the editor, so it marks nothing.
-const handleEditorChange = (value) => {
+function handleEditorChange(value: Content) {
   emit('editor-change', value)
 }
 
 const autorename = () => {
-  const { $anchor } = editor.value.view.state.selection
+  const { $anchor } = editor.value!.view.state.selection
   const inFirstBlock = $anchor.index(0) === 1 && $anchor.depth === 1
   if (!inFirstBlock) {
     const inLastLine =
-      $anchor.depth === 1 && editor.value.state.doc.childCount - 1 === $anchor.index(0)
+      $anchor.depth === 1 && editor.value!.state.doc.childCount - 1 === $anchor.index(0)
     if (inLastLine) {
-      scrollParent.value.scroll(0, scrollParent.value.scrollHeight)
+      scrollParent.value!.scroll(0, scrollParent.value!.scrollHeight)
     }
     return
   }
   if (!hasDefaultDocumentTitle(props.file.doc.file_name)) return
 
-  const implicitTitle = editor.value.state.doc.firstChild.textContent
-    .replaceAll('#', '')
+  const implicitTitle = editor
+    .value!.state.doc.firstChild!.textContent.replaceAll('#', '')
     .replaceAll('@', '')
     .slice(0, 30)
     .trim()
@@ -347,20 +377,22 @@ const addComment = () => {
     })
   }
   showComments.value = true
-  const { state } = editor.value
+  const { state } = editor.value!
   const { from, to } = state.selection
   if (from === to) return
 
   const id = uuidv4()
-  props.newComment(id, from, to, useSessionStore().user, state.doc.textBetween(from, to, ' '))
+  props.newComment!(id, from, to, useSessionStore().user, state.doc.textBetween(from, to, ' '))
   activeComment.value = id
   const tr = state.tr.setSelection(TextSelection.create(state.doc, from))
-  editor.value.view.dispatch(tr)
+  editor.value!.view.dispatch(tr)
 }
 
-const manualSave = (func) => emit('save', true, null, func)
+function manualSave(func?: () => void) {
+  emit('save', true, null, func)
+}
 
-const openCommandPalette = (event) => {
+function openCommandPalette(event: KeyboardEvent) {
   if (
     !props.editable ||
     (!event.metaKey && !event.ctrlKey) ||
@@ -390,7 +422,7 @@ onKeyDown('Enter', autorename)
 
 emitter.on('print-file', () => {
   if (editor.value) {
-    printDoc(editor.value.commands.getCurrentTabHTML(), props.settings)
+    printDoc(currentTabHTML(editor.value), props.settings)
   }
 })
 
@@ -398,7 +430,7 @@ emitter.on('manual-save', manualSave)
 
 onBeforeUnmount(() => {
   if (edited.value) {
-    emit('save', false, editor.value.getHTML())
+    emit('save', false, editor.value!.getHTML())
   }
   emitter.off('print-file')
   emitter.off('manual-save')

@@ -213,7 +213,6 @@
   "src/apps/slides/utils/uploadTargetSlide.test.ts|@typescript-eslint/no-explicit-any": 1,
   "src/apps/writer/components/CommentEditor.vue|@typescript-eslint/no-unused-vars": 1,
   "src/apps/writer/components/CommentEditor.vue|vue/block-lang": 1,
-  "src/apps/writer/components/CoreEditor.vue|vue/block-lang": 1,
   "src/apps/writer/components/DocumentList.vue|vue/block-lang": 1,
   "src/apps/writer/components/FloatingComments.vue|@typescript-eslint/no-unused-vars": 1,
   "src/apps/writer/components/FloatingComments.vue|vue/block-lang": 1,

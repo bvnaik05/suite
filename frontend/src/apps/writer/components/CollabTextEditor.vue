@@ -55,7 +55,7 @@ const props = defineProps<{
   litThread?: string | null
 }>()
 
-const showSettings = defineModel('showSettings')
+const showSettings = defineModel<boolean>('showSettings')
 /** The thread open in the comments panel; clicking its highlighted text opens it. */
 const openThread = defineModel<string | null>('openThread', { default: null })
 const emit = defineEmits<{ comment: [anchor: string]; commentOnDocument: [] }>()
