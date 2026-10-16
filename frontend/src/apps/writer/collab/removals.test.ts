@@ -1,4 +1,13 @@
 import { APPLIED_UPDATE, REMOTE, type CollabRoom } from '@suite/collab-client'
+import {
+  device,
+  fakeLocks,
+  fakeServer,
+  fakeTime,
+  idle,
+  join,
+  offlinePushes,
+} from '@suite/collab-client/test-support'
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
@@ -14,16 +23,6 @@ import {
   syncAll,
   type Tab,
 } from '@/apps/writer/collab/test-support'
-
-import {
-  device,
-  fakeLocks,
-  fakeServer,
-  fakeTime,
-  idle,
-  join,
-  offlinePushes,
-} from '../../../../packages/collab-client/src/test-support'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
