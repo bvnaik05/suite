@@ -30,11 +30,13 @@ interface EditorHost {
     commands: {
       insertContent: (content: string) => void
       focus: () => void
+      setTextSelection: (range: { from: number; to: number }) => void
     }
     state: {
       doc: {
         descendants: (fn: (node: any) => void) => void
       }
+      selection: { from: number; to: number }
     }
   }
 }
