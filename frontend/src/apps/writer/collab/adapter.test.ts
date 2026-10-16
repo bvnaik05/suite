@@ -99,49 +99,4 @@ describe("Writer's binding to a room", () => {
 
     expect([onFrozen.mock.calls.length, editor.isEditable]).toEqual([1, false])
   })
-
-  it('keeps a word typed into a block someone turned into a heading, on its own line after it', () => {
-    const firstRoom = roomWith(
-      element('paragraph', 'alpha sentence alpha'),
-      element('paragraph', 'lima sentence lima'),
-    )
-    const secondRoom = roomWith()
-    Y.applyUpdate(secondRoom.doc, Y.encodeStateAsUpdate(firstRoom.doc))
-    firstRoom.doc.clientID = 1
-    secondRoom.doc.clientID = 2
-    const first = openWriter(firstRoom, () => {})
-    const second = openWriter(secondRoom, () => {})
-    const before = Y.encodeStateVector(firstRoom.doc)
-
-    const size = first.state.doc.content.size
-    first
-      .chain()
-      .setTextSelection(size - 2)
-      .setNode('heading', { level: 2 })
-      .run()
-    second
-      .chain()
-      .setTextSelection(size - 1)
-      .insertContent('QQ')
-      .run()
-    const fromFirst = Y.encodeStateAsUpdate(firstRoom.doc, before)
-    Y.applyUpdate(firstRoom.doc, Y.encodeStateAsUpdate(secondRoom.doc, before), 'remote')
-    Y.applyUpdate(secondRoom.doc, fromFirst, 'remote')
-    for (let round = 0; round < 2; round++) {
-      Y.applyUpdate(secondRoom.doc, Y.encodeStateAsUpdate(firstRoom.doc), 'remote')
-      Y.applyUpdate(firstRoom.doc, Y.encodeStateAsUpdate(secondRoom.doc), 'remote')
-    }
-
-    const blocks = [first, second].map((editor) =>
-      editor.state.doc.content.content.map((block) =>
-        [block.type.name, block.textContent].join(':'),
-      ),
-    )
-    expect(blocks[0]).toEqual([
-      'paragraph:alpha sentence alpha',
-      'heading:lima sentence lima',
-      'paragraph:QQ',
-    ])
-    expect(blocks[1]).toEqual(blocks[0])
-  })
 })

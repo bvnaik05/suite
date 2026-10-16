@@ -1478,6 +1478,19 @@ const computeChildEqualityFactor = (ytype, pnode, meta) => {
 };
 
 /**
+ * Whether reusing a filled element for an empty node, while its neighbour node has content, would carry another tab's typing away from its words
+ *
+ * @param {Y.XmlElement} ytype
+ * @param {PModel.Node} reused
+ * @param {PModel.Node | Array<PModel.Node>} neighbour
+ * @param {BindingMetadata} meta
+ */
+const strandsContent = (ytype, reused, neighbour, meta) =>
+  reused.content.size === 0 &&
+  (neighbour instanceof Array || neighbour.content.size > 0) &&
+  visibleGroups(ytype, meta).some((group) => !(group instanceof Array) || group.some((text) => text.length > 0));
+
+/**
  * @param {Y.Text} ytext
  */
 const ytextTrans = (ytext) => {
@@ -1840,6 +1853,12 @@ const updateYFragment = (y, yDomFragment, pNode, meta) => {
           } else {
             updateRight = false;
           }
+        }
+        // the last element left, renamed on one side and emptied on the other, is replaced so its typing comes back with its words
+        if (leftY === rightY && updateRight && !updateLeft) {
+          updateRight = !strandsContent(rightY, rightP, leftP, meta);
+        } else if (leftY === rightY && updateLeft && !updateRight) {
+          updateLeft = !strandsContent(leftY, leftP, rightP, meta);
         }
         if (updateLeft) {
           updateYFragment(
