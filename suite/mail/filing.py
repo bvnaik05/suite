@@ -58,6 +58,9 @@ def plan(action: Action, emails: list[dict], roles: Roles, target: str | None = 
     if action == "move":
         if not target:
             raise ValueError("A move needs a target.")
+        # Sent and Drafts are filled by sending and writing; mail moved there would pass for yours.
+        if target in (roles["sent"], roles["drafts"]):
+            raise ValueError("Mail can't be moved to Sent or Drafts.")
         # Junk and Trash are their own actions, whichever menu named them.
         if target == roles["junk"]:
             action = "junk"
@@ -70,11 +73,17 @@ def plan(action: Action, emails: list[dict], roles: Roles, target: str | None = 
         keywords = email.get("keywords") or {}
         if keywords.get("$draft") or (roles["drafts"] and roles["drafts"] in boxes):
             continue
+        # Yours while in Sent. Trash is the one thing that takes it out, and from there on it is
+        # filed like any other mail.
         own = bool(roles["sent"] and roles["sent"] in boxes)
         junked = bool(keywords.get("$junk"))
 
         if action == "archive":
             if own:
+                # Never archived; but out of the Inbox, where an earlier move could have filed it.
+                if roles["inbox"] not in boxes:
+                    continue
+                updates[email["id"]] = {f"mailboxIds/{roles['inbox']}": None}
                 continue
             # Out of the Inbox; and out of Junk or Trash too, mark and all, or it would gain Archive
             # and still be shown only where it was.
@@ -125,15 +134,19 @@ def plan(action: Action, emails: list[dict], roles: Roles, target: str | None = 
 
 
 def left_inbox(updates: dict[str, dict], emails: list[dict], roles: Roles) -> bool:
-    """Whether the updates take some message out of the Inbox."""
+    """Whether the updates take some message out of the Inbox — or out of Junk or Trash, the other
+    lists Archive takes mail out of: whether the mail was archived, rather than only added to Archive."""
 
-    inbox = roles["inbox"]
-    was_in_inbox = {email["id"] for email in emails if inbox in (email.get("mailboxIds") or {})}
+    lists = [roles["inbox"], roles["junk"], roles["trash"]]
+    boxes = {email["id"]: email.get("mailboxIds") or {} for email in emails}
     for id, update in updates.items():
-        if id not in was_in_inbox:
-            continue
-        if f"mailboxIds/{inbox}" in update or inbox not in update.get("mailboxIds", {inbox: True}):
-            return True
+        for box in lists:
+            if box not in boxes.get(id, {}):
+                continue
+            if update.get(f"mailboxIds/{box}", True) is None:
+                return True
+            if "mailboxIds" in update and box not in update["mailboxIds"]:
+                return True
     return False
 
 
@@ -166,26 +179,38 @@ def file_messages(account: str, ids: list[str], action: Action, target: str | No
     from suite.mail.doctype.mail_message.mail_message import _remove_cached_messages
 
     client = get_account_client(account)
+    emails = [
+        email.to_wire()
+        for email in chunked_get(
+            client,
+            lambda b, chunk: b.mail.email.get(ids=chunk, properties=["id", "mailboxIds", "keywords"]),
+            list(dict.fromkeys(ids)),
+        )
+    ]
+    roles = account_roles(account)
     try:
-        emails = [
-            email.to_wire()
-            for email in chunked_get(
-                client,
-                lambda b, chunk: b.mail.email.get(ids=chunk, properties=["id", "mailboxIds", "keywords"]),
-                list(dict.fromkeys(ids)),
-            )
-        ]
-        roles = account_roles(account)
         updates = plan(action, emails, roles, target)
-        if updates:
-            result = chunked_set(client, lambda b, chunk: b.mail.email.set(update=chunk), updates)
-            updated = [id for id in updates if id in result.updated]
-        else:
-            updated = []
-        _remove_cached_messages(account, updated)
+    except ValueError as error:
+        frappe.throw(_(str(error)))
+
+    if not updates:
+        return {"updated": [], "left_inbox": False}
+    # Marked as changed before the write as well as after: a read already on its way then can't
+    # cache the message as it was (see get_messages).
+    _remove_cached_messages(account, list(updates))
+    try:
+        result = chunked_set(client, lambda b, chunk: b.mail.email.set(update=chunk), updates)
     except Exception:
         log_mail_error(_("Failed to file mail(s)"), frappe.get_traceback(with_context=True))
         frappe.throw(_("Failed to file mail(s)."))
+    finally:
+        # Whatever reached the server, nothing is left cached as it was.
+        _remove_cached_messages(account, list(updates))
+
+    updated = [id for id in updates if id in result.updated]
+    if result.not_updated:
+        log_mail_error(_("Failed to file mail(s)"), str(result.not_updated))
+        frappe.throw(_("Some mail could not be filed. Please try again."))
 
     return {
         "updated": updated,

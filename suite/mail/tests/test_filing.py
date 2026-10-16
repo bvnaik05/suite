@@ -70,6 +70,17 @@ class TestArchive(UnitTestCase):
             },
         )
 
+    def test_takes_your_reply_out_of_the_inbox_without_archiving_it(self):
+        # Filed in the Inbox by an earlier move; Archive clears the Inbox of it all the same.
+        self.assertEqual(
+            plan("archive", [email("r", "sent", "inbox")], ROLES),
+            {"r": {"mailboxIds/inbox": None}},
+        )
+
+    def test_archiving_out_of_junk_or_trash_counts_as_archived(self):
+        junked = [email("j", "junk", **{"$junk": True})]
+        self.assertTrue(left_inbox(plan("archive", junked, ROLES), junked, ROLES))
+
     def test_says_whether_the_conversation_left_the_inbox(self):
         from_inbox = plan("archive", CONVERSATION, ROLES)
         self.assertTrue(left_inbox(from_inbox, CONVERSATION, ROLES))
@@ -113,6 +124,11 @@ class TestMove(UnitTestCase):
             plan("move", archived, ROLES, "inbox"),
             {"q": {"mailboxIds": {"inbox": True}}, "r": {"mailboxIds": {"sent": True}}},
         )
+
+    def test_refuses_to_move_mail_into_sent_or_drafts(self):
+        for box in ("sent", "drafts"):
+            with self.assertRaises(ValueError):
+                plan("move", CONVERSATION, ROLES, box)
 
     def test_moving_junked_mail_out_clears_the_mark(self):
         junked = email("j", "junk", **{"$junk": True})

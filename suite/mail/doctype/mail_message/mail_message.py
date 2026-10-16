@@ -3,7 +3,6 @@
 
 import json
 import re
-import time
 from contextlib import suppress
 from email.utils import formataddr
 from functools import cached_property
@@ -917,7 +916,7 @@ def get_messages(account: str, ids: list[str]) -> list[dict]:
             ids_to_fetch.append(id)
 
     if ids_to_fetch:
-        fetched_at = time.time()
+        fetched_at = _now()
         client = get_account_client(account)
         properties = EMAIL_PROPERTIES + classification.EMAIL_PROPERTIES if classify else EMAIL_PROPERTIES
         emails = [
@@ -954,6 +953,10 @@ def get_messages(account: str, ids: list[str]) -> list[dict]:
             messages_to_cache.pop(id)
         if messages_to_cache:
             _cache_messages(account, messages_to_cache)
+            # A change can land between that check and the write just made: looked at again, and
+            # anything changed since this read began goes back out.
+            if changed := _written_since(account, list(messages_to_cache), fetched_at):
+                get_data_store(account).delete_many(Entity.EMAIL, keys=list(changed))
 
     return [messages[id] for id in ids if id in messages]
 
@@ -1627,6 +1630,13 @@ _WRITTEN_KEY = "mail:written:{}"
 _WRITTEN_KEEP = 60
 
 
+def _now() -> float:
+    """Redis's clock, so a writer and a reader on different machines tell time alike."""
+
+    seconds, micros = frappe.cache.time()
+    return seconds + micros / 1_000_000
+
+
 def _written_key(account: str, id: str) -> str:
     return frappe.cache.make_key(_WRITTEN_KEY.format(account) + f":{id}")
 
@@ -1654,7 +1664,7 @@ def _remove_cached_messages(account: str, ids: list[str]) -> None:
     store.delete_many(Entity.EMAIL, keys=ids)
     # Noted, so a read already on its way with the message as it was doesn't cache it back (see
     # get_messages): a list reloading as a message is archived would otherwise keep it unarchived.
-    now = time.time()
+    now = _now()
     with frappe.cache.pipeline() as pipe:
         for id in ids:
             pipe.set(_written_key(account, id), now, ex=_WRITTEN_KEEP)
