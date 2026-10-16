@@ -73,9 +73,13 @@ export function useWriterCollab(
     openReason.value = null
     openStatus.value = null
 
+    let stopRemovals: (() => void) | undefined
     try {
-      const opened = await openWriterRoom(session, threadsChanged)
+      const opened = await openWriterRoom(session, threadsChanged, (openingRoom) => {
+        stopRemovals = watchRemovals(openingRoom, keepRemovals)
+      })
       if (closed) {
+        stopRemovals?.()
         if (opened.state === 'live') {
           void opened.room.close()
         }
@@ -83,6 +87,7 @@ export function useWriterCollab(
       }
 
       if (opened.state !== 'live') {
+        stopRemovals?.()
         mode.value = 'legacy'
         return
       }
@@ -91,14 +96,14 @@ export function useWriterCollab(
       room.value = liveRoom
       recoveryKept.value = false
       const stopStatus = liveRoom.onChange(() => syncRoomStatus(liveRoom))
-      const stopRemovals = watchRemovals(liveRoom, keepRemovals)
       stopWatching = () => {
         stopStatus()
-        stopRemovals()
+        stopRemovals?.()
       }
       syncRoomStatus(liveRoom)
       mode.value = 'live'
     } catch (error) {
+      stopRemovals?.()
       const hasReason = error instanceof CollabOpenError
       const hasStatus = hasReason || error instanceof TransportError
       openReason.value = hasReason ? error.reason : null

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
+import { openWriterRoom } from '@/apps/writer/collab'
 
 import { useWriterCollab } from './useWriterCollab'
 
@@ -38,10 +39,13 @@ const fakeRooms = vi.hoisted(() => {
 })
 
 vi.mock('@/apps/writer/collab', () => ({
-  openWriterRoom: async () => {
-    fakeRooms.openCount++
-    return { state: 'live', room: fakeRooms.room }
-  },
+  openWriterRoom: vi.fn(
+    async (_session: unknown, _threadsChanged: unknown, watch: (room: object) => void) => {
+      fakeRooms.openCount++
+      watch(fakeRooms.room)
+      return { state: 'live', room: fakeRooms.room }
+    },
+  ),
 }))
 
 const watched = vi.hoisted(() => new Map<object, (removals: unknown[]) => void>())
@@ -465,6 +469,51 @@ describe('writer collab rebuild', () => {
     expect([watched.size, watched.has(fakeRooms.room)]).toEqual([1, true])
     collab.close()
     expect(watched.size).toBe(0)
+  })
+
+  it.each([
+    {
+      name: 'fails',
+      opened: () => Promise.reject(new Error('down')),
+      isClosing: false,
+      mode: 'failed',
+    },
+    {
+      name: 'opens no live room',
+      opened: async () => ({ state: 'disabled' as const }),
+      isClosing: false,
+      mode: 'legacy',
+    },
+    {
+      name: 'ends after the page closed',
+      opened: async () => ({ state: 'disabled' as const }),
+      isClosing: true,
+      mode: 'opening',
+    },
+  ] as const)('stops watching a room whose open $name', async ({ opened, isClosing, mode }) => {
+    fakeRooms.room = fakeRooms.makeRoom()
+    watched.clear()
+    vi.mocked(openWriterRoom).mockImplementationOnce(async (_session, _threadsChanged, watch) => {
+      watch(fakeRooms.room as never)
+      return opened()
+    })
+    const session = { nodeId: 'node-1', title: { value: 'Plan' } } as DocumentSession
+    const collab = useWriterCollab(
+      session,
+      () => false,
+      () => true,
+      () => {},
+      () => false,
+    )
+
+    const opening = collab.open()
+    if (isClosing) {
+      collab.close()
+    }
+
+    await opening
+
+    expect([collab.mode.value, watched.size]).toEqual([mode, 0])
   })
 
   it("keeps the text someone else's edit removed as a recovery copy, and says so", async () => {

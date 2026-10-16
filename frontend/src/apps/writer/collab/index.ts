@@ -2,6 +2,7 @@ import {
   openCollabRoom,
   openDeviceStore,
   type CollabEndpoints,
+  type CollabRoom,
   type DeviceStore,
   type Opened,
   type OpenOptions,
@@ -118,10 +119,12 @@ export function writerDeviceStore() {
   return deviceStore(signedIn())
 }
 
-// `threadsChanged` is told when the document's comment threads may have changed
+// `threadsChanged` is told when the document's comment threads may have changed;
+// `watch` gets the room before it applies anything
 export async function openWriterRoom(
   session: DocumentSession,
   threadsChanged: () => void,
+  watch: (room: CollabRoom) => void,
 ): Promise<Opened> {
   const principal = signedIn()
   const store = await deviceStore(principal)
@@ -138,6 +141,7 @@ export async function openWriterRoom(
     device,
     socket: getRealtimeSocket(),
     threadsChanged,
+    watch,
   }
   return openCollabRoom(options)
 }

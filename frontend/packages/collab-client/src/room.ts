@@ -106,6 +106,7 @@ export class Room implements CollabRoom {
   }
 
   async start(opening: Opening) {
+    this.options.watch?.(this)
     this.doc.on('update', this.onDocUpdate)
     if (this.device && this.writable && this.bound) {
       const session = this.ownSession(this.device)

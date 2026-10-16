@@ -574,6 +574,55 @@ describe('a room watching for removals', () => {
     }
   })
 
+  // A tab types QQ into defgh and closes without sending it, another makes the block a heading and sends it,
+  // then a tab opens on the same device without the network, watched before it applies anything
+  async function reopenAfterRestructure() {
+    fakeTime()
+    const server = fakeServer()
+    const first = await join(server.endpoints())
+    Y.applyUpdate(first.doc, threeParagraphs)
+    await first.flush()
+    const kept = await device()
+    const closing = await join(offlinePushes(server), { device: kept })
+    roomText(closing, 1).insert(2, 'QQ')
+    await vi.advanceTimersByTimeAsync(0)
+    await idle()
+    await closing.close()
+    makeRoomHeading(first, 'defgh')
+    await first.flush()
+    server.access.online = false
+    const reported: Removal[] = []
+    const reopened = await join(server.endpoints(), {
+      device: kept,
+      pollMs: 1000,
+      watch: (room) => {
+        watchRemovals(room, (removals) => reported.push(...removals))
+      },
+    })
+    server.access.online = true
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    await idle()
+    await reopened.flush()
+    await first.pull()
+    return { rooms: [first, reopened], reported }
+  }
+
+  it('types back what a restructure removed from the work a tab opened offline took on, once it claims (R299)', async () => {
+    fakeLocks()
+    try {
+      const { rooms, reported } = await reopenAfterRestructure()
+
+      for (const room of rooms) {
+        expect(roomBlocks(room)).toEqual(['paragraph abc', 'heading deQQfgh', 'paragraph xyz'])
+      }
+
+      expect(reported).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   // A third tab sends ZZ at `offset` in the old block once the type-back is out, so the taking-on
   // tab never sees it, then pulls the taken-on heading and the type-back together
   async function thirdTabTyping(offset: number) {

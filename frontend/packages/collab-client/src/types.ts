@@ -70,6 +70,8 @@ export interface OpenOptions {
   pollMs?: number
   // Told when the document's comment threads may have changed: another tab's notice, or a reconnect that missed some
   threadsChanged?: () => void
+  // Given the room before it applies anything, so a watcher sees the opening rows and the work it takes on
+  watch?: (room: CollabRoom) => void
 }
 
 export interface LiveSocket {
