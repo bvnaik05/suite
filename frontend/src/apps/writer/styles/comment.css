@@ -39,6 +39,10 @@ span[data-thread].is-open {
   background: var(--surface-amber-5);
 }
 
+[data-theme='dark'] span[data-thread].is-open {
+  background: var(--surface-amber-4);
+}
+
 span[data-comment-name]:hover,
 span[data-comment-name].active {
   background: rgba(250, 204, 21, 0.5);
