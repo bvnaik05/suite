@@ -111,6 +111,102 @@ describe('where a thread shows', () => {
   })
 })
 
+// Each pair of client ids, local then remote, so either one can win yjs's ordering
+const ORDERINGS = [
+  [1, 2],
+  [2, 1],
+  [100, 7],
+  [7, 100],
+]
+
+// A thread on "quick brown" made in a tab, and another tab's doc holding the same text
+function threadWithRemote([localClient, remoteClient]: number[]) {
+  const local = new Y.Doc()
+  local.clientID = localClient
+  const editor = openEditor(local)
+  editor.commands.setContent('<p>The quick brown fox jumps</p>')
+  editor.commands.setTextSelection({ from: 5, to: 16 })
+  const anchor = anchorSelection(editor.state)!
+  const remote = new Y.Doc()
+  remote.clientID = remoteClient
+  Y.applyUpdate(remote, Y.encodeStateAsUpdate(local))
+  return { local, editor, anchor, remote }
+}
+
+function editRemotely(local: Y.Doc, remote: Y.Doc, edit: (doc: Y.Doc) => void) {
+  const before = Y.encodeStateVector(local)
+  edit(remote)
+  Y.applyUpdate(local, Y.encodeStateAsUpdate(remote, before))
+}
+
+function shownAfterRemoteEdit(ordering: number[], edit: (text: Y.XmlText) => void) {
+  const { local, editor, anchor, remote } = threadWithRemote(ordering)
+  editRemotely(local, remote, (doc) => edit(paragraphText(doc)))
+  const place = placeThread(editor.state, anchor)
+  if (place.kind !== 'text') {
+    return place
+  }
+
+  return editor.state.doc.textBetween(place.from, place.to)
+}
+
+describe('where a thread shows after another tab edits its text', () => {
+  const removed = { kind: 'deleted', quote: 'quick brown' }
+
+  it.each([
+    {
+      name: 'retypes its first character',
+      edit: (text: Y.XmlText) => {
+        text.delete(4, 1)
+        text.insert(4, 'Q')
+      },
+      shown: 'Quick brown',
+    },
+    {
+      name: 'types inside it',
+      edit: (text: Y.XmlText) => text.insert(9, ' very'),
+      shown: 'quick very brown',
+    },
+    {
+      name: 'deletes it with its neighbours',
+      edit: (text: Y.XmlText) => text.delete(3, 13),
+      shown: removed,
+    },
+    {
+      name: 'deletes its last character',
+      edit: (text: Y.XmlText) => text.delete(14, 1),
+      shown: 'quick brow',
+    },
+    { name: 'deletes all of it', edit: (text: Y.XmlText) => text.delete(4, 11), shown: removed },
+    {
+      name: 'types right after it',
+      edit: (text: Y.XmlText) => text.insert(15, '!!'),
+      shown: 'quick brown',
+    },
+    {
+      name: 'types right before it',
+      edit: (text: Y.XmlText) => text.insert(4, '>>'),
+      shown: 'quick brown',
+    },
+  ])('shows the same place in every client order when another tab $name', ({ edit, shown }) => {
+    const places = ORDERINGS.map((ordering) => shownAfterRemoteEdit(ordering, edit))
+
+    expect(places).toEqual(ORDERINGS.map(() => shown))
+  })
+
+  it('is deleted, with its quote, in a doc opened after its paragraph was deleted and collected', () => {
+    const places = ORDERINGS.map((ordering) => {
+      const { local, anchor, remote } = threadWithRemote(ordering)
+      editRemotely(local, remote, (doc) => doc.getXmlFragment('default').delete(0, 1))
+      const fresh = new Y.Doc()
+      Y.applyUpdate(fresh, Y.encodeStateAsUpdate(local))
+      return placeThread(openEditor(fresh).state, anchor)
+    })
+
+    expect(places).toEqual(ORDERINGS.map(() => removed))
+  })
+})
+
 describe('an anchor on the selection', () => {
   it('holds its first and last characters, so text typed at either edge stays outside', () => {
     const doc = new Y.Doc()
