@@ -998,7 +998,7 @@ watch(
     ) {
       goToMailbox()
       emit('reloadMails')
-    } else if (threadFallback.data?.length) loadThread()
+    } else if (threadFallback.data?.length) rederive()
   },
 )
 
@@ -1374,10 +1374,24 @@ const reload = () => {
     forceReload = true
     return emit('reloadMails')
   }
+  forceReload = true
   // A directly-fetched thread isn't in the list, so refresh it in place.
   if (!messages?.length) return void threadFallback.refetch().catch(() => {})
-  forceReload = true
   emit('reloadMails')
+}
+// Fresh rows for the open thread, from the list or from its own fetch: rebuilt from them only on
+// first arrival or an explicit refresh. Otherwise synced in place, or a draft being written here
+// is torn down and remounted from its last save — every save refetches the thread, and the
+// directly-fetched one used to rebuild each time, folding an unfolded quote away mid-sentence and
+// throwing the caret back to the start.
+const rederive = () => {
+  if (forceReload || !thread.value.length) {
+    forceReload = false
+    loadThread()
+    return
+  }
+  // Otherwise keep unsaved drafts but sync existing mails and pull in any newly-arrived ones.
+  syncWithSource()
 }
 watch(
   () => threadID,
@@ -1399,18 +1413,7 @@ watch(
     loadThread()
   },
 )
-watch(
-  () => messages,
-  () => {
-    if (forceReload || !thread.value.length) {
-      forceReload = false
-      loadThread()
-      return
-    }
-    // Otherwise keep unsaved drafts but sync existing mails and pull in any newly-arrived ones.
-    syncWithSource()
-  },
-)
+watch(() => messages, rederive)
 onMounted(() => loadThread())
 const unblockEmailAddress = useMutation(api.mail.screening.remove)
 async function unblockEmailAddressSubmit(email) {
