@@ -26,8 +26,9 @@ def get_media_response(src: str) -> Response:
     if blob := find_blob(src, is_private=src.startswith(PRIVATE_PREFIX)):
         # A Storage v2 url names a blob, not a path on disk. The caller has
         # already authorized the read, which is what `stream_blob` expects.
-        # Drive's WebDAV switch also decides the native redirect here
-        response = stream_blob(*blob, allow_native_redirect=bool(frappe.conf.get("drive_webdav_s3_redirect")))
+        # No native redirect: a video keeps ranging against the redirected
+        # URL, so seeking fails once the short-lived signed URL expires.
+        response = stream_blob(*blob)
     else:
         file_path, mimetype = get_file_metadata(src)
         response = send_file(

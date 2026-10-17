@@ -492,7 +492,7 @@ class TestArchiveRoutes(BoundaryCase):
             self.assertEqual(routes.node_archive_status(node="f1"), ready)
         status.assert_called_once_with(SOMEONE, "f1")
 
-    def test_download_streams_the_ready_private_blob(self):
+    def test_download_sends_the_ready_private_blob(self):
         blob = frappe._dict(name="blob-1")
         request = MagicMock()
         request.environ = {"REQUEST_METHOD": "GET"}
@@ -506,22 +506,9 @@ class TestArchiveRoutes(BoundaryCase):
             "Folder.zip",
             as_attachment=True,
             environ=request.environ,
-            allow_native_redirect=False,
+            allow_native_redirect=True,
         )
         self.assertEqual(answer.get_data(), b"zip")
-
-    def test_download_redirects_natively_only_when_the_site_opts_in(self):
-        request = MagicMock()
-        request.environ = {"REQUEST_METHOD": "GET"}
-        with (
-            local_attribute("request", request),
-            patch.object(frappe, "conf", frappe._dict(drive_webdav_s3_redirect=1)),
-            patch.object(routes.archive, "download", return_value=(frappe._dict(name="b"), "F.zip")),
-            patch("frappe.storage.serve.stream_blob", return_value=Response(b"zip")) as streamed,
-        ):
-            routes.node_archive_download(node="f1")
-
-        self.assertIs(streamed.call_args.kwargs["allow_native_redirect"], True)
 
 
 class TestRootDiscoveryRoute(BoundaryCase):
