@@ -963,6 +963,16 @@ describe('convertLegacy', () => {
     })
   })
 
+  it("refuses Drive's ink inside an important colour beside inherit, which still draws", () => {
+    const red = 'style="color: #dc2626 !important; color: inherit"'
+    const html = `<p><span ${red}>a<span ${INK}>b</span></span></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('keeps an HTML link, which gains a target and rel', () => {
     const result = convert({ content: null, html: '<p><a href="/a">go</a></p>', collab: 0 })
 
