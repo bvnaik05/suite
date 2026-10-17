@@ -24,6 +24,10 @@ class TestDrawingAdoption(IntegrationTestCase):
         frappe.set_user("Administrator")
         ensure_user(OWNER)
         ensure_user(READER)
+        # IntegrationTestCase rolls back once per class, so isolate each fixture.
+        savepoint = "draw_test_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(savepoint)
+        self.addCleanup(frappe.db.rollback, save_point=savepoint)
         self.name = "draw-adoption-" + frappe.generate_hash(length=10)
         frappe.get_doc(
             {
