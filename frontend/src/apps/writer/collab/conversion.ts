@@ -287,11 +287,12 @@ function atomNameOf(element: Element) {
 const DRIVE_INK = 'rgb(31, 39, 46)'
 
 // Whether a parent still sets a colour, which the editor would draw on Drive's ink inside it;
-// parents are stripped first
+// parents are stripped first, and inherit sets none
 function hasColouredAncestor(element: HTMLElement) {
   let parent = element.parentElement
   while (parent) {
-    if (parent.style.getPropertyValue('color')) {
+    const color = parent.style.getPropertyValue('color')
+    if (color && color !== 'inherit') {
       return true
     }
 

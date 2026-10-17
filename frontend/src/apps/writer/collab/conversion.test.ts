@@ -930,6 +930,39 @@ describe('convertLegacy', () => {
     ])
   })
 
+  it("drops Drive's ink inside Drive's highlight, whose colour is inherit", () => {
+    const highlight = 'data-color="#fef08a" style="background-color: #fef08a; color: inherit"'
+    const html = `<p><mark ${highlight}>a<span ${INK}>b</span></mark></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    const yellow = [['namedHighlight', 'yellow']]
+    expect(drawnColours(content)).toEqual([
+      ['a', yellow],
+      ['b', yellow],
+    ])
+  })
+
+  it("drops Drive's ink inside a span whose colour is inherit", () => {
+    const html = `<p><span style="color: inherit">a<span ${INK}>b</span></span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['ab', []]])
+  })
+
+  it("refuses Drive's ink under formatting inside a coloured span", () => {
+    const red = 'style="color: #dc2626"'
+    const html = `<p><span ${red}>a<strong><span ${INK}>b</span></strong></span></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('keeps an HTML link, which gains a target and rel', () => {
     const result = convert({ content: null, html: '<p><a href="/a">go</a></p>', collab: 0 })
 
