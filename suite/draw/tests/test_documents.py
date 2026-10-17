@@ -24,6 +24,10 @@ class TestDrawingDocuments(IntegrationTestCase):
         frappe.set_user("Administrator")
         for user in (OWNER, READER, STRANGER):
             ensure_user(user)
+        # IntegrationTestCase rolls back once per class, so isolate each fixture.
+        savepoint = "draw_test_" + frappe.generate_hash(length=10)
+        frappe.db.savepoint(savepoint)
+        self.addCleanup(frappe.db.rollback, save_point=savepoint)
         frappe.set_user(OWNER)
         self.node = drive.create_document(
             personal_root_for(OWNER), "Save protection", content_doctype="Drawing"
