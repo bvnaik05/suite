@@ -149,6 +149,12 @@ export interface PxRect {
   height: number
 }
 
+/** Row heights before and after a refit, by row: an undo op carries both. */
+export interface RowHeightChange {
+  before: { [row: number]: number }
+  after: { [row: number]: number }
+}
+
 export interface Grid {
   resize(w: number, h: number): void
   render(): void
@@ -203,8 +209,11 @@ export interface Grid {
   autoFitRow(r: number): void
   /** Refit rows r0..r1 to their wrapped text, skipping rows sized by hand. */
   refitRows(r0: number, r1: number): void
-  /** Refit a row for a committed value; the height change, or null. */
-  refitRowFor(r: number, c: number, value: CellValue): { before: number; after: number } | null
+  /**
+   * Refit the rows of written cells ({cellId: value}, measured before the
+   * grid shows them); the height change, or null.
+   */
+  refitRowsFor(writes: { [id: string]: CellValue }): RowHeightChange | null
 
   expandRows(by?: number): void
   expandCols(by?: number): void
