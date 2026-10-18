@@ -124,6 +124,31 @@ describe('legacy sheet: the develop editor body → IronCalc', () => {
     expect(await shown(client, 'Sheet1', ['A1', 'B1'])).toEqual(['42', 'FALSE'])
   })
 
+  it('keeps the leading zeros and + the develop editor showed', async () => {
+    // Develop showed what was typed; IronCalc would read these as numbers and
+    // show 7, 12.5 and 9.19877E+11. IDs, PIN codes and phone numbers look like this.
+    const { client } = await convert({
+      sheets: {
+        Sheet1: {
+          A1: '007',
+          A2: '+919876543210',
+          A3: '0012.50',
+          A4: '0.5',
+          A5: '0',
+          A6: '=A1&"x"',
+        },
+      },
+    })
+    expect(await shown(client, 'Sheet1', ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'])).toEqual([
+      '007',
+      '+919876543210',
+      '0012.50',
+      '0.5',
+      '0',
+      '007x',
+    ])
+  })
+
   it('renames sheets whose names IronCalc refuses, and their references', async () => {
     const body = {
       v: 2,

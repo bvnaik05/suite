@@ -72,10 +72,15 @@ function command<T extends NonBatchCommand['type']>(
   return { ...envelope(), type, payload } as NonBatchCommand
 }
 
+// Develop showed a cell exactly as typed. IronCalc reads these as numbers and
+// drops what made them look that way: "007" shows 7, "+919876543210" shows
+// 9.19877E+11. They are IDs, PIN codes and phone numbers, so they stay text.
+const KEEP_AS_TEXT = /^(?:0\d|\+\d)[\d.]*$/
+
 // What the develop editor stored, as IronCalc input. It stored strings, but
 // imports could leave numbers and booleans. Anything else can't be typed.
 function asInput(v: unknown): string | null {
-  if (typeof v === 'string') return v === '' ? null : v
+  if (typeof v === 'string') return v === '' ? null : KEEP_AS_TEXT.test(v) ? `'${v}` : v
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : null
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE'
   return null
