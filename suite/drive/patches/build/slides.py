@@ -985,10 +985,10 @@ def _blob_is_ready(target, name):
 def _same_content_blob(target, names, prefer=()):
     """The one blob these names stand for, or None when they hold other bytes.
 
-    `File Blob` is unique on `(checksum, is_private, driver)`, and
-    `frappe.storage.blob.put_blob` keys a row by the sha256 of its bytes. So a
-    picture uploaded public and later made private is two `File Blob` rows
-    with one checksum and one size: one picture, stored twice. Legacy Slides
+    `File Blob` allows several rows with one checksum: dedup is scoped by
+    `is_private` and `driver` and is only a best effort. So a picture
+    uploaded public and later made private is two `File Blob` rows with one
+    checksum and one size: one picture, stored twice. Legacy Slides
     left three such pairs on the "Frappeverse 2025" template deck, and §14.11
     says `relocate_blobs()` folds pairs like them back into one row after
     Build.

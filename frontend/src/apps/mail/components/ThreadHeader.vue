@@ -34,7 +34,7 @@
         </Button>
         <!-- On desktop the star sits beside the subject, in the thread (MailThread). -->
         <Button
-          v-if="isMobile"
+          v-if="isMobile && !inDrafts && thread.some((mail) => !mail.draft)"
           variant="ghost"
           class="max-sm:!h-8 max-sm:!w-8"
           :tooltip="isFlagged ? __('Unstar') : __('Star')"
@@ -48,7 +48,7 @@
           </template>
         </Button>
 
-        <AdaptiveDropdown :options="moveToOptions" :title="__('Move To')">
+        <AdaptiveDropdown v-if="!inDrafts" :options="moveToOptions" :title="__('Move To')">
           <Button variant="ghost" class="max-sm:!h-8 max-sm:!w-8" :tooltip="__('Move To')">
             <template #icon>
               <FolderInput class="icon max-sm:!h-[18px] max-sm:!w-[18px]" />
@@ -58,7 +58,7 @@
         <!-- Where the thread is filed, as ticks: one box per folder it can be in, so the same
              menu says where it is and changes it. Stays open, to file it in several at once. -->
         <AdaptiveDropdown
-          v-if="folderOptions.length"
+          v-if="!inDrafts && folderOptions.length"
           :options="folderOptions"
           :title="__('Folders')"
         >
@@ -110,6 +110,7 @@ import { Button, Checkbox } from 'frappe-ui'
 import { Icon } from 'frappe-ui/experimental'
 import {
   Archive,
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
   ChevronLeft,
@@ -132,6 +133,7 @@ import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useScreenSize } from '@/apps/mail/utils/composables'
 import { folderTicks } from '@/apps/mail/utils/folderTicks'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
+import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
 import { lastMessageOf } from '@/apps/mail/utils/threadFolding'
 import {
   mailboxForUnifiedFolder,
@@ -149,6 +151,8 @@ const { thread, threads, canGoNext } = defineProps<{
 const emit = defineEmits([
   'setFlagged',
   'setSeen',
+  'archiveThread',
+  'unarchiveThread',
   'moveThread',
   'addThreadToMailbox',
   'removeThreadFromMailbox',
@@ -196,22 +200,47 @@ const starIds = () =>
     ? thread.filter((m) => m.flagged && m.id).map((m) => m.id)
     : [lastMessageOf(thread)?.id].filter((id): id is string => !!id)
 
+// Drafts offers only Discard: a draft isn't archived, junked, filed, starred or read. And Archive and
+// Junk act only on mail you received, so a conversation of nothing but your own has neither.
+const inDrafts = computed(() => mailbox.value === mailboxIds.value.drafts)
+const holdsReceived = computed(() =>
+  holdsReceivedMail(
+    (thread ?? []).filter((mail: Mail) => mail.id),
+    mailboxIds.value.sent,
+  ),
+)
+
 const moreActions = computed((): Action[] => [
   {
     label: __('Archive (E)'),
-    onClick: () =>
-      emit(
-        mailbox.value === mailboxIds.value.sent ? 'addThreadToMailbox' : 'moveThread',
-        mailboxIds.value.archive,
-      ),
+    onClick: () => emit('archiveThread'),
     icon: Archive,
-    condition: () => !threadMailboxes.value.includes(mailboxIds.value.archive),
+    condition: () =>
+      !inDrafts.value &&
+      archivable(
+        (thread ?? []).filter((mail: Mail) => mail.id),
+        mailboxIds.value,
+      ),
+  },
+  // Archive reversed, in Archive's place once the received mail is archived.
+  {
+    label: __('Unarchive'),
+    onClick: () => emit('unarchiveThread'),
+    icon: ArchiveRestore,
+    condition: () =>
+      !inDrafts.value &&
+      unarchivable(
+        (thread ?? []).filter((mail: Mail) => mail.id),
+        mailboxIds.value,
+      ),
   },
   {
     label: __('Mark as Junk (!)'),
     onClick: () => emit('setSpamStatus', true),
     icon: CircleAlert,
     condition: () =>
+      !inDrafts.value &&
+      holdsReceived.value &&
       !threadMailboxes.value.some((m: string) =>
         [mailboxIds.value.junk, mailboxIds.value.drafts].includes(m),
       ),
@@ -247,7 +276,7 @@ const moreActions = computed((): Action[] => [
     label: __('Mark as Unread (U)'),
     onClick: () => emit('setSeen', false),
     icon: MailIcon,
-    condition: () => true,
+    condition: () => !inDrafts.value,
   },
 ])
 

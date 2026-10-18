@@ -7,6 +7,8 @@
       :can-go-next="canGoNext"
       @set-flagged="onSetFlagged"
       @set-seen="setThreadSeen"
+      @archive-thread="emit('archiveThread')"
+      @unarchive-thread="emit('unarchiveThread')"
       @move-thread="onMoveThread"
       @add-thread-to-mailbox="(mailboxId: string) => fileThread(mailboxId, true)"
       @remove-thread-from-mailbox="(mailboxId: string) => fileThread(mailboxId, false)"
@@ -71,8 +73,9 @@
 				     than among the toolbar's actions on it — when the conversation is one message.
 				     With more, each message carries its own star and this one could not say which
 				     of them it meant; the list row stars the thread as a whole. -->
+                <!-- Not from Drafts, which offers only Discard. -->
                 <Button
-                  v-if="isSingleMessage"
+                  v-if="isSingleMessage && !isDraftAlone && mailbox !== mailboxIds.drafts"
                   variant="ghost"
                   class="shrink-0"
                   :tooltip="isThreadFlagged ? __('Unstar') : __('Star')"
@@ -274,9 +277,15 @@
                               @update:open="(open: boolean) => !open && (senderCardFor = null)"
                             >
                               <template #trigger>
+                                <!-- self-start: stacked over the recipients, it would stretch to
+												     the full width, and the empty space after the address opened
+												     the card too. -->
                                 <div
-                                  class="flex items-center space-x-1.5"
-                                  :class="{ 'cursor-pointer': !isCollapsed(mail) && !isMobile }"
+                                  class="flex max-w-full items-center space-x-1.5"
+                                  :class="{
+                                    'cursor-pointer': !isCollapsed(mail) && !isMobile,
+                                    'self-start': !isCollapsed(mail) || isMobile,
+                                  }"
                                   @pointerdown="noteSenderCardPress(mail)"
                                   @click="toggleSenderCard(mail, $event)"
                                 >
@@ -539,6 +548,7 @@
                             v-if="hasHtmlContent(mail.html_body)"
                             :content="mail.html_body"
                             :block-images="isBlocked(mail)"
+                            :highlight="isMatch(mail) ? searchTerm : ''"
                           />
 
                           <!-- font-sans is the system stack, not Inter: the preset leaves
@@ -550,6 +560,7 @@
                           <PlainTextBody
                             v-else
                             :text="getPlainTextBody(mail)"
+                            :term="isMatch(mail) ? searchTerm : ''"
                             class="font-sans !font-normal text-base !leading-5 sm:text-sm"
                           />
                         </template>
@@ -787,11 +798,14 @@ const {
   marksSeen = true,
   slide,
   account,
+  landOn,
 } = defineProps<{
   mailbox: string
   threadID?: string
   threads: string[]
   messages?: Mail[]
+  // The message to open on, for a search: its newest match (see scrollToLanding).
+  landOn?: string
   canGoNext?: boolean
   // The thread's owning account, when it isn't the active one (All Inboxes opens
   // cross-account threads without switching): the pane and everything inside it —
@@ -812,6 +826,7 @@ const emit = defineEmits([
   'reloadMails',
   'setSpamStatus',
   'archiveThread',
+  'unarchiveThread',
   'deleteThread',
   'setSeen',
   'setFlagged',
@@ -994,7 +1009,7 @@ watch(
     ) {
       goToMailbox()
       emit('reloadMails')
-    } else if (threadFallback.data?.length) loadThread()
+    } else if (threadFallback.data?.length) rederive()
   },
 )
 
@@ -1048,30 +1063,51 @@ const sourceMessages = (): Mail[] | undefined => {
   const fetched = threadFallback.data?.map(mailRow)
   return fetched?.[0]?.thread_id === threadID ? fetched : undefined
 }
-// A thread opened from Drafts is opened for its draft: it is shown where the draft is, not at the top
-// of the conversation it answers, which could be screens above it. Once per opening, on its first
-// load — a reload while writing must not pull the page about. A draft that is the whole thread
-// already has the pane.
-let landOnDraft = true
+// A thread opened from Drafts is opened for its draft, and one opened from a search for its newest
+// match (`landOn`): it is shown where that message is, not at the top of the conversation, which
+// could be screens above it. Once per opening, on its first load — a reload while writing must not
+// pull the page about. A draft that is the whole thread already has the pane.
+let landsPending = true
+// The words the search found the thread by, marked in the message it opens on.
+const searchTerm = computed(() =>
+  mailbox === 'search' ? ((route.query.text as string) || '').trim() : '',
+)
+const isMatch = (mail: Mail) => !!landOn && mailCopyIds(mail).includes(landOn)
+// The message the pane opens on, unfolded: undefined while it can't be told yet, null for the top.
+const landingMail = (data: Mail[]): Mail | null | undefined => {
+  if (landOn) {
+    const match = data.find(isMatch)
+    if (!match) return undefined
+    match.collapsed = false
+    foldedAway.value = foldedAway.value.filter((name) => name !== match.name)
+    return match
+  }
+  // A search's match comes with its row, which can arrive after the thread (opened from the command
+  // palette, or on a reload): it waits for it rather than settling on the top.
+  if (mailbox === 'search') return undefined
+  // On a fresh page the folders can arrive after the thread, and until then it can't be told
+  // whether this is Drafts — so it waits for them rather than deciding it isn't.
+  if (!mailboxIds.value.drafts) return undefined
+  if (mailbox !== mailboxIds.value.drafts) return null
+  const draft = data.find((mail) => mail.draft)
+  return draft && data.length > 1 ? draft : undefined
+}
 // The mail above it keeps growing for a moment — an HTML body is drawn in a frame that takes its
-// height once it loads — so one scroll left the draft pushed back below the fold. It is held in view
+// height once it loads — so one scroll left it pushed back below the fold. It is held in view
 // while the page settles, and let go the moment the reader scrolls or reaches for the page.
 // Returns whether it could — opened from Drafts, the thread can arrive as the draft alone, with the
 // mail it answers landing a moment later, and until then there is nothing above it to scroll past.
-const scrollToDraft = (data: Mail[]): boolean => {
-  // On a fresh page the folders can arrive after the thread, and until then it can't be told
-  // whether this is Drafts — so it waits for them rather than deciding it isn't.
-  if (!mailboxIds.value.drafts) return false
-  if (mailbox !== mailboxIds.value.drafts) return true
-  const draft = data.find((mail) => mail.draft)
-  if (!draft || data.length < 2) return false
+const scrollToLanding = (data: Mail[]): boolean => {
+  const landing = landingMail(data)
+  if (landing === undefined) return false
+  if (landing === null || landing === data[0]) return true
   // The pane is drawn after the thread loads, so its scroller is looked for once it is.
   nextTick(() => {
     const container = threadContainerRef.value
     if (!container) return
     const reveal = () =>
       container
-        .querySelector(`[data-mail-name="${CSS.escape(draft.name)}"]`)
+        .querySelector(`[data-mail-name="${CSS.escape(landing.name)}"]`)
         ?.scrollIntoView({ block: 'start' })
     const growth = new ResizeObserver(reveal)
     const events = ['wheel', 'touchstart', 'pointerdown', 'keydown']
@@ -1088,9 +1124,9 @@ const scrollToDraft = (data: Mail[]): boolean => {
   return true
 }
 watch(
-  () => mailboxIds.value.drafts,
+  () => [mailboxIds.value.drafts, landOn],
   () => {
-    if (landOnDraft && thread.value.length && scrollToDraft(thread.value)) landOnDraft = false
+    if (landsPending && thread.value.length && scrollToLanding(thread.value)) landsPending = false
   },
 )
 const loadThread = () => {
@@ -1110,7 +1146,7 @@ const loadThread = () => {
   }
   thread.value = data
   setCollapsedGroup(data)
-  if (landOnDraft && scrollToDraft(data)) landOnDraft = false
+  if (landsPending && scrollToLanding(thread.value)) landsPending = false
 
   // Opening a draft from the list puts it in the thread, so a composer window still holding that
   // same draft would be a second editor on it — two copies saving over each other, which is how
@@ -1193,7 +1229,7 @@ const syncWithSource = () => {
   holdNewestOpen(thread.value)
   if (draftIndex === -1) thread.value.push(...additions)
   else thread.value.splice(draftIndex, 0, ...additions)
-  if (landOnDraft && scrollToDraft(thread.value)) landOnDraft = false
+  if (landsPending && scrollToLanding(thread.value)) landsPending = false
 }
 // The mail the "more messages" divider hides, settled when the thread loads and emptied when the
 // divider opens it (see stillFolded for what it hides as the thread changes).
@@ -1370,10 +1406,24 @@ const reload = () => {
     forceReload = true
     return emit('reloadMails')
   }
+  forceReload = true
   // A directly-fetched thread isn't in the list, so refresh it in place.
   if (!messages?.length) return void threadFallback.refetch().catch(() => {})
-  forceReload = true
   emit('reloadMails')
+}
+// Fresh rows for the open thread, from the list or from its own fetch: rebuilt from them only on
+// first arrival or an explicit refresh. Otherwise synced in place, or a draft being written here
+// is torn down and remounted from its last save — every save refetches the thread, and the
+// directly-fetched one used to rebuild each time, folding an unfolded quote away mid-sentence and
+// throwing the caret back to the start.
+const rederive = () => {
+  if (forceReload || !thread.value.length) {
+    forceReload = false
+    loadThread()
+    return
+  }
+  // Otherwise keep unsaved drafts but sync existing mails and pull in any newly-arrived ones.
+  syncWithSource()
 }
 watch(
   () => threadID,
@@ -1381,7 +1431,7 @@ watch(
     resetCollapsedGroup()
     removedMailIds.clear()
     thread.value = []
-    landOnDraft = true
+    landsPending = true
     // Going back to the list takes the composer window with it: everything in this pane hangs off
     // `threadID`, the popped-out composer included, so it is unmounted along with the thread it
     // came from. What is left behind is only the memory of it, and the next thread opened mounted
@@ -1395,18 +1445,7 @@ watch(
     loadThread()
   },
 )
-watch(
-  () => messages,
-  () => {
-    if (forceReload || !thread.value.length) {
-      forceReload = false
-      loadThread()
-      return
-    }
-    // Otherwise keep unsaved drafts but sync existing mails and pull in any newly-arrived ones.
-    syncWithSource()
-  },
-)
+watch(() => messages, rederive)
 onMounted(() => loadThread())
 const unblockEmailAddress = useMutation(api.mail.screening.remove)
 async function unblockEmailAddressSubmit(email) {

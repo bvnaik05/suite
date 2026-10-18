@@ -52,8 +52,10 @@
         :is-hovered
         :threads="[mail]"
         :drafts
+        :unarchive
         @set-seen="(seen: boolean) => emit('setSeen', seen)"
         @archive="emit('archiveThread')"
+        @unarchive="emit('unarchiveThread')"
         @trash="emit('trashThread')"
         @delete="emit('deleteThread')"
         @set-flagged="(flagged: boolean) => emit('setFlagged', flagged)"
@@ -135,6 +137,9 @@
           >
             {{ m.mailbox_name }}
           </div>
+          <div v-if="moreMailboxes" class="bg-surface-gray-3 inline-flex rounded-4 p-1.5 text-xs">
+            +{{ moreMailboxes }}
+          </div>
         </template>
       </div>
       <template v-if="!isFullWidth && mailboxesToShow.length">
@@ -144,6 +149,12 @@
           class="bg-surface-gray-3 mr-1.5 inline-flex rounded-4 p-1.5 text-xs"
         >
           {{ m.mailbox_name }}
+        </div>
+        <div
+          v-if="moreMailboxes"
+          class="bg-surface-gray-3 mr-1.5 inline-flex rounded-4 p-1.5 text-xs"
+        >
+          +{{ moreMailboxes }}
         </div>
       </template>
     </template>
@@ -173,11 +184,13 @@ import { userStore } from '@/apps/mail/stores/user'
 import type { Attachment, Thread } from '@/apps/mail/types'
 import { downloadUrlAsFile, getFileIcon, getFormattedRecipients } from '@/apps/mail/utils'
 import { useOwnEmails } from '@/apps/mail/utils/composables'
+import { mailCopies } from '@/apps/mail/utils/mailCopies'
 import {
   threadAvatarLabel,
   threadDisplayName,
   threadParticipants,
 } from '@/apps/mail/utils/participants'
+import { isReceived, receivedFolders, searchFolders } from '@/apps/mail/utils/receivedMail'
 import { mailboxParam, UNIFIED_THREAD_ROUTE } from '@/apps/mail/utils/unifiedFolders'
 import HighlightedText from '@/components/HighlightedText.vue'
 
@@ -190,6 +203,7 @@ const {
   selectable = true,
   hideSender = false,
   drafts = false,
+  unarchive = false,
   selectionMode = false,
   threadRouteName = 'mail-mail',
   hideAvatar = false,
@@ -210,6 +224,8 @@ const {
   hideSender?: boolean
   // The list is Drafts, so the row's bin discards (see MailRowActions).
   drafts?: boolean
+  // The list is Archive and can take the row back to the Inbox (see MailRowActions).
+  unarchive?: boolean
   // Whether the row can be dragged onto a folder; the view decides, since only it
   // knows whether a selection is riding along.
   draggable?: boolean
@@ -231,6 +247,7 @@ const {
 const emit = defineEmits([
   'setSeen',
   'archiveThread',
+  'unarchiveThread',
   'trashThread',
   'deleteThread',
   'setFlagged',
@@ -263,7 +280,27 @@ const to = computed(() => ({
   query: route.query,
 }))
 
-const mailboxesToShow = computed(() => mail.mailboxes.filter((m) => m.mailbox_id !== mailbox))
+// Where else the conversation is filed. A row stands for one of its messages, which in Sent is your
+// reply — never archived or filed away — so there and in Starred it says where the mail you received
+// is instead, apart from the Inbox, the usual place.
+// A search has no folder of its own, so its rows say where the conversation is, the Inbox included.
+const allMailboxesToShow = computed(() => {
+  const messages = mail.messages?.length ? mail.messages : [mail]
+  if (mailbox === 'search')
+    return searchFolders(messages, {
+      sent: mail.sent ?? mailboxIds.sent,
+      drafts: mailboxIds.drafts,
+    })
+  return mailbox === mailboxIds.sent || mailbox === 'starred'
+    ? receivedFolders(messages, mailboxIds, mailbox)
+    : // Sent and Drafts are where your own mail lives, not where anything was filed: never a tag.
+      mail.mailboxes.filter(
+        (m) => ![mailbox, mailboxIds.sent, mailboxIds.drafts].includes(m.mailbox_id),
+      )
+})
+// Two at most, the rest counted.
+const mailboxesToShow = computed(() => allMailboxesToShow.value.slice(0, 2))
+const moreMailboxes = computed(() => allMailboxesToShow.value.length - mailboxesToShow.value.length)
 
 const attachments = computed(
   () => mail.attachments.filter((m) => m.filename && m.disposition === 'attachment') || [],
@@ -279,20 +316,26 @@ const attachments = computed(
 // — on an archived thread whose newest mail is an incoming reply, the row took "outgoing" from its
 // own sent copy and then named that reply's recipient: you.
 //
-// Search results are the exception: they are single messages with no thread behind them and no
-// participants to name, so there the message's own mailboxes still answer it — otherwise a mail you
-// sent, found in search, would go by your own name rather than by who you sent it to.
+// Search results are the exception: a row there is described by the conversation's newest match,
+// so it is that message that answers — a mail you sent, found in search, goes by who you sent it to.
+// The exact copy that matched: a mail sent to yourself is one message with two copies, and the one
+// in Sent is yours though the copy delivery filed stands for it in the thread.
+const match = computed(() =>
+  mail.match_id
+    ? mail.messages?.flatMap(mailCopies).find((copy) => copy.id === mail.match_id)
+    : undefined,
+)
 const isOutgoing = computed(() => {
   if (outgoing !== undefined) return outgoing
   if (mailbox === 'search')
-    return mail.mailboxes.some(
-      (m) => m.mailbox_id === mailboxIds.sent || m.mailbox_id === mailboxIds.drafts,
-    )
+    return !!match.value && !isReceived(match.value, mail.sent ?? mailboxIds.sent)
   return mailbox === mailboxIds.sent || mailbox === mailboxIds.drafts
 })
 
-// Read off the conversation the row already carries; empty for a search result, which has none.
-const participants = computed(() => threadParticipants(mail.messages, ownEmails.value))
+// Read off the conversation the row carries. A search result names its match's sender instead.
+const participants = computed(() =>
+  mailbox === 'search' ? [] : threadParticipants(mail.messages, ownEmails.value),
+)
 
 const header = computed(() => {
   if (isOutgoing.value) return getFormattedRecipients(mail.recipients) || __('To:')

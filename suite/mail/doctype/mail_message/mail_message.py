@@ -815,6 +815,19 @@ def fetch_threads(
     across all mailboxes), ordered oldest to newest.
     """
 
+    return query_threads(account, filter, position, limit)[0]
+
+
+def query_threads(
+    account: str,
+    filter: dict | None = None,
+    position: int = 0,
+    limit: int = 50,
+    calculate_total: bool = False,
+) -> tuple[dict[str, list[dict]], dict[str, str], int]:
+    """A page of threads matching the filter, as `fetch_threads` returns them, with each thread's
+    newest message that matched (by id, keyed by thread) and, if asked, how many threads match."""
+
     client = get_account_client(account)
     with client.batch() as b:
         q = b.mail.email.query(
@@ -823,15 +836,19 @@ def fetch_threads(
             collapseThreads=True,
             position=position,
             limit=limit,
+            calculate_total=calculate_total,
         )
-        g = b.mail.email.get(ids=q.ref_ids(), properties=["threadId"])
+        g = b.mail.email.get(ids=q.ref_ids(), properties=["id", "threadId"])
         t = b.mail.thread.get(ids=g.ref_list("threadId"), properties=["id", "emailIds"])
 
+    # One match per thread: the query collapses each to its newest matching message.
+    matches = {email["threadId"]: email["id"] for email in (e.to_wire() for e in g.result.items)}
+    total = q.result.total or 0
     thread_email_ids = {
         thread["id"]: thread.get("emailIds", []) for thread in (th.to_wire() for th in t.result.items)
     }
     if not thread_email_ids:
-        return {}
+        return {}, matches, total
 
     # Fetch every message in the page's threads once, then group them back by thread.
     threads: dict[str, list[dict]] = {thread_id: [] for thread_id in thread_email_ids}
@@ -841,10 +858,11 @@ def fetch_threads(
             threads[message["thread_id"]].append(message)
 
     # Order each conversation oldest to newest so callers don't have to re-sort.
-    return {
+    conversations = {
         thread_id: sorted(messages, key=lambda message: message["received_at"])
         for thread_id, messages in threads.items()
     }
+    return conversations, matches, total
 
 
 def fetch_thread(account: str, thread_id: str, sort: Literal["asc", "desc"] = "asc") -> list[dict]:
@@ -865,34 +883,6 @@ def get_thread_email_ids(account: str, thread_ids: list[str]) -> dict[str, list[
     )
 
     return {thread["id"]: thread.get("emailIds", []) for thread in (th.to_wire() for th in threads)}
-
-
-def search_messages(
-    account: str, filter: dict, position: int = 0, limit: int = 20, sort: list[dict] | None = None
-) -> tuple[list[dict], int]:
-    """Returns a list of messages and total count based on the provided search filter."""
-
-    if not account or not filter:
-        frappe.throw(_("Account and filter are required."))
-
-    fields = [
-        "name",
-        "id",
-        "subject",
-        "preview",
-        "recipients",
-        "sent_at",
-        "received_at",
-        "from_name",
-        "from_email",
-        "thread_id",
-        "mailboxes",
-        "attachments",
-        "seen",
-    ]
-
-    messages, total = fetch_messages(account, filter=filter, position=position, limit=limit, sort=sort)
-    return [{field: message[field] for field in fields} for message in messages], total
 
 
 def get_messages(account: str, ids: list[str]) -> list[dict]:
@@ -916,6 +906,7 @@ def get_messages(account: str, ids: list[str]) -> list[dict]:
             ids_to_fetch.append(id)
 
     if ids_to_fetch:
+        fetched_at = _now()
         client = get_account_client(account)
         properties = EMAIL_PROPERTIES + classification.EMAIL_PROPERTIES if classify else EMAIL_PROPERTIES
         emails = [
@@ -946,8 +937,16 @@ def get_messages(account: str, ids: list[str]) -> list[dict]:
             messages_to_cache[message["id"]] = message
             messages[message["id"]] = message
 
+        # A message changed through Suite since this read began may be held here as it was before:
+        # it is returned, but left for the next read to cache.
+        for id in _written_since(account, list(messages_to_cache), fetched_at):
+            messages_to_cache.pop(id)
         if messages_to_cache:
             _cache_messages(account, messages_to_cache)
+            # A change can land between that check and the write just made: looked at again, and
+            # anything changed since this read began goes back out.
+            if changed := _written_since(account, list(messages_to_cache), fetched_at):
+                get_data_store(account).delete_many(Entity.EMAIL, keys=list(changed))
 
     return [messages[id] for id in ids if id in messages]
 
@@ -1061,10 +1060,10 @@ def empty_mailbox(account: str, mailbox_id: str) -> None:
             _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to empty mailbox"),
+            _("Failed to empty folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to empty mailbox."))
+        frappe.throw(_("Failed to empty folder."))
 
 
 def move_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> None:
@@ -1079,10 +1078,10 @@ def move_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> N
         _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to move mail(s) to mailbox"),
+            _("Failed to move mail(s) to folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to move mail(s) to mailbox."))
+        frappe.throw(_("Failed to move mail(s) to folder."))
 
 
 def _try_update_emails(
@@ -1105,7 +1104,7 @@ def try_move_messages(account: str, ids: list[str], mailbox_id: str) -> tuple[li
 
     emails = [{"id": id, "mailbox_ids": {mailbox_id: True}} for id in ids]
     moved, complete = _try_update_emails(
-        account, emails, _("Failed to move mail(s) to mailbox"), replace_mailboxes=True
+        account, emails, _("Failed to move mail(s) to folder"), replace_mailboxes=True
     )
     _remove_cached_messages(account, moved)
     return moved, complete
@@ -1132,10 +1131,10 @@ def set_messages_mailboxes(account: str, mails: list[dict]) -> None:
         _remove_cached_messages(account, [mail["id"] for mail in mails])
     except Exception:
         log_mail_error(
-            _("Failed to restore mailbox membership for mail(s)"),
+            _("Failed to restore folders for mail(s)"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to restore mailbox membership for mail(s)."))
+        frappe.throw(_("Failed to restore folders for mail(s)."))
 
 
 def get_messages_mailboxes(account: str, ids: list[str]) -> list[dict]:
@@ -1168,10 +1167,10 @@ def add_messages_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> No
         _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to add mail(s) to mailbox"),
+            _("Failed to add mail(s) to folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to add mail(s) to mailbox."))
+        frappe.throw(_("Failed to add mail(s) to folder."))
 
 
 def remove_messages_from_mailbox(account: str, ids: list[str], mailbox_id: str) -> None:
@@ -1186,10 +1185,10 @@ def remove_messages_from_mailbox(account: str, ids: list[str], mailbox_id: str) 
         _remove_cached_messages(account, ids)
     except Exception:
         log_mail_error(
-            _("Failed to remove mail(s) from mailbox"),
+            _("Failed to remove mail(s) from folder"),
             frappe.get_traceback(with_context=True),
         )
-        frappe.throw(_("Failed to remove mail(s) from mailbox."))
+        frappe.throw(_("Failed to remove mail(s) from folder."))
 
 
 def _cache_seen(account: str, ids: list[str], seen: bool) -> None:
@@ -1615,6 +1614,32 @@ def _cache_messages(account: str, messages: dict[str, dict]) -> None:
                 rebuild_email_address_index(account)
 
 
+# When each message was last changed through Suite: a read of the server that began before then may
+# hold the message as it was, and must not cache it. Kept a minute, far longer than a read takes.
+_WRITTEN_KEY = "mail:written:{}"
+_WRITTEN_KEEP = 60
+
+
+def _now() -> float:
+    """Redis's clock, so a writer and a reader on different machines tell time alike."""
+
+    seconds, micros = frappe.cache.time()
+    return seconds + micros / 1_000_000
+
+
+def _written_key(account: str, id: str) -> str:
+    return frappe.cache.make_key(_WRITTEN_KEY.format(account) + f":{id}")
+
+
+def _written_since(account: str, ids: list[str], since: float) -> set[str]:
+    """The given messages changed through Suite at or after `since`."""
+
+    if not ids:
+        return set()
+    stamps = frappe.cache.mget([_written_key(account, id) for id in ids])
+    return {id for id, at in zip(ids, stamps, strict=True) if at is not None and float(at) >= since}
+
+
 def _remove_cached_messages(account: str, ids: list[str]) -> None:
     """Remove messages from cache for the provided IDs.
 
@@ -1627,6 +1652,13 @@ def _remove_cached_messages(account: str, ids: list[str]) -> None:
 
     store = get_data_store(account)
     store.delete_many(Entity.EMAIL, keys=ids)
+    # Noted, so a read already on its way with the message as it was doesn't cache it back (see
+    # get_messages): a list reloading as a message is archived would otherwise keep it unarchived.
+    now = _now()
+    with frappe.cache.pipeline() as pipe:
+        for id in ids:
+            pipe.set(_written_key(account, id), now, ex=_WRITTEN_KEEP)
+        pipe.execute()
 
 
 def _message_addresses(messages: list[dict]) -> list[dict]:

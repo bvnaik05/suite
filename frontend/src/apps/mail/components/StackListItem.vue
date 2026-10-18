@@ -41,8 +41,10 @@
         :threads
         :show-star="false"
         :drafts
+        :unarchive
         @set-seen="(seen: boolean) => emit('setSeen', seen)"
         @archive="emit('archiveThreads')"
+        @unarchive="emit('unarchiveThreads')"
         @trash="emit('trashThreads')"
         @delete="emit('deleteThreads')"
       />
@@ -91,6 +93,8 @@ const {
   accountLabel?: string
   // The list is Drafts, so the run's bin discards (see MailRowActions).
   drafts?: boolean
+  // The list can take an archived run back to the Inbox (see MailRowActions).
+  unarchive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -98,6 +102,7 @@ const emit = defineEmits<{
   setSelected: [selected: boolean]
   setSeen: [seen: boolean]
   archiveThreads: []
+  unarchiveThreads: []
   trashThreads: []
   deleteThreads: []
 }>()

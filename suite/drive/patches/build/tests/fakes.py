@@ -6,8 +6,8 @@ run is reproduced by raising where a real one would be killed.
 
 Where they copy a real constraint they copy it exactly: a body is read once
 and cannot be rewound, `copy_object` refuses a source above 5 GB the way S3
-does, and `FakeStorage` enforces `File Blob`'s unique index on
-`(checksum, is_private, driver)`. Two limits they do not model:
+does, and `FakeStorage` refuses a second blob with one name the way the
+primary key does. Two limits they do not model:
 `FakeStorage` has no transaction, so a rollback in `FakeFiles` leaves its
 blobs behind; and `run_backfill` answers with a fixed dict rather than
 reading the rows. Both are covered against the real thing in
@@ -28,7 +28,6 @@ from suite.drive.patches.build.legacy import S3_URL_PREFIX, get_s3_url
 from suite.drive.patches.build.ports import (
     ACTIVE,
     PERSONAL,
-    BlobConflict,
     BlobRow,
     ChainRow,
     ClaimedBlob,
@@ -108,27 +107,20 @@ class FakeStorage:
         }
         return self
 
-    def _holder(self, checksum):
-        """The row holding the unique triple, the way the index defines it."""
-        for name, blob in self.blobs.items():
-            if blob["checksum"] == checksum and blob["driver"] == "s3" and blob["is_private"] == 1:
-                return name, blob
-        return None, None
-
     def claim_blob(self, checksum):
-        name, blob = self._holder(checksum)
-        if blob and blob["status"] == "Ready":
-            return ClaimedBlob(name, blob["key"])
+        for name, blob in self.blobs.items():
+            if (blob["checksum"], blob["driver"], blob["is_private"], blob["status"]) == (
+                checksum,
+                "s3",
+                1,
+                "Ready",
+            ):
+                return ClaimedBlob(name, blob["key"])
         return None
 
-    def blocked_by(self, checksum):
-        _, blob = self._holder(checksum)
-        return blob["status"] if blob else None
-
     def insert_blob(self, *, name, key, checksum, size, mime_type):
-        # `File Blob` carries a unique index on (checksum, is_private, driver).
-        if self._holder(checksum)[0]:
-            raise BlobConflict(checksum)
+        if name in self.blobs:
+            raise ValueError(f"File Blob {name} already exists")
         self.blobs[name] = {
             "key": key,
             "checksum": checksum,

@@ -214,6 +214,12 @@ export function useWorkbook({
     return p && engine ? engine.provider.getDisplay(sn, p.row + 1, p.col + 1) : ''
   }
 
+  // Whether the cell holds a number (it aligns right), or undefined until read.
+  function isNumberAt(id, sn = currentSheet.value) {
+    const p = parseCellId(id)
+    return p && engine ? engine.provider.isNumber(sn, p.row + 1, p.col + 1) : undefined
+  }
+
   // The open sheet's non-empty cells, from the worker: the grid's scroll extent,
   // Ctrl+A's extent and column autofit read them. Refreshed after every edit
   // and on switch; one read at a time, re-run when more changed meanwhile.
@@ -340,6 +346,7 @@ export function useWorkbook({
     readIds,
     readInput,
     displayValue,
+    isNumberAt,
     refreshUsedCells,
     usedCellIds,
     usedExtent,

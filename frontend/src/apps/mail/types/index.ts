@@ -164,8 +164,11 @@ export interface Thread {
   account_name?: string
   view_mailbox?: string
   inbox?: string
+  sent?: string
   archive?: string
   trash?: string
+  // A search result's newest matching message, which the row describes and the thread opens on.
+  match_id?: string
   id: string
   thread_id: string
   from_name: string

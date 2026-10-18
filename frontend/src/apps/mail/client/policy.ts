@@ -361,17 +361,52 @@ function messagePolicy<I, O>(id: string): Policy<I, O> {
           }
           if (!isRecord(queryInput) || !isRecord(data) || !Array.isArray(data.rows))
             return undefined
+          // A filing names the folders each message is expected in after it, so a row that stays
+          // on the list shows them — and the actions they decide — on the click.
+          if (id === 'file_mails' && isRecord(input.shows)) {
+            const shows = input.shows
+            const refile = (item: unknown): unknown =>
+              isRecord(item) && typeof item.id === 'string' && Array.isArray(shows[item.id])
+                ? { ...item, mailboxes: shows[item.id] }
+                : item
+            // Ids are per account: a merged list's row from another account is someone else's mail.
+            const elsewhere = (row: Record<string, unknown>) =>
+              typeof row.account === 'string' &&
+              typeof input.account === 'string' &&
+              row.account !== input.account
+            data = {
+              ...data,
+              rows: data.rows.map((row) =>
+                isRecord(row) && !elsewhere(row)
+                  ? {
+                      ...(refile(row) as Record<string, unknown>),
+                      ...(Array.isArray(row.messages)
+                        ? { messages: row.messages.map(refile) }
+                        : {}),
+                    }
+                  : row,
+              ),
+            }
+            if (!input.leaves) return data
+          }
+          if (!isRecord(data) || !Array.isArray(data.rows)) return undefined
           const removing = [
             'move_mails',
             'delete_messages',
             'delete_mail',
             'empty_user_mailbox',
+            'file_mails',
           ].includes(id)
           if (
             !removing ||
             (id === 'move_mails' &&
               (input.mailbox === queryInput.mailbox ||
-                (input.mailbox === 'inbox' && queryInput.folder === 'inbox')))
+                (input.mailbox === 'inbox' && queryInput.folder === 'inbox'))) ||
+            // A filing says which list the conversation leaves; every other list keeps its rows
+            // (an Archive from a folder of yours, a move from Sent) until it is read again.
+            (id === 'file_mails' &&
+              (!input.leaves ||
+                (input.leaves !== queryInput.mailbox && input.leaves !== queryInput.folder)))
           )
             return undefined
           return {

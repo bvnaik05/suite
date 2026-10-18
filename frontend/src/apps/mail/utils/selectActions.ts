@@ -1,5 +1,6 @@
 import {
   Archive,
+  ArchiveRestore,
   CircleAlert,
   CircleCheck,
   Mail as MailIcon,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-vue-next'
 
 import type { Thread } from '@/apps/mail/types'
+import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
 
 export interface SelectAction {
   label: string
@@ -27,6 +29,8 @@ export interface SelectHandlers {
   star: () => void
   unstar: () => void
   archive: () => void
+  // Where the list files by the filing rules (a single account's); left out elsewhere.
+  unarchive?: () => void
   junk: () => void
   notJunk: () => void
   trash: () => void
@@ -42,38 +46,72 @@ export interface SelectHandlers {
  */
 export const selectActions = (
   selected: () => Thread[],
-  folder: () => { archive: boolean; trash: boolean; drafts: boolean },
+  // `sent`: the account's Sent, where your own mail is kept — Archive and Junk act only on mail you
+  // received (see receivedMail). Left out where the list spans accounts.
+  folder: () => {
+    archive: boolean
+    trash: boolean
+    drafts: boolean
+    sent?: string
+    archiveId?: string
+    inboxId?: string
+  },
   run: SelectHandlers,
 ): SelectAction[] => {
   const some = (test: (thread: Thread) => boolean) => () => selected().some(test)
+  // Drafts offers only Discard: a draft isn't filed, starred or read.
+  const notDrafts = (test: (thread: Thread) => boolean) => () => !folder().drafts && some(test)()
+  // Each row's own account's folders where it carries them (a merged list spans accounts), the
+  // list's otherwise.
+  const boxesOf = (thread: Thread) => ({
+    sent: thread.sent ?? folder().sent,
+    archive: thread.archive ?? folder().archiveId,
+    inbox: thread.inbox ?? folder().inboxId,
+  })
+  const messagesOf = (thread: Thread) => (thread.messages?.length ? thread.messages : [thread])
+  const received = (thread: Thread) => holdsReceivedMail(messagesOf(thread), boxesOf(thread).sent)
   return [
     {
       label: __('Star'),
       shortLabel: __('Star'),
       onClick: run.star,
       icon: Star,
-      condition: some((t) => t.flagged === 0),
+      // Never on a draft: a search result that is one has nothing to star.
+      condition: notDrafts((t) => t.flagged === 0 && !(t.draft && !t.messages?.length)),
     },
     {
       label: __('Unstar'),
       shortLabel: __('Unstar'),
       onClick: run.unstar,
       icon: StarOff,
-      condition: some((t) => t.flagged === 1),
+      condition: notDrafts((t) => t.flagged === 1),
     },
     {
       label: __('Archive (E)'),
       shortLabel: __('Archive'),
       onClick: run.archive,
       icon: Archive,
-      condition: () => !folder().archive,
+      condition: () =>
+        !folder().archive &&
+        notDrafts((t) =>
+          boxesOf(t).archive ? archivable(messagesOf(t), boxesOf(t)) : received(t),
+        )(),
+    },
+    {
+      label: __('Unarchive'),
+      shortLabel: __('Unarchive'),
+      onClick: () => run.unarchive?.(),
+      icon: ArchiveRestore,
+      condition: () =>
+        !!run.unarchive &&
+        notDrafts((t) => !!boxesOf(t).archive && unarchivable(messagesOf(t), boxesOf(t)))(),
     },
     {
       label: __('Mark as Junk (!)'),
       shortLabel: __('Junk'),
       onClick: run.junk,
       icon: CircleAlert,
-      condition: () => !folder().drafts && some((t) => t.junk === 0)(),
+      condition: notDrafts((t) => t.junk === 0 && received(t)),
     },
     {
       label: __('Mark as Not Junk'),
@@ -110,14 +148,14 @@ export const selectActions = (
       shortLabel: __('Read'),
       onClick: run.read,
       icon: MailOpen,
-      condition: some((t) => t.seen === 0),
+      condition: notDrafts((t) => t.seen === 0),
     },
     {
       label: __('Mark as Unread (U)'),
       shortLabel: __('Unread'),
       onClick: run.unread,
       icon: MailIcon,
-      condition: some((t) => t.seen === 1),
+      condition: notDrafts((t) => t.seen === 1),
     },
   ]
 }

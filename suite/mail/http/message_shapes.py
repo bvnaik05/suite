@@ -76,6 +76,7 @@ class AccountTag(TypedDict, total=False):
     account_name: str
     view_mailbox: str
     inbox: str | None
+    sent: str | None
     archive: str | None
     trash: str | None
 
@@ -107,21 +108,9 @@ class TabCount(TypedDict):
     unread_threads: int
 
 
-class SearchRow(AccountTag):
-    name: str
-    id: str
-    subject: str | None
-    preview: str
-    recipients: list[Recipient]
-    sent_at: str | None
-    received_at: str
-    from_name: str | None
-    from_email: str
-    thread_id: str
-    mailboxes: list[MailboxRef]
-    attachments: list[Attachment]
-    seen: Flag
-    user_image: NotRequired[str | None]
+class SearchRow(Thread):
+    # The conversation's newest message that matched, which the row describes and opens on.
+    match_id: str
 
 
 class SearchPage(TypedDict):

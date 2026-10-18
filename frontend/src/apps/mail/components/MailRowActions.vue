@@ -6,7 +6,7 @@
       </button>
     </Tooltip>
   </template>
-  <Tooltip v-if="showStar && !isMobile" :text="flagged ? __('Unstar') : __('Star')">
+  <Tooltip v-if="starrable && !isMobile" :text="flagged ? __('Unstar') : __('Star')">
     <button class="action-btn" @click.stop.prevent="emit('setFlagged', !flagged)">
       <Star
         class="icon text-ink-gray-5"
@@ -18,7 +18,7 @@
   <!-- Touch: no Tooltip wrapper (it can eat the first tap and never shows anyway),
 	     and a larger glyph. -->
   <button
-    v-else-if="showStar"
+    v-else-if="starrable"
     class="action-btn"
     :aria-label="flagged ? __('Unstar') : __('Star')"
     @click.stop.prevent="emit('setFlagged', !flagged)"
@@ -33,13 +33,14 @@
 
 <script setup lang="ts">
 import { Tooltip } from 'frappe-ui'
-import { Archive, Mail, MailOpen, Star, Trash2 } from 'lucide-vue-next'
+import { Archive, ArchiveRestore, Mail, MailOpen, Star, Trash2 } from 'lucide-vue-next'
 import { computed } from 'vue'
 
 import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import { userStore } from '@/apps/mail/stores/user'
 import type { Thread } from '@/apps/mail/types'
 import { useScreenSize } from '@/apps/mail/utils/composables'
+import { archivable, unarchivable } from '@/apps/mail/utils/receivedMail'
 
 // The hover actions on a row, for one thread or for a whole collapsed run of them.
 //
@@ -51,6 +52,7 @@ const {
   isHovered,
   threads,
   showStar = true,
+  unarchive = false,
   drafts = false,
 } = defineProps<{
   isHovered: boolean
@@ -58,12 +60,14 @@ const {
   threads: Thread[]
   // Off for stacks, where the chevron occupies the star's slot.
   showStar?: boolean
+  // The list files by the filing rules, so it can take an archived thread back to the Inbox.
+  unarchive?: boolean
   // The list is Drafts: its bin discards rather than trashes. Asked of the list, not the thread —
   // a conversation with a reply draft is filed in Drafts and in Inbox alike.
   drafts?: boolean
 }>()
 
-const emit = defineEmits(['setSeen', 'archive', 'trash', 'delete', 'setFlagged'])
+const emit = defineEmits(['setSeen', 'archive', 'unarchive', 'trash', 'delete', 'setFlagged'])
 
 const { isMobile } = useScreenSize()
 const { mailboxIds } = userStore()
@@ -86,25 +90,58 @@ const everyIn = (mailboxId: string) =>
 
 const someUnread = computed(() => threads.some((t) => !t.seen))
 
+// A draft is never starred: each save replaced it with one that dropped the star. Drafts' rows, and a
+// search result that is a draft, have none to offer.
+const starrable = computed(
+  () => showStar && !drafts && !threads.every((t) => t.draft && !t.messages?.length),
+)
+
 const actions = computed(() =>
   [
     {
       label: many.value ? __('Mark {0} threads as Unread', [count.value]) : __('Mark as Unread'),
       onClick: () => emit('setSeen', false),
       icon: Mail,
-      condition: !someUnread.value,
+      condition: !drafts && !someUnread.value,
     },
     {
       label: many.value ? __('Mark {0} threads as Read', [count.value]) : __('Mark as Read'),
       onClick: () => emit('setSeen', true),
       icon: MailOpen,
-      condition: someUnread.value,
+      condition: !drafts && someUnread.value,
     },
     {
       label: many.value ? __('Archive {0} threads', [count.value]) : __('Archive'),
       onClick: () => emit('archive'),
       icon: Archive,
-      condition: !everyIn(archiveId.value),
+      // Lists that don't file by the rules yet (All Inboxes) keep the old test: their rows span
+      // accounts, and the active account's Sent can't tell another account's replies apart.
+      condition:
+        !drafts &&
+        (unarchive
+          ? threads.some((t) =>
+              archivable(t.messages?.length ? t.messages : [t], {
+                sent: t.sent ?? mailboxIds.sent,
+                archive: archiveId.value,
+                inbox: t.inbox ?? mailboxIds.inbox,
+              }),
+            )
+          : !everyIn(archiveId.value)),
+    },
+    {
+      label: many.value ? __('Unarchive {0} threads', [count.value]) : __('Unarchive'),
+      onClick: () => emit('unarchive'),
+      icon: ArchiveRestore,
+      condition:
+        unarchive &&
+        !drafts &&
+        threads.some((t) =>
+          unarchivable(t.messages?.length ? t.messages : [t], {
+            sent: t.sent ?? mailboxIds.sent,
+            archive: archiveId.value,
+            inbox: t.inbox ?? mailboxIds.inbox,
+          }),
+        ),
     },
     {
       label: many.value ? __('Move {0} threads to Trash', [count.value]) : __('Move to Trash'),

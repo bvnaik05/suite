@@ -19,6 +19,7 @@ import { useDiscardingDrafts, useUndo } from '@/apps/mail/utils/composables'
 import { folderTicks } from '@/apps/mail/utils/folderTicks'
 import { canMoveToMailbox, commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
 import { mailCopies, mailCopyIds, mailCopyNames, threadStarIds } from '@/apps/mail/utils/mailCopies'
+import { isReceived } from '@/apps/mail/utils/receivedMail'
 
 type SetSeenParams = {
   0?: string[]
@@ -93,7 +94,6 @@ export function useThreadActions(deps: {
     if (mailbox.value === 'search') return items as unknown as MailCopy[]
     return items.flatMap((t: Thread) => (t.messages ?? []).flatMap(mailCopies))
   }
-  const isSentMail = (m: MailCopy) => m.mailboxes.some((mb) => mb.mailbox_id === mailboxIds.sent)
   const allMailIds = (threadIds: string[]): string[] => threadMails(threadIds).map((m) => m.id)
 
   /** The composer window gives up a draft whose thread is being trashed, junked or deleted. */
@@ -131,24 +131,14 @@ export function useThreadActions(deps: {
     }
     await setFlagged.run(input)
   }
-  const moveMails = useMutation(api.mail.messages.move)
-  async function moveMailsSubmit({
-    ids,
-    mailbox: target,
-    clear_junk,
-  }: {
-    ids: string[]
-    mailbox: string
-    clear_junk?: boolean
-  }) {
-    const input: InputOf<typeof api.mail.messages.move> = {
-      account: store.accountId,
-      ids,
-      mailbox: target,
-      clear_junk,
-    }
-    await moveMails.run(input)
-  }
+
+  // Archive, Move, Junk, Not junk and Trash all go through one request, which files each message of
+  // the conversation by the folder rules (suite/mail/filing.py): mail you received goes where it is
+  // filed, your sent mail never leaves Sent but by Trash, and a draft is never filed. `leaves` names
+  // the list the conversation leaves, so the client policy takes its rows off at once.
+  const fileMails = useMutation(api.mail.messages.file)
+  const fileMailsSubmit = (input: Omit<InputOf<typeof api.mail.messages.file>, 'account'>) =>
+    fileMails.run({ account: store.accountId, ...input })
 
   // Where the selection can go, read off the selection itself rather than off the open mailbox —
   // so the menu is just as answerable in Search and Starred, which are queries and not mailboxes.
@@ -169,7 +159,13 @@ export function useThreadActions(deps: {
           }),
       }))
   })
-  const showMoveTo = computed(() => !!selections.value.length && !!moveToOptions.value?.length)
+  // Drafts offers only Discard: a draft is never moved or filed.
+  const showMoveTo = computed(
+    () =>
+      !!selections.value.length &&
+      mailbox.value !== mailboxIds.drafts &&
+      !!moveToOptions.value?.length,
+  )
   const addMails = useMutation(api.mail.messages.addToFolder)
   async function addMailsSubmit({ ids, mailbox_id }: { ids: string[]; mailbox_id: string }) {
     const input: InputOf<typeof api.mail.messages.addToFolder> = {
@@ -217,7 +213,9 @@ export function useThreadActions(deps: {
   const showFolders = computed(
     () =>
       !!selections.value.length &&
-      !['search', 'starred', mailboxIds.junk, mailboxIds.trash].includes(mailbox.value),
+      !['search', 'starred', mailboxIds.junk, mailboxIds.trash, mailboxIds.drafts].includes(
+        mailbox.value,
+      ),
   )
   const folderOptions = computed(() => {
     if (!showFolders.value) return []
@@ -289,47 +287,6 @@ export function useThreadActions(deps: {
       })
   }
 
-  // Optimistically mirror a move on the rows that STAY in the list (Sent / Starred keptInList): each item
-  // (summary + nested messages) takes the target mailbox, keeping Sent for sent copies — exactly what the
-  // forward ops do server-side — so MailListItem's folder tags update at once instead of showing the old
-  // folder until a refetch. Returns a revert closure (restores the exact prior mailbox sets).
-  const syncListMove = (threadIDs: Record<string, string[]>) => {
-    const prev = new Map<
-      {
-        mailboxes: Mailbox[]
-      },
-      Mailbox[]
-    >()
-    const sentEntry = mailboxEntry(mailboxIds.sent)
-    for (const [target, tids] of Object.entries(threadIDs)) {
-      const targetEntry = mailboxEntry(target)
-      if (!targetEntry) continue
-      rows.value
-        ?.filter((t: Thread) => tids.includes(t.thread_id))
-        .forEach((t: Thread) => {
-          ;[t, ...(t.messages ?? [])].forEach((item: { mailboxes: Mailbox[] }) => {
-            prev.set(item, item.mailboxes)
-            const keepsSent = item.mailboxes.some((mb) => mb.mailbox_id === mailboxIds.sent)
-            item.mailboxes =
-              keepsSent && sentEntry
-                ? [
-                    {
-                      ...targetEntry,
-                    },
-                    {
-                      ...sentEntry,
-                    },
-                  ]
-                : [
-                    {
-                      ...targetEntry,
-                    },
-                  ]
-          })
-        })
-    }
-    return () => prev.forEach((mailboxes, item) => (item.mailboxes = mailboxes))
-  }
   const addThreadsToMailbox = (mailboxId: string, threadIds: string[], isUndo = false) => {
     const mailboxName = mailboxes.data?.find((m) => m.id === mailboxId)?._name
 
@@ -345,7 +302,13 @@ export function useThreadActions(deps: {
       if (threadID.value && threadIds.includes(threadID.value))
         mailThreadRef.value?.syncMailboxMembership(mailboxId, false)
     }
-    const mailIds = allMailIds(threadIds)
+    // Not a draft, ever; and your own mail never into the Inbox or Archive, which are for mail you
+    // received (see filing.py) — it is filed into folders of yours only.
+    const toInboxOrArchive = [mailboxIds.inbox, mailboxIds.archive].includes(mailboxId)
+    const mailIds = threadMails(threadIds)
+      .filter((m) => !m.draft && (!toInboxOrArchive || isReceived(m, mailboxIds.sent)))
+      .map((m) => m.id)
+    if (!mailIds.length) return
     applyAdd() // optimistic: tag shown before the request
 
     setUndoAction(undefined)
@@ -461,24 +424,6 @@ export function useThreadActions(deps: {
         ),
     )
     raiseOptimisticToast(forward, success, undo)
-  }
-  const setMailsSpam = useMutation(api.mail.messages.spam)
-  async function setMailsSpamSubmit({
-    ids,
-    spam,
-    screen_action,
-  }: {
-    ids: string[]
-    spam: boolean
-    screen_action?: string | null
-  }) {
-    const input: InputOf<typeof api.mail.messages.spam> = {
-      account: store.accountId,
-      ids,
-      spam,
-      screen_action,
-    }
-    await setMailsSpam.run(input)
   }
   const showJunkOrDeleteThreads = ref(false)
   const threadsToBeDeleted = ref<string[]>([])
@@ -682,62 +627,6 @@ export function useThreadActions(deps: {
       mailbox_ids: m.mailboxes.map((mb) => mb.mailbox_id),
       junk: m.junk,
     }))
-    const forward: Array<() => Promise<unknown>> = []
-    for (const [target, tids] of Object.entries(threadIDs)) {
-      const mails = threadMails(tids)
-      const ids = mails.map((m) => m.id)
-      if (target === mailboxIds.junk) {
-        forward.push(() =>
-          setMailsSpamSubmit({
-            ids,
-            spam: true,
-          }),
-        )
-      } else if (target === mailboxIds.trash) {
-        forward.push(() =>
-          moveMailsSubmit({
-            ids,
-            mailbox: target,
-            clear_junk: true,
-          }),
-        )
-      } else {
-        const sentIds = mails.filter(isSentMail).map((m) => m.id)
-        const nonSentIds = mails.filter((m) => !isSentMail(m)).map((m) => m.id)
-        if (nonSentIds.length)
-          forward.push(() =>
-            moveMailsSubmit({
-              ids: nonSentIds,
-              mailbox: target,
-              clear_junk: true,
-            }),
-          )
-        // A sent mail keeps only Sent + the target: replace its mailboxes with the target
-        // (dropping the rest), then re-add Sent. Clearing junk is part of that, as it is for
-        // every other move: a copy that kept the keyword would land in the target and be
-        // hidden there, since a junked message is only ever shown in Junk (server-side, see
-        // visible_in_mailbox). Unconditional, unlike the per-message moves that test
-        // `mail.junk`, because a list row doesn't always carry it — a search result has no
-        // junk field at all. Membership is unaffected: clearing files the mail in the Inbox,
-        // and the two ops below settle where it ends up.
-        if (sentIds.length) {
-          forward.push(() =>
-            moveMailsSubmit({
-              ids: sentIds,
-              mailbox: target,
-              clear_junk: true,
-            }),
-          )
-          forward.push(() =>
-            addMailsSubmit({
-              ids: sentIds,
-              mailbox_id: mailboxIds.sent,
-            }),
-          )
-        }
-      }
-    }
-
     // In Sent, a non-junk/trash move leaves the sent copies in Sent; in Starred, any move other than to
     // Trash keeps a non-junk/trash copy (and the flag), so the thread stays starred — either way the
     // row stays in the list.
@@ -748,6 +637,19 @@ export function useThreadActions(deps: {
     // Starred's rule (a non-junk/trash copy AND some flagged message) is computable from the loaded
     // thread, so a move to Trash removes the row optimistically below.
     const reconcileView = !keptInList && mailbox.value === 'search'
+    // One filing per target: the server decides what each message does (sent mail keeps Sent, a draft
+    // stays in Drafts, Junk and Trash are their own rules).
+    const forward = Object.entries(threadIDs).map(
+      ([target, tids]) =>
+        () =>
+          fileMailsSubmit({
+            ids: threadMails(tids).map((m) => m.id),
+            action: 'move',
+            mailbox: target,
+            leaves: keptInList || reconcileView ? null : mailbox.value,
+            shows: keptInList ? expectedFolders('move', tids, target) : null,
+          }),
+    )
 
     // Optimistic (plain mailbox, or a Starred thread leaving via Trash): drop the rows now, before any
     // request fires. Captured so a failure can restore them in place, and so undo can re-insert them.
@@ -813,8 +715,8 @@ export function useThreadActions(deps: {
     }
     if (keptInList) {
       // The rows stay (Sent keeps its sent copy; a Starred thread keeps a non-junk/trash copy), but
-      // their folder tags change — update them now, before the request, and revert on failure/undo.
-      const revertMove = syncListMove(threadIDs)
+      // their folder tags change: the request carries the folders expected (`shows`), which the
+      // client policy shows at once and takes back if the request fails.
       let forwardOk = false
       const forwardPromise = (async () => {
         try {
@@ -822,7 +724,6 @@ export function useThreadActions(deps: {
           forwardOk = true
           mailboxes.refetch().catch(() => {})
         } catch (error) {
-          revertMove()
           setMailsMailboxesSubmit({
             mails: snapshot,
           }).catch(() => {})
@@ -835,18 +736,10 @@ export function useThreadActions(deps: {
           void (async () => {
             await forwardPromise.catch(() => {})
             if (!forwardOk) return
-            revertMove()
             setUndoAction(undefined)
             const restore = setMailsMailboxesSubmit({
               mails: snapshot,
-            })
-              .then(() => mailboxes.refetch().catch(() => {}))
-              .catch((error) => {
-                // The undo didn't land server-side — re-apply the move to the tags so they
-                // match the server instead of showing the stale pre-move folder.
-                syncListMove(threadIDs)
-                throw error
-              })
+            }).then(() => mailboxes.refetch().catch(() => {}))
             raiseOptimisticToast(restore, movedBack)
           })(),
       )
@@ -886,6 +779,153 @@ export function useThreadActions(deps: {
       (done) => !!done,
     )
   }
+  // The folders each message of these conversations is expected in once filed, by the filing rules
+  // (filing.py), for rows that stay on the list: sent with the request, the client policy shows
+  // them on the click — and with them the Archive/Unarchive button and the folder tags.
+  const expectedFolders = (
+    action: 'archive' | 'unarchive' | 'move',
+    threadIds: string[],
+    target?: string,
+  ): Record<string, Mailbox[]> => {
+    const entry = (id: string) => mailboxEntry(id)
+    const shows: Record<string, Mailbox[]> = {}
+    rows.value
+      ?.filter((t: Thread) => threadIds.includes(t.thread_id))
+      .forEach((t: Thread) => {
+        // The row stands for one of its messages, but its `draft` says whether the newest is one:
+        // asked of the message itself.
+        const messageOf = (item: Thread | Mail) =>
+          item === t ? ((t.messages ?? []).find((m) => m.id === t.id) ?? t) : item
+        ;[t, ...(t.messages ?? [])].forEach((item) => {
+          if (messageOf(item).draft) return
+          const ids = item.mailboxes.map((m) => m.mailbox_id)
+          const own = ids.includes(mailboxIds.sent)
+          let next: string[] | undefined
+          if (action === 'move' && target)
+            next = own
+              ? target === mailboxIds.inbox
+                ? [mailboxIds.sent]
+                : [mailboxIds.sent, target]
+              : [target]
+          else if (action === 'unarchive' && ids.includes(mailboxIds.archive))
+            // Out of Archive; back in the Inbox only if you received it.
+            next = [
+              ...ids.filter((id) => id !== mailboxIds.archive && id !== mailboxIds.inbox),
+              ...(own ? [] : [mailboxIds.inbox]),
+            ]
+          else if (own) {
+            // Never archived; out of the Inbox only (see filing.py).
+            if (action !== 'archive' || !ids.includes(mailboxIds.inbox)) return
+            next = ids.filter((id) => id !== mailboxIds.inbox)
+          } else if (action === 'archive')
+            next = [
+              ...ids.filter(
+                (id) =>
+                  ![
+                    mailboxIds.inbox,
+                    mailboxIds.junk,
+                    mailboxIds.trash,
+                    mailboxIds.archive,
+                  ].includes(id),
+              ),
+              mailboxIds.archive,
+            ]
+          if (!next) return
+          const entries = next.map(entry).filter((m): m is Mailbox => !!m)
+          if (entries.length === next.length) shows[item.id] = entries
+        })
+      })
+    return shows
+  }
+
+  // Archive and Unarchive file a conversation in place: the rows leave only the list named as left,
+  // and Undo puts each message back exactly. `told` reads the toast off the server's answer.
+  const fileInPlace = (
+    action: 'archive' | 'unarchive',
+    threadIds: string[],
+    leaves: boolean,
+    told: (filed: { left_inbox: boolean }) => string,
+  ) => {
+    if (!threadIds.length) return
+    const mails = threadMails(threadIds)
+    const snapshot = mails.map((m) => ({
+      id: m.id,
+      mailbox_ids: m.mailboxes.map((mb) => mb.mailbox_id),
+      junk: m.junk,
+    }))
+    setUndoAction(undefined)
+    const removed = leaves ? handleSuccessAndRemoveFromList(threadIds, false) : []
+    let forwardOk = false
+    const forward = fileMailsSubmit({
+      ids: mails.map((m) => m.id),
+      action,
+      leaves: leaves ? mailbox.value : null,
+      // Rows that stay show the new folders at once; Search is read again, its rows being matches.
+      shows: leaves || mailbox.value === 'search' ? null : expectedFolders(action, threadIds),
+    }).then(
+      (filed) => {
+        forwardOk = true
+        mailboxes.refetch().catch(() => {})
+        if (leaves) refillIfEmpty()
+        else if (mailbox.value === 'search') resetThreads()
+        // Rows that stay are let go of, as a list's other actions do.
+        if (!leaves) syncAfterAction()
+        return filed
+      },
+      (error) => {
+        restoreThreadsToList(removed)
+        setUndoAction(undefined)
+        throw error
+      },
+    )
+    setUndoAction(
+      () =>
+        void (async () => {
+          await forward.catch(() => {})
+          if (!forwardOk) return
+          restoreThreadsToList(removed)
+          setUndoAction(undefined)
+          const restore = setMailsMailboxesSubmit({ mails: snapshot }).then(() => {
+            mailboxes.refetch().catch(() => {})
+            if (mailbox.value === 'search') resetThreads()
+          })
+          raiseOptimisticToast(
+            restore,
+            threadIds.length > 1 ? __('Threads moved back.') : __('Thread moved back.'),
+          )
+        })(),
+    )
+    raiseOptimisticToast(forward, told, undo)
+    return forward.then(
+      () => true,
+      () => false,
+    )
+  }
+
+  // Archive clears the Inbox: the conversation's received mail swaps Inbox for Archive, or just gains
+  // Archive where it wasn't in the Inbox, and your own mail stays where it is. So only the Inbox loses
+  // the row; archived from a folder of yours, Sent or Starred the conversation stays put, and the
+  // toast says it was added to Archive rather than archived.
+  const archiveThreads = (threadIds: string[]) =>
+    fileInPlace(
+      'archive',
+      threadIds,
+      [mailboxIds.inbox, mailboxIds.junk, mailboxIds.trash].includes(mailbox.value),
+      (filed) =>
+        !filed.left_inbox
+          ? __('Added to Archive.')
+          : threadIds.length > 1
+            ? __('Threads archived.')
+            : __('Thread archived.'),
+    )
+
+  // Archive reversed: the received mail goes back from Archive to the Inbox, every other folder kept,
+  // and your own mail stays where it is. Only Archive loses the row.
+  const unarchiveThreads = (threadIds: string[]) =>
+    fileInPlace('unarchive', threadIds, mailbox.value === mailboxIds.archive, () =>
+      threadIds.length > 1 ? __('Threads unarchived.') : __('Thread unarchived.'),
+    )
+
   const setSpamStatus = (threadIDs: SetSeenParams) => {
     const selectedThreads = Object.values(threadIDs).flat()
     const originalState = getOriginalState(selectedThreads, 'junk')
@@ -910,7 +950,17 @@ export function useThreadActions(deps: {
     // Only Search stays server-reconciled. Starred is computable: junking removes the last non-junk copy
     // (→ the thread leaves), so junk there is optimistic; the rare Not-Junk-in-Starred keeps a non-junk
     // copy (→ stays starred), so leave that one reconciled.
-    const reconcileView = mailbox.value === 'search' || (mailbox.value === 'starred' && !spam)
+    // Sent keeps the conversation either way: your sent mail is never junked.
+    // In Starred too: your own mail is never junked, and may be what keeps the thread starred.
+    const reconcileView =
+      mailbox.value === 'search' || mailbox.value === mailboxIds.sent || mailbox.value === 'starred'
+    const forward = () =>
+      fileMailsSubmit({
+        ids,
+        action: spam ? 'junk' : 'not_junk',
+        screen_action: screenForward,
+        leaves: reconcileView ? null : mailbox.value,
+      })
 
     // Optimistic (plain mailbox, or junking a Starred thread): drop the rows now, before the request.
     // excludeCommonMailboxes=false so the removal also applies in Starred. Captured for rollback + undo.
@@ -937,11 +987,7 @@ export function useThreadActions(deps: {
       let forwardOk = false
       const forwardPromise = (async () => {
         try {
-          await setMailsSpamSubmit({
-            ids,
-            spam,
-            screen_action: screenForward,
-          })
+          await forward()
           forwardOk = true
           mailboxes.refetch().catch(() => {})
           refillIfEmpty()
@@ -971,16 +1017,27 @@ export function useThreadActions(deps: {
       return raiseOptimisticToast(forwardPromise, success, undo)
     }
 
-    // Reconcile (search/starred): the list only changes once the server responds.
+    // Reconcile (search/starred/sent): the list only changes once the server responds. Sent keeps the
+    // conversation — your reply is never junked — so the open thread stays put there.
     const action = async () => {
-      await setMailsSpamSubmit({
-        ids,
-        spam,
-        screen_action: screenForward,
-      })
-      handleSuccessAndRemoveFromList(threadIDs)
+      await forward()
+      // Sent and Starred keep the conversation and its open thread (your reply, starred or not, is
+      // never junked), but the mail you received is junked now: it leaves the open thread, as it
+      // would on reading the conversation again.
+      let unjunkPane = () => {}
+      if (mailbox.value === mailboxIds.sent || mailbox.value === 'starred') {
+        resetThreads()
+        if (spam && threadID.value && selectedThreads.includes(threadID.value)) {
+          const rollbacks = threadMails([threadID.value])
+            .filter((m) => isReceived(m, mailboxIds.sent))
+            .map((m) => mailThreadRef.value?.removeMailFromView(m.id).rollback)
+          // Last out, first back: each put back where it stood before the ones after it left.
+          unjunkPane = () => [...rollbacks].reverse().forEach((rollback) => rollback?.())
+        }
+      } else handleSuccessAndRemoveFromList(threadIDs)
       setUndoAction(() => {
         const undoAction = async () => {
+          unjunkPane()
           await setMailsMailboxesSubmit(restore)
           resetThreads()
           mailboxes.refetch().catch(() => {})
@@ -1072,18 +1129,15 @@ export function useThreadActions(deps: {
   const handleMailMove = (mail: Mail, target: string) => {
     const snapshot = mailSnapshot(mail)
     const mailboxName = mailboxes.data?.find((m) => m.id === target)?._name
-    // Trash and Junk take the message away entirely, so they take every copy of it — leave the
-    // twin of a self-addressed mail behind and it sits in Sent, keeping the thread alive there.
-    // Any other move moves the copy at hand and lets the sent one keep Sent, which is what a
-    // thread-level move does with sent mails too (see handleMoveThreads).
-    const ids = [mailboxIds.junk, mailboxIds.trash].includes(target) ? mailCopyIds(mail) : [mail.id]
+    // Every copy of it, filed by the same rules as a conversation (see fileMails): Trash takes the
+    // sent twin of a self-addressed mail too, while any other move leaves it in Sent.
     runMailRemoval(
       mail,
       () =>
-        moveMailsSubmit({
-          ids,
+        fileMailsSubmit({
+          ids: mailCopyIds(mail),
+          action: 'move',
           mailbox: target,
-          clear_junk: mail.junk === 1 && target !== mailboxIds.junk,
         }),
       __('Mail moved to {0}.', [mailboxName]),
       {
@@ -1104,9 +1158,9 @@ export function useThreadActions(deps: {
     runMailRemoval(
       mail,
       () =>
-        setMailsSpamSubmit({
+        fileMailsSubmit({
           ids: mailCopyIds(mail),
-          spam,
+          action: spam ? 'junk' : 'not_junk',
           screen_action: screenForward,
         }),
       success,
@@ -1163,6 +1217,20 @@ export function useThreadActions(deps: {
     return result
   }
 
+  const handleArchiveThreads = (threadIds: string[]) => {
+    const touched = touchedRows(threadIds)
+    const result = archiveThreads(threadIds)
+    screener.acceptOnAction(touched, landedOf(result))
+    return result
+  }
+
+  const handleUnarchiveThreads = (threadIds: string[]) => {
+    const touched = touchedRows(threadIds)
+    const result = unarchiveThreads(threadIds)
+    screener.acceptOnAction(touched, landedOf(result))
+    return result
+  }
+
   const handleAddThreadsToMailbox = (mailboxId: string, threadIds: string[], isUndo = false) => {
     const touched = touchedRows(threadIds)
     const result = addThreadsToMailbox(mailboxId, threadIds, isUndo)
@@ -1194,6 +1262,8 @@ export function useThreadActions(deps: {
     handleSyncUnseen,
     setFlaggedByThreadIDs,
     handleMoveThreads,
+    handleArchiveThreads,
+    handleUnarchiveThreads,
     handleSetSpamStatus,
     handleAddThreadsToMailbox,
     handleRemoveThreadsFromMailbox,

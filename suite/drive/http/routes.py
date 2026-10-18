@@ -353,7 +353,7 @@ def node_archive_status(node: Given = None) -> shapes.ArchiveStatus:
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 @_route
 def node_archive_download(node: Given = None) -> Response:
-    """Stream a ready folder archive through the active storage driver."""
+    """Send a ready folder archive, redirecting to the driver's signed URL when it has one."""
     from frappe.storage.serve import stream_blob
 
     blob, filename = archive.download(_principals(), shapes.required_text(node, "node"))
@@ -362,6 +362,8 @@ def node_archive_download(node: Given = None) -> Response:
         filename,
         as_attachment=True,
         environ=frappe.local.request.environ,
+        # A browser follows the redirect and fetches the zip in one request
+        allow_native_redirect=True,
     )
 
 

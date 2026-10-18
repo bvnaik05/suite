@@ -39,7 +39,7 @@
 	     header block) — above it, it read as page chrome sitting on top of the title. -->
   <div v-if="showDeleteBanner && !isMobile" class="space-x-1 border-b px-3 py-2.5 sm:px-5">
     <span class="text-ink-gray-5">
-      {{ __('Items in this mailbox will be automatically deleted after 30 days.') }}
+      {{ __('Items in this folder will be automatically deleted after 30 days.') }}
     </span>
     <Button :label="__('Delete Now')" variant="ghost" @click="showEmptyMailbox = true" />
   </div>
@@ -96,7 +96,7 @@
 						     reads as part of the header block, not a boxed-off strip. -->
             <div v-if="showDeleteBanner && mailbox !== 'search'" class="space-x-1 px-4">
               <span class="text-ink-gray-5">
-                {{ __('Items in this mailbox will be automatically deleted after 30 days.') }}
+                {{ __('Items in this folder will be automatically deleted after 30 days.') }}
               </span>
               <Button :label="__('Delete Now')" variant="ghost" @click="showEmptyMailbox = true" />
             </div>
@@ -231,6 +231,7 @@
                   <StackListItem
                     v-if="row.type === 'stack'"
                     :drafts="mailbox === mailboxIds.drafts"
+                    :unarchive="true"
                     :threads="row.threads"
                     :expanded="row.expanded"
                     :is-selected="isStackSelected(row.threads.map((t) => t.thread_id))"
@@ -239,6 +240,7 @@
                     @toggle="toggleStack(row)"
                     @set-seen="(seen: boolean) => stackSetSeen(row.threads, seen)"
                     @archive-threads="stackArchive(row.threads)"
+                    @unarchive-threads="handleUnarchiveThreads(stackIDs(row.threads))"
                     @trash-threads="stackTrash(row.threads)"
                     @delete-threads="stackDelete(row.threads)"
                     @set-selected="
@@ -253,6 +255,7 @@
                     v-else
                     :mailbox
                     :drafts="mailbox === mailboxIds.drafts"
+                    :unarchive="!isAllAccountsSearch"
                     :mail="row.thread"
                     :account-id="isAllAccountsSearch ? row.thread.account : undefined"
                     :account-label="
@@ -262,7 +265,7 @@
                     :selection-mode="mobileSelectionMode"
                     :is-selected="selections.includes(row.thread.thread_id)"
                     :hide-sender="row.inStack"
-                    :draggable="!isMobile && !isAllAccountsSearch"
+                    :draggable="!isMobile && !isAllAccountsSearch && mailbox !== mailboxIds.drafts"
                     :screened="screener.active.value && screener.isScreened(row.thread)"
                     :class="rowClasses(row)"
                     :data-row-key="row.key"
@@ -270,6 +273,7 @@
                     @drag-end="threadDrag.end()"
                     @set-seen="(seen: boolean) => rowSetSeen(row.thread, seen)"
                     @archive-thread="rowArchive(row.thread)"
+                    @unarchive-thread="handleUnarchiveThreads([row.thread.thread_id])"
                     @trash-thread="rowTrash(row.thread)"
                     @delete-thread="junkOrDeleteThreads([row.thread.thread_id], false)"
                     @set-flagged="(flagged: boolean) => rowSetFlagged(row.thread, flagged)"
@@ -317,6 +321,7 @@
           :thread-i-d
           :threads="threadIDs"
           :messages="currentThread?.messages"
+          :land-on="mailbox === 'search' ? currentThread?.match_id : undefined"
           :can-go-next="canGoNext"
           @slide-done="threadSlide = ''"
           @reload-mails="resetThreads"
@@ -326,6 +331,8 @@
           "
           @sync-unseen="handleSyncUnseen"
           @set-flagged="(ids: string[], flagged: boolean) => setFlaggedSubmit({ ids, flagged })"
+          @archive-thread="handleArchiveThreads([threadID!])"
+          @unarchive-thread="handleUnarchiveThreads([threadID!])"
           @move-thread="
             (moveToMailbox: string) => handleMoveThreads({ [moveToMailbox]: [threadID!] })
           "
@@ -428,6 +435,7 @@ import {
   useGPrefix,
 } from '@/apps/mail/utils/listNavigation'
 import { commonMailboxIds } from '@/apps/mail/utils/mailboxTargets'
+import { archivable, holdsReceivedMail, unarchivable } from '@/apps/mail/utils/receivedMail'
 import { selectActions as buildSelectActions } from '@/apps/mail/utils/selectActions'
 import { threadRow } from '@/apps/mail/utils/threadRows'
 import { mailboxParam } from '@/apps/mail/utils/unifiedFolders'
@@ -651,6 +659,9 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
     })
   }
 
+  // Drafts offers only Discard: a draft isn't read, archived or junked.
+  if (mailbox === mailboxIds.drafts) return
+
   // Mark as read/unread (u)
   if (key === 'u') {
     e.preventDefault()
@@ -659,19 +670,23 @@ const handleThreadActions = (e: KeyboardEvent, key: string) => {
     })
   }
 
-  // Archive (e)
+  // Archive (e): Archive and Unarchive share a place, so E does whichever it shows — and nothing
+  // where neither has anything to do.
+  const acted = threadRows.value.filter((t) => thread_ids.includes(t.thread_id))
+  const boxes = { sent: mailboxIds.sent, archive: mailboxIds.archive, inbox: mailboxIds.inbox }
+  const messagesOf = (t: Thread) => (t.messages?.length ? t.messages : [t])
   if (key === 'e') {
     e.preventDefault()
-    return mailbox === mailboxIds.sent
-      ? handleAddThreadsToMailbox(mailboxIds.archive, thread_ids)
-      : handleMoveThreads({
-          [mailboxIds.archive]: thread_ids,
-        })
+    if (acted.some((t) => archivable(messagesOf(t), boxes))) return handleArchiveThreads(thread_ids)
+    if (acted.some((t) => unarchivable(messagesOf(t), boxes)))
+      return handleUnarchiveThreads(thread_ids)
+    return
   }
 
-  // Mark as junk (!)
+  // Mark as junk (!): only mail you received is junked.
   if (key === '!') {
     e.preventDefault()
+    if (!acted.some((t) => holdsReceivedMail(messagesOf(t), mailboxIds.sent))) return
     return junkOrDeleteThreads(thread_ids, true)
   }
 }
@@ -713,14 +728,15 @@ const selectActions = buildSelectActions(
     archive: mailbox === mailboxIds.archive,
     trash: mailbox === mailboxIds.trash,
     drafts: mailbox === mailboxIds.drafts,
+    sent: mailboxIds.sent,
+    archiveId: mailboxIds.archive,
+    inboxId: mailboxIds.inbox,
   }),
   {
     star: () => setFlaggedByThreadIDs(selections.value, true),
     unstar: () => setFlaggedByThreadIDs(selections.value, false),
-    archive: () =>
-      mailbox === mailboxIds.sent
-        ? handleAddThreadsToMailbox(mailboxIds.archive, selections.value)
-        : handleMoveThreads({ [mailboxIds.archive]: selections.value }),
+    archive: () => handleArchiveThreads(selections.value),
+    unarchive: () => handleUnarchiveThreads(selections.value),
     junk: () => junkOrDeleteThreads(selections.value, true),
     notJunk: () => handleSetSpamStatus({ 0: selections.value }),
     trash: () => handleMoveThreads({ [mailboxIds.trash]: selections.value }),
@@ -1083,6 +1099,8 @@ const {
   handleSyncUnseen,
   setFlaggedByThreadIDs,
   handleMoveThreads,
+  handleArchiveThreads,
+  handleUnarchiveThreads,
   handleSetSpamStatus,
   handleAddThreadsToMailbox,
   handleRemoveThreadsFromMailbox,
@@ -1227,9 +1245,7 @@ const rowArchive = (mail: Thread) => {
       __('Thread archived.'),
       __('No Archive folder for this account.'),
     )
-  return mailbox === mailboxIds.sent
-    ? handleAddThreadsToMailbox(mailboxIds.archive, [mail.thread_id])
-    : handleMoveThreads({ [mailboxIds.archive]: [mail.thread_id] })
+  return handleArchiveThreads([mail.thread_id])
 }
 
 const rowTrash = (mail: Thread) => {
@@ -1254,12 +1270,7 @@ const stackSetSeen = (threads: Thread[], seen: boolean) =>
   handleSetSeen({
     [Number(seen)]: stackIDs(threads),
   })
-const stackArchive = (threads: Thread[]) =>
-  mailbox === mailboxIds.sent
-    ? handleAddThreadsToMailbox(mailboxIds.archive, stackIDs(threads))
-    : handleMoveThreads({
-        [mailboxIds.archive]: stackIDs(threads),
-      })
+const stackArchive = (threads: Thread[]) => handleArchiveThreads(stackIDs(threads))
 const stackTrash = (threads: Thread[]) =>
   handleMoveThreads({
     [mailboxIds.trash]: stackIDs(threads),
@@ -1278,7 +1289,7 @@ async function emptyMailboxSubmit() {
 }
 const emptyMailboxOptions = computed(() => ({
   title: __('Empty {0}', [mailboxName.value]),
-  message: __(`Are you sure you want to empty the contents of this mailbox?`),
+  message: __(`Are you sure you want to empty this folder?`),
   icon: 'lucide-alert-triangle',
   theme: 'amber' as const,
   actions: [

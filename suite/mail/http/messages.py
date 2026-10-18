@@ -103,6 +103,25 @@ class MoveInput(IdsInput):
     clear_junk: NotRequired[bool]
 
 
+class ShownFolder(TypedDict):
+    mailbox: str
+    mailbox_id: str
+    mailbox_name: str
+
+
+class FileInput(IdsInput):
+    action: Literal["archive", "unarchive", "move", "junk", "not_junk", "trash"]
+    mailbox: NotRequired[str | None]
+    screen_action: NotRequired[str | None]
+    leaves: NotRequired[str | None]
+    shows: NotRequired[dict[str, list[ShownFolder]] | None]
+
+
+class FiledResult(TypedDict):
+    updated: list[str]
+    left_inbox: bool
+
+
 class FolderInput(IdsInput):
     mailbox_id: str
 
@@ -312,6 +331,7 @@ _OPERATIONS: tuple[
     (mail.set_flagged, "mutation", "messages.flag", FlagInput, FlagResult, None),
     (mail.set_mails_seen, "mutation", "messages.seen", SeenInput, list[str], None),
     (mail.move_mails, "mutation", "messages.move", MoveInput, type(None), None),
+    (mail.file_mails, "mutation", "messages.file", FileInput, FiledResult, None),
     (mail.add_mails_to_mailbox, "mutation", "messages.addToFolder", FolderInput, type(None), None),
     (
         mail.remove_mails_from_mailbox,

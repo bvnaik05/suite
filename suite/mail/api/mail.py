@@ -35,8 +35,8 @@ from suite.mail.doctype.mail_message.mail_message import (
     is_unscreened_message,
     move_messages_to_mailbox,
     query_message_ids,
+    query_threads,
     remove_messages_from_mailbox,
-    search_messages,
     set_flagged_status,
     set_messages_mailboxes,
     set_seen_status,
@@ -68,6 +68,7 @@ from suite.mail.doctype.user_account.user_account import (
     get_user_personal_jmap_account,
     is_jmap_account_belongs_to_user,
 )
+from suite.mail.filing import Filed, file_messages
 from suite.mail.jmap import (
     get_account_client,
     get_cached_mailboxes,
@@ -369,7 +370,9 @@ def get_threads(
     return {"rows": threads, "mailbox": mailbox, "has_more": len(threads) == limit}
 
 
-def visible_in_mailbox(messages: list[dict], mailbox: str, trash: str | None, junk: str | None) -> list[dict]:
+def visible_in_mailbox(
+    messages: list[dict], mailbox: str | None, trash: str | None, junk: str | None
+) -> list[dict]:
     """The thread's messages a mailbox view is allowed to show, oldest to newest.
 
     Mirrors the thread pane's `filterRelevantMails`: junked and trashed messages appear only in their
@@ -555,6 +558,10 @@ def get_unified_threads(
                 thread["account"] = account_id
                 thread["account_name"] = account["_name"]
                 thread["view_mailbox"] = view_mailbox
+                # The account's own folders, which the row is filed by (see suite.mail.filing): the
+                # merged list spans accounts, and Sent tells your mail from what you received.
+                thread["inbox"] = ids_by_role.get("inbox")
+                thread["sent"] = ids_by_role.get("sent")
                 thread["archive"] = ids_by_role.get("archive")
                 thread["trash"] = ids_by_role.get("trash")
                 merged.append(thread)
@@ -1338,6 +1345,30 @@ def move_mails(account: str, ids: list[str], mailbox: str, clear_junk: bool = Fa
 
 
 @frappe.whitelist()
+def file_mails(
+    account: str,
+    ids: list[str],
+    action: str,
+    mailbox: str | None = None,
+    screen_action: str | None = None,
+    leaves: str | None = None,
+    shows: dict | None = None,
+) -> Filed:
+    """Archives, unarchives, moves, junks, un-junks or trashes the given mails — a conversation's, usually — by
+    the filing rules (see `suite.mail.filing`), optionally screening their senders with
+    `screen_action` (Spam on Junk, Accepted on Not junk) in the same request.
+
+    `leaves` names the list the conversation leaves (a mailbox id, or an All Inboxes folder), if it
+    does, and `shows` the folders each message is expected in after: the client's own hints, for
+    taking rows off that list and showing the rest refiled before the answer comes. The server has
+    no use for either."""
+
+    filed = file_messages(account, ids, action, mailbox)
+    _screen_senders(account, filed["updated"], screen_action)
+    return filed
+
+
+@frappe.whitelist()
 def add_mails_to_mailbox(account: str, ids: list[str], mailbox_id: str) -> None:
     """Adds mails to a mailbox without removing them from their existing mailboxes."""
 
@@ -1422,12 +1453,48 @@ def search_mails(
         rows, total = _search_all_accounts(filter, limit=limit, start=start)
         return {"rows": rows, "total": total}
 
-    normalized_filter = normalize_filter(filter)
-    mails, total = search_messages(account, normalized_filter, position=start, limit=limit)
-    add_user_images_to_emails(account, mails)
-    _tag_search_results(account, mails)
+    rows, total = search_threads(account, normalize_filter(filter), start, limit)
+    _tag_search_results(account, rows)
 
-    return {"rows": mails, "total": total}
+    return {"rows": rows, "total": total}
+
+
+def search_threads(account: str, filter: dict, start: int, limit: int) -> tuple[list[dict], int]:
+    """The conversations with mail matching a search, newest match first, and how many there are.
+
+    A row is the whole conversation, as in a folder's list, but described by its newest matching
+    message: the sender, snippet and date are the match's, so the snippet holds what was searched for
+    and the row is dated when it happened. `match_id` names that message, for opening on it.
+    """
+
+    conversations, matches, total = query_threads(account, filter, start, limit, calculate_total=True)
+    ids_by_role = {(m.get("role") or "").lower(): m["id"] for m in get_cached_mailboxes(account)}
+    trash, junk = ids_by_role.get("trash"), ids_by_role.get("junk")
+
+    rows = []
+    for thread_id, conversation in conversations.items():
+        match = next((m for m in conversation if m["id"] == matches.get(thread_id)), None)
+        if not match:
+            continue
+        # Found in Trash or Junk, the conversation is shown as those folders show it; anywhere else,
+        # as every other list does.
+        if trash and any(mb["mailbox_id"] == trash for mb in match["mailboxes"]):
+            where = trash
+        elif junk and match.get("junk"):
+            where = junk
+        else:
+            where = None
+        visible = visible_in_mailbox(conversation, where, trash, junk)
+        row = serialize_thread(
+            visible, visible, match, first=conversation[0], sent_mailbox=ids_by_role.get("sent")
+        )
+        row["received_at"] = match["received_at"]
+        row["match_id"] = match["id"]
+        rows.append(row)
+
+    add_user_images_to_emails(account, rows, is_thread=False)
+    add_user_images_to_emails(account, [m for row in rows for m in row["messages"]], is_thread=True)
+    return rows, total
 
 
 @frappe.whitelist()
@@ -1503,16 +1570,10 @@ def _search_all_accounts(filter: dict, limit: int, start: int) -> tuple[list[dic
     total = 0
     for account in accounts:
         account_id = account["name"]
-        mails, account_total = search_messages(
-            account_id, normalized_filter, position=0, limit=per_account_limit
-        )
+        rows, account_total = search_threads(account_id, normalized_filter, 0, per_account_limit)
         total += account_total
-        if not mails:
-            continue
-
-        add_user_images_to_emails(account_id, mails)
-        _tag_search_results(account_id, mails, account_name=account["_name"])
-        merged.extend(mails)
+        _tag_search_results(account_id, rows, account_name=account["_name"])
+        merged.extend(rows)
 
     merged.sort(key=lambda mail: mail["received_at"], reverse=True)
     return merged[start : start + limit], total
@@ -1531,6 +1592,7 @@ def _tag_search_results(account: str, mails: list[dict], account_name: str | Non
         account_name = frappe.db.get_value("JMAP Account", account, "_name")
 
     inbox_id = get_mailbox_id_by_role(account, "inbox")
+    sent_id = get_mailbox_id_by_role(account, "sent")
     archive_id = get_mailbox_id_by_role(account, "archive")
     trash_id = get_mailbox_id_by_role(account, "trash")
 
@@ -1538,6 +1600,7 @@ def _tag_search_results(account: str, mails: list[dict], account_name: str | Non
         mail["account"] = account
         mail["account_name"] = account_name
         mail["inbox"] = inbox_id
+        mail["sent"] = sent_id
         mail["archive"] = archive_id
         mail["trash"] = trash_id
 

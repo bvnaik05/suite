@@ -131,17 +131,18 @@ export const raisePromiseToast = async (
   }
 }
 
-// Rows can update optimistically; confirmation follows the successful server write.
-export const raiseOptimisticToast = (
-  forward: Promise<unknown>,
-  success: string,
+// Rows can update optimistically; confirmation follows the successful server write. The message
+// can be read off the write's answer, where what happened decides what it says.
+export const raiseOptimisticToast = <T>(
+  forward: Promise<T>,
+  success: string | ((result: T) => string),
   undoAction?: () => void,
 ) => {
   toast.dismiss()
   void forward.then(
-    () =>
+    (result) =>
       toast.success(
-        success,
+        typeof success === 'string' ? success : success(result),
         undoAction ? { action: { label: __('Undo'), onClick: undoAction } } : undefined,
       ),
     raiseError,

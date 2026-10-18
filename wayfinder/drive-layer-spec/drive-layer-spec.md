@@ -3810,7 +3810,7 @@ remain separate from DAV visibility.
 **GET** authorizes by node, then streams through the framework's public
 stream-read with `send_file(conditional=True)` for Range and 304.
 `drive_webdav_s3_redirect` survives as the opt-in 302 to a signed native
-URL. Range on non-local drivers is a framework ask (§13) [009 §4].
+URL. Suite reads it and passes `allow_native_redirect` to `stream_blob`. Range on non-local drivers is a framework ask (§13) [009 §4].
 
 **PUT** spools the body straight into
 `frappe.storage.blob.put_blob(stream, is_private=True, filename=...)`.
@@ -4103,6 +4103,8 @@ def stream_blob(
 A driver without it keeps working through the default. `serve_file` keeps its
 own permission check and calls `stream_blob` for the body.
 `drive_webdav_s3_redirect` survives as the opt-in 302 to a signed native URL.
+The framework does not read it: Suite passes it as `stream_blob`'s
+`allow_native_redirect`.
 Rejected: always 302 to a signed `/f/` URL, because it breaks the Windows
 WebClient [009 §4].
 
@@ -4329,7 +4331,10 @@ is GO when every check passes and no defect blocks.
    `File Blob` with `driver = "s3"`, and set `File.blob`. Build derives the blob name from the checksum, so a rerun
    finds an object an interrupted run already copied. Objects above 5 GB go
    through the boto3 managed multipart copy. The step is resumable by the
-   `File.blob` check [011 §3].
+   `File.blob` check [011 §3]. A `Ready` private S3 blob with the same
+   checksum is reused instead of copied. `File Blob` has no unique index on
+   content, so any other blob with that checksum, such as a `Pending`
+   upload, does not stop the step: Build stores its own blob beside it.
 4. Root nodes and their matching metadata pairs, atomically per pair.
 5. Nodes, walked from each root by depth, with title dedupe and trash
    propagation.

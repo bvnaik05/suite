@@ -864,7 +864,7 @@ def get_mailbox_path(account: str, mailbox_name: str, raise_exception: bool = Fa
                 _("Mailbox '{0}' not found in account '{1}'.").format(
                     frappe.bold(mailbox_name), frappe.bold(account)
                 ),
-                title=_("Mailbox Not Found"),
+                title=_("Folder Not Found"),
             )
         return None
 
@@ -901,7 +901,7 @@ def get_mailbox_path(account: str, mailbox_name: str, raise_exception: bool = Fa
                     _("Parent mailbox with ID '{0}' not found in account '{1}'.").format(
                         frappe.bold(parent_id), frappe.bold(account)
                     ),
-                    title=_("Parent Mailbox Not Found"),
+                    title=_("Parent Folder Not Found"),
                 )
             return None
 
