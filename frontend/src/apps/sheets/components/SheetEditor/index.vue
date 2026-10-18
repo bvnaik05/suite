@@ -974,6 +974,7 @@ const {
   readIds: _readIds,
   readInput: _readInput,
   displayValue: _displayValue,
+  isNumberAt: _isNumberAt,
   refreshUsedCells: _refreshUsedCells,
   usedCellIds: _usedCellIds,
   usedExtent: _usedExtent,
@@ -1530,6 +1531,7 @@ const {
   popLastOp: _popLastOp,
   cellSilentlyProtected: (id, sn) => _cellSilentlyProtected(id, sn),
   flashProtected: (sn) => _flashProtected(sn),
+  refitRowsFor: _refitRowsFor,
 })
 
 // Remove the most recently queued op of a given type (used when an AI change
@@ -1541,6 +1543,18 @@ function _popLastOp(opType) {
       return
     }
   }
+}
+
+// After a write ({cellId: value}), the rows it touched fit their wrapped or
+// multi-line text unless sized by hand, like Google Sheets: they grow or
+// shrink with the new values. Returns the height change, which the write puts
+// on its history op (beforeRowH / afterRowH) so undo/redo restores it;
+// _queueOp destructures only the known keys, so server sync is unaffected.
+// Row heights live in the open sheet's canvas view, so a write to another
+// sheet doesn't refit.
+function _refitRowsFor(sn, writes) {
+  if (sn !== currentSheet.value) return null
+  return grid?.refitRowsFor?.(writes) ?? null
 }
 const hAlignIcon = computed(() => {
   if (activeFormat.value?.align === 'center') return 'lucide-align-center'
@@ -2441,6 +2455,8 @@ function _setupGridInstance() {
       // cold-path scans (Cmd+A extent, autofit) that used to walk the grid's
       // own `data` keys.
       getCellIds: () => _usedCellIds(),
+      // Formulas shown as text: let the painter guess from what it shows.
+      isNumber: (id) => (showFormulas.value ? undefined : _isNumberAt(id)),
       getMergeInfo: (id) => merge.getMasterInfo(id, currentSheet.value),
       isSlave: (id) => merge.isSlave(id, currentSheet.value),
       getMasterId: (id) => merge.getMasterId(id, currentSheet.value),
@@ -2566,23 +2582,11 @@ function _setupGridInstance() {
               [id]: value,
             },
           }
-          // A row fits its wrapped or multi-line text (Cmd+Enter) unless it
-          // was sized by hand, like Google Sheets: it grows or shrinks with
-          // the edit. The height diff rides the history op so undo/redo
-          // restores it; _queueOp destructures only the known keys, so server
-          // sync is unaffected. Row heights live in the current sheet's
-          // canvas view, hence the writeSheet guard.
-          if (writeSheet === currentSheet.value) {
-            const p = parseCellId(id)
-            const grow = p && grid?.refitRowFor?.(p.row, p.col, value)
-            if (grow) {
-              op.beforeRowH = {
-                [p.row]: grow.before,
-              }
-              op.afterRowH = {
-                [p.row]: grow.after,
-              }
-            }
+          // The row refits to the edit (wrapped text, Cmd+Enter lines).
+          const rowH = _refitRowsFor(writeSheet, { [id]: value })
+          if (rowH) {
+            op.beforeRowH = rowH.before
+            op.afterRowH = rowH.after
           }
           _queueOp(op)
           history.pushOp(op)
@@ -2674,6 +2678,12 @@ function _setupGridInstance() {
             before,
             after,
             summary: refs.length > 1 ? `Edited ${refs.length} cells` : '',
+          }
+          // Delete clears wrapped text: its rows shrink back.
+          const rowH = _refitRowsFor(currentSheet.value, after)
+          if (rowH) {
+            op.beforeRowH = rowH.before
+            op.afterRowH = rowH.after
           }
           _queueOp(op)
           history.pushOp(op)
@@ -3439,6 +3449,7 @@ const {
   diffRefs: _diffRefs,
   queueOp: _queueOp,
   rectBlocked: _rectBlocked,
+  refitRowsFor: _refitRowsFor,
 })
 
 // Mirrors `clipboard.hasData()` reactively so the context menu can show /
@@ -3541,6 +3552,7 @@ const {
   captureFormatsRange: _captureFormatsRange,
   captureValidationRange: _captureValidationRange,
   diffRefs: _diffRefs,
+  refitRowsFor: _refitRowsFor,
 })
 
 // ── History ───────────────────────────────────────────────────────────────────
