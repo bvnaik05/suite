@@ -361,6 +361,24 @@ describe('Sheets persistence: opening a develop sheet', () => {
     expect(saved.legacyUpgrade.value?.renamed).toEqual({ 'Q1/Q2': 'Q1_Q2' })
   })
 
+  it('leaves develop comments to Drive once Drive owns the sheet', async () => {
+    // The Drive migration turned sheets_data.comments into Drive threads and
+    // stripped the live body, but an old version restored later still carries
+    // them. Restoring them here would show every comment twice.
+    const thread = { G2: { resolved: false, thread: [{ text: 'hi' }] } }
+    const body = { sheet: { sheets: { Sheet1: { A1: '1' } } }, comments: { Sheet1: thread } }
+    const comments = { restore: vi.fn() }
+
+    answerWith(developSheet({ sheets_data: JSON.stringify(body) }))
+    await persistence({ engine: realEngine(), comments }).loadSheet('old-1')
+    expect(comments.restore).not.toHaveBeenCalled()
+
+    // A develop sheet Drive never adopted has nowhere else to keep them.
+    answerWith(developSheet({ node: null, sheets_data: JSON.stringify(body) }))
+    await persistence({ engine: realEngine(), comments }).loadSheet('old-1')
+    expect(comments.restore).toHaveBeenCalledWith({ Sheet1: thread })
+  })
+
   it('treats an IronCalc sheet as already upgraded', async () => {
     answerWith(developSheet({ sheets_data: JSON.stringify({ engine: btoa('\x07') }) }))
     const saved = persistence()

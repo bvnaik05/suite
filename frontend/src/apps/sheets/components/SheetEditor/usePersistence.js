@@ -112,7 +112,11 @@ export function usePersistence({
       const renamed = converted?.ok ? Object.entries(plan.renamed) : []
       if (renamed.length && saved.view) saved.view = _renameKeys(saved.view, plan.renamed)
       if (saved.merge && merge?.restore) merge.restore(saved.merge)
-      if (saved.comments && comments?.restore) comments.restore(saved.comments)
+      // Drive owns a develop sheet's comments: the migration made them Drive
+      // threads and stripped them from the body. A develop body that still has
+      // them is an old version restored; restoring them would show each twice.
+      const commentsInDrive = plan && doc.node
+      if (saved.comments && comments?.restore && !commentsInDrive) comments.restore(saved.comments)
       if (saved.validation && validation?.restore) validation.restore(saved.validation)
       if (saved.protection && protection?.restore) protection.restore(saved.protection)
       if (saved.condFormat && condFormat?.restore) condFormat.restore(saved.condFormat)
