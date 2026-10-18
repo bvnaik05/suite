@@ -87,6 +87,15 @@ function asInput(v: unknown): string | null {
 }
 
 /**
+ * The name IronCalc takes for a develop sheet name: refused characters become
+ * `_` and the name is cut to 31. A valid name comes back unchanged. (A clash
+ * after that gets a ` (2)` suffix in `ironcalcSheetNames`.)
+ */
+export function ironcalcSheetName(name: string): string {
+  return name.replace(BAD_NAME_CHARS, '_').slice(0, MAX_NAME) || 'Sheet'
+}
+
+/**
  * New names for the sheet names IronCalc refuses (characters `[ ] : * ? / \`,
  * more than 31 characters, empty, or the same as an earlier name but for
  * case). Valid names keep theirs; a new name never clashes with another.
@@ -102,7 +111,7 @@ export function ironcalcSheetNames(names: string[]): Record<string, string> {
   }
   const out: Record<string, string> = {}
   for (const name of refused) {
-    const base = name.replace(BAD_NAME_CHARS, '_').slice(0, MAX_NAME) || 'Sheet'
+    const base = ironcalcSheetName(name)
     let next = base
     for (let n = 2; taken.has(next.toLowerCase()); n++) {
       const suffix = ` (${n})`
