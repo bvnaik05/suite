@@ -95,6 +95,11 @@ export interface CellProvider {
   /** Every non-empty cell id on the sheet (Ctrl+A, Ctrl+End, autofit). */
   getCellIds?(): string[]
   getStyle?(id: string): CellFormat | null | undefined
+  /**
+   * Whether the cell holds a number, which aligns right by default; undefined
+   * when not known yet (the painter then guesses from the text).
+   */
+  isNumber?(id: string): boolean | undefined
   getMergeInfo?(id: string): MergeInfo | null | undefined
   isSlave?(id: string): boolean
   getMasterId?(id: string): string | null | undefined

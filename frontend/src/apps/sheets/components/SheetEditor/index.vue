@@ -974,6 +974,7 @@ const {
   readIds: _readIds,
   readInput: _readInput,
   displayValue: _displayValue,
+  isNumberAt: _isNumberAt,
   refreshUsedCells: _refreshUsedCells,
   usedCellIds: _usedCellIds,
   usedExtent: _usedExtent,
@@ -2454,6 +2455,8 @@ function _setupGridInstance() {
       // cold-path scans (Cmd+A extent, autofit) that used to walk the grid's
       // own `data` keys.
       getCellIds: () => _usedCellIds(),
+      // Formulas shown as text: let the painter guess from what it shows.
+      isNumber: (id) => (showFormulas.value ? undefined : _isNumberAt(id)),
       getMergeInfo: (id) => merge.getMasterInfo(id, currentSheet.value),
       isSlave: (id) => merge.isSlave(id, currentSheet.value),
       getMasterId: (id) => merge.getMasterId(id, currentSheet.value),
