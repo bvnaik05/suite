@@ -182,3 +182,36 @@ it('a star on one conversation leaves every other conversation’s star alone', 
   ) as typeof list
   expect(after.rows.map((row) => row.flagged)).toEqual([1, 1])
 })
+
+it('a star cleared from every copy stays cleared, however many writes it took', () => {
+  const policy = registration.policy({
+    id: 'set_flagged',
+    kind: 'mutation',
+    publicName: 'messages.flag',
+  } as never) as {
+    effects: {
+      optimisticReads: { update: (input: unknown, query: unknown, data: unknown) => unknown }
+    }
+  }
+  const unstar = (ids: string[], data: unknown) =>
+    policy.effects.optimisticReads.update(
+      { account: 'a', ids, flagged: false },
+      { account: 'a', mailbox: 'inbox' },
+      data,
+    )
+  // `o` is starred, and so is `c`, its copy; `n` too.
+  const list = {
+    rows: [
+      {
+        id: 'n',
+        flagged: 1,
+        messages: [
+          { id: 'o', flagged: 1, duplicates: [{ id: 'c', flagged: 1 }] },
+          { id: 'n', flagged: 1 },
+        ],
+      },
+    ],
+  }
+  const after = unstar(['n'], unstar(['o', 'c'], list)) as typeof list
+  expect(after.rows[0].flagged).toBe(0)
+})

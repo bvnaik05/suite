@@ -385,6 +385,8 @@ function messagePolicy<I, O>(id: string, publicName?: string): Policy<I, O> {
             )
               return row
             const messages = Array.isArray(row.messages) ? row.messages.map(patch) : undefined
+            // A message's other copies take the write too, or a star cleared from one comes back.
+            const duplicates = Array.isArray(row.duplicates) ? row.duplicates.map(patch) : undefined
             if (!field) return row
             // A conversation is starred while any of its messages is, whichever one was starred —
             // a copy the thread shows as one message (`duplicates`) included, as the server counts
@@ -393,8 +395,7 @@ function messagePolicy<I, O>(id: string, publicName?: string): Policy<I, O> {
               m,
               ...(Array.isArray(m.duplicates) ? m.duplicates.filter(isRecord) : []),
             ]
-            const starred = (copy: Record<string, unknown>) =>
-              ids.has(copy.id) ? !!input.flagged : !!copy.flagged
+            const starred = (copy: Record<string, unknown>) => !!copy.flagged
             const touched =
               ids.has(row.id) ||
               !!messages?.some((m) => isRecord(m) && copies(m).some((c) => ids.has(c.id)))
@@ -407,6 +408,7 @@ function messagePolicy<I, O>(id: string, publicName?: string): Policy<I, O> {
             return {
               ...row,
               ...(messages ? { messages } : {}),
+              ...(duplicates ? { duplicates } : {}),
               ...(ids.has(row.id) ? { [field]: input[field] ? 1 : 0 } : {}),
               ...flagged,
             }
