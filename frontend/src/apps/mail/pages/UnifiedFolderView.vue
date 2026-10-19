@@ -500,9 +500,8 @@ const isLoading = computed(
     threads.status === 'pending' && !(tabSwitched.value && inboxTab.value) && !filterChanged.value,
 )
 
-// After an action, refresh the sidebar counts: the active account's per-mailbox counts, which via the
-// store's mailboxes watcher also refreshes the unified folders' counts.
-const refreshCounts = () => store.mailboxes.refetch().catch(() => {})
+// After an action, and on the poll: every count the sidebar shows, the merged folders' included.
+const refreshCounts = () => void store.refreshCounts()
 
 // The row's account, by its short name: blank for the currently open account (only
 // the odd ones out get labelled), the local part otherwise, unless two accounts share one.

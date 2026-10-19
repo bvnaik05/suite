@@ -935,7 +935,7 @@ const resetThreads: (reloadMailboxes?: boolean, mailboxRoles?: MailboxRole[]) =>
     }
   }
   void activeThreads.value.refetch().catch(() => {})
-  if (reloadMailboxes) mailboxes.refetch().catch(() => {})
+  if (reloadMailboxes) void store.refreshCounts()
 }
 
 // The composer lives in the layout now, above every route, so it has no view to hand an event to —
@@ -951,7 +951,7 @@ watch(screener.version, () => refreshThreads(false))
 const refreshThreads = (reloadMailboxes = true) => {
   if (isFetching.value) return
   void activeThreads.value.refetch().catch(() => {})
-  if (reloadMailboxes) mailboxes.refetch().catch(() => {})
+  if (reloadMailboxes) void store.refreshCounts()
 }
 
 // After an optimistic action whose threads stay in the list (add-to-mailbox, or a move that leaves
@@ -1005,7 +1005,7 @@ watch(
 // gating on that count made this backstop blind to exactly the arrivals the socket exists to deliver.
 const pollForChanges = async () => {
   const prevTotal = mailboxObj.value?.total_emails
-  await mailboxes.refetch().catch(() => {})
+  await store.refreshCounts()
   if (mailboxObj.value?.total_emails !== prevTotal) refreshThreads(false)
 }
 
