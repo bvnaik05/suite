@@ -14,7 +14,7 @@ const operationDocumentGet: QueryRef<DocumentGetInput, DocumentGetOutput, Docume
   publicName: 'content.open',
   bytes: true,
   method: 'GET',
-  path: '{node}/log',
+  path: '{node}/document',
   prefix: '/api/suite/content/',
   pathParams: ['node'],
   nodeParams: ['node'],
@@ -67,9 +67,12 @@ const operationUpdatesPost: MutationRef<UpdatesPostInput, UpdatesPostOutput, Upd
   loadValidators: async () => (await import('./validators')).operationUpdatesPost,
 }
 
-export type StagePutInput = { node: string; stage_id: string; idx: string; chunk: unknown } & {
-  chunk: Blob
-}
+export type StagePutInput = {
+  node: string
+  stage_id: string
+  piece_index: string
+  chunk: unknown
+} & { chunk: Blob }
 
 export type StagePutOutput = { [key: string]: number | string }
 
@@ -81,9 +84,9 @@ const operationStagePut: MutationRef<StagePutInput, StagePutOutput, StagePutErro
   kind: 'mutation',
   publicName: 'content.stage',
   method: 'PUT',
-  path: '{node}/stage/{stage_id}/{idx}',
+  path: '{node}/stage/{stage_id}/{piece_index}',
   prefix: '/api/suite/content/',
-  pathParams: ['node', 'stage_id', 'idx'],
+  pathParams: ['node', 'stage_id', 'piece_index'],
   nodeParams: ['node'],
   entity: null,
   errors: ['DriveNotFound', 'DriveForbidden', 'DriveLocked'],
@@ -136,30 +139,26 @@ const operationSuspectPost: MutationRef<SuspectPostInput, SuspectPostOutput, Sus
   loadValidators: async () => (await import('./validators')).operationSuspectPost,
 }
 
-export type ProjectionPostInput = { node: string; chunk: unknown } & { chunk: Blob }
+export type HtmlPostInput = { node: string; chunk: unknown } & { chunk: Blob }
 
-export type ProjectionPostOutput = { [key: string]: number | string }
+export type HtmlPostOutput = { [key: string]: number | string }
 
-export type ProjectionPostError = 'DriveNotFound' | 'DriveForbidden' | 'DriveLocked'
+export type HtmlPostError = 'DriveNotFound' | 'DriveForbidden' | 'DriveLocked'
 
-const operationProjectionPost: MutationRef<
-  ProjectionPostInput,
-  ProjectionPostOutput,
-  ProjectionPostError
-> = {
-  id: 'projection_post',
+const operationHtmlPost: MutationRef<HtmlPostInput, HtmlPostOutput, HtmlPostError> = {
+  id: 'html_post',
   owner: 'content',
   kind: 'mutation',
   publicName: 'content.submitRender',
   method: 'POST',
-  path: '{node}/projection',
+  path: '{node}/html',
   prefix: '/api/suite/content/',
   pathParams: ['node'],
   nodeParams: ['node'],
   entity: null,
   errors: ['DriveNotFound', 'DriveForbidden', 'DriveLocked'],
   body: 'chunk',
-  loadValidators: async () => (await import('./validators')).operationProjectionPost,
+  loadValidators: async () => (await import('./validators')).operationHtmlPost,
 }
 
 export type RestorePostInput = { node: string; chunk: unknown } & { chunk: Blob }
@@ -218,7 +217,7 @@ export const api = {
     stage: operationStagePut,
     startSession: operationSessionsPost,
     reportSuspect: operationSuspectPost,
-    submitRender: operationProjectionPost,
+    submitRender: operationHtmlPost,
     beginRestore: operationRestorePost,
     cancelRestore: operationRestoreCancelPost,
   },

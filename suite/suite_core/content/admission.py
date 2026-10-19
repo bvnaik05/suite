@@ -20,7 +20,7 @@ RELEASE_SCRIPT = (
 )
 
 
-def take_place(adapter: str, doc_id: str) -> tuple[str, list[str]] | None:
+def take_place(app: str, doc_id: str) -> tuple[str, list[str]] | None:
     """One place of `PLACES`, and the document's own key so two jobs never compact it at once.
 
     Both hold a token of this job's own, so a job that outlived its lease can't
@@ -28,7 +28,7 @@ def take_place(adapter: str, doc_id: str) -> tuple[str, list[str]] | None:
     """
     redis = get_redis_conn()
     token = secrets.token_hex(16)
-    doc_key = f"suite:collab:compacting:{frappe.local.site}:{adapter}:{doc_id}"
+    doc_key = f"suite:collab:compacting:{frappe.local.site}:{app}:{doc_id}"
     if not redis.set(doc_key, token, nx=True, ex=LEASE_SECONDS):
         return None
 

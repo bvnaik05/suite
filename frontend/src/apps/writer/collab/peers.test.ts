@@ -1,5 +1,6 @@
-import type { Peer } from '@suite/collab-client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import type { Peer } from '@/platform/collab'
 
 import { assignColours, PALETTE } from './colours'
 import { peopleOf, personIdleSince, roomColours } from './peers'

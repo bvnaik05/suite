@@ -14,7 +14,7 @@ type Features = {
 }
 
 // The server refuses a row naming anything this file does not declare at or below the row's schema
-const featuresPath = resolve(__dirname, '../../../../../suite/writer/content/features.json')
+const featuresPath = resolve(__dirname, '../../../../../suite/writer/content/schema.json')
 const featuresText = readFileSync(featuresPath, 'utf8')
 const declared = JSON.parse(featuresText) as Features
 
@@ -69,6 +69,6 @@ describe('writer collab features', () => {
   })
 
   it('stamps pushes with the schema the server declares', () => {
-    expect(writerAdapter.features.schema).toBe(declared.schema)
+    expect(writerAdapter.schemaVersion).toBe(declared.schema)
   })
 })

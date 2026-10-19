@@ -1,24 +1,21 @@
-"""Writer's content adapter: what the content layer needs to know about a Writer document."""
+"""Writer's editor: what the content layer needs to know about a Writer document."""
 
-import base64
-import gzip
 import json
 from pathlib import Path
 
 import pycrdt
 
 from suite.suite_core import content
-from suite.suite_core.content.adapters import ContentAdapterSpec
-from suite.writer.content.files import file_values, rewrite_files
-from suite.writer.content.readable_copy import check_copy
+from suite.suite_core.content.editors import EditorSpec, HtmlCopy, MediaReferences
+from suite.writer.content.files import node_ids, value_rewriter
+from suite.writer.content.readable_copy import is_html_complete
 
-ADAPTER = "writer"
+APP = "writer"
 # The editor's fragment, and tab labels
-ROOTS = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
-# The Node kernel `bench build` makes, which judges suspect documents with the browsers' Yjs and this schema
-KERNEL = Path(__file__).with_name("dist") / "kernel.cjs"
-FEATURES = Path(__file__).with_name("features.json")
-DECLARED = json.loads(FEATURES.read_text())
+PART_MAP = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
+# The Node checker `bench build` makes, which judges suspect documents with the browsers' Yjs and this schema
+CHECKER_BUILD = Path(__file__).with_name("dist") / "checker.cjs"
+DECLARED = json.loads(Path(__file__).with_name("schema.json").read_text())
 # y-prosemirror writes only GC, deleted, string, format, type and any content, and only XmlElement and
 # XmlText shared types. `meta` holds only plain values; if it ever nests a Map, Array or Text,
 # `shared_types` must change in the same commit
@@ -32,40 +29,13 @@ SCHEMA = content.EditorSchema(
 )
 
 
-def convert(old_body: str) -> bytes:
-    """`Writer Document.content` holds the state base64."""
-    return base64.b64decode(old_body)
-
-
-SPEC = ContentAdapterSpec(
-    name=ADAPTER,
-    content_type="Writer Document",
+SPEC = EditorSpec(
+    app=APP,
+    doctype="Writer Document",
     body_field="content",
-    node_field="node",
-    copy_field="html",
-    roots=ROOTS,
+    part_map=PART_MAP,
     schema=SCHEMA,
-    kernel=KERNEL,
-    codec="yjs1",
-    max_state=4 * 2**20,
-    max_change=4 * 2**20,
-    check_copy=check_copy,
-    convert=convert,
-    file_values=file_values,
-    rewrite_files=rewrite_files,
+    checker_build=CHECKER_BUILD,
+    readable_copy=HtmlCopy(field="html", is_html_complete=is_html_complete),
+    media=MediaReferences(node_ids=node_ids, value_rewriter=value_rewriter),
 )
-
-
-def version_payload(snapshot: content.Snapshot, state: bytes) -> dict:
-    """`state` as a `writer-document/2` version; `html` stays null."""
-    compressed = gzip.compress(state)
-    encoded_state = base64.b64encode(compressed).decode("ascii")
-    return {
-        "schema": "writer-document/2",
-        "codec": SPEC.codec,
-        "lineage": snapshot.lineage,
-        "through_rev": snapshot.head_rev,
-        "chain": snapshot.head_chain.hex(),
-        "state": encoded_state,
-        "html": None,
-    }

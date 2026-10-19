@@ -3,8 +3,9 @@ import { afterEach, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import { hex } from './bytes'
-import { openCollabRoom } from './open'
+import { openRoom } from './open'
 import { REMOTE } from './origins'
+import type { Room } from './room'
 import { openDeviceStore, type DeviceStore } from './store'
 import type { Answer, CollabEndpoints, CollabRoom, OpenOptions } from './types'
 
@@ -463,33 +464,36 @@ export function fakeSocket(realtime: { answers: boolean }) {
 
 export const browser = { signedIn: 'a@x.com' }
 
-export const rooms: CollabRoom[] = []
+export const rooms: Room[] = []
 afterEach(async () => {
   await Promise.all(rooms.splice(0).map((room) => room.close()))
   vi.useRealTimers()
   browser.signedIn = 'a@x.com'
 })
 
-// An app whose editor writes schema `schema`, draws a position as it came, and renders and binds nothing
+// An app whose editor writes schema `schema`, draws a position as it came, and renders nothing
 export const adapterAt = (schema: number) => ({
-  features: { schema },
-  position: (raw: unknown) => raw as object,
-  render: () => ({ html: '', text: '' }),
-  bind: () => null,
+  app: 'test',
+  schemaVersion: schema,
+  toPeerPosition: (raw: unknown) => raw as object,
+  toHtml: () => '',
 })
 
 export async function join(endpoints: CollabEndpoints, extra: Partial<OpenOptions> = {}) {
-  const opened = await openCollabRoom({
+  const opened = await openRoom({
     endpoints,
-    principal: 'a@x.com',
+    expectedUser: 'a@x.com',
     adapter: adapterAt(1),
     signedIn: () => browser.signedIn,
     pollMs: 60_000,
     ...extra,
   })
   if (opened.state !== 'live') throw new Error(opened.state)
-  rooms.push(opened.room)
-  return opened.room
+
+  // The room itself, so tests can also reach what the package keeps internal
+  const room = opened.room as Room
+  rooms.push(room)
+  return room
 }
 
 export const text = (room: CollabRoom) => room.doc.getText('t').toString()

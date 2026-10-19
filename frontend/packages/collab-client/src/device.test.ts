@@ -31,10 +31,14 @@ describe('collab room on a device', () => {
     await first.close()
     server.access.online = true
     const next = await join(server.endpoints(), { device: kept })
-    expect([text(next), next.onDevice]).toEqual(['offline work', true])
+    expect([text(next), next.status.isKeptOnDevice]).toEqual(['offline work', true])
     await next.flush()
 
-    expect([server.rows.length, next.saveState, next.unsent]).toEqual([1, 'clean', 0])
+    expect([server.rows.length, next.status.saveState, next.status.unsentCount]).toEqual([
+      1,
+      'clean',
+      0,
+    ])
     expect(text(await join(server.endpoints()))).toBe('offline work')
   })
 
@@ -53,7 +57,7 @@ describe('collab room on a device', () => {
     const next = await join(server.endpoints(), { device: kept })
     await next.flush()
 
-    expect(next.unsent).toBe(0)
+    expect(next.status.unsentCount).toBe(0)
     expect(next.ownClients).toEqual(new Set([next.doc.clientID, firstClient]))
     expect(next.doc.clientID).not.toBe(firstClient)
   })
@@ -139,7 +143,11 @@ describe('collab room on a device', () => {
     const offline = await join(server.endpoints(), { device: kept, pollMs: 1000 })
     offline.doc.getText('t').insert(0, 'mine ')
     await vi.advanceTimersByTimeAsync(0)
-    expect([text(offline), offline.canWrite, offline.unsent]).toEqual(['mine base', true, 1])
+    expect([text(offline), offline.status.canWrite, offline.status.unsentCount]).toEqual([
+      'mine base',
+      true,
+      1,
+    ])
     expect(offline.doc.clientID).toBeGreaterThanOrEqual(2 ** 30)
     server.calls.length = 0
     server.access.online = true
@@ -148,7 +156,7 @@ describe('collab room on a device', () => {
     await idle()
 
     expect(server.calls.slice(0, 3)).toEqual(['claim', 'push', 'pull'])
-    expect([text(offline), offline.saveState, server.rows.length]).toEqual([
+    expect([text(offline), offline.status.saveState, server.rows.length]).toEqual([
       'mine base other',
       'clean',
       3,
@@ -170,7 +178,11 @@ describe('collab room on a device', () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     const [record] = await kept.store.recovery('D')
-    expect([offline.saveState, offline.canWrite, server.rows.length]).toEqual(['failed', false, 0])
+    expect([offline.status.saveState, offline.status.canWrite, server.rows.length]).toEqual([
+      'failed',
+      false,
+      0,
+    ])
     expect([record.reason, record.entries.length]).toEqual(['id_clash', 1])
     expect(text(await join(server.endpoints(), { device: kept }))).toBe('')
   })
@@ -243,7 +255,11 @@ describe('collab room on a device', () => {
     await writer.flush()
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect([text(viewer), viewer.blocked, viewer.canWrite]).toEqual(['new', null, false])
+    expect([text(viewer), viewer.status.blockReason, viewer.status.canWrite]).toEqual([
+      'new',
+      null,
+      false,
+    ])
   })
 
   it('a device that cannot keep a session opens nothing offline rather than retrying forever', async () => {
@@ -313,10 +329,9 @@ describe('collab room on a device', () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     const records = await kept.store.recovery('D')
-    expect([room.saveState, server.calls.filter((call) => call === 'claim').length]).toEqual([
-      'failed',
-      1,
-    ])
+    expect([room.status.saveState, server.calls.filter((call) => call === 'claim').length]).toEqual(
+      ['failed', 1],
+    )
     expect(records.map((record) => record.reason)).toEqual(['session_owner'])
   })
 
@@ -347,7 +362,7 @@ describe('collab room on a device', () => {
     await room.flush()
     server.access.refuse = null
 
-    expect([room.saveState, (await kept.store.recovery('D'))[0]?.reason]).toEqual([
+    expect([room.status.saveState, (await kept.store.recovery('D'))[0]?.reason]).toEqual([
       'failed',
       'seq_conflict',
     ])
@@ -375,7 +390,7 @@ describe('collab room on a device', () => {
       'Plan',
       'saved refused late',
     ])
-    expect(room.copiesKept).toBe(2)
+    expect(room.status.keptCopyCount).toBe(2)
   })
 
   it('a change on the device reaches every listener in another tab, until one stops listening', async () => {
@@ -407,7 +422,11 @@ describe('collab room on a device', () => {
     await room.flush()
     await idle()
 
-    expect([room.saveState, room.copiesKept, room.copyFailed]).toEqual(['failed', 0, true])
+    expect([room.status.saveState, room.status.keptCopyCount, room.status.hasCopyFailed]).toEqual([
+      'failed',
+      0,
+      true,
+    ])
   })
 
   it('typing after a lost right that the device could not keep counts as unsent, and nothing is sent', async () => {
@@ -425,12 +444,12 @@ describe('collab room on a device', () => {
     await idle()
     await room.flush()
 
-    expect([room.blocked, room.stopped, room.unsent, room.saveState]).toEqual([
-      'lost_read',
-      'lost_access',
-      1,
-      'failed',
-    ])
+    expect([
+      room.status.blockReason,
+      room.status.stopReason,
+      room.status.unsentCount,
+      room.status.saveState,
+    ]).toEqual(['lost_read', 'lost_access', 1, 'failed'])
     window.dispatchEvent(new Event('pagehide'))
     await room.close()
     expect(push).not.toHaveBeenCalled()
@@ -446,7 +465,11 @@ describe('collab room on a device', () => {
     room.doc.getText('t').insert(0, 'late')
     await idle()
 
-    expect([room.blocked, room.unsent, room.saveState]).toEqual(['lost_read', 0, 'clean'])
+    expect([room.status.blockReason, room.status.unsentCount, room.status.saveState]).toEqual([
+      'lost_read',
+      0,
+      'clean',
+    ])
   })
 
   it('a change from a session the server closed is kept aside and the tab asks to be rebuilt', async () => {
@@ -458,7 +481,7 @@ describe('collab room on a device', () => {
     room.doc.getText('t').insert(0, 'after the quarantine')
     await room.flush()
 
-    expect([room.stopped, room.needsRebuild, room.saveState]).toEqual([
+    expect([room.status.stopReason, room.status.isReopenNeeded, room.status.saveState]).toEqual([
       'client_closed',
       true,
       'failed',
@@ -475,7 +498,11 @@ describe('collab room on a device', () => {
     room.doc.getText('t').insert(0, 'typed before the switch')
     await room.flush()
 
-    expect([room.stopped, room.saveState, room.canWrite]).toEqual(['disabled', 'failed', false])
+    expect([room.status.stopReason, room.status.saveState, room.status.canWrite]).toEqual([
+      'disabled',
+      'failed',
+      false,
+    ])
     expect((await kept.store.recovery('D')).map((copy) => copy.reason)).toEqual(['disabled'])
   })
 
@@ -486,7 +513,7 @@ describe('collab room on a device', () => {
 
     await room.pull()
 
-    expect([room.stopped, room.canWrite]).toEqual(['disabled', false])
+    expect([room.status.stopReason, room.status.canWrite]).toEqual(['disabled', false])
   })
 
   it('a tab whose suspect report is answered that collaboration is off stops', async () => {
@@ -501,7 +528,11 @@ describe('collab room on a device', () => {
     await room.pull()
 
     await vi.waitFor(() =>
-      expect([server.judge.reports, room.stopped, room.canWrite]).toEqual([[1], 'disabled', false]),
+      expect([server.judge.reports, room.status.stopReason, room.status.canWrite]).toEqual([
+        [1],
+        'disabled',
+        false,
+      ]),
     )
   })
 
@@ -515,7 +546,11 @@ describe('collab room on a device', () => {
     await room.flush()
     server.access.refuse = null
 
-    expect([room.stopped, room.needsRebuild, room.paused]).toEqual(['document_full', true, null])
+    expect([room.status.stopReason, room.status.isReopenNeeded, room.status.pauseReason]).toEqual([
+      'document_full',
+      true,
+      null,
+    ])
     expect((await kept.store.recovery('D')).map((copy) => copy.reason)).toEqual(['document_full'])
     expect(text(await join(server.endpoints(), { device: kept }))).toBe('')
   })
@@ -524,26 +559,26 @@ describe('collab room on a device', () => {
     const server = fakeServer()
     server.counted.state = 4 * 2 ** 20
     const room = await join(server.endpoints())
-    const opened = room.atLimit
+    const opened = room.status.isAtLimit
     let changeCount = 0
     room.onChange(() => changeCount++)
 
     server.counted.state = null
     await room.pull()
 
-    expect([opened, room.atLimit, changeCount > 0]).toEqual([true, false, true])
+    expect([opened, room.status.isAtLimit, changeCount > 0]).toEqual([true, false, true])
   })
 
   it('a document is at its limit once its saved changes fill what its state leaves', async () => {
     const server = fakeServer()
     server.counted.state = 4 * 2 ** 20 - 10
     const room = await join(server.endpoints())
-    const opened = room.atLimit
+    const opened = room.status.isAtLimit
     room.doc.getText('t').insert(0, 'more than ten bytes')
     await room.flush()
     await room.pull()
 
-    expect([opened, room.atLimit]).toEqual([false, true])
+    expect([opened, room.status.isAtLimit]).toEqual([false, true])
   })
 
   it('a rebuild leaves no quarantined change in the device copy', async () => {
@@ -578,11 +613,11 @@ describe('collab room on a device', () => {
 
     const room = await join(server.endpoints(), { device: kept })
 
-    expect([text(room), room.unsent, (await kept.store.recovery('D'))[0]?.reason]).toEqual([
-      '',
-      0,
-      'lineage',
-    ])
+    expect([
+      text(room),
+      room.status.unsentCount,
+      (await kept.store.recovery('D'))[0]?.reason,
+    ]).toEqual(['', 0, 'lineage'])
   })
 
   it('without a device store the tab stops editing while offline and resumes once back', async () => {
@@ -593,11 +628,19 @@ describe('collab room on a device', () => {
     server.access.online = false
 
     await vi.advanceTimersByTimeAsync(1000)
-    expect([room.blocked, room.unsent, room.onDevice]).toEqual(['offline', 1, false])
+    expect([room.status.blockReason, room.status.unsentCount, room.status.isKeptOnDevice]).toEqual([
+      'offline',
+      1,
+      false,
+    ])
     server.access.online = true
     await vi.advanceTimersByTimeAsync(31_000)
 
-    expect([room.blocked, room.saveState, server.rows.length]).toEqual([null, 'clean', 1])
+    expect([room.status.blockReason, room.status.saveState, server.rows.length]).toEqual([
+      null,
+      'clean',
+      1,
+    ])
   })
 
   it('work held offline is sent on the first poll that reaches the server, not after a long retry wait', async () => {
@@ -607,7 +650,7 @@ describe('collab room on a device', () => {
     server.access.online = false
     room.doc.getText('t').insert(0, 'typed offline')
     await vi.advanceTimersByTimeAsync(0)
-    expect(room.unsent).toBe(1)
+    expect(room.status.unsentCount).toBe(1)
 
     vi.spyOn(Math, 'random').mockReturnValue(1)
     try {
@@ -618,7 +661,11 @@ describe('collab room on a device', () => {
       vi.mocked(Math.random).mockRestore()
     }
 
-    expect([room.unsent, room.saveState, server.rows.length]).toEqual([0, 'clean', 1])
+    expect([room.status.unsentCount, room.status.saveState, server.rows.length]).toEqual([
+      0,
+      'clean',
+      1,
+    ])
   })
 
   it('asks the browser to keep this site’s data once unsent work is held offline', async () => {
@@ -635,7 +682,7 @@ describe('collab room on a device', () => {
       room.doc.getText('t').insert(0, 'held')
       await vi.advanceTimersByTimeAsync(0)
 
-      expect([persist.mock.calls.length, room.blocked]).toEqual([1, null])
+      expect([persist.mock.calls.length, room.status.blockReason]).toEqual([1, null])
     } finally {
       vi.unstubAllGlobals()
     }
@@ -655,17 +702,22 @@ describe('collab room on a device', () => {
 
       const second = await join(server.endpoints(), { device: kept })
       await idle()
-      const seen = [second.unsent, second.othersUnsent, second.saveState, text(second)]
+      const seen = [
+        second.status.unsentCount,
+        second.status.othersUnsentCount,
+        second.status.saveState,
+        text(second),
+      ]
       expect(seen).toEqual([0, 1, 'unsaved', ''])
 
       slow.release()
       await first.flush()
       await idle()
-      expect([second.othersUnsent, second.saveState, first.saveState]).toEqual([
-        0,
-        'clean',
-        'clean',
-      ])
+      expect([
+        second.status.othersUnsentCount,
+        second.status.saveState,
+        first.status.saveState,
+      ]).toEqual([0, 'clean', 'clean'])
     } finally {
       vi.unstubAllGlobals()
     }
@@ -691,7 +743,12 @@ describe('collab room on a device', () => {
       await vi.advanceTimersByTimeAsync(60_000)
       await idle()
 
-      const seen = [text(second), server.rows.length, second.othersUnsent, second.saveState]
+      const seen = [
+        text(second),
+        server.rows.length,
+        second.status.othersUnsentCount,
+        second.status.saveState,
+      ]
       expect(seen).toEqual(['left behind', 1, 0, 'clean'])
     } finally {
       vi.unstubAllGlobals()
@@ -789,13 +846,18 @@ describe('collab room on a device', () => {
       await room.close()
 
       const copies = await kept.store.recovery('D')
-      const seen = [copies.length, copies[0]?.reason, room.blocked, room.copiesKept]
+      const seen = [
+        copies.length,
+        copies[0]?.reason,
+        room.status.blockReason,
+        room.status.keptCopyCount,
+      ]
       expect(seen).toEqual([1, 'lost_access', 'lost_edit', 1])
       expect(await kept.store.sessions('D')).toEqual([])
       expect(push).not.toHaveBeenCalled()
       const next = await join(server.endpoints(), { device: kept })
       await idle()
-      expect([text(next), next.unsent]).toEqual(['', 0])
+      expect([text(next), next.status.unsentCount]).toEqual(['', 0])
     } finally {
       vi.unstubAllGlobals()
     }
@@ -808,7 +870,12 @@ describe('collab room on a device', () => {
 
     await room.loseAccess('lost_edit')
 
-    const seen = [room.blocked, room.stopped, room.copiesKept, room.saveState]
+    const seen = [
+      room.status.blockReason,
+      room.status.stopReason,
+      room.status.keptCopyCount,
+      room.status.saveState,
+    ]
     expect(seen).toEqual([null, null, 0, 'clean'])
     expect(await kept.store.recovery('D')).toEqual([])
   })
@@ -819,12 +886,16 @@ describe('collab room on a device', () => {
     const room = await join(server.endpoints(), { device: kept })
 
     await room.loseAccess('lost_edit')
-    expect(room.canWrite).toBe(false)
+    expect(room.status.canWrite).toBe(false)
     await room.regainAccess(() => true)
     room.doc.getText('t').insert(0, 'typed again')
     await room.flush()
 
-    expect([room.canWrite, room.blocked, server.rows.length]).toEqual([true, null, 1])
+    expect([room.status.canWrite, room.status.blockReason, server.rows.length]).toEqual([
+      true,
+      null,
+      1,
+    ])
   })
 
   it('a clean tab shut for reading is blocked for it at its next refused pull', async () => {
@@ -836,7 +907,11 @@ describe('collab room on a device', () => {
     server.access.refuse = reply(403, { collab: 'forbidden' })
     await room.pull()
 
-    const seen = [room.blocked, room.canWrite, (await kept.store.recovery('D')).length]
+    const seen = [
+      room.status.blockReason,
+      room.status.canWrite,
+      (await kept.store.recovery('D')).length,
+    ]
     expect(seen).toEqual(['lost_read', false, 0])
   })
 
@@ -861,7 +936,11 @@ describe('collab room on a device', () => {
       await idle()
       await second.flush()
 
-      expect([text(second), server.rows.length, second.unsent]).toEqual(['left behind', 1, 0])
+      expect([text(second), server.rows.length, second.status.unsentCount]).toEqual([
+        'left behind',
+        1,
+        0,
+      ])
     } finally {
       vi.unstubAllGlobals()
     }
@@ -880,7 +959,7 @@ describe('collab room on a device', () => {
     slow.release()
     await Promise.all([room.regainAccess(() => true), vi.advanceTimersByTimeAsync(3000)])
 
-    const seen = [room.canWrite, room.blocked, server.rows.length]
+    const seen = [room.status.canWrite, room.status.blockReason, server.rows.length]
     expect([...seen, (await kept.store.recovery('D')).length]).toEqual([true, null, 1, 0])
   })
 
@@ -898,7 +977,7 @@ describe('collab room on a device', () => {
     slow.release()
     await Promise.all([room.regainAccess(() => true), vi.advanceTimersByTimeAsync(3000)])
 
-    const seen = [room.canWrite, room.blocked, server.rows.length]
+    const seen = [room.status.canWrite, room.status.blockReason, server.rows.length]
     expect([...seen, (await kept.store.recovery('D')).length]).toEqual([false, 'lost_edit', 0, 1])
   })
 
@@ -911,7 +990,7 @@ describe('collab room on a device', () => {
     room.doc.getText('t').insert(0, 'on its way')
     await vi.advanceTimersByTimeAsync(0)
     const seen: boolean[] = []
-    room.onChange(() => seen.push(room.canWrite))
+    room.onChange(() => seen.push(room.status.canWrite))
 
     void room.loseAccess('lost_edit')
 
@@ -938,7 +1017,7 @@ describe('collab room on a device', () => {
     await room.flush()
 
     const next = await join(server.endpoints())
-    const seen = [text(next), !!next.doc.store.pendingStructs, room.unsent]
+    const seen = [text(next), !!next.doc.store.pendingStructs, room.status.unsentCount]
     expect(seen).toEqual(['sent window after', false, 0])
     expect(await kept.store.recovery('D')).toEqual([])
   })
@@ -964,7 +1043,7 @@ describe('collab room on a device', () => {
       Y.applyUpdate(readable, copies[0].state!)
       const seen = [
         copies.length,
-        room.blocked,
+        room.status.blockReason,
         server.rows.length,
         readable.getText('t').toString(),
       ]
@@ -972,7 +1051,7 @@ describe('collab room on a device', () => {
       server.access.refuse = null
       const next = await join(server.endpoints(), { device: kept })
       await idle()
-      expect([text(next), next.unsent]).toEqual(['saved', 0])
+      expect([text(next), next.status.unsentCount]).toEqual(['saved', 0])
     } finally {
       vi.unstubAllGlobals()
     }
@@ -991,7 +1070,7 @@ describe('collab room on a device', () => {
     await room.loseAccess('lost_edit')
     await idle()
 
-    expect([room.canWrite, room.blocked]).toEqual([false, null])
+    expect([room.status.canWrite, room.status.blockReason]).toEqual([false, null])
   })
 
   it('a tab opened without the right to edit stays read-only when access comes back, as the server gave it no session', async () => {
@@ -1004,7 +1083,7 @@ describe('collab room on a device', () => {
     server.access.canWrite = true
     await room.regainAccess(() => true)
 
-    expect([room.canWrite, room.blocked]).toEqual([false, null])
+    expect([room.status.canWrite, room.status.blockReason]).toEqual([false, null])
   })
 
   it('a tab shut while it reads the work a closed tab left takes none of it, which stays for a later tab', async () => {
@@ -1032,7 +1111,7 @@ describe('collab room on a device', () => {
       gate.resolve()
       await idle()
 
-      expect([text(second), second.unsent, server.rows.length]).toEqual(['', 0, 0])
+      expect([text(second), second.status.unsentCount, server.rows.length]).toEqual(['', 0, 0])
       const next = await join(server.endpoints(), { device: kept })
       await idle()
       expect(text(next)).toBe('left behind')
@@ -1052,7 +1131,11 @@ describe('collab room on a device', () => {
     await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
     await room.regainAccess(() => true)
 
-    expect([room.canWrite, room.blocked, room.stopped]).toEqual([false, 'lost_edit', 'lost_access'])
+    expect([room.status.canWrite, room.status.blockReason, room.status.stopReason]).toEqual([
+      false,
+      'lost_edit',
+      'lost_access',
+    ])
   })
 
   it('a clean tab whose access comes back takes on none of the work another shut tab kept as a copy', async () => {
@@ -1076,7 +1159,7 @@ describe('collab room on a device', () => {
       await idle()
       await second.flush()
 
-      const seen = [text(second), server.rows.length, second.canWrite]
+      const seen = [text(second), server.rows.length, second.status.canWrite]
       expect([...seen, (await kept.store.recovery('D')).length]).toEqual(['', 0, true, 1])
     } finally {
       vi.unstubAllGlobals()
@@ -1091,7 +1174,9 @@ describe('collab room on a device', () => {
 
     await room.loseAccess('lost_edit')
 
-    expect([server.rows.length, room.unsent, room.copiesKept]).toEqual([1, 0, 0])
+    expect([server.rows.length, room.status.unsentCount, room.status.keptCopyCount]).toEqual([
+      1, 0, 0,
+    ])
     expect(await kept.store.recovery('D')).toEqual([])
   })
 
@@ -1178,7 +1263,11 @@ describe('collab room on a device', () => {
 
     await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
 
-    expect([room.copyFailed, room.copiesKept, room.saveState]).toEqual([true, 0, 'failed'])
+    expect([room.status.hasCopyFailed, room.status.keptCopyCount, room.status.saveState]).toEqual([
+      true,
+      0,
+      'failed',
+    ])
   })
 
   it('closing a tab while it is shut for a lost right waits, sends no keepalive and leaves nothing for a later tab', async () => {
@@ -1285,7 +1374,11 @@ describe('collab room on a device', () => {
     void room.loseAccess('lost_edit')
     await Promise.all([room.loseAccess('lost_read'), vi.advanceTimersByTimeAsync(3000)])
 
-    const seen = [room.blocked, (await kept.store.recovery('D')).length, room.copiesKept]
+    const seen = [
+      room.status.blockReason,
+      (await kept.store.recovery('D')).length,
+      room.status.keptCopyCount,
+    ]
     expect(seen).toEqual(['lost_read', 1, 1])
   })
 
@@ -1300,7 +1393,11 @@ describe('collab room on a device', () => {
     void room.loseAccess('lost_read')
     await Promise.all([room.loseAccess('lost_edit'), vi.advanceTimersByTimeAsync(3000)])
 
-    const seen = [room.blocked, (await kept.store.recovery('D')).length, room.copiesKept]
+    const seen = [
+      room.status.blockReason,
+      (await kept.store.recovery('D')).length,
+      room.status.keptCopyCount,
+    ]
     expect(seen).toEqual(['lost_read', 1, 1])
   })
 })

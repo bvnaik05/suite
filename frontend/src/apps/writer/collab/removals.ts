@@ -1,5 +1,12 @@
-import { ADOPT, APPLIED_UPDATE, MERGED_UPDATE, type CollabRoom } from '@suite/collab-client'
 import * as Y from 'yjs'
+
+import {
+  ADOPT,
+  APPLIED_UPDATE,
+  MERGED_UPDATE,
+  type CollabRoom,
+  type RoomStatus,
+} from '@/platform/collab'
 
 import { BODY_FIELD } from './field'
 
@@ -46,12 +53,16 @@ export type Removal =
     }
   | { kind: 'node'; name: string; attrs: Record<string, unknown>; key?: string }
 
+interface WritingStatus {
+  readonly status: Pick<RoomStatus, 'canWrite'>
+}
+
 /**
  * Types back what the room's pulled rows removed of its work, or hands it to `report`
  * when there's no single place or the room can't write. Returns a stop function.
  */
 export function watchRemovals(
-  room: Pick<CollabRoom, 'doc' | 'ownClients' | 'canWrite' | 'onChange'>,
+  room: Pick<CollabRoom, 'doc' | 'ownClients' | 'onChange'> & WritingStatus,
   report: (removals: Removal[]) => void,
 ) {
   const found: Removal[] = []
@@ -84,8 +95,8 @@ export function watchRemovals(
 }
 
 // Returns the removals it couldn't type back
-function typeBackAll(room: Pick<CollabRoom, 'doc' | 'canWrite'>, removals: Removal[]) {
-  if (!room.canWrite) {
+function typeBackAll(room: Pick<CollabRoom, 'doc'> & WritingStatus, removals: Removal[]) {
+  if (!room.status.canWrite) {
     return removals
   }
 

@@ -1,6 +1,5 @@
 import threading
 import uuid
-from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -10,9 +9,8 @@ from suite import drive
 from suite.composition import content as routes
 from suite.drive._core.access import grant
 from suite.drive._core.principals import Principals
-from suite.suite_core.content import capacity, documents, scheduling
+from suite.suite_core.content import capacity, jobs, scheduling
 from suite.suite_core.content.stage import PIECE_MAX
-from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
     OUTSIDER,
     READER,
@@ -160,18 +158,16 @@ class TestWriterCollabStage(CollabCase):
         self.assertEqual(self.push(node, sid, client_id, 1, over_cap), (413, {"collab": "too_large"}))
         self.assertEqual(self.push(node, sid, client_id, 1, at_cap)[0], 200)
 
-    def test_a_change_over_the_apps_declared_cap_is_malformed(self):
+    def test_a_change_over_the_layers_cap_is_malformed(self):
         self.set_mode("on")
         node = self.new_document()
         sid, client_id = self.start_session(node)
         payload = self.typed_update(client_id, 1, "abc")
 
-        smaller = replace(writer_content.SPEC, max_change=len(payload) - 1)
-        with patch.object(writer_content, "SPEC", smaller):
+        with patch.object(capacity, "CHANGE_MAX", len(payload) - 1):
             self.assertEqual(self.push(node, sid, client_id, 1, payload), (400, {"collab": "malformed"}))
 
-        at_cap = replace(writer_content.SPEC, max_change=len(payload))
-        with patch.object(writer_content, "SPEC", at_cap):
+        with patch.object(capacity, "CHANGE_MAX", len(payload)):
             self.assertEqual(self.push(node, sid, client_id, 1, payload)[0], 200)
 
     def test_a_change_sent_whole_over_what_the_database_takes_is_malformed(self):
@@ -308,7 +304,7 @@ class TestWriterCollabStage(CollabCase):
         frappe.db.commit()
 
         with patch.object(scheduling, "enqueue"):
-            documents.sweep()
+            jobs.sweep()
 
         self.assertEqual(
             self.push_staged(node, sid, client_id, change, old), (409, {"collab": "stage_incomplete"})
@@ -343,7 +339,7 @@ class TestWriterCollabStage(CollabCase):
                 self.assertEqual(self.put_piece(node, stage_id, index, body)[0], 200)
 
         with patch.object(scheduling, "enqueue"):
-            documents.sweep()
+            jobs.sweep()
 
         pushed = [
             self.push_staged(node, sid, client_id, change, stage_id)[0]

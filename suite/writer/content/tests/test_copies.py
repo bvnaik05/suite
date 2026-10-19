@@ -7,7 +7,7 @@ from unittest.mock import patch
 import frappe
 
 from suite.composition import content as routes
-from suite.suite_core.content import copies, documents, scheduling
+from suite.suite_core.content import copies, jobs, scheduling
 from suite.suite_core.content.stage import PIECE_MAX
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
@@ -31,9 +31,16 @@ class TestReadableCopies(CheckpointCase):
 
     def install(self, rev: int, html: str, **render) -> str:
         fields = {"lineage": self.doc.lineage, "q_epoch": int(self.doc.q_epoch), **render}
-        return copies.install(writer_content.ADAPTER, self.doc.id, rev, html=html, **fields)
+        return copies.install(
+            writer_content.APP,
+            self.doc.id,
+            rev,
+            html=html,
+            html_copy=writer_content.SPEC.readable_copy,
+            **fields,
+        )
 
-    def copy_field(self) -> str:
+    def html_field(self) -> str:
         return frappe.db.get_value("Writer Document", {"node": self.node}, "html") or ""
 
     def evidence(self) -> list[tuple[str, str, bytes]]:
@@ -57,22 +64,22 @@ class TestReadableCopies(CheckpointCase):
     def test_a_render_of_the_head_becomes_the_documents_copy(self):
         self.assertEqual(self.install(2, "<p>one two</p>"), "installed")
 
-        self.assertEqual(self.copy_field(), "<p>one two</p>")
+        self.assertEqual(self.html_field(), "<p>one two</p>")
         self.assertEqual(self.kept_copies(), [(2, "<p>one two</p>")])
 
     def test_a_render_is_checked_against_the_document_at_its_own_rev(self):
         self.assertEqual(self.install(1, "<p>one</p>"), "installed")
-        self.assertEqual(self.copy_field(), "<p>one</p>")
+        self.assertEqual(self.html_field(), "<p>one</p>")
 
         self.assertEqual(self.install(2, "<p>one</p>"), "refused")
-        self.assertEqual(self.copy_field(), "<p>one</p>")
+        self.assertEqual(self.html_field(), "<p>one</p>")
 
     def test_the_copy_only_moves_forward(self):
         self.install(2, "<p>one two</p>")
 
         self.assertEqual(self.install(1, "<p>one</p>"), "stale")
         self.assertEqual(self.install(2, "<p>one two!</p>"), "stale")
-        self.assertEqual(self.copy_field(), "<p>one two</p>")
+        self.assertEqual(self.html_field(), "<p>one two</p>")
 
     def test_a_render_of_another_log_or_from_before_a_quarantine_is_stale(self):
         stale_renders = [
@@ -84,21 +91,21 @@ class TestReadableCopies(CheckpointCase):
                 self.assertEqual(self.install(2, "<p>one two</p>", **render), "stale")
 
         self.assertEqual(self.install(3, "<p>one two</p>"), "stale")
-        self.assertEqual(self.copy_field(), "")
+        self.assertEqual(self.html_field(), "")
 
     def test_a_render_missing_text_is_kept_as_evidence_and_never_published(self):
         alerts = self.alerts()
 
         self.assertEqual(self.install(2, "<p>one</p>"), "refused")
 
-        self.assertEqual(self.copy_field(), "")
+        self.assertEqual(self.html_field(), "")
         self.assertEqual(self.evidence(), [("system", "copy_refused", b"<p>one</p>")])
         self.assertEqual(self.alerts(), alerts + 1)
 
     def test_markup_a_browser_would_run_is_taken_out_before_the_copy_is_published(self):
         self.install(2, '<p onclick="steal()">one two</p><script>steal()</script>')
 
-        self.assertEqual(self.copy_field(), "<p>one two</p>")
+        self.assertEqual(self.html_field(), "<p>one two</p>")
 
     def test_a_body_from_before_the_log_is_kept_quietly_when_the_first_copy_replaces_it(self):
         frappe.db.set_value(
@@ -122,7 +129,7 @@ class TestReadableCopies(CheckpointCase):
 
         self.assertEqual(self.install(2, "<p>one two</p>"), "installed")
 
-        self.assertEqual(self.copy_field(), "<p>one two</p>")
+        self.assertEqual(self.html_field(), "<p>one two</p>")
         self.assertEqual(self.evidence(), [("system", "copy_foreign", b"<p>foreign</p>")])
         self.assertEqual(self.alerts(), alerts + 1)
 
@@ -157,7 +164,7 @@ class TestReadableCopies(CheckpointCase):
 
         self.install(4, "<p>one two three four</p>")
         self.age_copy(3600)
-        self.assertFalse(copies.wanted(writer_content.ADAPTER, self.doc.id))
+        self.assertFalse(copies.wanted(writer_content.APP, self.doc.id))
 
 
 class TestStagedRenders(CheckpointCase):
@@ -189,7 +196,7 @@ class TestStagedRenders(CheckpointCase):
     def submit(self, stage_id: str) -> tuple[int, dict]:
         with patch.object(scheduling, "enqueue") as enqueue:
             response = call_route(
-                routes.projection_post, self.node, body=json.dumps({"stage_id": stage_id}).encode()
+                routes.html_post, self.node, body=json.dumps({"stage_id": stage_id}).encode()
             )
 
         self.queued = enqueue.call_count
@@ -202,11 +209,11 @@ class TestStagedRenders(CheckpointCase):
         )
         return [int(rev) for (rev,) in rows]
 
-    def copy_field(self) -> str:
+    def html_field(self) -> str:
         return frappe.db.get_value("Writer Document", {"node": self.node}, "html") or ""
 
     def check(self):
-        documents.check_render(writer_content.ADAPTER, self.doc.id)
+        jobs.check_render(writer_content.APP, self.doc.id)
 
     def test_a_submitted_render_is_queued_and_its_check_makes_it_the_copy(self):
         self.assertEqual(self.submit(self.stage_render(2, b"<p>one two</p>")), (202, {"render": "queued"}))
@@ -214,7 +221,7 @@ class TestStagedRenders(CheckpointCase):
 
         self.check()
 
-        self.assertEqual(self.copy_field(), "<p>one two</p>")
+        self.assertEqual(self.html_field(), "<p>one two</p>")
         self.assertEqual(self.staged_revs(), [])
 
     def test_a_newer_render_replaces_an_older_one_waiting(self):
@@ -229,12 +236,18 @@ class TestStagedRenders(CheckpointCase):
 
         self.check()
 
-        self.assertEqual(self.copy_field(), "<p>one</p>")
+        self.assertEqual(self.html_field(), "<p>one</p>")
         self.assertEqual(self.staged_revs(), [2])
 
     def test_a_render_that_cant_become_the_copy_is_answered_stale_and_dropped(self):
         copies.install(
-            writer_content.ADAPTER, self.doc.id, 1, self.doc.lineage, int(self.doc.q_epoch), "<p>one</p>"
+            writer_content.APP,
+            self.doc.id,
+            1,
+            self.doc.lineage,
+            int(self.doc.q_epoch),
+            "<p>one</p>",
+            writer_content.SPEC.readable_copy,
         )
         stale_renders = [
             {"rev": 1},
@@ -258,7 +271,7 @@ class TestStagedRenders(CheckpointCase):
     def test_a_render_staged_in_someone_elses_session_cant_be_submitted(self):
         stage_id = self.stage_render(2, b"<p>one two</p>")
         frappe.db.sql(
-            "UPDATE `__writer_content_session` SET `principal` = %s WHERE `sid` = %s", (OUTSIDER, self.sid)
+            "UPDATE `__writer_content_session` SET `user` = %s WHERE `sid` = %s", (OUTSIDER, self.sid)
         )
         frappe.db.commit()
 
@@ -293,7 +306,7 @@ class TestStagedRenders(CheckpointCase):
         frappe.db.commit()
 
         with patch.object(scheduling, "enqueue"):
-            documents.sweep()
+            jobs.sweep()
 
         self.assertEqual(self.submit(stage_id), (202, {"render": "queued"}))
 
@@ -301,13 +314,13 @@ class TestStagedRenders(CheckpointCase):
         self.submit(self.stage_render(2, b"<p>one two</p>"))
 
         with patch.object(scheduling, "enqueue") as enqueue:
-            documents.sweep()
+            jobs.sweep()
 
-        render_checks = [call for call in enqueue.call_args_list if call.args[0] == documents.CHECK_RENDER]
+        render_checks = [call for call in enqueue.call_args_list if call.args[0] == jobs.CHECK_RENDER]
         self.assertIn(
             (
-                (documents.CHECK_RENDER, f"suite-collab-render-writer-{self.doc.id}"),
-                {"adapter": "writer", "doc_id": self.doc.id},
+                (jobs.CHECK_RENDER, f"suite-collab-render-writer-{self.doc.id}"),
+                {"app": "writer", "doc_id": self.doc.id},
             ),
             [(call.args, call.kwargs) for call in render_checks],
         )

@@ -1,8 +1,10 @@
-import type { CollabRoom } from '@suite/collab-client'
+import type { CollabRoom, RoomStatus } from '@/platform/collab'
 
 const WAIT_MS = 10_000
 
-type SavingRoom = Pick<CollabRoom, 'flush' | 'onChange' | 'saveState' | 'blocked' | 'paused'>
+type SavingRoom = Pick<CollabRoom, 'flush' | 'onChange'> & {
+  readonly status: Pick<RoomStatus, 'saveState' | 'blockReason' | 'pauseReason'>
+}
 
 // Resolves whether every edit on this device was saved before the wait ran out
 function whenSaved(room: SavingRoom, waitMs: number) {
@@ -17,8 +19,9 @@ function whenSaved(room: SavingRoom, waitMs: number) {
     }
 
     function check() {
-      if (room.saveState === 'clean' || room.saveState === 'failed') {
-        finish(room.saveState === 'clean')
+      const { saveState } = room.status
+      if (saveState === 'clean' || saveState === 'failed') {
+        finish(saveState === 'clean')
       }
     }
 
@@ -27,15 +30,16 @@ function whenSaved(room: SavingRoom, waitMs: number) {
 }
 
 function notSavedReason(room: SavingRoom) {
-  if (room.saveState === 'failed' || (room.blocked && room.blocked !== 'offline')) {
+  const { saveState, blockReason, pauseReason } = room.status
+  if (saveState === 'failed' || (blockReason && blockReason !== 'offline')) {
     return 'No version was taken: your changes could not be saved.'
   }
 
-  if (room.blocked === 'offline' || !navigator.onLine) {
+  if (blockReason === 'offline' || !navigator.onLine) {
     return "No version was taken: you're offline, so your changes aren't saved yet."
   }
 
-  if (room.paused) {
+  if (pauseReason) {
     return 'No version was taken: saving is paused.'
   }
 

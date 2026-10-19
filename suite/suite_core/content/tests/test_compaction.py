@@ -7,7 +7,7 @@ from frappe.tests import UnitTestCase
 from suite.suite_core.content import compaction
 from suite.suite_core.content.compaction import CompactionFailed, compact, load_doc, same_content
 
-ROOTS = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
+PART_MAP = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
 
 
 def typing(seed: int, edits: int = 12, client_id: int = 7):
@@ -79,7 +79,7 @@ class TestCompaction(UnitTestCase):
     def test_rows_compact_into_the_text_that_was_typed(self):
         typed, rows = typing(seed=3)
 
-        compacted = compact(None, rows, ROOTS)
+        compacted = compact(None, rows, PART_MAP)
 
         self.assertTrue(compacted.integrated)
         self.assertEqual(text_of(compacted.state), typed)
@@ -87,19 +87,19 @@ class TestCompaction(UnitTestCase):
     def test_a_chained_compaction_equals_a_direct_one(self):
         _typed, rows = typing(seed=5, edits=40)
 
-        first = compact(None, rows[:15], ROOTS)
-        second = compact(first.state, rows[15:30], ROOTS)
-        chained = compact(second.state, rows[30:], ROOTS)
-        direct = compact(None, rows, ROOTS)
+        first = compact(None, rows[:15], PART_MAP)
+        second = compact(first.state, rows[15:30], PART_MAP)
+        chained = compact(second.state, rows[30:], PART_MAP)
+        direct = compact(None, rows, PART_MAP)
 
-        self.assertTrue(same_content(chained.state, direct.state, ROOTS))
+        self.assertTrue(same_content(chained.state, direct.state, PART_MAP))
 
     def test_rows_out_of_order_still_compact_into_the_typed_text(self):
         # pycrdt leaves part of this shuffled history out of its first result
         typed, rows = typing(seed=0)
         random.Random(0).shuffle(rows)
 
-        compacted = compact(None, rows, ROOTS)
+        compacted = compact(None, rows, PART_MAP)
 
         self.assertTrue(compacted.report.get("short"))
         self.assertTrue(compacted.integrated)
@@ -109,17 +109,17 @@ class TestCompaction(UnitTestCase):
         typed, rows = typing(seed=3)
 
         with self.assertRaises(CompactionFailed) as failed:
-            compact(None, rows[:4] + rows[5:], ROOTS)
+            compact(None, rows[:4] + rows[5:], PART_MAP)
         self.assertEqual(failed.exception.reason, "missing_dependency")
 
-        compacted = compact(None, rows, ROOTS)
+        compacted = compact(None, rows, PART_MAP)
         self.assertEqual(text_of(compacted.state), typed)
 
     def test_another_pycrdt_version_is_refused(self):
         _typed, rows = typing(seed=3)
 
         with patch.object(pycrdt, "__version__", "0.12.26"), self.assertRaises(CompactionFailed) as failed:
-            compact(None, rows, ROOTS)
+            compact(None, rows, PART_MAP)
         self.assertEqual(failed.exception.reason, "kernel_version")
 
     def test_a_row_pycrdt_panics_on_fails_the_compaction(self):
@@ -132,7 +132,7 @@ class TestCompaction(UnitTestCase):
             raise Panic
 
         with patch.object(pycrdt.Doc, "apply_update", panics), self.assertRaises(CompactionFailed) as failed:
-            compact(None, rows, ROOTS)
+            compact(None, rows, PART_MAP)
         self.assertEqual(failed.exception.reason, "unreadable")
 
     def test_a_root_the_product_does_not_write_is_refused(self):
@@ -140,7 +140,7 @@ class TestCompaction(UnitTestCase):
         doc.get("elsewhere", type=pycrdt.Text).insert(0, "x")
 
         with self.assertRaises(CompactionFailed) as failed:
-            compact(None, [doc.get_update()], ROOTS)
+            compact(None, [doc.get_update()], PART_MAP)
         self.assertEqual(failed.exception.reason, "unknown_root")
 
     def test_deleting_content_shrinks_the_compacted_state(self):
@@ -148,10 +148,10 @@ class TestCompaction(UnitTestCase):
         fragment = doc.get("default", type=pycrdt.XmlFragment)
         text = fragment.children.append(pycrdt.XmlText())
         text.insert(0, "x" * 20_000)
-        full = compact(None, [doc.get_update()], ROOTS).state
+        full = compact(None, [doc.get_update()], PART_MAP).state
         del text[0:20_000]
 
-        emptied = compact(full, [doc.get_update()], ROOTS).state
+        emptied = compact(full, [doc.get_update()], PART_MAP).state
 
         self.assertLess(len(emptied), len(full) // 10)
 
@@ -159,7 +159,7 @@ class TestCompaction(UnitTestCase):
         typed, rows = typing(seed=3)
 
         with patch.object(pycrdt.Doc, "get_update", lambda self, state=None: b"\x00\x00"):
-            compacted = compact(None, rows, ROOTS)
+            compacted = compact(None, rows, PART_MAP)
 
         self.assertFalse(compacted.integrated)
         self.assertEqual(text_of(compacted.state), typed)
@@ -177,7 +177,7 @@ class TestCompaction(UnitTestCase):
             ("deleting one half", crafted(delete=(1, 2, 1))),
         ):
             with self.subTest(name), self.assertRaises(CompactionFailed) as failed:
-                compact(None, [typed, row], ROOTS)
+                compact(None, [typed, row], PART_MAP)
             self.assertEqual(failed.exception.reason, "cut_surrogate")
 
     def test_edits_beside_an_emoji_compact(self):
@@ -189,8 +189,8 @@ class TestCompaction(UnitTestCase):
 
         typing_after = crafted(insert=(2, 0, (1, 3), (1, 4), "x"))
         deleting = crafted(delete=(1, 2, 2))
-        after = compact(None, [typed, typing_after], ROOTS)
-        removed = compact(None, [typed, deleting], ROOTS)
+        after = compact(None, [typed, typing_after], PART_MAP)
+        removed = compact(None, [typed, deleting], PART_MAP)
 
         def text_in(state):
             loaded = load_doc([state])
@@ -204,7 +204,7 @@ class TestCompaction(UnitTestCase):
 
         with self.assertRaises(CompactionFailed) as failed:
             malformed = rows[-1] + b"\x00"
-            compact(None, [*rows, malformed], ROOTS)
+            compact(None, [*rows, malformed], PART_MAP)
         self.assertEqual(failed.exception.reason, "malformed_row")
 
     def test_a_result_any_check_disagrees_with_is_refused(self):
@@ -230,5 +230,5 @@ class TestCompaction(UnitTestCase):
 
             with self.subTest(reason), patch.object(compaction, target, disagreeing):
                 with self.assertRaises(CompactionFailed) as failed:
-                    compact(None, rows, ROOTS)
+                    compact(None, rows, PART_MAP)
                 self.assertEqual(failed.exception.reason, reason)

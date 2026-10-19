@@ -69,18 +69,18 @@ describe('collab room', () => {
     writer.doc.getText('t').insert(0, 'bad')
     await writer.flush()
     await reader.pull()
-    expect([text(reader), reader.needsRebuild]).toEqual(['bad', false])
+    expect([text(reader), reader.status.isReopenNeeded]).toEqual(['bad', false])
     server.quarantine(1)
     const heard = vi.fn()
     reader.onChange(heard)
 
     await reader.pull()
 
-    expect([reader.needsRebuild, heard.mock.calls.length > 0, server.epoch.sent.at(-1)]).toEqual([
-      true,
-      true,
-      0,
-    ])
+    expect([
+      reader.status.isReopenNeeded,
+      heard.mock.calls.length > 0,
+      server.epoch.sent.at(-1),
+    ]).toEqual([true, true, 0])
     server.calls.length = 0
     await reader.pull()
     expect(server.calls).toEqual([])
@@ -89,7 +89,7 @@ describe('collab room', () => {
     later.doc.getText('t').insert(0, 'ok ')
     await later.flush()
     await rebuilt.pull()
-    expect([text(rebuilt), rebuilt.needsRebuild, server.epoch.sent.at(-1)]).toEqual([
+    expect([text(rebuilt), rebuilt.status.isReopenNeeded, server.epoch.sent.at(-1)]).toEqual([
       'ok ',
       false,
       1,
@@ -144,7 +144,7 @@ describe('collab room', () => {
     const canWriteWhenTold: boolean[] = []
     reader.onChange(() => {
       if (isApplied) {
-        canWriteWhenTold.push(reader.canWrite)
+        canWriteWhenTold.push(reader.status.canWrite)
       }
     })
     const writer = await join(server.endpoints())
@@ -169,6 +169,10 @@ describe('collab room', () => {
     expect(text(first)).toContain('alpha ')
     expect(text(first)).toContain('beta ')
     expect(server.rows.map((row) => row.rev)).toEqual([1, 2])
-    expect([first.saveState, second.saveState, first.appliedThrough]).toEqual(['clean', 'clean', 2])
+    expect([first.status.saveState, second.status.saveState, first.appliedThrough]).toEqual([
+      'clean',
+      'clean',
+      2,
+    ])
   })
 })

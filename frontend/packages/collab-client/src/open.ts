@@ -23,7 +23,7 @@ interface DevicePick {
   openFailure: unknown
 }
 
-export async function openCollabRoom(options: OpenOptions): Promise<Opened> {
+export async function openRoom(options: OpenOptions): Promise<Opened> {
   const { endpoints, device } = options
 
   let openAnswer

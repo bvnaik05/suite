@@ -89,6 +89,7 @@ suite.suite_core.patches.move_blob_store_out_of_private
 suite.suite_core.patches.align_owner_with_user
 # Frappe's 25 MB per-file default is too small for Drive. Leaves a site's own value alone.
 suite.suite_core.patches.set_default_max_file_size
+suite.suite_core.patches.rename_collab_app_adapter_to_app
 suite.drive.patches.webdav_property_index
 # §9.2 redefined `preview_size` from a megabyte cutoff to pixels; resets any
 # value outside the pixel range to 512, idempotent, ahead of Build so its

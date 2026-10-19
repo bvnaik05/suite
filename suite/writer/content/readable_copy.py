@@ -16,7 +16,7 @@ class LinkTargets(HTMLParser):
         self.targets |= {value for name, value in attrs if name in ("href", "src") and value}
 
 
-def check_copy(state: bytes, html: str, text: str) -> bool:
+def is_html_complete(state: bytes, html: str, text: str) -> bool:
     """Whether `text` holds every visible character of `state` and `html` every link and image. The copy may
     hold more, since a mention or a list marker renders text the state keeps in an attribute."""
     doc: pycrdt.Doc = pycrdt.Doc()

@@ -50,10 +50,10 @@ class TestWriterCollabRooms(CollabCase):
         self.set_mode("on")
         node = self.new_document()
         self.open_document(node)
-        doc = routes.content.find(writer_content.ADAPTER, node)
-        before = routes.content.rooms(writer_content.ADAPTER, doc.id, doc.lineage)
+        doc = routes.content.find(writer_content.APP, node)
+        before = routes.content.rooms(writer_content.APP, doc.id, doc.lineage)
 
-        after = routes.content.rooms(writer_content.ADAPTER, doc.id, uuid.uuid4().hex)
+        after = routes.content.rooms(writer_content.APP, doc.id, uuid.uuid4().hex)
 
         self.assertFalse({*before["keys"]} & {*after["keys"]})
 
@@ -120,11 +120,11 @@ class TestWriterCollabRooms(CollabCase):
     def test_the_switch_takes_one_row_for_each_app_that_keeps_its_documents_in_the_layer(self):
         frappe.set_user("Administrator")
         settings = frappe.get_single("Suite Collab Settings")
-        settings.set("apps", [{"adapter": "spreadsheet", "mode": "on"}])
+        settings.set("apps", [{"app": "spreadsheet", "mode": "on"}])
         with self.assertRaisesRegex(frappe.ValidationError, "No app named spreadsheet"):
             settings.save()
 
         settings = frappe.get_single("Suite Collab Settings")
-        settings.set("apps", [{"adapter": "writer", "mode": "on"}, {"adapter": "writer", "mode": "off"}])
+        settings.set("apps", [{"app": "writer", "mode": "on"}, {"app": "writer", "mode": "off"}])
         with self.assertRaisesRegex(frappe.ValidationError, "writer has more than one row"):
             settings.save()

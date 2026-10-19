@@ -1,4 +1,3 @@
-import type { CollabRoom } from '@suite/collab-client'
 import { Editor } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -8,8 +7,10 @@ import { ref } from 'vue'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
+import type { CollabRoom } from '@/platform/collab'
+
 import { writerEditorExtensions } from '../editor-extensions'
-import { writerAdapter } from './adapter'
+import { writerBinding } from './binding'
 import { BODY_FIELD } from './field'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
@@ -34,13 +35,18 @@ function roomWith(...blocks: Y.XmlElement[]) {
   const doc = new Y.Doc()
   doc.getXmlFragment(BODY_FIELD).insert(0, blocks)
   const presence = { awareness: new Awareness(doc), peers: [], onChange: () => () => true }
-  return { doc, presence, restoreRev: 0, onChange: () => () => true } as unknown as CollabRoom
+  return {
+    doc,
+    presence,
+    status: { restoreRev: 0 },
+    onChange: () => () => true,
+  } as unknown as CollabRoom
 }
 
 function openEditor(room: CollabRoom, onFrozen: () => void) {
   const host = document.createElement('div')
   document.body.append(host)
-  const extensions = [Document, Paragraph, Text, ...writerAdapter.bind(room, onFrozen)]
+  const extensions = [Document, Paragraph, Text, ...writerBinding(room, onFrozen)]
   const editor = new Editor({ element: host, extensions })
   editors.push(editor)
   return editor
@@ -66,7 +72,7 @@ function openWriter(room: CollabRoom, onFrozen: () => void) {
     edited: ref(false),
     onCommentsPainted: () => {},
   })
-  const extensions = [...writerExtensions, ...writerAdapter.bind(room, onFrozen)]
+  const extensions = [...writerExtensions, ...writerBinding(room, onFrozen)]
   const editor = new Editor({ element: host, extensions })
   editors.push(editor)
   return editor

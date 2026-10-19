@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { CollabRoom } from '@suite/collab-client'
 import type { Editor } from '@tiptap/core'
 import { Badge, Button, dialog, Skeleton, toast } from 'frappe-ui'
 import {
@@ -45,8 +44,9 @@ import RecoveryPreview from '@/apps/writer/recovery/RecoveryPreview.vue'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
+import type { CollabRoom } from '@/platform/collab'
 
-import { frozenBanner, isKeptOnDevice, refusedSaveBanner } from './collabMessages'
+import { frozenBanner, isSafeOnDevice, refusedSaveBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import { downloadHTML } from './exports'
 import {
@@ -162,7 +162,7 @@ const {
 const writes = createWriteGate(
   props.session,
   async () => {
-    if (dirty.value || room.value?.unsent) {
+    if (dirty.value || room.value?.status.unsentCount) {
       retainRecovery()
     }
 
@@ -174,7 +174,7 @@ const writes = createWriteGate(
       console.error(error)
     }
 
-    if (!dirty.value && !room.value?.unsent) {
+    if (!dirty.value && !room.value?.status.unsentCount) {
       // Access came back within the bound, so nothing turned read-only
       if (!writes.writable.value) {
         toast.warning('Editing access changed. This document is now read-only.')
@@ -537,7 +537,7 @@ function discardedCopy() {
 
 function retainRecovery(): boolean {
   // The device store keeps a live tab's work, so a page copy would only repeat it
-  if (room.value && isKeptOnDevice(room.value)) {
+  if (room.value && isSafeOnDevice(room.value.status)) {
     return false
   }
 

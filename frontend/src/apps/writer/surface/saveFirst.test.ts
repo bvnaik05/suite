@@ -1,22 +1,25 @@
-import type { SaveState } from '@suite/collab-client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import type { RoomStatus } from '@/platform/collab'
 
 import { saveFirst } from './saveFirst'
 
 // A room whose save state the test moves, telling its listeners as a room does
-function fakeRoom(saveState: SaveState) {
+function fakeRoom(saveState: RoomStatus['saveState']) {
   const listeners = new Set<() => void>()
   const room = {
-    saveState,
-    blocked: null as 'offline' | 'signed_out' | null,
-    paused: null as string | null,
+    status: {
+      saveState,
+      blockReason: null as 'offline' | 'signed_out' | null,
+      pauseReason: null as string | null,
+    },
     flush: vi.fn(() => Promise.resolve()),
     onChange(listener: () => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    move(next: SaveState) {
-      room.saveState = next
+    move(next: RoomStatus['saveState']) {
+      room.status = { ...room.status, saveState: next }
       for (const listener of listeners) {
         listener()
       }
@@ -76,7 +79,7 @@ describe('saving before a named version', () => {
       vi.useFakeTimers()
       vi.stubGlobal('navigator', { onLine: why !== 'offline' })
       const room = fakeRoom('unsaved')
-      room.paused = why === 'paused' ? 'busy' : null
+      room.status = { ...room.status, pauseReason: why === 'paused' ? 'busy' : null }
       const saving = outcome(saveFirst(room, 1_000))
 
       await vi.advanceTimersByTimeAsync(999)

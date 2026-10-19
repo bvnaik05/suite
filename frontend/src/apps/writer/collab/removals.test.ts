@@ -1,4 +1,4 @@
-import { ADOPT, APPLIED_UPDATE, REMOTE, type CollabRoom } from '@suite/collab-client'
+import { REMOTE } from '@suite/collab-client'
 import {
   device,
   fakeLocks,
@@ -24,6 +24,7 @@ import {
   syncAll,
   type Tab,
 } from '@/apps/writer/collab/test-support'
+import { ADOPT, APPLIED_UPDATE, type CollabRoom } from '@/platform/collab'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
@@ -1254,7 +1255,7 @@ describe('a room watching for removals', () => {
     const [headingTab, typingTab] = tabs
     makeHeading(headingTab, 'defgh')
     typeQQ(typingTab, 'defgh')
-    typingTab.room.canWrite = false
+    typingTab.room.status = { canWrite: false }
 
     await sendInOrder(tabs, tabs)
 
@@ -1265,7 +1266,7 @@ describe('a room watching for removals', () => {
   it('stops watching once stopped', async () => {
     const tabs = await openTabs(threeParagraphs, 2)
     const [headingTab, typingTab] = tabs
-    typingTab.room.canWrite = false
+    typingTab.room.status = { canWrite: false }
     const stoppedReports: Removal[] = []
     watchRemovals(typingTab.room, (removals) => stoppedReports.push(...removals))()
     makeHeading(headingTab, 'defgh')

@@ -25,7 +25,7 @@ MEDIA_PATTERNS = (
 BARE_MEDIA_ID = re.compile(MEDIA_ID)
 
 
-def file_values(state: bytes) -> set[str]:
+def node_ids(state: bytes) -> set[str]:
     """The node ids the live element attributes of `state` name, never its tombstones."""
     _document, fragment = load(state)
     found: set[str] = set()
@@ -37,7 +37,7 @@ def file_values(state: bytes) -> set[str]:
     return found
 
 
-def rewrite_files(mapping: Mapping[str, str]) -> Callable[[str], str]:
+def value_rewriter(mapping: Mapping[str, str]) -> Callable[[str], str]:
     """How a stored value names a copied picture: a bare old id becomes the new id, and an embed URL is rewritten."""
     return lambda value: mapping[value] if value in mapping else remap_text(value, mapping)
 

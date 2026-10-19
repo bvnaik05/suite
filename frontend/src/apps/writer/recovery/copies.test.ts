@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as yjs from 'yjs'
 
-import { writerDeviceStore } from '@/apps/writer/collab'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { openSignedInDeviceStore } from '@/platform/collab'
 
 import {
   copyEntries,
@@ -16,9 +16,9 @@ import {
   type RecoveryCopy,
 } from './copies'
 
-vi.mock('@/apps/writer/collab', async (importOriginal) => {
-  const collab = await importOriginal<typeof import('@/apps/writer/collab')>()
-  return { ...collab, writerDeviceStore: vi.fn(collab.writerDeviceStore) }
+vi.mock('@/platform/collab', async (importOriginal) => {
+  const collab = await importOriginal<typeof import('@/platform/collab')>()
+  return { ...collab, openSignedInDeviceStore: vi.fn(collab.openSignedInDeviceStore) }
 })
 
 function bodyState(words: string) {
@@ -30,7 +30,7 @@ function bodyState(words: string) {
 }
 
 async function keepInStore(node: string, words: string, title: string) {
-  const store = (await writerDeviceStore())!
+  const store = (await openSignedInDeviceStore('writer'))!
   const update = bodyState(words)
   await store.saveSession({ doc: node, sid: 's', lineage: 'L', cid: 1, bound: true })
   const entry = { doc: node, sid: 's', seq: 1, bytes: update, sha: '' }
@@ -71,7 +71,7 @@ describe('Writer recovery copies', () => {
     expect(summary(copies)).toContainEqual(['node-1', 'Plan', 'QQ\nRR'])
     expect(textCopy.html).toContain('<strong>QQ</strong>')
     expect(copies.filter((copy) => copy.html.includes('src="/files/x.png"'))).toHaveLength(1)
-    const records = await (await writerDeviceStore())!.recovery('node-1')
+    const records = await (await openSignedInDeviceStore('writer'))!.recovery('node-1')
     expect(records.map((record) => record.reason)).toEqual(['restructure', 'restructure'])
   })
 
@@ -136,7 +136,7 @@ describe('Writer recovery copies', () => {
   })
 
   it('keeps a keyed loss again when a copy on the device cannot be read', async () => {
-    const store = (await writerDeviceStore())!
+    const store = (await openSignedInDeviceStore('writer'))!
     const bytes = new Uint8Array([1, 2, 3])
     const garbled = { doc: 'node-1', sid: 'g', seq: 0, bytes, sha: '', seenRev: 0 }
     await store.recover('node-1', ['g'], 'restructure', [garbled], {
@@ -156,14 +156,14 @@ describe('Writer recovery copies', () => {
   })
 
   it("says the text another edit removed couldn't be kept where the browser has no store", async () => {
-    vi.mocked(writerDeviceStore).mockResolvedValueOnce(null)
+    vi.mocked(openSignedInDeviceStore).mockResolvedValueOnce(null)
 
     const lost = [lostText('defgh', [{ offset: 2, text: 'QQ' }])]
     expect(await keepRemovedWork('node-1', 'Plan', lost)).toBe('unkept')
   })
 
   it("says the text another edit removed couldn't be kept when the store refuses it, keeping none", async () => {
-    const store = (await writerDeviceStore())!
+    const store = (await openSignedInDeviceStore('writer'))!
     vi.spyOn(store, 'recover').mockRejectedValueOnce(new Error('QuotaExceededError'))
 
     const lost = [lostText('defgh', [{ offset: 2, text: 'QQ' }])]
@@ -200,7 +200,7 @@ describe('Writer recovery copies', () => {
 
   it('lists the other copies when one record on the device cannot be read', async () => {
     await keepInStore('node-1', 'readable work', 'Plan')
-    const store = (await writerDeviceStore())!
+    const store = (await openSignedInDeviceStore('writer'))!
     const garbled = { doc: 'node-1', sid: 'g', seq: 1, bytes: new Uint8Array([1, 2, 3]), sha: '' }
     await store.saveSession({ doc: 'node-1', sid: 'g', lineage: 'L', cid: 2, bound: true })
     await store.recover('node-1', ['g'], 'schema', [garbled], {

@@ -10,7 +10,7 @@ from suite import drive
 from suite.composition import content as routes
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version
-from suite.suite_core.content import compaction, kernel, trimming
+from suite.suite_core.content import checker, compaction, trimming
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import WRITER, CheckpointCase, call_route, read_frame, read_open
 
@@ -22,14 +22,14 @@ class TestWriterTrimming(CheckpointCase):
         in_a_job.start()
         self.addCleanup(in_a_job.stop)
 
-    def pull(self, node: str, since: int) -> tuple[str, list[int]]:
-        pulled = call_route(lambda node: routes.updates_get(node, since=str(since)), node).get_data()
+    def pull(self, node: str, since_rev: int) -> tuple[str, list[int]]:
+        pulled = call_route(lambda node: routes.updates_get(node, since_rev=str(since_rev)), node).get_data()
         header, rows = read_frame(pulled)
         return header["state"], [rev for rev, _payload in rows]
 
     def trim(self, node: str):
         trimming.trim(
-            writer_content.ADAPTER, self.doc_row(node).id, writer_content.ROOTS, writer_content.KERNEL
+            writer_content.APP, self.doc_row(node).id, writer_content.PART_MAP, writer_content.CHECKER_BUILD
         )
 
     def rows_of(self, node: str) -> list[tuple[int, bytes]]:
@@ -198,7 +198,7 @@ class TestWriterTrimming(CheckpointCase):
         doc = self.doc_row(node)
         frappe.db.sql(
             """INSERT INTO `__writer_content_checkpoint`
-            (`doc_id`, `through_rev`, `chain`, `sha256`, `nbytes`, `gz`, `integrated`, `kernel_schema`, `report`, `created`)
+            (`doc_id`, `through_rev`, `chain`, `sha256`, `nbytes`, `gz`, `integrated`, `crdt_version`, `report`, `created`)
             VALUES (%s, 4, UNHEX(%s), UNHEX(%s), %s, UNHEX(%s), 0, %s, '{}', NOW(6))""",
             (
                 doc.id,
@@ -206,7 +206,7 @@ class TestWriterTrimming(CheckpointCase):
                 hashlib.sha256(full).hexdigest(),
                 len(full),
                 gzip.compress(full).hex(),
-                compaction.KERNEL,
+                compaction.CRDT_VERSION,
             ),
         )
         self.age_rows(node)
@@ -242,44 +242,44 @@ class TestWriterTrimming(CheckpointCase):
                 self.assertEqual(self.revs_of(node), [1, 2, 3])
                 self.assertEqual(frappe.db.count("Error Log", logged), 1)
 
-    def assert_kept_when_the_kernel_answers(self, answer, reason: str):
+    def assert_kept_when_the_checker_answers(self, answer, reason: str):
         node = self.compacted_document(["one ", "two ", "three"])
         self.age_rows(node)
         logged = self.alerted(reason)
 
-        with patch.object(kernel, "covers", side_effect=[answer]):
+        with patch.object(checker, "covers", side_effect=[answer]):
             self.trim(node)
 
         self.assertEqual(self.revs_of(node), [1, 2, 3])
         self.assertEqual(frappe.db.count("Error Log", logged), 1)
 
-    def test_a_kernel_that_disagrees_keeps_every_row(self):
-        self.assert_kept_when_the_kernel_answers(False, "kernel_not_held")
+    def test_a_checker_that_disagrees_keeps_every_row(self):
+        self.assert_kept_when_the_checker_answers(False, "checker_not_held")
 
-    def test_a_kernel_that_fails_keeps_every_row(self):
-        self.assert_kept_when_the_kernel_answers(kernel.KernelFailed("exit 1"), "kernel_failed")
+    def test_a_checker_that_fails_keeps_every_row(self):
+        self.assert_kept_when_the_checker_answers(checker.CheckerFailed("exit 1"), "checker_failed")
 
     def test_without_node_pycrdt_alone_decides(self):
         node = self.compacted_document(["one ", "two ", "three"])
         self.age_rows(node)
 
-        with patch.object(kernel, "usable_node", return_value=None):
+        with patch.object(checker, "usable_node", return_value=None):
             self.trim(node)
 
         self.assertEqual(self.revs_of(node), [3])
 
-    def test_with_node_the_kernel_checks_the_rows_that_go(self):
-        if not kernel.usable_node() or not writer_content.KERNEL.is_file():
-            self.skipTest("needs Node and the built kernel bundle")
+    def test_with_node_the_checker_checks_the_rows_that_go(self):
+        if not checker.usable_node() or not writer_content.CHECKER_BUILD.is_file():
+            self.skipTest("needs Node and the built checker bundle")
 
         node = self.compacted_document(["one ", "two ", "three"])
         self.age_rows(node)
         going = [payload for _rev, payload in self.rows_of(node)[:2]]
 
-        with patch.object(kernel, "covers", wraps=kernel.covers) as covers:
+        with patch.object(checker, "covers", wraps=checker.covers) as covers:
             self.trim(node)
 
-        covers.assert_called_once_with(writer_content.KERNEL, self.body_of(node), going)
+        covers.assert_called_once_with(writer_content.CHECKER_BUILD, self.body_of(node), going)
         self.assertEqual(self.revs_of(node), [3])
 
     def assert_nothing_deleted_when_changed_during_the_check(self, **values):
@@ -330,24 +330,24 @@ class TestWriterTrimming(CheckpointCase):
         self.assertEqual(texts, ["one ", "one two three"])
 
     def test_a_killed_run_resumes_after_the_last_document_it_finished(self):
-        cursor = trimming.cursor_key(writer_content.ADAPTER)
+        cursor = trimming.cursor_key(writer_content.APP)
         frappe.cache.delete_value(cursor)
         self.addCleanup(frappe.cache.delete_value, cursor)
         first, second = sorted(self.doc_row(self.compacted_document(["one ", "two"])).id for _ in range(2))
 
-        def killed_at_second(adapter, doc_id, *args):
+        def killed_at_second(app, doc_id, *args):
             if doc_id == second:
                 raise SystemExit
 
             return True
 
         with patch.object(trimming, "trim", side_effect=killed_at_second), self.assertRaises(SystemExit):
-            trimming.run(writer_content.ADAPTER, writer_content.ROOTS, writer_content.KERNEL)
+            trimming.run(writer_content.APP, writer_content.PART_MAP, writer_content.CHECKER_BUILD)
 
         self.assertTrue(first <= frappe.cache.get_value(cursor) < second)
 
         with patch.object(trimming, "trim") as trim:
-            trimming.run(writer_content.ADAPTER, writer_content.ROOTS, writer_content.KERNEL)
+            trimming.run(writer_content.APP, writer_content.PART_MAP, writer_content.CHECKER_BUILD)
 
         resumed = [call.args[1] for call in trim.call_args_list]
         self.assertEqual(resumed[0], second)
@@ -360,7 +360,11 @@ class TestWriterTrimming(CheckpointCase):
 
         with patch.object(trimming, "CHUNK_ROWS", 2):
             finished = trimming.trim(
-                writer_content.ADAPTER, self.doc_row(node).id, writer_content.ROOTS, writer_content.KERNEL, 0
+                writer_content.APP,
+                self.doc_row(node).id,
+                writer_content.PART_MAP,
+                writer_content.CHECKER_BUILD,
+                0,
             )
 
         self.assertEqual(
@@ -368,13 +372,13 @@ class TestWriterTrimming(CheckpointCase):
         )
 
     def test_a_run_out_of_time_inside_a_document_resumes_at_that_document(self):
-        cursor = trimming.cursor_key(writer_content.ADAPTER)
+        cursor = trimming.cursor_key(writer_content.APP)
         frappe.cache.delete_value(cursor)
         self.addCleanup(frappe.cache.delete_value, cursor)
         first, second = sorted(self.doc_row(self.compacted_document(["one ", "two"])).id for _ in range(2))
 
-        with patch.object(trimming, "trim", side_effect=lambda adapter, doc_id, *args: doc_id != second):
-            trimming.run(writer_content.ADAPTER, writer_content.ROOTS, writer_content.KERNEL)
+        with patch.object(trimming, "trim", side_effect=lambda app, doc_id, *args: doc_id != second):
+            trimming.run(writer_content.APP, writer_content.PART_MAP, writer_content.CHECKER_BUILD)
 
         self.assertTrue(first <= frappe.cache.get_value(cursor) < second)
 

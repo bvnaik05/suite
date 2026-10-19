@@ -9,7 +9,7 @@
       "page": null,
       "envelope": "data",
       "method": "GET",
-      "path": "{node}/log",
+      "path": "{node}/document",
       "pathParams": [
         "node"
       ],
@@ -99,11 +99,11 @@
       "page": null,
       "envelope": "data",
       "method": "PUT",
-      "path": "{node}/stage/{stage_id}/{idx}",
+      "path": "{node}/stage/{stage_id}/{piece_index}",
       "pathParams": [
         "node",
         "stage_id",
-        "idx"
+        "piece_index"
       ],
       "query": null,
       "body": null,
@@ -209,13 +209,13 @@
       "bytes": false
     },
     {
-      "id": "projection_post",
+      "id": "html_post",
       "kind": "mutation",
       "publicName": "content.submitRender",
       "page": null,
       "envelope": "data",
       "method": "POST",
-      "path": "{node}/projection",
+      "path": "{node}/html",
       "pathParams": [
         "node"
       ],

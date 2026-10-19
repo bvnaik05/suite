@@ -20,7 +20,7 @@ export interface Claim {
 export interface CollabEndpoints {
   open(): Promise<Answer>
   // `epoch`: the last quarantine this tab heard of, so the server can tell it to rebuild
-  pull(since: number, epoch: number): Promise<Answer>
+  pull(sinceRev: number, epoch: number): Promise<Answer>
   push(body: Uint8Array<ArrayBuffer>, options?: { keepalive?: boolean }): Promise<Answer>
   // One piece of a change too big for one push, kept under `stageId` until a push names it
   stage(stageId: string, pieceIndex: number, body: Uint8Array<ArrayBuffer>): Promise<Answer>
@@ -37,16 +37,15 @@ export interface CollabEndpoints {
 
 // What an app declares in the browser. The layer gives the rest: room opening, sync, the device store,
 // offline and signed-out state, and who is here
-export interface ContentAdapter<Binding = unknown> {
-  // The features file the server's fast check reads; its schema stamps every push
-  features: { schema: number }
+export interface CollabAdapter {
+  // The app the document belongs to, which names its device store
+  app: string
+  // The schema version in the file the server's fast check reads; it stamps every push
+  schemaVersion: number
   // A peer's position, kept to what the app draws, or null when it is not one
-  position(raw: unknown): object | null
-  // The readable copy search, export, preview and publishing use
-  render(doc: Y.Doc): { html: string; text: string }
-  // What ties the app's editor to a room's document and draws its peers. `onFrozen` hears when the
-  // document holds content the editor can't show, after which the editor takes no edits
-  bind(room: CollabRoom, onFrozen: () => void): Binding
+  toPeerPosition(raw: unknown): object | null
+  // The readable copy search, export, preview and publishing use; without it the room sends none
+  toHtml?(doc: Y.Doc): string
 }
 
 // A device store and the name this document has in it
@@ -59,8 +58,8 @@ export interface DeviceDoc {
 
 export interface OpenOptions {
   endpoints: CollabEndpoints
-  principal: string
-  adapter: ContentAdapter
+  expectedUser: string
+  adapter: CollabAdapter
   // Who the browser is signed in as now, or 'Guest'
   signedIn: () => string
   // Where unsent work and the last committed copy survive the tab; without it they live only in memory
@@ -132,59 +131,61 @@ export interface RestoreResult {
 export const isRecoverable = (blocked: Blocked) =>
   blocked === 'signed_out' || blocked === 'locked' || blocked === 'offline'
 
+// What a room shows now. A new object replaces it on each change, so a reader can compare by identity
+export interface RoomStatus {
+  readonly canWrite: boolean
+  readonly saveState: SaveState
+  // Null when the room was opened without a socket
+  readonly liveState: LiveState | null
+  // The sizes the server last published; null until it has, as in a tab opened offline
+  readonly limits: Limits | null
+  // The rev of the last restore this tab applied or heard of
+  readonly restoreRev: number
+  readonly blockReason: Blocked | null
+  // Why the server asked this tab to wait before saving again, until a push is committed
+  readonly pauseReason: string | null
+  // Why this tab's work can never be committed; its unsent work went to recovery
+  readonly stopReason: string | null
+  // The document waits for an admin, so nobody edits it
+  readonly holdReason: Held | null
+  // A version is being restored, so nobody edits until it lands or is called off
+  readonly isRestoring: boolean
+  // A newer editor wrote to the document; this tab follows and sends nothing more until reloaded
+  readonly hasNewerSchema: boolean
+  // This copy may hold a change the server has since quarantined; it follows nothing more and is to be opened again
+  readonly isReopenNeeded: boolean
+  // Whether unsent work outlives this tab
+  readonly isKeptOnDevice: boolean
+  // The document holds all it may until a compaction shrinks it, so only deleting content saves
+  readonly isAtLimit: boolean
+  // The latest recovery copy could not be written to the device, so the work is only in this tab
+  readonly hasCopyFailed: boolean
+  readonly unsentCount: number
+  // Changes other tabs of this document keep on the device and have yet to see committed; counted, never applied here
+  readonly othersUnsentCount: number
+  // How many times this tab has written its recovery copy to the device
+  readonly keptCopyCount: number
+}
+
 export interface CollabRoom {
   readonly doc: Y.Doc
   readonly lineage: string
-  readonly canWrite: boolean
-  readonly blocked: Blocked | null
-  // Why the server asked this tab to wait before saving again, until a push is committed
-  readonly paused: string | null
-  // Why this tab's work can never be committed; its unsent work went to recovery
-  readonly stopped: string | null
-  // How many times this tab has written its recovery copy to the device
-  readonly copiesKept: number
-  // The latest recovery copy could not be written to the device, so the work is only in this tab
-  readonly copyFailed: boolean
-  // The document waits for an admin, so nobody edits it
-  readonly held: Held | null
-  // A version is being restored, so nobody edits until it lands or is called off
-  readonly restoring: boolean
-  // The rev of the last restore this tab applied or heard of
-  readonly restoreRev: number
-  // A newer editor wrote to the document; this tab follows and sends nothing more until reloaded
-  readonly newerSchema: boolean
-  // This copy may hold a change the server has since quarantined; it follows nothing more and is to be opened again
-  readonly needsRebuild: boolean
-  readonly saveState: SaveState
-  readonly unsent: number
-  // Changes other tabs of this document keep on the device and have yet to see committed; counted, never applied here
-  readonly othersUnsent: number
-  // Whether unsent work outlives this tab
-  readonly onDevice: boolean
-  readonly appliedThrough: number
+  readonly presence: RoomPresence | null
+  readonly status: RoomStatus
   // The clientIDs whose work this tab sends: its own and each closed tab's it took on, kept once sent
   readonly ownClients: ReadonlySet<number>
-  // Null when the room was opened without a socket
-  readonly live: LiveState | null
-  readonly presence: RoomPresence | null
-  // The sizes the server last published; null until it has, as in a tab opened offline
-  readonly limits: Limits | null
-  // The document holds all it may until a compaction shrinks it, so only deleting content saves
-  readonly atLimit: boolean
   onChange(listener: () => void): () => void
   pull(): Promise<void>
   flush(): Promise<void>
-  // Makes `edit` the restore under the fence `token`, as one push the server takes or refuses whole
-  restore(token: string, edit: () => void): Promise<RestoreOutcome>
+  close(): Promise<void>
   // Fences the document, makes `edit` the restore of `version` and sends it; calls the fence off unless it lands
   restoreVersion(version: number, edit: () => void): Promise<RestoreResult>
-  close(): Promise<void>
   // The app shut this tab for a lost right: it sends what it can within a bound, then keeps the rest as a recovery copy
   loseAccess(lostAccess: LostAccess): Promise<void>
   // The app opened the tab again: one shut with nothing kept takes edits once `mayEdit` still holds after the bound
   regainAccess(mayEdit: () => boolean): Promise<void>
   // Whether the server holds each of these items, as committed text does, so a comment on them can post
-  committedCovers(items: readonly Y.ID[]): boolean
+  isCommitted(items: readonly Y.ID[]): boolean
 }
 
 export type Opened = { state: 'live'; room: CollabRoom } | { state: Exclude<OpenState, 'live'> }

@@ -38,7 +38,7 @@ class Conflict(Exception):
 
 
 class Full(Exception):
-    """The principal has `DOC_MAX` bytes staged on the document already."""
+    """The user has `DOC_MAX` bytes staged on the document already."""
 
 
 class Incomplete(Exception):
@@ -130,11 +130,11 @@ def placed(header: dict) -> bool:
 
 
 def store_piece(
-    adapter: str, doc_id: str, stage_id: str, index: int, header: dict, piece: bytes, principal: str
+    app: str, doc_id: str, stage_id: str, index: int, header: dict, piece: bytes, user: str
 ) -> None:
     """Keep one piece. The same bytes again at an index change nothing but the stage's age. Each
-    principal has its own `DOC_MAX`, so one editor's pieces never block another's."""
-    stage_table = table(adapter, "stage")
+    user has its own `DOC_MAX`, so one editor's pieces never block another's."""
+    stage_table = table(app, "stage")
     stage_shape = shape_of(header)
     staged_pieces = frappe.db.sql(
         f"""SELECT `idx`, {SHAPE_COLUMNS}, `bytes` = UNHEX(%s) AS `same`
@@ -150,15 +150,15 @@ def store_piece(
             if not row.same:
                 raise Conflict
 
-            return refresh_expiry(adapter, doc_id, stage_id)
+            return refresh_expiry(app, doc_id, stage_id)
 
-    # Locked, so a principal's puts take turns and each sees what the one before it kept
+    # Locked, so a user's puts take turns and each sees what the one before it kept
     staged = frappe.db.sql(
         f"""SELECT COALESCE(SUM(LENGTH(`stage`.`bytes`)), 0) FROM `{stage_table}` `stage`
-        JOIN `{table(adapter, "session")}` `session`
+        JOIN `{table(app, "session")}` `session`
             ON `session`.`doc_id` = `stage`.`doc_id` AND `session`.`sid` = `stage`.`sid`
-        WHERE `stage`.`doc_id` = %s AND `session`.`principal` = %s FOR UPDATE""",
-        (doc_id, principal),
+        WHERE `stage`.`doc_id` = %s AND `session`.`user` = %s FOR UPDATE""",
+        (doc_id, user),
     )
     staged_bytes = int(staged[0][0])
     if staged_bytes + len(piece) > DOC_MAX:
@@ -178,7 +178,7 @@ def store_piece(
             frappe.utils.now_datetime(),
         ),
     )
-    refresh_expiry(adapter, doc_id, stage_id)
+    refresh_expiry(app, doc_id, stage_id)
 
 
 def shape_of(header: dict) -> Shape:
@@ -203,37 +203,37 @@ def stored_shape(row: frappe._dict) -> Shape:
     return Shape(**{**stored, "sha_total": bytes(row.sha_total)})
 
 
-def refresh_expiry(adapter: str, doc_id: str, stage_id: str) -> None:
+def refresh_expiry(app: str, doc_id: str, stage_id: str) -> None:
     """Restart the expiry of every piece of the stage, so a slow upload loses none of its early pieces."""
     frappe.db.sql(
-        f"UPDATE `{table(adapter, 'stage')}` SET `created` = %s WHERE `doc_id` = %s AND `stage_id` = %s",
+        f"UPDATE `{table(app, 'stage')}` SET `created` = %s WHERE `doc_id` = %s AND `stage_id` = %s",
         (frappe.utils.now_datetime(), doc_id, stage_id),
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
-def assemble(adapter: str, doc_id: str, stage_id: str, sid: str, seq_from: int, seq_to: int) -> bytes:
+def assemble(app: str, doc_id: str, stage_id: str, sid: str, seq_from: int, seq_to: int) -> bytes:
     """Return the staged change the push names, whole and checked."""
-    rows = staged_rows(adapter, doc_id, stage_id)
+    rows = staged_rows(app, doc_id, stage_id)
     first_piece = rows[0]
     if (first_piece.sid, first_piece.seq_from, first_piece.seq_to) != (sid, seq_from, seq_to):
         raise Conflict
 
-    return joined(adapter, doc_id, stage_id, rows)
+    return joined(app, doc_id, stage_id, rows)
 
 
-def assemble_render(adapter: str, doc_id: str, stage_id: str) -> tuple[frappe._dict, bytes]:
+def assemble_render(app: str, doc_id: str, stage_id: str) -> tuple[frappe._dict, bytes]:
     """Return the staged render, whole and checked, with its first piece, which names its sid, rev, lineage and epoch."""
-    rows = staged_rows(adapter, doc_id, stage_id)
+    rows = staged_rows(app, doc_id, stage_id)
     if rows[0].purpose != "render":
         raise Conflict
 
-    return rows[0], joined(adapter, doc_id, stage_id, rows)
+    return rows[0], joined(app, doc_id, stage_id, rows)
 
 
-def staged_rows(adapter: str, doc_id: str, stage_id: str) -> list[frappe._dict]:
+def staged_rows(app: str, doc_id: str, stage_id: str) -> list[frappe._dict]:
     """Return the stage's pieces in order, refused as incomplete when it has none."""
-    stage_table = table(adapter, "stage")
+    stage_table = table(app, "stage")
     rows = frappe.db.sql(
         f"""SELECT `idx`, {SHAPE_COLUMNS}, `bytes`
         FROM `{stage_table}` WHERE `doc_id` = %s AND `stage_id` = %s ORDER BY `idx`""",
@@ -246,7 +246,7 @@ def staged_rows(adapter: str, doc_id: str, stage_id: str) -> list[frappe._dict]:
     return rows
 
 
-def joined(adapter: str, doc_id: str, stage_id: str, rows: list[frappe._dict]) -> bytes:
+def joined(app: str, doc_id: str, stage_id: str, rows: list[frappe._dict]) -> bytes:
     """Join the pieces; a stage whose bytes are wrong is dropped, one that only lacks pieces keeps them."""
     first_piece = rows[0]
     expected_indexes = list(range(piece_count(first_piece.total_len)))
@@ -257,30 +257,30 @@ def joined(adapter: str, doc_id: str, stage_id: str, rows: list[frappe._dict]) -
     length_wrong = len(payload) != first_piece.total_len
     sha_wrong = hashlib.sha256(payload).digest() != bytes(first_piece.sha_total)
     if length_wrong or sha_wrong:
-        drop_stage(adapter, doc_id, stage_id)
+        drop_stage(app, doc_id, stage_id)
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
         raise Incomplete
 
     return payload
 
 
-def drop_stage(adapter: str, doc_id: str, stage_id: str) -> None:
+def drop_stage(app: str, doc_id: str, stage_id: str) -> None:
     frappe.db.sql(
-        f"DELETE FROM `{table(adapter, 'stage')}` WHERE `doc_id` = %s AND `stage_id` = %s", (doc_id, stage_id)
+        f"DELETE FROM `{table(app, 'stage')}` WHERE `doc_id` = %s AND `stage_id` = %s", (doc_id, stage_id)
     )
 
 
-def expire_pieces(adapter: str, now: datetime) -> None:
+def expire_pieces(app: str, now: datetime) -> None:
     """Delete save pieces older than `EXPIRY`; their tab still holds the change and can stage it again."""
     frappe.db.sql(
-        f"DELETE FROM `{table(adapter, 'stage')}` WHERE `purpose` = 'save' AND `created` < %s", now - EXPIRY
+        f"DELETE FROM `{table(app, 'stage')}` WHERE `purpose` = 'save' AND `created` < %s", now - EXPIRY
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
-def renders(adapter: str, doc_id: str) -> list[frappe._dict]:
+def renders(app: str, doc_id: str) -> list[frappe._dict]:
     """Return the document's staged renders, newest rev first."""
-    stage_table = table(adapter, "stage")
+    stage_table = table(app, "stage")
     return frappe.db.sql(
         f"""SELECT DISTINCT `stage_id`, `rev` FROM `{stage_table}`
         WHERE `doc_id` = %s AND `purpose` = 'render' ORDER BY `rev` DESC, `stage_id`""",
@@ -289,18 +289,18 @@ def renders(adapter: str, doc_id: str) -> list[frappe._dict]:
     )
 
 
-def rendered_docs(adapter: str, limit: int = 100) -> list[str]:
+def rendered_docs(app: str, limit: int = 100) -> list[str]:
     """Return the documents with a staged render, which is due its copy check."""
-    stage_table = table(adapter, "stage")
+    stage_table = table(app, "stage")
     found = frappe.db.sql(
         f"SELECT DISTINCT `doc_id` FROM `{stage_table}` WHERE `purpose` = 'render' LIMIT %s", limit
     )
     return [doc_id for (doc_id,) in found]
 
 
-def drop_renders_through(adapter: str, doc_id: str, rev: int, keep: str | None = None) -> None:
+def drop_renders_through(app: str, doc_id: str, rev: int, keep: str | None = None) -> None:
     """Drop the staged renders at or before `rev`, other than the stage `keep`."""
-    stage_table = table(adapter, "stage")
+    stage_table = table(app, "stage")
     frappe.db.sql(
         f"""DELETE FROM `{stage_table}` WHERE `doc_id` = %s AND `purpose` = 'render'
         AND `rev` <= %s AND `stage_id` != %s""",

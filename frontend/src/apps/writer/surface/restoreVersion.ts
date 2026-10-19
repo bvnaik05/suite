@@ -1,15 +1,14 @@
-import type { CollabRoom, RestoreResult } from '@suite/collab-client'
-
 import { anchorEnds } from '@/apps/writer/collab/anchors'
 import { restoreEdit } from '@/apps/writer/collab/restore'
 import { restoredAnchors, type AnchoredThread } from '@/apps/writer/collab/restoredAnchors'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
+import type { CollabRoom, RestoreResult } from '@/platform/collab'
 
 import { readVersionBody } from './versions'
 
 type RestoringRoom = Pick<
   CollabRoom,
-  'doc' | 'lineage' | 'flush' | 'restoreVersion' | 'committedCovers'
+  'doc' | 'lineage' | 'flush' | 'restoreVersion' | 'isCommitted'
 >
 
 /** What the person is told after a restore: whether the document is the version now, and how it went. */
@@ -65,7 +64,7 @@ export async function restoreVersion(
 function savedAnchors(room: RestoringRoom, anchors: Record<string, string>) {
   const saved: Record<string, string> = {}
   for (const [thread, anchor] of Object.entries(anchors)) {
-    if (room.committedCovers(anchorEnds(anchor))) {
+    if (room.isCommitted(anchorEnds(anchor))) {
       saved[thread] = anchor
     }
   }

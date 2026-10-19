@@ -7,14 +7,25 @@ import pycrdt
 from frappe.tests.utils import whitelist_for_tests
 
 from suite.suite_core import content
-from suite.suite_core.content import compaction, documents, quarantine, scheduling, suspect, trimming
-from suite.suite_core.content.adapters import node_hooks
+from suite.suite_core.content import (
+    capacity,
+    compaction,
+    jobs,
+    logged,
+    quarantine,
+    scheduling,
+    suspect,
+    trimming,
+)
+from suite.suite_core.content.checkpoints import replace_start
+from suite.suite_core.content.editors import node_hooks
+from suite.suite_core.content.log import create, set_mode
 from suite.suite_core.content.tables import KINDS, table
 from suite.writer import content as writer_content
 
 
 def find_log(node: str) -> dict:
-    log_row = content.find(writer_content.ADAPTER, node)
+    log_row = content.find(writer_content.APP, node)
     if log_row is None:
         raise frappe.DoesNotExistError(f"{node} has no collab log")
 
@@ -24,10 +35,10 @@ def find_log(node: str) -> dict:
 @whitelist_for_tests(methods=["POST"])
 def enable_collab(node: str) -> dict:
     """Turn Writer's collaboration on and make `node`'s Writer document collaborative."""
-    content.set_mode(writer_content.ADAPTER, "on")
+    set_mode(writer_content.APP, "on")
     frappe.db.set_value("Writer Document", {"node": node}, "collab", 1)
-    if content.find(writer_content.ADAPTER, node) is None:
-        content.create(writer_content.ADAPTER, node)
+    if content.find(writer_content.APP, node) is None:
+        create(writer_content.APP, node)
     frappe.db.commit()
     return state(node)
 
@@ -35,7 +46,7 @@ def enable_collab(node: str) -> dict:
 @whitelist_for_tests(methods=["POST"])
 def disable_collab(node: str) -> dict:
     """Turn Writer's collaboration off, leaving `node`'s document and log as they are."""
-    content.set_mode(writer_content.ADAPTER, "off")
+    set_mode(writer_content.APP, "off")
     frappe.db.commit()
     return state(node)
 
@@ -51,16 +62,16 @@ def make_legacy(node: str) -> int:
 @whitelist_for_tests(methods=["POST"])
 def drop_log(node: str) -> int:
     """Purge `node`'s log so it opens as a document from before collaboration; answer 1 once it has none."""
-    documents.purge_log(writer_content.ADAPTER, node)
+    logged.purge(writer_content.APP, node)
     frappe.db.commit()
-    return int(content.find(writer_content.ADAPTER, node) is None)
+    return int(content.find(writer_content.APP, node) is None)
 
 
 @whitelist_for_tests(methods=["POST"])
 def compact_now(node: str) -> dict:
     """Compact `node`'s collab log in this request, as the queued job would."""
     doc_id = find_log(node)["id"]
-    documents.compact(writer_content.ADAPTER, doc_id)
+    jobs.compact(writer_content.APP, doc_id)
     return state(node)
 
 
@@ -68,7 +79,7 @@ def compact_now(node: str) -> dict:
 def trim_now(node: str) -> dict:
     """Age `node`'s edit rows past the evidence window and queue its trimming, as the hourly run would."""
     doc_id = find_log(node)["id"]
-    update_table = table(writer_content.ADAPTER, "update")
+    update_table = table(writer_content.APP, "update")
     frappe.db.sql(
         f"""UPDATE `{update_table}`
         SET `created` = `created` - INTERVAL 25 HOUR WHERE `doc_id` = %s""",
@@ -78,10 +89,10 @@ def trim_now(node: str) -> dict:
     frappe.enqueue(
         trimming.trim,
         queue="long",
-        adapter=writer_content.ADAPTER,
+        app=writer_content.APP,
         doc_id=doc_id,
-        roots=writer_content.ROOTS,
-        bundle=writer_content.KERNEL,
+        part_map=writer_content.PART_MAP,
+        bundle=writer_content.CHECKER_BUILD,
     )
     return state(node)
 
@@ -90,7 +101,7 @@ def trim_now(node: str) -> dict:
 def age_copy(node: str) -> int:
     """Make `node`'s readable copy a minute old, so the next push asks for a render; answer its rev."""
     doc_id = find_log(node)["id"]
-    projection_table = table(writer_content.ADAPTER, "projection")
+    projection_table = table(writer_content.APP, "projection")
     frappe.db.sql(
         f"""UPDATE `{projection_table}`
         SET `updated` = `updated` - INTERVAL 1 MINUTE WHERE `doc_id` = %s""",
@@ -114,10 +125,10 @@ def hold(node: str, why: str) -> dict:
     """Hold `node` for an admin, as a judge that can't settle a compaction's suspect does."""
     doc_id = find_log(node)["id"]
     frappe.db.sql(
-        f"UPDATE `{table(writer_content.ADAPTER, 'doc')}` SET `suspect` = 'unreadable' WHERE `id` = %s",
+        f"UPDATE `{table(writer_content.APP, 'doc')}` SET `suspect` = 'unreadable' WHERE `id` = %s",
         doc_id,
     )
-    suspect.hold_document(writer_content.ADAPTER, doc_id, why, "Held by the Playwright suite")
+    suspect.hold_document(writer_content.APP, doc_id, why, "Held by the Playwright suite")
     return state(node)
 
 
@@ -125,7 +136,7 @@ def hold(node: str, why: str) -> dict:
 def release(node: str) -> dict:
     """Clear `node`'s hold as an admin does from the suspect list."""
     doc_id = find_log(node)["id"]
-    suspect.release(writer_content.ADAPTER, doc_id)
+    suspect.release(writer_content.APP, doc_id)
     return state(node)
 
 
@@ -134,7 +145,7 @@ def quarantine_last(node: str, why: str) -> dict:
     """Quarantine `node`'s last row, as a judge that finds it bad does."""
     log_row = find_log(node)
     revs = {int(log_row["head_rev"])}
-    quarantine.quarantine(writer_content.ADAPTER, log_row["id"], revs, why, node_hooks().owner)
+    quarantine.quarantine(writer_content.APP, log_row["id"], revs, why, node_hooks().owner)
     return state(node)
 
 
@@ -143,8 +154,8 @@ def leave_no_room(node: str) -> dict:
     """Count `node`'s state as big as the tail leaves room for, so its next adding push waits for a compaction."""
     doc_id = find_log(node)["id"]
     frappe.db.sql(
-        f"""UPDATE `{table(writer_content.ADAPTER, "doc")}` SET `state_bytes` = %s - `tail_bound` WHERE `id` = %s""",
-        (writer_content.SPEC.max_state, doc_id),
+        f"""UPDATE `{table(writer_content.APP, "doc")}` SET `state_bytes` = %s - `tail_bound` WHERE `id` = %s""",
+        (capacity.STATE_MAX, doc_id),
     )
     return state(node)
 
@@ -154,8 +165,8 @@ def fill_up(node: str) -> dict:
     """Count `node`'s state as big as a document may be, so nothing that adds is taken again."""
     doc_id = find_log(node)["id"]
     frappe.db.sql(
-        f"""UPDATE `{table(writer_content.ADAPTER, "doc")}` SET `state_bytes` = %s WHERE `id` = %s""",
-        (writer_content.SPEC.max_state, doc_id),
+        f"""UPDATE `{table(writer_content.APP, "doc")}` SET `state_bytes` = %s WHERE `id` = %s""",
+        (capacity.STATE_MAX, doc_id),
     )
     return state(node)
 
@@ -170,7 +181,7 @@ def write_newer_schema(node: str) -> dict:
     steps.append([next_rev, next_schema])
     steps_json = json.dumps(steps)
     frappe.db.sql(
-        f"UPDATE `{table(writer_content.ADAPTER, 'doc')}` SET `schema_steps` = %s WHERE `id` = %s",
+        f"UPDATE `{table(writer_content.APP, 'doc')}` SET `schema_steps` = %s WHERE `id` = %s",
         (steps_json, log_row["id"]),
     )
     return state(node)
@@ -179,7 +190,7 @@ def write_newer_schema(node: str) -> dict:
 @whitelist_for_tests(methods=["POST"])
 def paragraph_change(node: str, client_id: int, length: int) -> dict:
     """What a tab writing as `client_id` sends when it adds a paragraph of `length` letters to the end of `node`."""
-    live_state = documents.live_state(writer_content.ADAPTER, node)
+    live_state = logged.live_state(writer_content.APP, node)
     assert live_state is not None
     tab: pycrdt.Doc = pycrdt.Doc(client_id=int(client_id))
     live_update = live_state.get_update()
@@ -208,9 +219,7 @@ def start_code_and_bold(node: str) -> dict:
     text.insert(0, "plain ")
     text.insert(len("plain "), "both", {"code": {}, "bold": {}})
     log_row = find_log(node)
-    content.replace_start(
-        writer_content.ADAPTER, log_row["id"], start.get_update(), writer_content.DECLARED["schema"]
-    )
+    replace_start(writer_content.APP, log_row["id"], start.get_update(), writer_content.DECLARED["schema"])
     frappe.db.commit()
     return state(node)
 
@@ -244,7 +253,7 @@ def state(node: str) -> dict:
     doc_id = find_log(node)["id"]
     rows = frappe.db.sql(
         f"""SELECT `body_rev`, `head_rev`, `tail_rows`
-        FROM `{table(writer_content.ADAPTER, "doc")}` WHERE `id` = %s""",
+        FROM `{table(writer_content.APP, "doc")}` WHERE `id` = %s""",
         doc_id,
         as_dict=True,
     )
@@ -264,7 +273,7 @@ def log_rows(log: str) -> dict:
     for kind in KINDS:
         key_column = "id" if kind == "doc" else "doc_id"
         row_count = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `{table(writer_content.ADAPTER, kind)}` WHERE `{key_column}` = %s",
+            f"SELECT COUNT(*) FROM `{table(writer_content.APP, kind)}` WHERE `{key_column}` = %s",
             log,
         )[0][0]
         counts[kind] = row_count
@@ -282,7 +291,7 @@ def server_text(node: str) -> list[str]:
 def stored_fragment(node: str) -> pycrdt.XmlFragment:
     """Load `node`'s body and the rows after it, and answer its editor fragment."""
     doc_id = find_log(node)["id"]
-    stored = content.read(writer_content.ADAPTER, doc_id)
+    stored = content.read(writer_content.APP, doc_id)
     if stored is None:
         raise frappe.DoesNotExistError(f"{node} has no collab log")
 

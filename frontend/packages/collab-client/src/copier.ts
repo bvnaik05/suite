@@ -76,15 +76,15 @@ export class Copier {
 
   private async send() {
     const room = this.room
-    const html = new TextEncoder().encode(room.options.adapter.render(room.doc).html)
+    const html = new TextEncoder().encode(room.options.adapter.toHtml?.(room.doc) ?? '')
     if (!html.byteLength) return
 
-    const { endpoints, principal } = room.options
+    const { endpoints, expectedUser } = room.options
     const stageId = randomHex(STAGE_ID_BYTES)
     const rev = room.appliedThrough
     const place = {
       lineage: room.lineage,
-      principal,
+      expected_user: expectedUser,
       sid: room.ownOutbox.sid,
       purpose: 'render' as const,
       rev,

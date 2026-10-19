@@ -8,7 +8,7 @@ import frappe
 from suite.suite_core.content import updates
 from suite.suite_core.content.tables import table
 
-# ContentJSON, ContentBinary and ContentDoc: no collab adapter writes them
+# ContentJSON, ContentBinary and ContentDoc: no collab app writes them
 REFUSED_KINDS = {2, 3, 9}
 SKIP_KIND = 10
 
@@ -24,7 +24,7 @@ class Unclosed(Exception):
 
 @dataclass(frozen=True)
 class EditorSchema:
-    """What a collab adapter's editor writes: its current schema, for each node, mark, attribute or
+    """What a collab app's editor writes: its current schema, for each node, mark, attribute or
     map key a row may name the schema that introduced it, the content kinds and shared types it makes,
     and the names it gives elements and format items."""
 
@@ -67,7 +67,7 @@ def check_row(payload: bytes, client_id: int) -> Row:
 
 def admit_update(update: updates.Update, client_id: int) -> Row:
     """The row `update` makes for `client_id`, or `ValueError` when it is empty, written by another client,
-    holds a gap, or holds content no collab adapter writes."""
+    holds a gap, or holds content no collab app writes."""
     has_deletes = any(update.deletes.values())
     if not update.structs and not has_deletes:
         raise ValueError("an empty row")
@@ -101,11 +101,11 @@ def next_clocks(payloads: Iterable[bytes]) -> dict[int, int]:
     return clocks
 
 
-def check_closed(adapter: str, doc_id: str, row: Row, client_id: int, start_clocks: dict[int, int]) -> None:
+def check_closed(app: str, doc_id: str, row: Row, client_id: int, start_clocks: dict[int, int]) -> None:
     """Refuse a row that does not continue its writer's clocks, or that needs a struct neither
     committed nor in the row. Run under the document's lock, which every clock change takes."""
     clients = referenced_clients(row, client_id)
-    committed = committed_clocks(adapter, doc_id, clients, start_clocks)
+    committed = committed_clocks(app, doc_id, clients, start_clocks)
     check_follows(row, client_id, committed)
 
 
@@ -129,12 +129,12 @@ def check_follows(row: Row, client_id: int, committed: dict[int, int]) -> None:
 
 
 def committed_clocks(
-    adapter: str, doc_id: str, clients: set[int], start_clocks: dict[int, int]
+    app: str, doc_id: str, clients: set[int], start_clocks: dict[int, int]
 ) -> dict[int, int]:
     """The next clock of each of `clients` in the log: from its session, or from the start a copy began with."""
     clocks = {client: start_clocks.get(client, 0) for client in clients}
     sessions = frappe.db.sql(
-        f"""SELECT `client_id`, `next_clock` FROM `{table(adapter, "session")}`
+        f"""SELECT `client_id`, `next_clock` FROM `{table(app, "session")}`
         WHERE `doc_id` = %s AND `client_id` IN %s""",
         (doc_id, tuple(clients)),
     )

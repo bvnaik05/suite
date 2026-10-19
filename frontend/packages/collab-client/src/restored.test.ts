@@ -60,7 +60,7 @@ describe('work from before a restore', () => {
     await vi.advanceTimersByTimeAsync(10)
     await idle()
 
-    expect([room.stopped, room.needsRebuild]).toEqual(['restored', true])
+    expect([room.status.stopReason, room.status.isReopenNeeded]).toEqual(['restored', true])
     expect(await reasonsKept(kept)).toEqual(['restored'])
     expect(text(await join(server.endpoints()))).toBe('old')
   })
@@ -76,9 +76,9 @@ describe('work from before a restore', () => {
     await vi.advanceTimersByTimeAsync(0)
     server.landRestore(restoreTo(server, 'old'))
     await room.pull()
-    await vi.waitFor(() => expect(room.needsRebuild).toBe(true))
+    await vi.waitFor(() => expect(room.status.isReopenNeeded).toBe(true))
 
-    expect([room.stopped, text(room)]).toEqual(['restored', 'draft mine'])
+    expect([room.status.stopReason, text(room)]).toEqual(['restored', 'draft mine'])
     expect(await reasonsKept(kept)).toEqual(['restored'])
   })
 
@@ -94,9 +94,9 @@ describe('work from before a restore', () => {
 
     server.landRestore(restoreTo(server, 'old'), 'notice')
     await vi.advanceTimersByTimeAsync(1_000)
-    await vi.waitFor(() => expect(room.needsRebuild).toBe(true))
+    await vi.waitFor(() => expect(room.status.isReopenNeeded).toBe(true))
 
-    expect([room.appliedThrough, room.stopped, await reasonsKept(kept)]).toEqual([
+    expect([room.appliedThrough, room.status.stopReason, await reasonsKept(kept)]).toEqual([
       2,
       'restored',
       ['restored'],
@@ -113,9 +113,9 @@ describe('work from before a restore', () => {
 
     type(room, ' mine')
     await room.flush()
-    await vi.waitFor(() => expect(room.needsRebuild).toBe(true))
+    await vi.waitFor(() => expect(room.status.isReopenNeeded).toBe(true))
 
-    expect([room.stopped, await reasonsKept(kept)]).toEqual(['restored', ['restored']])
+    expect([room.status.stopReason, await reasonsKept(kept)]).toEqual(['restored', ['restored']])
     expect(text(await join(server.endpoints()))).toBe('old')
   })
 
@@ -134,7 +134,7 @@ describe('work from before a restore', () => {
     const next = await join(server.endpoints(), { device: kept })
     await next.flush()
 
-    expect([text(next), next.stopped, next.unsent]).toEqual(['old', null, 0])
+    expect([text(next), next.status.stopReason, next.status.unsentCount]).toEqual(['old', null, 0])
     expect(await reasonsKept(kept)).toEqual(['restored'])
     expect(text(await join(server.endpoints()))).toBe('old')
   })
@@ -152,12 +152,12 @@ describe('work from before a restore', () => {
     type(room, ' new')
     await room.flush()
 
-    expect([text(room), room.stopped, room.canWrite, room.unsent]).toEqual([
-      'old new',
-      null,
-      true,
-      0,
-    ])
+    expect([
+      text(room),
+      room.status.stopReason,
+      room.status.canWrite,
+      room.status.unsentCount,
+    ]).toEqual(['old new', null, true, 0])
     expect(text(await join(server.endpoints()))).toBe('old new')
   })
 
@@ -172,11 +172,15 @@ describe('work from before a restore', () => {
 
     server.landRestore(restoreTo(server, 'old'), 'row')
     await vi.advanceTimersByTimeAsync(10)
-    const before = [room.restoring, room.canWrite, text(room)]
+    const before = [room.status.isRestoring, room.status.canWrite, text(room)]
     await vi.advanceTimersByTimeAsync(60_000)
 
     expect(before).toEqual([true, false, 'draft'])
-    expect([room.restoring, room.canWrite, text(room)]).toEqual([false, true, 'old'])
+    expect([room.status.isRestoring, room.status.canWrite, text(room)]).toEqual([
+      false,
+      true,
+      'old',
+    ])
   })
 })
 
@@ -200,12 +204,9 @@ describe("this tab's restore", () => {
 
     const outcome = await room.restore(token, becomes(room, 'old'))
 
-    expect([outcome, room.restoreRev, room.stopped, room.canWrite]).toEqual([
-      'landed',
-      2,
-      null,
-      true,
-    ])
+    expect([outcome, room.status.restoreRev, room.status.stopReason, room.status.canWrite]).toEqual(
+      ['landed', 2, null, true],
+    )
     expect(text(await join(server.endpoints()))).toBe('old')
   })
 
@@ -219,11 +220,11 @@ describe("this tab's restore", () => {
     server.realtime.publishing = false
 
     await room.restore(token, becomes(room, 'old'))
-    const canWrite = room.canWrite
+    const canWrite = room.status.canWrite
     type(room, ' new')
     await room.flush()
 
-    expect([canWrite, room.stopped]).toEqual([true, null])
+    expect([canWrite, room.status.stopReason]).toEqual([true, null])
     expect(text(await join(server.endpoints()))).toBe('old new')
   })
 
@@ -236,12 +237,12 @@ describe("this tab's restore", () => {
 
     const restoring = room.restore(token, becomes(room, 'old'))
     await vi.advanceTimersByTimeAsync(0)
-    const lockedWhileSending = [room.restoring, room.canWrite]
+    const lockedWhileSending = [room.status.isRestoring, room.status.canWrite]
     server.access.online = true
     await vi.advanceTimersByTimeAsync(30_000)
     await restoring
 
-    expect([...lockedWhileSending, room.restoring, room.canWrite]).toEqual([
+    expect([...lockedWhileSending, room.status.isRestoring, room.status.canWrite]).toEqual([
       true,
       false,
       false,
@@ -263,7 +264,7 @@ describe("this tab's restore", () => {
     server.access.online = true
     await vi.advanceTimersByTimeAsync(30_000)
 
-    expect([await restoring, room.stopped, await reasonsKept(kept)]).toEqual([
+    expect([await restoring, room.status.stopReason, await reasonsKept(kept)]).toEqual([
       'landed',
       'restored',
       ['restored'],
@@ -281,12 +282,12 @@ describe("this tab's restore", () => {
 
     const outcome = await room.restore(token, becomes(room, 'old'))
 
-    expect([outcome, room.stopped, room.needsRebuild, room.unsent]).toEqual([
-      'refused',
-      'restore_lost',
-      true,
-      0,
-    ])
+    expect([
+      outcome,
+      room.status.stopReason,
+      room.status.isReopenNeeded,
+      room.status.unsentCount,
+    ]).toEqual(['refused', 'restore_lost', true, 0])
     expect(await reasonsKept(kept)).toEqual([])
     expect(text(await join(server.endpoints()))).toBe('draft')
   })
@@ -301,7 +302,11 @@ describe("this tab's restore", () => {
 
     const outcome = await room.restore(token, becomes(room, 'old'))
 
-    expect([outcome, room.stopped, await reasonsKept(kept)]).toEqual(['refused', 'poison', []])
+    expect([outcome, room.status.stopReason, await reasonsKept(kept)]).toEqual([
+      'refused',
+      'poison',
+      [],
+    ])
   })
 
   it('a tab closing before its restore is sent leaves nothing on the device to send later', async () => {
@@ -320,7 +325,7 @@ describe("this tab's restore", () => {
     const next = await join(server.endpoints(), { device: kept })
     await next.flush()
 
-    expect([text(next), next.unsent, await reasonsKept(kept)]).toEqual(['draft', 0, []])
+    expect([text(next), next.status.unsentCount, await reasonsKept(kept)]).toEqual(['draft', 0, []])
     expect(text(await join(server.endpoints()))).toBe('draft')
   })
 
@@ -344,7 +349,7 @@ describe("this tab's restore", () => {
 
     const outcome = await room.restore(token, () => {})
 
-    expect([outcome, server.rows.length, room.restoring]).toEqual(['unchanged', 1, false])
+    expect([outcome, server.rows.length, room.status.isRestoring]).toEqual(['unchanged', 1, false])
   })
 })
 
@@ -361,7 +366,7 @@ describe('restoring a version', () => {
     const result = await room.restoreVersion(3, becomes(room, 'old'))
 
     expect([result, restoreCalls(server)]).toEqual([{ outcome: 'landed' }, ['beginRestore 1 3']])
-    expect([room.canWrite, text(await join(server.endpoints()))]).toEqual([true, 'old'])
+    expect([room.status.canWrite, text(await join(server.endpoints()))]).toEqual([true, 'old'])
   })
 
   it('a tab missing rows pulls them and begins again', async () => {
@@ -389,7 +394,7 @@ describe('restoring a version', () => {
 
     const result = await room.restoreVersion(3, becomes(room, 'old'))
 
-    expect([result, text(room), room.unsent]).toEqual([
+    expect([result, text(room), room.status.unsentCount]).toEqual([
       { outcome: 'refused', refusal: 'restoring', retryS: undefined },
       'draft',
       0,
@@ -420,7 +425,7 @@ describe('restoring a version', () => {
     })
 
     await expect(restoring).rejects.toThrow('unreadable')
-    expect([restoreCalls(server).at(-1), text(room), room.unsent]).toEqual([
+    expect([restoreCalls(server).at(-1), text(room), room.status.unsentCount]).toEqual([
       'cancelRestore',
       'draft',
       0,

@@ -13,7 +13,7 @@ import hashlib
 import frappe
 from frappe.utils import now_datetime
 
-from suite.suite_core.content.adapters import node_hooks
+from suite.suite_core.content.editors import node_hooks
 from suite.suite_core.content.tables import table
 from suite.writer.drive import EMPTY_BODY
 

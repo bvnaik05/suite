@@ -1,5 +1,4 @@
-import type { Blocked, CollabRoom } from '@suite/collab-client'
-
+import type { Blocked, RoomStatus } from '@/platform/collab'
 import { describeFailure } from '@/platform/transport'
 
 // What the page tells the person when the room stops saving, or never opens
@@ -13,17 +12,17 @@ export interface Banner {
 }
 
 export type BannerState = Pick<
-  CollabRoom,
-  | 'blocked'
-  | 'stopped'
-  | 'held'
-  | 'restoring'
-  | 'newerSchema'
-  | 'paused'
-  | 'atLimit'
-  | 'onDevice'
-  | 'unsent'
-  | 'copyFailed'
+  RoomStatus,
+  | 'blockReason'
+  | 'stopReason'
+  | 'holdReason'
+  | 'isRestoring'
+  | 'hasNewerSchema'
+  | 'pauseReason'
+  | 'isAtLimit'
+  | 'isKeptOnDevice'
+  | 'unsentCount'
+  | 'hasCopyFailed'
 > & {
   // The person may edit the document in an editor that can show it
   canEdit: boolean
@@ -71,8 +70,8 @@ function recoveryNote(state: BannerState) {
 }
 
 // The device store holds the unsent changes, unless its write failed
-export function isKeptOnDevice(room: Pick<CollabRoom, 'onDevice' | 'copyFailed'>) {
-  return room.onDevice && !room.copyFailed
+export function isSafeOnDevice(status: Pick<RoomStatus, 'isKeptOnDevice' | 'hasCopyFailed'>) {
+  return status.isKeptOnDevice && !status.hasCopyFailed
 }
 
 // The one ask for the tab to stay open, while its unsent work is kept nowhere
@@ -81,7 +80,7 @@ function keepOpenAsk(state: BannerState) {
     return ''
   }
 
-  if (state.copyFailed) {
+  if (state.hasCopyFailed) {
     return " Unsent changes couldn't be kept on this device, so keep this tab open."
   }
 
@@ -98,7 +97,7 @@ function messageFor(messages: Record<string, string>, reason: string | null) {
 
 // While saving goes on: a full document, a rebuilt room whose old work went to a recovery copy, or polling
 function savingBanner(state: BannerState): Banner | null {
-  if (state.atLimit) {
+  if (state.isAtLimit) {
     const setAsideNote = state.setAside ? ' Your latest changes went to a recovery copy.' : ''
     return {
       text: `This document is at its size limit.${setAsideNote} Delete content to free space.`,
@@ -157,11 +156,11 @@ function newerSchemaBanner(state: BannerState): Banner {
 
 function heldBanner(state: BannerState): Banner {
   const text = 'This document is read-only while an admin checks it.'
-  if (!state.unsent) {
+  if (!state.unsentCount) {
     return { text }
   }
 
-  if (isKeptOnDevice(state)) {
+  if (isSafeOnDevice(state)) {
     return {
       text: `${text} Your unsent changes are saved on this device and will be added once it's editable again.`,
     }
@@ -173,7 +172,7 @@ function heldBanner(state: BannerState): Banner {
 
 function pauseBanner(pauseMessage: string, state: BannerState): Banner {
   const text = `${pauseMessage}, so your latest changes aren't saved.`
-  if (isKeptOnDevice(state)) {
+  if (isSafeOnDevice(state)) {
     return { text: `${text} They're kept on this device.` }
   }
 
@@ -184,7 +183,7 @@ function pauseBanner(pauseMessage: string, state: BannerState): Banner {
 function signedOutBanner(state: BannerState): Banner {
   const redirectTo = encodeURIComponent(location.pathname)
   const signIn = { label: 'Sign in', href: `/login?redirect-to=${redirectTo}` }
-  if (!state.unsent) {
+  if (!state.unsentCount) {
     return { text: "You're signed out. ", link: signIn, after: ' to keep editing.' }
   }
 
@@ -221,7 +220,7 @@ function otherUserBanner(state: BannerState): Banner {
     return { text: `Someone else is now signed in here.${recovery}${keepOpen}` }
   }
 
-  if (isKeptOnDevice(state)) {
+  if (isSafeOnDevice(state)) {
     return {
       text: 'Someone else is now signed in here. Your unsent changes are kept on this device.',
     }
@@ -255,10 +254,12 @@ const BLOCKED_BANNERS: Record<Blocked, (state: BannerState) => Banner> = {
 // Unsent work no device store or recovery copy holds, so a reload would lose it and no strip
 // offers one
 export function isKeptNowhere(
-  room: Pick<CollabRoom, 'unsent' | 'onDevice' | 'copyFailed'>,
+  status: Pick<RoomStatus, 'unsentCount' | 'isKeptOnDevice' | 'hasCopyFailed'>,
   isRecoveryKept: boolean,
 ) {
-  return room.unsent > 0 && (!room.onDevice || room.copyFailed) && !isRecoveryKept
+  return (
+    status.unsentCount > 0 && (!status.isKeptOnDevice || status.hasCopyFailed) && !isRecoveryKept
+  )
 }
 
 // A frozen tab freezes again after a reload, so its stop offers the reload for saving only
@@ -278,8 +279,8 @@ function frozenStopBanner(state: BannerState, reason: string, isLasting: boolean
 }
 
 function stoppedBanner(state: BannerState): Banner {
-  const reason = messageFor(STOP_MESSAGES, state.stopped) ?? 'Saving stopped in this tab.'
-  const isLasting = state.stopped !== null && LASTING_STOPS.has(state.stopped)
+  const reason = messageFor(STOP_MESSAGES, state.stopReason) ?? 'Saving stopped in this tab.'
+  const isLasting = state.stopReason !== null && LASTING_STOPS.has(state.stopReason)
   if (state.isFrozen) {
     return frozenStopBanner(state, reason, isLasting)
   }
@@ -317,15 +318,15 @@ export function refusedSaveBanner(isRecoveryKept: boolean): Banner {
 
 // A refusal or a stop outranks a wait, since a wait ends on its own
 export function bannerFor(state: BannerState): Banner | null {
-  if (state.blocked) {
-    return BLOCKED_BANNERS[state.blocked](state)
+  if (state.blockReason) {
+    return BLOCKED_BANNERS[state.blockReason](state)
   }
 
-  if (state.stopped || (state.isFrozen && state.failed)) {
+  if (state.stopReason || (state.isFrozen && state.failed)) {
     return stoppedBanner(state)
   }
 
-  if (state.newerSchema) {
+  if (state.hasNewerSchema) {
     return newerSchemaBanner(state)
   }
 
@@ -333,17 +334,17 @@ export function bannerFor(state: BannerState): Banner | null {
     return frozenBanner(keepOpenAsk(state))
   }
 
-  if (state.held) {
+  if (state.holdReason) {
     return heldBanner(state)
   }
 
-  if (state.restoring) {
+  if (state.isRestoring) {
     return {
       text: 'Someone is restoring a version of this document. You can edit again once it is done.',
     }
   }
 
-  const pauseMessage = messageFor(PAUSE_MESSAGES, state.paused)
+  const pauseMessage = messageFor(PAUSE_MESSAGES, state.pauseReason)
   if (pauseMessage) {
     return pauseBanner(pauseMessage, state)
   }
@@ -359,7 +360,7 @@ const OPEN_FAILURES: Record<string, string> = {
   signed_out: "You're signed out. Sign in to open this document.",
   locked: 'This document is locked. Unlock it to open it.',
   stale_session: 'You signed in again in another tab. Reload to open this.',
-  principal_changed: 'Someone else is now signed in here. Reload to open this document.',
+  user_changed: 'Someone else is now signed in here. Reload to open this document.',
 }
 
 export const openFailureFor = (reason: string | null, status: number | null = null) =>

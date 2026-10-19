@@ -1,4 +1,3 @@
-import type { Limits } from '@suite/collab-client'
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
@@ -6,6 +5,8 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
+
+import type { Limits } from '@/platform/collab'
 
 import { PasteSizeGuard } from './paste-size-guard'
 

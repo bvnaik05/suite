@@ -20,11 +20,11 @@ import {
   type Blocked,
   type CollabRoom,
   type Held,
-  type LiveState,
   type LostAccess,
   type OpenOptions,
   type RestoreOutcome,
   type RestoreResult,
+  type RoomStatus,
   type SaveState,
 } from './types'
 import { SuspectReport } from './verdict'
@@ -89,6 +89,7 @@ export class Room implements CollabRoom {
   private lastRemoteAt = 0
   private deviceStale = false
   private deviceRead: Promise<void> | null = null
+  private lastStatus: RoomStatus | null = null
 
   constructor(
     init: RoomInit,
@@ -136,7 +137,7 @@ export class Room implements CollabRoom {
         changed: () => this.notifyListeners(),
         appliedThrough: () => this.appliedThrough,
         showsCaret: () => this.canWrite && this.bound && !this.closed,
-        position: this.options.adapter.position,
+        position: this.options.adapter.toPeerPosition,
         controlHeard: (heard) => this.controlHeard(heard),
         reconnected: () => this.options.threadsChanged?.(),
       }
@@ -166,20 +167,40 @@ export class Room implements CollabRoom {
     return this.fence.standing || !!this.restoreToken || !this.holdsRestore
   }
 
-  get live(): LiveState | null {
-    return this.realtime?.state ?? null
-  }
-
   get presence() {
     return this.realtime?.presence ?? null
   }
 
-  get stopped() {
-    return this.stopReason
-  }
+  get status(): RoomStatus {
+    const next: RoomStatus = {
+      canWrite: this.canWrite,
+      saveState: this.saveState,
+      liveState: this.realtime?.state ?? null,
+      limits: this.limits,
+      restoreRev: this.restoreRev,
+      blockReason: this.blocked,
+      pauseReason: this.paused,
+      stopReason: this.stopReason,
+      holdReason: this.held,
+      isRestoring: this.restoring,
+      hasNewerSchema: this.newerSchema,
+      isReopenNeeded: this.needsRebuild,
+      isKeptOnDevice: !!this.device,
+      isAtLimit: this.atLimit,
+      hasCopyFailed: this.copyFailed,
+      unsentCount: this.unsent,
+      othersUnsentCount: this.othersUnsent,
+      keptCopyCount: this.copiesKept,
+    }
+    const last = this.lastStatus
+    if (
+      !last ||
+      (Object.keys(next) as (keyof RoomStatus)[]).some((key) => next[key] !== last[key])
+    ) {
+      this.lastStatus = Object.freeze(next)
+    }
 
-  get onDevice() {
-    return !!this.device
+    return this.lastStatus!
   }
 
   get atLimit() {
@@ -400,7 +421,7 @@ export class Room implements CollabRoom {
       return false
     }
 
-    if (schema <= this.options.adapter.features.schema) {
+    if (schema <= this.options.adapter.schemaVersion) {
       return true
     }
 
@@ -545,12 +566,12 @@ export class Room implements CollabRoom {
     }
   }
 
-  committedCovers(items: readonly Y.ID[]) {
-    return items.every((id) => this.isCommitted(id))
+  isCommitted(items: readonly Y.ID[]) {
+    return items.every((id) => this.isCommittedItem(id))
   }
 
   // In this copy, and not waiting to be sent by this tab or one it adopted
-  private isCommitted(id: Y.ID) {
+  private isCommittedItem(id: Y.ID) {
     const isHere = Y.getState(this.doc.store, id.client) > id.clock
     return isHere && !this.outboxes.some((box) => box.holds(id))
   }

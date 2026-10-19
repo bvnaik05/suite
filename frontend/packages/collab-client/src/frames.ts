@@ -66,7 +66,7 @@ export function parseHeld(held: unknown): Held | null {
 export interface PushHeader {
   proto: number
   lineage: string
-  principal: string
+  expected_user: string
   schema: number
   sid: string
   from: number
@@ -83,7 +83,7 @@ export interface PushHeader {
 }
 
 // What places a staged piece: a push's seq range, or the rev and quarantine epoch a render was made at
-export type PiecePlace = Pick<PushHeader, 'lineage' | 'principal' | 'sid'> &
+export type PiecePlace = Pick<PushHeader, 'lineage' | 'expected_user' | 'sid'> &
   (Pick<PushHeader, 'from' | 'to'> | { purpose: 'render'; rev: number; q_epoch: number })
 
 // One staged piece, with the length and sha the whole is checked against

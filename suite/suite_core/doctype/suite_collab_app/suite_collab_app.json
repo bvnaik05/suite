@@ -4,13 +4,13 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "adapter",
+  "app",
   "mode"
  ],
  "fields": [
   {
-   "description": "The app's content adapter name",
-   "fieldname": "adapter",
+   "description": "The app's name in the content layer",
+   "fieldname": "app",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "App",
@@ -29,7 +29,7 @@
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-10-12 12:00:00.000000",
+ "modified": "2026-10-17 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Suite Core",
  "name": "Suite Collab App",

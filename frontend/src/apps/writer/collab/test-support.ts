@@ -1,4 +1,4 @@
-import { APPLIED_UPDATE, REMOTE } from '@suite/collab-client'
+import { REMOTE } from '@suite/collab-client'
 import { Editor, getSchema, type JSONContent } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
@@ -8,6 +8,7 @@ import * as Y from 'yjs'
 
 import { writerEditorExtensions } from '@/apps/writer/editor-extensions'
 import { writerSchema } from '@/apps/writer/schema'
+import { APPLIED_UPDATE } from '@/platform/collab'
 
 import { BODY_FIELD } from './field'
 import { watchRemovals, type Removal } from './removals'
@@ -25,7 +26,7 @@ export interface Tab {
 export interface TabRoom {
   doc: Y.Doc
   ownClients: Set<number>
-  canWrite: boolean
+  status: { canWrite: boolean }
   listeners: Set<() => void>
   onChange(listener: () => void): () => void
 }
@@ -79,7 +80,7 @@ function openTab(state: Uint8Array, clientID: number): Tab {
   const room: TabRoom = {
     doc: ydoc,
     ownClients: new Set([clientID]),
-    canWrite: true,
+    status: { canWrite: true },
     listeners: new Set(),
     onChange(listener) {
       room.listeners.add(listener)

@@ -1,6 +1,7 @@
-import type { CollabRoom } from '@suite/collab-client'
 import { Extension } from '@tiptap/core'
 import { yUndoPluginKey } from '@tiptap/y-tiptap'
+
+import type { CollabRoom } from '@/platform/collab'
 
 /** Forgets the editor's undo steps whenever a restore lands, so Ctrl+Z never reaches past it. */
 export const UndoAfterRestore = Extension.create<
@@ -19,13 +20,13 @@ export const UndoAfterRestore = Extension.create<
 
   onBeforeCreate() {
     const room = this.options.room!
-    let restoreRev = room.restoreRev
+    let restoreRev = room.status.restoreRev
     this.storage.stop = room.onChange(() => {
-      if (room.restoreRev === restoreRev) {
+      if (room.status.restoreRev === restoreRev) {
         return
       }
 
-      restoreRev = room.restoreRev
+      restoreRev = room.status.restoreRev
       yUndoPluginKey.getState(this.editor.state)?.undoManager.clear()
     })
   },

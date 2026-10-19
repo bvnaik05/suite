@@ -18,9 +18,11 @@ from suite.composition import content as routes
 from suite.suite_core.content import (
     checkpoints,
     compaction,
-    documents,
+    jobs,
     log,
+    logged,
     scheduling,
+    tables,
 )
 from suite.suite_core.content.log import chain_next, chain_seed
 from suite.suite_core.content.stage import PIECE_MAX
@@ -33,9 +35,9 @@ OUTSIDER = "writer-collab-outsider@example.com"
 READER = "writer-collab-reader@example.com"
 
 
-def call_route(handler, node: str, *, body: bytes = b"", principal: str | None = None):
+def call_route(handler, node: str, *, body: bytes = b"", expected_user: str | None = None):
     """Run one route handler as the current user, the way the dispatcher would."""
-    headers = {routes.PRINCIPAL_HEADER: principal or frappe.session.user}
+    headers = {routes.EXPECTED_USER_HEADER: expected_user or frappe.session.user}
     environ = EnvironBuilder(method="POST", data=body, headers=headers).get_environ()
     frappe.local.request = Request(environ)
     frappe.local.form_dict = frappe._dict()
@@ -140,7 +142,7 @@ def push_body(
     seq: int,
     seen_rev: int,
     payload: bytes,
-    principal: str | None = None,
+    expected_user: str | None = None,
     *,
     entries: list[bytes] | None = None,
     schema: int = 1,
@@ -153,7 +155,7 @@ def push_body(
         **({"stage_id": stage_id} if stage_id else {}),
         **({"restore": restore} if restore else {}),
         "lineage": lineage,
-        "principal": principal or frappe.session.user,
+        "expected_user": expected_user or frappe.session.user,
         "sid": sid,
         "from": seq,
         "to": seq + len(entries) - 1,
@@ -175,7 +177,7 @@ def piece_body(lineage: str, sid: str, seq: int, change: bytes, piece: bytes, /,
     """One piece of `change`, staged as `seq` of session `sid`; `header` overrides what it says."""
     fields = {
         "lineage": lineage,
-        "principal": frappe.session.user,
+        "expected_user": frappe.session.user,
         "sid": sid,
         "from": seq,
         "to": seq,
@@ -224,23 +226,23 @@ class CollabCase(IntegrationTestCase):
         ensure_user(WRITER)
         ensure_user(OUTSIDER)
         ensure_user(READER)
-        routes.content.ensure_tables(writer_content.ADAPTER)
+        tables.ensure_tables(writer_content.APP)
         frappe.db.commit()
 
     def setUp(self):
         super().setUp()
-        self.saved_mode = routes.content.mode(writer_content.ADAPTER)
+        self.saved_mode = log.mode(writer_content.APP)
         self.addCleanup(self.restore_mode)
         frappe.set_user(WRITER)
         self.addCleanup(frappe.set_user, "Administrator")
         self.texts_by_client = {}
 
     def restore_mode(self):
-        routes.content.set_mode(writer_content.ADAPTER, self.saved_mode)
+        log.set_mode(writer_content.APP, self.saved_mode)
         frappe.db.commit()
 
     def set_mode(self, mode: str):
-        routes.content.set_mode(writer_content.ADAPTER, mode)
+        log.set_mode(writer_content.APP, mode)
         frappe.db.commit()
 
     def new_document(self) -> str:
@@ -255,7 +257,7 @@ class CollabCase(IntegrationTestCase):
         return node
 
     def delete_log(self, node: str):
-        doc = routes.content.find(writer_content.ADAPTER, node)
+        doc = routes.content.find(writer_content.APP, node)
         if doc:
             for kind in ("update", "session", "stage"):
                 frappe.db.sql(f"DELETE FROM `__writer_content_{kind}` WHERE `doc_id` = %s", doc.id)
@@ -298,7 +300,7 @@ class CollabCase(IntegrationTestCase):
         header, rows = self.open_document(node)
         self.assertEqual([rev for rev, _ in rows], list(range(1, count + 1)))
 
-        stored = routes.content.find(writer_content.ADAPTER, node)
+        stored = routes.content.find(writer_content.APP, node)
         chain = chain_seed(stored.lineage)
         for rev, payload in rows:
             chain = chain_next(chain, rev, hashlib.sha256(payload).digest())
@@ -362,7 +364,7 @@ class CollabCase(IntegrationTestCase):
         return response.status_code, answer(response)
 
     def staged(self, node: str) -> int:
-        doc_id = routes.content.find(writer_content.ADAPTER, node).id
+        doc_id = routes.content.find(writer_content.APP, node).id
         counted = frappe.db.sql("SELECT COUNT(*) FROM `__writer_content_stage` WHERE `doc_id` = %s", doc_id)
 
         return counted[0][0]
@@ -373,13 +375,13 @@ class CheckpointCase(IntegrationTestCase):
     def setUpClass(cls):
         super().setUpClass()
         ensure_user(WRITER)
-        documents.ensure_tables()
+        logged.ensure_tables()
         frappe.db.commit()
 
     def setUp(self):
         super().setUp()
-        self.saved_mode = log.mode(writer_content.ADAPTER)
-        log.set_mode(writer_content.ADAPTER, "on")
+        self.saved_mode = log.mode(writer_content.APP)
+        log.set_mode(writer_content.APP, "on")
         frappe.db.commit()
         scheduling.paused_until = 0.0
         self.addCleanup(setattr, scheduling, "paused_until", 0.0)
@@ -391,13 +393,13 @@ class CheckpointCase(IntegrationTestCase):
         return checkpoints.Compaction(
             "writer",
             doc_id,
-            writer_content.ROOTS,
-            "suite.suite_core.content.documents.judge",
+            writer_content.PART_MAP,
+            "suite.suite_core.content.jobs.judge",
             routes.node_owner,
         )
 
     def restore_mode(self):
-        log.set_mode(writer_content.ADAPTER, self.saved_mode)
+        log.set_mode(writer_content.APP, self.saved_mode)
         frappe.db.commit()
 
     def new_document(self) -> str:
@@ -411,7 +413,7 @@ class CheckpointCase(IntegrationTestCase):
         return node
 
     def delete_log(self, node: str):
-        doc = routes.content.find(writer_content.ADAPTER, node)
+        doc = routes.content.find(writer_content.APP, node)
         if doc:
             for kind in ("update", "session", "stage", "checkpoint", "recovery", "projection", "copy"):
                 frappe.db.sql(f"DELETE FROM `__writer_content_{kind}` WHERE `doc_id` = %s", doc.id)
@@ -480,4 +482,4 @@ class CheckpointCase(IntegrationTestCase):
         return "".join(str(child) for child in fragment.children)
 
     def compact(self, node: str):
-        documents.compact(writer_content.ADAPTER, self.doc_row(node).id)
+        jobs.compact(writer_content.APP, self.doc_row(node).id)

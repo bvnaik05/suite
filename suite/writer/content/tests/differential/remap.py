@@ -11,7 +11,7 @@ import pycrdt
 
 from suite.suite_core.content.compaction import compact
 from suite.suite_core.content.updates import rewrite_values
-from suite.writer.content.files import rewrite_files
+from suite.writer.content.files import value_rewriter
 
 WRITER_ROOTS = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
 
@@ -37,6 +37,6 @@ if __name__ == "__main__":
     with open(source) as source_file:
         generated = json.load(source_file)
 
-    rule = rewrite_files(generated["map"])
+    rule = value_rewriter(generated["map"])
     with open(target, "w") as target_file:
         json.dump([remap_trial(trial, rule) for trial in generated["trials"]], target_file)

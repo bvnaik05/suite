@@ -18,7 +18,7 @@ from frappe.utils import now_datetime, sbool
 from suite.suite_core.content import compaction
 from suite.suite_core.content.scheduling import enqueue
 
-ROOTS = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
+PART_MAP = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
 # Two people edit one paragraph at once; one renames the first tab
 EXPECTED_TEXT = "<paragraph>Oh, Hello there 😀</paragraph>"
 EXPECTED_CLOCKS = {1: 22, 2: 4}
@@ -40,13 +40,13 @@ def run_self_test() -> None:
 
 
 def self_test() -> dict:
-    from suite.suite_core.content import kernel
+    from suite.suite_core.content import checker
 
     report = {
         "pycrdt": pycrdt.__version__,
         "compaction": compaction_check(),
         "node": node_version(),
-        "node_checks": kernel.usable_node() is not None,
+        "node_checks": checker.usable_node() is not None,
         "database": {name: database_variable(name) for name in DATABASE_VARIABLES},
         "cgroup_readable": all(
             os.access(f"/sys/fs/cgroup/{name}", os.R_OK) for name in ("memory.max", "memory.stat")
@@ -88,7 +88,7 @@ def fixture_rows() -> list[bytes]:
 
 def compaction_check() -> str:
     try:
-        compacted = compaction.compact(None, fixture_rows(), ROOTS)
+        compacted = compaction.compact(None, fixture_rows(), PART_MAP)
     except compaction.CompactionFailed as error:
         return error.reason
 

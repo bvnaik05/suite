@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { CollabOpenError } from './answers'
-import { openCollabRoom } from './open'
+import { openRoom } from './open'
 import { adapterAt, browser, fakeServer, join, reply, text } from './test-support'
 
 describe('collab room', () => {
@@ -16,7 +16,11 @@ describe('collab room', () => {
     await viewer.pull()
     viewer.doc.getText('t').insert(0, 'mine ')
 
-    expect([viewer.canWrite, viewer.unsent, text(viewer)]).toEqual([false, 0, 'mine news'])
+    expect([viewer.status.canWrite, viewer.status.unsentCount, text(viewer)]).toEqual([
+      false,
+      0,
+      'mine news',
+    ])
     expect(server.rows).toHaveLength(1)
   })
 
@@ -29,37 +33,41 @@ describe('collab room', () => {
 
     room.doc.getText('t').insert(0, 'kept')
     await vi.advanceTimersByTimeAsync(0)
-    expect([room.blocked, room.canWrite, room.unsent, server.rows.length]).toEqual([
-      'signed_out',
-      true,
-      1,
-      0,
-    ])
+    expect([
+      room.status.blockReason,
+      room.status.canWrite,
+      room.status.unsentCount,
+      server.rows.length,
+    ]).toEqual(['signed_out', true, 1, 0])
 
     server.access.refuse = null
     browser.signedIn = 'a@x.com'
     await room.pull()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect([room.blocked, room.saveState, server.rows.length]).toEqual([null, 'clean', 1])
+    expect([room.status.blockReason, room.status.saveState, server.rows.length]).toEqual([
+      null,
+      'clean',
+      1,
+    ])
   })
 
   it('a tab whose browser signed in as someone else stops and says so', async () => {
     const server = fakeServer()
     const room = await join(server.endpoints())
-    server.access.refuse = reply(409, { collab: 'principal_changed' })
+    server.access.refuse = reply(409, { collab: 'user_changed' })
     browser.signedIn = 'b@x.com'
 
     room.doc.getText('t').insert(0, 'unsent')
     await room.flush()
     room.doc.getText('t').insert(0, 'more ')
 
-    expect([room.blocked, room.canWrite, room.saveState, room.unsent]).toEqual([
-      'other_user',
-      false,
-      'failed',
-      1,
-    ])
+    expect([
+      room.status.blockReason,
+      room.status.canWrite,
+      room.status.saveState,
+      room.status.unsentCount,
+    ]).toEqual(['other_user', false, 'failed', 1])
   })
 
   it('a writer whose edit access is taken away is told so on the next push', async () => {
@@ -70,19 +78,27 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, 'late')
     await room.flush()
 
-    expect([room.blocked, room.canWrite, room.saveState]).toEqual(['lost_edit', false, 'failed'])
+    expect([room.status.blockReason, room.status.canWrite, room.status.saveState]).toEqual([
+      'lost_edit',
+      false,
+      'failed',
+    ])
   })
 
   it('a change the server refuses for good says why saving stopped', async () => {
     const server = fakeServer()
     const room = await join(server.endpoints())
-    expect(room.stopped).toBe(null)
+    expect(room.status.stopReason).toBe(null)
     server.access.refuse = reply(409, { collab: 'poison' })
 
     room.doc.getText('t').insert(0, 'bad')
     await room.flush()
 
-    expect([room.stopped, room.saveState, room.blocked]).toEqual(['poison', 'failed', null])
+    expect([room.status.stopReason, room.status.saveState, room.status.blockReason]).toEqual([
+      'poison',
+      'failed',
+      null,
+    ])
   })
 
   it('a refusal that turns out to be a sign-out is not taken as lost access', async () => {
@@ -93,7 +109,7 @@ describe('collab room', () => {
 
     await room.pull()
 
-    expect([room.blocked, room.canWrite]).toEqual(['signed_out', true])
+    expect([room.status.blockReason, room.status.canWrite]).toEqual(['signed_out', true])
   })
 
   it('a document locked again keeps its typing and is not taken for a sign-out', async () => {
@@ -104,13 +120,21 @@ describe('collab room', () => {
 
     room.doc.getText('t').insert(0, 'kept')
     await vi.advanceTimersByTimeAsync(0)
-    expect([room.blocked, room.canWrite, room.unsent]).toEqual(['locked', true, 1])
+    expect([room.status.blockReason, room.status.canWrite, room.status.unsentCount]).toEqual([
+      'locked',
+      true,
+      1,
+    ])
 
     server.access.refuse = null
     await room.pull()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect([room.blocked, room.saveState, server.rows.length]).toEqual([null, 'clean', 1])
+    expect([room.status.blockReason, room.status.saveState, server.rows.length]).toEqual([
+      null,
+      'clean',
+      1,
+    ])
   })
 
   it('a tab whose sign-in went stale stops and asks for a reload', async () => {
@@ -123,21 +147,21 @@ describe('collab room', () => {
     await room.flush()
     await room.pull()
 
-    expect([room.blocked, room.canWrite, room.saveState, room.unsent]).toEqual([
-      'stale_session',
-      false,
-      'failed',
-      1,
-    ])
+    expect([
+      room.status.blockReason,
+      room.status.canWrite,
+      room.status.saveState,
+      room.status.unsentCount,
+    ]).toEqual(['stale_session', false, 'failed', 1])
   })
 
   it('opening with a stale sign-in asks for a reload', async () => {
     const endpoints = fakeServer().endpoints()
     endpoints.session = async () => reply(400, { exc_type: 'CSRFTokenError' })
 
-    const opened = openCollabRoom({
+    const opened = openRoom({
       endpoints,
-      principal: 'a@x.com',
+      expectedUser: 'a@x.com',
       adapter: adapterAt(1),
       signedIn: () => 'a@x.com',
     })
@@ -154,6 +178,6 @@ describe('collab room', () => {
     await room.flush()
     await room.pull()
 
-    expect(room.blocked).toBe('lost_read')
+    expect(room.status.blockReason).toBe('lost_read')
   })
 })

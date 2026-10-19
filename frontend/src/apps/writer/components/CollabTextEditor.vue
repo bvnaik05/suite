@@ -19,12 +19,11 @@
 </template>
 
 <script setup lang="ts">
-import type { CollabRoom } from '@suite/collab-client'
 import { toast } from 'frappe-ui'
 import { computed, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue'
 
 import type { DocumentThread } from '@/apps/drive'
-import { writerAdapter } from '@/apps/writer/collab/adapter'
+import { writerBinding } from '@/apps/writer/collab/binding'
 import { CommentShortcut } from '@/apps/writer/collab/commentShortcut'
 import {
   redrawThreads,
@@ -41,6 +40,7 @@ import type {
   WriterDocument,
   WriterSettings,
 } from '@/apps/writer/surface/writerDocument'
+import type { CollabRoom } from '@/platform/collab'
 
 import CoreEditor from './CoreEditor.vue'
 
@@ -84,10 +84,10 @@ function onFrozen() {
 }
 
 const extensions = [
-  ...writerAdapter.bind(props.room, onFrozen),
+  ...writerBinding(props.room, onFrozen),
   PasteSizeGuard.configure({
-    limits: () => props.room.limits,
-    atLimit: () => props.room.atLimit,
+    limits: () => props.room.status.limits,
+    atLimit: () => props.room.status.isAtLimit,
     onTooLarge: () => toast.error('This is too large to add in one go. Add it in smaller parts.'),
     onNearFull: () => toast.warning('This document is nearly full. Some changes may not save.'),
   }),
@@ -129,7 +129,7 @@ function commentOnSelection() {
 
 async function save(done?: () => void) {
   await withinTenSeconds(props.room.flush())
-  if (props.room.saveState === 'clean') {
+  if (props.room.status.saveState === 'clean') {
     done?.()
   } else if (done) {
     toast.warning('Not saved yet. Your changes are kept in this tab.')

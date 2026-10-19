@@ -22,13 +22,13 @@ vi.mock('@/apps/drive', async (original) => ({
 
 // Holds this device's store until a test lets the read finish
 const deviceStore = vi.hoisted(() => ({ read: Promise.resolve() }))
-vi.mock('@/apps/writer/collab', async (original) => {
-  const collab = await original<typeof import('@/apps/writer/collab')>()
+vi.mock('@/platform/collab', async (original) => {
+  const collab = await original<typeof import('@/platform/collab')>()
   return {
     ...collab,
-    writerDeviceStore: async () => {
+    openSignedInDeviceStore: async (app: string) => {
       await deviceStore.read
-      return collab.writerDeviceStore()
+      return collab.openSignedInDeviceStore(app)
     },
   }
 })

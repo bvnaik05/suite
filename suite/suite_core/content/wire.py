@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import frappe
 
 from suite.suite_core.content import capacity, stage
-from suite.suite_core.content.adapters import spec_of
 from suite.suite_core.content.log import Refusal
 from suite.suite_core.content.snapshot import Snapshot
 
@@ -34,7 +33,7 @@ class PushHeader:
     # The fence's token on the push that lands a restore
     restore: str | None
     # Who the tab says it is, checked against the signed-in user; unchecked JSON
-    principal: object
+    expected_user: object
 
 
 def busy_refusal() -> Refusal:
@@ -73,13 +72,12 @@ def open_header(log_read: Snapshot, *, can_write: bool) -> dict:
     }
 
 
-def limits(adapter: str, doc: frappe._dict) -> dict:
+def limits(app: str, doc: frappe._dict) -> dict:
     """The sizes a tab checks a change against before it enters the document."""
-    spec = spec_of(adapter)
     return {
         "fragment": stage.PIECE_MAX,
-        "edit_max": capacity.edit_max(spec.max_change),
-        "state_max": spec.max_state,
+        "edit_max": capacity.edit_max(),
+        "state_max": capacity.STATE_MAX,
         "state_bytes": int(doc.state_bytes),
         "tail_bound": int(doc.tail_bound),
     }
@@ -166,18 +164,18 @@ def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
         stage_id=header.get("stage_id"),
         is_final=header.get("final") is True,
         restore=restore,
-        principal=header.get("principal"),
+        expected_user=header.get("expected_user"),
     )
     return push_header, payload
 
 
-def parse_piece(adapter: str, body: bytes, stage_id: str, index_text: str) -> tuple[dict, int, bytes]:
+def parse_piece(app: str, body: bytes, stage_id: str, index_text: str) -> tuple[dict, int, bytes]:
     """Split `u32 hlen | header JSON | piece`; the header names the change the piece belongs to."""
     if not stage.valid_id(stage_id):
         raise Refusal(400, "malformed")
 
     try:
-        return stage.parse_piece(body, index_text, capacity.edit_max(spec_of(adapter).max_change))
+        return stage.parse_piece(body, index_text, capacity.edit_max())
     except stage.Malformed:
         raise Refusal(400, "malformed") from None
     except stage.TooLarge:

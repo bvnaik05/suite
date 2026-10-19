@@ -6,7 +6,7 @@ import type { CollabRoom } from './types'
 const FENCE_MS = 120_000
 
 function state(room: CollabRoom) {
-  return [room.restoring, room.canWrite]
+  return [room.status.isRestoring, room.status.canWrite]
 }
 
 function type(room: CollabRoom, word: string) {
@@ -91,12 +91,21 @@ describe('collab room restore fence', () => {
     await vi.advanceTimersByTimeAsync(200)
     type(room, 'kept')
     await vi.advanceTimersByTimeAsync(5_000)
-    const whileRestoring = [room.paused, room.unsent > 0, server.rows.length]
+    const whileRestoring = [
+      room.status.pauseReason,
+      room.status.unsentCount > 0,
+      server.rows.length,
+    ]
 
     server.fence(null)
     await vi.advanceTimersByTimeAsync(5_000)
 
     expect(whileRestoring).toEqual(['restoring', true, 0])
-    expect([room.paused, room.unsent, server.rows.length, text(room)]).toEqual([null, 0, 1, 'kept'])
+    expect([
+      room.status.pauseReason,
+      room.status.unsentCount,
+      server.rows.length,
+      text(room),
+    ]).toEqual([null, 0, 1, 'kept'])
   })
 })

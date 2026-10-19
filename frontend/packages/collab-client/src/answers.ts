@@ -60,7 +60,7 @@ export function signInChange(options: OpenOptions): 'signed_out' | 'other_user' 
     return 'signed_out'
   }
 
-  if (signedIn !== options.principal) {
+  if (signedIn !== options.expectedUser) {
     return 'other_user'
   }
 
@@ -84,7 +84,7 @@ export function toOpenError(answer: Answer, options: OpenOptions) {
   }
 
   if (change === 'other_user') {
-    return new CollabOpenError(reply.status, 'principal_changed')
+    return new CollabOpenError(reply.status, 'user_changed')
   }
 
   return new CollabOpenError(reply.status, reason)

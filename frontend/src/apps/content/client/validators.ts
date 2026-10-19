@@ -5,8 +5,8 @@ import { assertSchema } from '@/platform/transport/schema'
 import type {
   DocumentGetInput,
   DocumentGetOutput,
-  ProjectionPostInput,
-  ProjectionPostOutput,
+  HtmlPostInput,
+  HtmlPostOutput,
   RestoreCancelPostInput,
   RestoreCancelPostOutput,
   RestorePostInput,
@@ -96,10 +96,10 @@ export const operationStagePut: Validators<StagePutInput, StagePutOutput> = {
         properties: {
           node: { type: 'string' },
           stage_id: { type: 'string' },
-          idx: { type: 'string' },
+          piece_index: { type: 'string' },
           chunk: {},
         },
-        required: ['node', 'stage_id', 'idx', 'chunk'],
+        required: ['node', 'stage_id', 'piece_index', 'chunk'],
         additionalProperties: false,
         $defs: {},
       },
@@ -170,8 +170,8 @@ export const operationSuspectPost: Validators<SuspectPostInput, SuspectPostOutpu
   },
 }
 
-export const operationProjectionPost: Validators<ProjectionPostInput, ProjectionPostOutput> = {
-  validateInput(value: unknown): asserts value is ProjectionPostInput {
+export const operationHtmlPost: Validators<HtmlPostInput, HtmlPostOutput> = {
+  validateInput(value: unknown): asserts value is HtmlPostInput {
     assertSchema(
       value,
       {
@@ -181,17 +181,17 @@ export const operationProjectionPost: Validators<ProjectionPostInput, Projection
         additionalProperties: false,
         $defs: {},
       },
-      'projection_post input',
+      'html_post input',
     )
   },
-  validateOutput(value: unknown): asserts value is ProjectionPostOutput {
+  validateOutput(value: unknown): asserts value is HtmlPostOutput {
     assertSchema(
       value,
       {
         additionalProperties: { anyOf: [{ type: 'integer' }, { type: 'string' }] },
         type: 'object',
       },
-      'projection_post output',
+      'html_post output',
     )
   },
 }

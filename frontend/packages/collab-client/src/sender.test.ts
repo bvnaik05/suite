@@ -47,7 +47,7 @@ describe('collab room', () => {
     await vi.advanceTimersByTimeAsync(31_000)
 
     expect(server.rows).toHaveLength(1)
-    expect([room.saveState, room.unsent]).toEqual(['clean', 0])
+    expect([room.status.saveState, room.status.unsentCount]).toEqual(['clean', 0])
   })
 
   it('a resend that differs from what the server committed stops saving instead of overwriting', async () => {
@@ -70,14 +70,18 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, 'once')
     await vi.advanceTimersByTimeAsync(31_000)
 
-    expect([server.rows.length, room.saveState, room.unsent]).toEqual([1, 'failed', 1])
+    expect([server.rows.length, room.status.saveState, room.status.unsentCount]).toEqual([
+      1,
+      'failed',
+      1,
+    ])
   })
 
   it('the unsent count each listener sees follows typing and drops to zero once committed', async () => {
     const server = fakeServer()
     const room = await join(server.endpoints())
     const seen: number[] = []
-    room.onChange(() => seen.push(room.unsent))
+    room.onChange(() => seen.push(room.status.unsentCount))
 
     room.doc.getText('t').insert(0, 'a')
     room.doc.getText('t').insert(1, 'b')
@@ -100,11 +104,11 @@ describe('collab room', () => {
     for (let at = 0; at < 130; at++) room.doc.getText('t').insert(at, 'x')
     await vi.advanceTimersByTimeAsync(20_000)
 
-    expect([room.saveState, room.unsent, text(await join(server.endpoints())).length]).toEqual([
-      'clean',
-      0,
-      130,
-    ])
+    expect([
+      room.status.saveState,
+      room.status.unsentCount,
+      text(await join(server.endpoints())).length,
+    ]).toEqual(['clean', 0, 130])
   })
 
   it('a server that forgot what it acknowledged stops saving instead of resending in a loop', async () => {
@@ -125,7 +129,7 @@ describe('collab room', () => {
     room.doc.getText('t').insert(3, 'two')
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect([room.saveState, calls < 5]).toEqual(['failed', true])
+    expect([room.status.saveState, calls < 5]).toEqual(['failed', true])
   })
 
   it('work committed after access was lost is not reported as unsaved', async () => {
@@ -148,7 +152,11 @@ describe('collab room', () => {
     release()
     await flushed
 
-    expect([room.blocked, room.unsent, room.saveState]).toEqual(['lost_read', 0, 'clean'])
+    expect([room.status.blockReason, room.status.unsentCount, room.status.saveState]).toEqual([
+      'lost_read',
+      0,
+      'clean',
+    ])
   })
 
   it('a pause ends when the server answers with anything else', async () => {
@@ -166,7 +174,7 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, 'x')
     await vi.advanceTimersByTimeAsync(1500)
 
-    expect([room.blocked, room.paused]).toEqual(['signed_out', null])
+    expect([room.status.blockReason, room.status.pauseReason]).toEqual(['signed_out', null])
   })
 
   it('a busy document is pushed to again only after the delay it asks for', async () => {
@@ -186,11 +194,16 @@ describe('collab room', () => {
 
     const flushed = room.flush()
     await vi.advanceTimersByTimeAsync(500)
-    expect([calls, room.paused]).toEqual([1, 'busy'])
+    expect([calls, room.status.pauseReason]).toEqual([1, 'busy'])
     await vi.advanceTimersByTimeAsync(2000)
     await flushed
 
-    expect([calls, server.rows.length, room.saveState, room.paused]).toEqual([3, 1, 'clean', null])
+    expect([calls, server.rows.length, room.status.saveState, room.status.pauseReason]).toEqual([
+      3,
+      1,
+      'clean',
+      null,
+    ])
   })
 
   it('a change too big for one push is staged in pieces and committed once', async () => {
@@ -201,12 +214,12 @@ describe('collab room', () => {
     await room.flush()
 
     expect(server.pieces.map((piece) => piece.idx)).toEqual([0, 1, 2])
-    expect([server.rows.length, server.stages.size, room.saveState, room.unsent]).toEqual([
-      1,
-      0,
-      'clean',
-      0,
-    ])
+    expect([
+      server.rows.length,
+      server.stages.size,
+      room.status.saveState,
+      room.status.unsentCount,
+    ]).toEqual([1, 0, 'clean', 0])
     expect(text(await join(server.endpoints()))).toBe(BIG)
   })
 
@@ -228,7 +241,7 @@ describe('collab room', () => {
 
     expect(server.pieces).toHaveLength(6)
     expect(new Set(server.pieces.map((piece) => piece.stage)).size).toBe(1)
-    expect([server.rows.length, room.saveState]).toEqual([1, 'clean'])
+    expect([server.rows.length, room.status.saveState]).toEqual([1, 'clean'])
   })
 
   it('a stage the server refuses is replaced by a new one', async () => {
@@ -249,7 +262,7 @@ describe('collab room', () => {
 
     const [refused, ...rest] = ids
     expect([rest.length, rest.includes(refused), new Set(rest).size]).toEqual([3, false, 1])
-    expect([server.rows.length, room.saveState]).toEqual([1, 'clean'])
+    expect([server.rows.length, room.status.saveState]).toEqual([1, 'clean'])
   })
 
   it('a document with too many pieces staged is pushed to again after the wait it asks for', async () => {
@@ -267,10 +280,14 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, BIG)
 
     await vi.advanceTimersByTimeAsync(59_000)
-    expect([room.paused, server.rows.length]).toEqual(['stage_full', 0])
+    expect([room.status.pauseReason, server.rows.length]).toEqual(['stage_full', 0])
     await vi.advanceTimersByTimeAsync(2_000)
 
-    expect([room.paused, server.rows.length, room.saveState]).toEqual([null, 1, 'clean'])
+    expect([room.status.pauseReason, server.rows.length, room.status.saveState]).toEqual([
+      null,
+      1,
+      'clean',
+    ])
   })
 
   it('a change the server finds too large stops saving and says why', async () => {
@@ -282,7 +299,11 @@ describe('collab room', () => {
 
     await room.flush()
 
-    expect([room.stopped, room.saveState, server.rows.length]).toEqual(['too_large', 'failed', 0])
+    expect([room.status.stopReason, room.status.saveState, server.rows.length]).toEqual([
+      'too_large',
+      'failed',
+      0,
+    ])
   })
 
   it('a change a proxy refuses for its size stays unsent and saves once uploads get through', async () => {
@@ -302,14 +323,21 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, BIG)
 
     await vi.advanceTimersByTimeAsync(500)
-    const refused = [room.paused, room.stopped, room.unsent, server.rows.length]
+    const refused = [
+      room.status.pauseReason,
+      room.status.stopReason,
+      room.status.unsentCount,
+      server.rows.length,
+    ]
     proxyRefuses = false
     await vi.advanceTimersByTimeAsync(31_000)
 
-    expect([refused, [room.paused, room.saveState, server.rows.length]]).toEqual([
-      ['upload_refused', null, 1, 0],
-      [null, 'clean', 1],
-    ])
+    expect([refused, [room.status.pauseReason, room.status.saveState, server.rows.length]]).toEqual(
+      [
+        ['upload_refused', null, 1, 0],
+        [null, 'clean', 1],
+      ],
+    )
   })
 
   it('a staged change whose answer was lost is acknowledged without staging it again', async () => {
@@ -332,7 +360,11 @@ describe('collab room', () => {
     await vi.advanceTimersByTimeAsync(31_000)
 
     expect(server.pieces).toHaveLength(4)
-    expect([server.rows.length, room.saveState, room.unsent]).toEqual([1, 'clean', 0])
+    expect([server.rows.length, room.status.saveState, room.status.unsentCount]).toEqual([
+      1,
+      'clean',
+      0,
+    ])
   })
 
   it('leaving the page with a big change unsent stages it without keepalive', async () => {
@@ -348,7 +380,7 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, BIG)
 
     window.dispatchEvent(new Event('pagehide'))
-    await vi.waitFor(() => expect(room.unsent).toBe(0))
+    await vi.waitFor(() => expect(room.status.unsentCount).toBe(0))
 
     expect([sent, server.pieces.length]).toEqual([[undefined], 3])
   })
@@ -374,7 +406,11 @@ describe('collab room', () => {
     room.doc.getText('t').insert(4, 'two')
     await vi.advanceTimersByTimeAsync(31_000)
 
-    expect([server.rows.length, room.saveState, room.unsent]).toEqual([2, 'clean', 0])
+    expect([server.rows.length, room.status.saveState, room.status.unsentCount]).toEqual([
+      2,
+      'clean',
+      0,
+    ])
     expect(text(await join(server.endpoints()))).toBe('one two')
   })
 
@@ -423,7 +459,7 @@ describe('collab room', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     try {
       document.dispatchEvent(new Event('visibilitychange'))
-      await vi.waitFor(() => expect(room.unsent).toBe(0))
+      await vi.waitFor(() => expect(room.status.unsentCount).toBe(0))
     } finally {
       delete (document as { visibilityState?: string }).visibilityState
     }
@@ -445,7 +481,7 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, 'typed before leaving')
 
     window.dispatchEvent(new Event('pagehide'))
-    await vi.waitFor(() => expect(room.unsent).toBe(0))
+    await vi.waitFor(() => expect(room.status.unsentCount).toBe(0))
 
     expect(sent).toEqual([true])
     expect(text(await join(server.endpoints()))).toBe('typed before leaving')
@@ -701,7 +737,7 @@ describe('collab room', () => {
     room.doc.getText('t').insert(3, ' two')
     await vi.advanceTimersByTimeAsync(0)
 
-    expect([server.rows.length, room.unsent]).toEqual([2, 0])
+    expect([server.rows.length, room.status.unsentCount]).toEqual([2, 0])
   })
 
   it('steady typing is sent at most once per pace, half a second when the server names none', async () => {

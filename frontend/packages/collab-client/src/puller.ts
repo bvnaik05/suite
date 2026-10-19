@@ -66,7 +66,7 @@ export class Puller {
     const following = !room.needsRebuild && !room.suspect.isJudging && !room.newerSchema
     if (room.closed || !room.bound || !following || room.readBlocked) return
 
-    if (schema > room.options.adapter.features.schema) {
+    if (schema > room.options.adapter.schemaVersion) {
       void room.pull()
       return
     }

@@ -3,7 +3,7 @@
 Adoption was an expand phase. Writer declared its `ContentTypeSpec` at ticket
 17 and `Writer Document` gained the `node` Link; ticket 28 linked every row,
 and ticket 29 made the registry entry and the two hook changes together. So
-`suite/hooks.py` now names `suite.writer.drive.SPEC` and points
+`suite/hooks.py` now names `suite.composition.content.WRITER` and points
 `Writer Document` at `suite.drive.framework`.
 
 The three classes here:
@@ -44,6 +44,7 @@ from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import get_datetime
 
 from suite import drive
+from suite.composition import content as composition_content
 from suite.drive._core.access import grant
 from suite.drive._core.content import clear_registry_cache, export_document, governs, spec_for
 from suite.drive._core.errors import DriveConflict, DriveForbidden, DriveNotFound
@@ -53,7 +54,7 @@ from suite.drive._core.principals import Principals
 from suite.drive._core.roots import create_root, purge_root, update_root
 from suite.drive._core.versions import restore_version
 from suite.drive.framework import refuse_governed_share, validate_content_registry
-from suite.suite_core import content as collab
+from suite.suite_core.content import log
 from suite.tests.utils import ensure_user
 from suite.writer import drive as writer
 from suite.writer.content import files
@@ -67,7 +68,7 @@ DOCTYPE = "Writer Document"
 # The three entries ticket 29 installed together, once Build had linked every
 # `Writer Document` row. `suite/hooks.py` carries all of them.
 ACTIVATION = {
-    "drive_content_types": ["suite.writer.drive.SPEC"],
+    "drive_content_types": ["suite.composition.content.WRITER"],
     "has_permission": ["suite.drive.framework.doc_has_permission"],
     "permission_query_conditions": ["suite.drive.framework.doc_query_conditions"],
 }
@@ -198,7 +199,7 @@ class TestWriterDeclaration(UnitTestCase):
         ordering on a real migration."""
         from suite import hooks
 
-        self.assertIn("suite.writer.drive.SPEC", hooks.drive_content_types)
+        self.assertIn("suite.composition.content.WRITER", hooks.drive_content_types)
         self.assertEqual(hooks.has_permission[DOCTYPE], "suite.drive.framework.doc_has_permission")
         self.assertEqual(
             hooks.permission_query_conditions[DOCTYPE], "suite.drive.framework.doc_query_conditions"
@@ -217,7 +218,7 @@ class TestWriterDeclaration(UnitTestCase):
     def test_activation_registers_the_declaration_and_moves_both_hooks(self):
         with activated():
             self.assertTrue(governs(DOCTYPE))
-            self.assertIs(spec_for(DOCTYPE), writer.SPEC)
+            self.assertIs(spec_for(DOCTYPE), composition_content.WRITER)
             self.assertEqual(frappe.get_hooks("has_permission")[DOCTYPE], ACTIVATION["has_permission"])
             self.assertEqual(
                 frappe.get_hooks("permission_query_conditions")[DOCTYPE],
@@ -263,10 +264,7 @@ class TestWriterDeclaration(UnitTestCase):
 
     def test_version_bytes_captures_collaboration_mode(self):
         row = frappe._dict(node="node-1", content="body", html="<p>x</p>", collab=0)
-        with (
-            patch.object(writer.frappe.db, "get_value", return_value=row),
-            patch.object(writer.documents, "live_checkpoint", return_value=None),
-        ):
+        with patch.object(writer.frappe.db, "get_value", return_value=row):
             stream, mime = writer.version_bytes("WR-1")
         self.assertEqual(mime, writer.VERSION_MIME)
         self.assertEqual(json.loads(stream.read())["collab"], 0)
@@ -388,15 +386,10 @@ class TestLegacyEmbedReferences(UnitTestCase):
             '<img src="/api/method/drive.api.embed.get_file_content'
             '?parent_entity_name=WR-1&embed_name=third">'
         )
-        with (
-            patch.object(writer, "frappe") as frappe_mock,
-            patch.object(writer.documents, "live_state", return_value=None),
-        ):
+        with patch.object(writer, "frappe") as frappe_mock:
             frappe_mock.db.get_value.return_value = SimpleNamespace(node="node-1", content=None, html=html)
             self.assertEqual(writer.used_nodes("WR-1"), {"first", "second", "third"})
-        frappe_mock.db.get_value.assert_called_once_with(
-            DOCTYPE, "WR-1", ("node", "content", "html"), as_dict=True
-        )
+        frappe_mock.db.get_value.assert_called_once_with(DOCTYPE, "WR-1", ("content", "html"), as_dict=True)
 
     def test_remap_changes_only_the_old_embed_media_id(self):
         html = (
@@ -463,10 +456,10 @@ class TestWriterInDrive(IntegrationTestCase):
         activation.__enter__()
         self.addCleanup(activation.__exit__, None, None, None)
         # These tests keep the body in the document row, so no document may start a collab log
-        saved_mode = collab.mode("writer")
+        saved_mode = log.mode("writer")
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(collab.set_mode, "writer", saved_mode)
-        collab.set_mode("writer", "off")
+        self.addCleanup(log.set_mode, "writer", saved_mode)
+        log.set_mode("writer", "off")
 
         # Registered before the first row exists, so a `setUp` that dies half
         # way still hands its roots back.

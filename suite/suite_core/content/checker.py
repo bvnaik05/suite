@@ -1,4 +1,4 @@
-"""Ask a product's Node kernel which row breaks a document, or whether a body holds rows, with the browsers'
+"""Ask a product's Node checker which row breaks a document, or whether a body holds rows, with the browsers'
 Yjs and the editor's schema.
 
 Node is optional: without Node 24 or later, or without the product's built bundle, there is no
@@ -8,13 +8,13 @@ and it can't read files other than its bundle, write files or start processes.
 
 The permission model doesn't cover the network: the child can still load Node's network modules.
 The bundle has no network code on the judging path, names no Node module but node:crypto and
-drops fetch and WebSocket before it reads its input, which test_kernel checks against the built
+drops fetch and WebSocket before it reads its input, which test_checker checks against the built
 bundle. This guards against network use by mistake, not against a compromised child.
 
 Bisecting peaks at about 30 times the input in resident memory, past the heap limit: about
 120 MB at the 4 MiB state the scheduler aims for, and 560 MB for a 19.1 MB checkpoint, which
 passed. Nothing bounds the input: a compaction job can meet a larger state. A child that runs out
-of its 512 MB heap or is killed for memory fails as KernelFailed, and the document is held with
+of its 512 MB heap or is killed for memory fails as CheckerFailed, and the document is held with
 an alert.
 """
 
@@ -44,7 +44,7 @@ class Verdict:
     reason: str = ""
 
 
-class KernelFailed(Exception):
+class CheckerFailed(Exception):
     """The child crashed, ran out of time or memory, or answered something unreadable."""
 
 
@@ -67,7 +67,7 @@ def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict 
 
         return Verdict(index, plain_reason(str(answer["reason"])))
     except (ValueError, KeyError, TypeError) as error:
-        raise KernelFailed(repr(error)) from error
+        raise CheckerFailed(repr(error)) from error
 
 
 def covers(bundle: Path, body: bytes, rows: list[bytes]) -> bool | None:
@@ -79,7 +79,7 @@ def covers(bundle: Path, body: bytes, rows: list[bytes]) -> bool | None:
 
     covered = answer.get("covered")
     if type(covered) is not bool:
-        raise KernelFailed("the answer names no cover")
+        raise CheckerFailed("the answer names no cover")
 
     return covered
 
@@ -90,9 +90,9 @@ def encoded(part: bytes) -> str:
 
 
 def ask(bundle: Path, request: dict) -> dict | None:
-    """Run the kernel on one request and answer its reply, or None without a usable Node or bundle."""
+    """Run the checker on one request and answer its reply, or None without a usable Node or bundle."""
     if not getattr(frappe.local, "job", None):
-        raise RuntimeError("the collab kernel runs only in background jobs")
+        raise RuntimeError("the collab checker runs only in background jobs")
 
     node_path = usable_node()
     if not node_path or not bundle.is_file():
@@ -115,9 +115,9 @@ def ask(bundle: Path, request: dict) -> dict | None:
         return answer
     except subprocess.CalledProcessError as error:
         last_stderr_line = error.stderr.strip().rsplit("\n", 1)[-1]
-        raise KernelFailed(f"exit {error.returncode}: {plain_reason(last_stderr_line)}") from error
+        raise CheckerFailed(f"exit {error.returncode}: {plain_reason(last_stderr_line)}") from error
     except (OSError, subprocess.SubprocessError, ValueError) as error:
-        raise KernelFailed(repr(error)) from error
+        raise CheckerFailed(repr(error)) from error
 
 
 def node_command(node_path: str, bundle: Path) -> list[str]:

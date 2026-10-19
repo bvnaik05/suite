@@ -17,22 +17,22 @@ function pageText(banner: Banner | null) {
 }
 
 const defaultState = {
-  blocked: null,
-  stopped: null,
-  held: null,
-  restoring: false,
-  newerSchema: false,
+  blockReason: null,
+  stopReason: null,
+  holdReason: null,
+  isRestoring: false,
+  hasNewerSchema: false,
   canEdit: true,
-  paused: null,
+  pauseReason: null,
   failed: false,
-  atLimit: false,
-  onDevice: true,
+  isAtLimit: false,
+  isKeptOnDevice: true,
   recoveryKept: false,
-  copyFailed: false,
+  hasCopyFailed: false,
   setAside: null,
   removedWork: null,
   isNewerAfterReload: false,
-  unsent: 1,
+  unsentCount: 1,
   polling: false,
   isFrozen: false,
 } as const
@@ -53,61 +53,65 @@ describe('collab banner copy', () => {
   })
 
   it("says a signed-out tab isn't saving and asks to sign in", () => {
-    expect(bannerText({ blocked: 'signed_out' })).toBe(
+    expect(bannerText({ blockReason: 'signed_out' })).toBe(
       "You're signed out, so changes aren't saved. [Sign in] to save them.",
     )
-    expect(bannerText({ blocked: 'signed_out', onDevice: false })).toBe(
+    expect(bannerText({ blockReason: 'signed_out', isKeptOnDevice: false })).toBe(
       "You're signed out, so changes aren't saved. [Sign in] to save them. Keep this tab open.",
     )
   })
 
   it("doesn't speak of unsaved changes when nothing is unsent", () => {
-    for (const onDevice of [true, false]) {
-      expect(bannerText({ blocked: 'signed_out', onDevice, unsent: 0 })).toBe(
+    for (const isKeptOnDevice of [true, false]) {
+      expect(bannerText({ blockReason: 'signed_out', isKeptOnDevice, unsentCount: 0 })).toBe(
         "You're signed out. [Sign in] to keep editing.",
       )
     }
   })
 
   it("says a locked document isn't saving", () => {
-    expect(bannerText({ blocked: 'locked' })).toBe(
+    expect(bannerText({ blockReason: 'locked' })).toBe(
       "This document was locked, so changes aren't saved. Unlock it to save them.",
     )
-    expect(bannerText({ blocked: 'locked', onDevice: false })).toBe(
+    expect(bannerText({ blockReason: 'locked', isKeptOnDevice: false })).toBe(
       "This document was locked, so changes aren't saved. Unlock it to save them. Keep this tab open.",
     )
   })
 
   it("pauses editing offline when the browser can't keep changes", () => {
-    expect(bannerText({ blocked: 'offline', onDevice: false })).toBe(
+    expect(bannerText({ blockReason: 'offline', isKeptOnDevice: false })).toBe(
       "You're offline and this browser can't keep changes, so editing is paused. Keep this tab open.",
     )
-    expect(bannerText({ blocked: 'offline', onDevice: false, unsent: 0 })).toBe(
+    expect(bannerText({ blockReason: 'offline', isKeptOnDevice: false, unsentCount: 0 })).toBe(
       "You're offline and this browser can't keep changes, so editing is paused.",
     )
   })
 
   it('asks for a reload after signing in again elsewhere', () => {
-    expect(bannerText({ blocked: 'stale_session' })).toBe(
+    expect(bannerText({ blockReason: 'stale_session' })).toBe(
       'You signed in again in another tab. Reload to keep saving.',
     )
-    expect(bannerText({ blocked: 'stale_session', onDevice: false, recoveryKept: true })).toBe(
+    expect(
+      bannerText({ blockReason: 'stale_session', isKeptOnDevice: false, recoveryKept: true }),
+    ).toBe(
       'You signed in again in another tab. Unsent changes were kept as a recovery copy. Reload to keep saving.',
     )
   })
 
   it('names a recovery copy kept after the device write failed, on a device store too', () => {
-    expect(bannerText({ blocked: 'stale_session', copyFailed: true, recoveryKept: true })).toBe(
+    expect(
+      bannerText({ blockReason: 'stale_session', hasCopyFailed: true, recoveryKept: true }),
+    ).toBe(
       'You signed in again in another tab. Unsent changes were kept as a recovery copy. Reload to keep saving.',
     )
   })
 
   it('keeps a lost right in its own words once late typing fails the tab', () => {
-    const failedLate = { failed: true, stopped: 'lost_access', copyFailed: true }
+    const failedLate = { failed: true, stopReason: 'lost_access', hasCopyFailed: true }
 
     expect([
-      bannerText({ blocked: 'lost_edit', ...failedLate }),
-      bannerText({ blocked: 'lost_read', ...failedLate }),
+      bannerText({ blockReason: 'lost_edit', ...failedLate }),
+      bannerText({ blockReason: 'lost_read', ...failedLate }),
     ]).toEqual([
       "You can no longer edit this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
       "You can no longer open this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
@@ -115,12 +119,12 @@ describe('collab banner copy', () => {
   })
 
   it('asks no one to keep a tab open for nothing unsent', () => {
-    const nothingUnsent = { onDevice: false, unsent: 0 }
+    const nothingUnsent = { isKeptOnDevice: false, unsentCount: 0 }
 
     expect([
-      bannerText({ blocked: 'locked', ...nothingUnsent }),
-      bannerText({ paused: 'upload_refused', ...nothingUnsent }),
-      bannerText({ held: 'change', ...nothingUnsent }),
+      bannerText({ blockReason: 'locked', ...nothingUnsent }),
+      bannerText({ pauseReason: 'upload_refused', ...nothingUnsent }),
+      bannerText({ holdReason: 'change', ...nothingUnsent }),
     ]).toEqual([
       "This document was locked, so changes aren't saved. Unlock it to save them.",
       "Your network is refusing uploads, so your latest changes aren't saved.",
@@ -129,22 +133,24 @@ describe('collab banner copy', () => {
   })
 
   it("tells whether another person's sign-in kept the unsent changes", () => {
-    expect(bannerText({ blocked: 'other_user' })).toBe(
+    expect(bannerText({ blockReason: 'other_user' })).toBe(
       'Someone else is now signed in here. Your unsent changes are kept on this device.',
     )
-    expect(bannerText({ blocked: 'other_user', onDevice: false })).toBe(
+    expect(bannerText({ blockReason: 'other_user', isKeptOnDevice: false })).toBe(
       'Someone else is now signed in here. Keep this tab open.',
     )
-    expect(bannerText({ blocked: 'other_user', onDevice: false, recoveryKept: true })).toBe(
+    expect(
+      bannerText({ blockReason: 'other_user', isKeptOnDevice: false, recoveryKept: true }),
+    ).toBe(
       'Someone else is now signed in here. Unsent changes were kept as a recovery copy. Reload to continue.',
     )
   })
 
   it('never claims a recovery copy the device could not write, and asks to keep the tab open', () => {
-    expect(bannerText({ failed: true, stopped: 'seq', copyFailed: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'seq', hasCopyFailed: true })).toBe(
       "Saving stopped in this tab. Unsent changes couldn't be kept on this device, so keep this tab open.",
     )
-    expect(bannerText({ blocked: 'lost_edit', copyFailed: true })).toBe(
+    expect(bannerText({ blockReason: 'lost_edit', hasCopyFailed: true })).toBe(
       "You can no longer edit this document. Unsent changes couldn't be kept on this device, so keep this tab open.",
     )
   })
@@ -153,13 +159,13 @@ describe('collab banner copy', () => {
     const copyFailedNote = " Unsent changes couldn't be kept on this device, so keep this tab open."
 
     expect([
-      bannerText({ blocked: 'stale_session', onDevice: false }),
-      bannerText({ blocked: 'stale_session', copyFailed: true }),
-      bannerText({ blocked: 'other_user', copyFailed: true }),
-      bannerText({ failed: true, onDevice: false }),
-      bannerText({ blocked: 'stale_session', onDevice: false, unsent: 0 }),
-      bannerText({ blocked: 'other_user', onDevice: false, unsent: 0 }),
-      bannerText({ failed: true, onDevice: false, unsent: 0 }),
+      bannerText({ blockReason: 'stale_session', isKeptOnDevice: false }),
+      bannerText({ blockReason: 'stale_session', hasCopyFailed: true }),
+      bannerText({ blockReason: 'other_user', hasCopyFailed: true }),
+      bannerText({ failed: true, isKeptOnDevice: false }),
+      bannerText({ blockReason: 'stale_session', isKeptOnDevice: false, unsentCount: 0 }),
+      bannerText({ blockReason: 'other_user', isKeptOnDevice: false, unsentCount: 0 }),
+      bannerText({ failed: true, isKeptOnDevice: false, unsentCount: 0 }),
     ]).toEqual([
       'You signed in again in another tab. Keep this tab open.',
       `You signed in again in another tab.${copyFailedNote}`,
@@ -172,12 +178,12 @@ describe('collab banner copy', () => {
   })
 
   it('never claims the failed device write kept the work, nor asks to stay open beside a Reload', () => {
-    const failedWrite = { onDevice: true, copyFailed: true }
+    const failedWrite = { isKeptOnDevice: true, hasCopyFailed: true }
 
     expect([
-      bannerText({ blocked: 'other_user', ...failedWrite, unsent: 0 }),
-      bannerText({ blocked: 'stale_session', ...failedWrite, unsent: 0 }),
-      bannerText({ failed: true, ...failedWrite, unsent: 0 }),
+      bannerText({ blockReason: 'other_user', ...failedWrite, unsentCount: 0 }),
+      bannerText({ blockReason: 'stale_session', ...failedWrite, unsentCount: 0 }),
+      bannerText({ failed: true, ...failedWrite, unsentCount: 0 }),
     ]).toEqual([
       'Someone else is now signed in here. Reload to continue.',
       'You signed in again in another tab. Reload to keep saving.',
@@ -186,12 +192,12 @@ describe('collab banner copy', () => {
   })
 
   it('asks a tab still behind a newer Writer after a reload to stay open while unsent work is kept nowhere', () => {
-    const afterReload = { newerSchema: true, isNewerAfterReload: true }
+    const afterReload = { hasNewerSchema: true, isNewerAfterReload: true }
 
     expect([
-      bannerText({ ...afterReload, onDevice: false }),
-      bannerText({ ...afterReload, copyFailed: true }),
-      bannerText({ ...afterReload, onDevice: false, recoveryKept: true }),
+      bannerText({ ...afterReload, isKeptOnDevice: false }),
+      bannerText({ ...afterReload, hasCopyFailed: true }),
+      bannerText({ ...afterReload, isKeptOnDevice: false, recoveryKept: true }),
     ]).toEqual([
       'This document needs a newer version of Writer than this site has. Ask your admin. Keep this tab open.',
       "This document needs a newer version of Writer than this site has. Ask your admin. Unsent changes couldn't be kept on this device, so keep this tab open.",
@@ -200,7 +206,7 @@ describe('collab banner copy', () => {
   })
 
   it('asks to keep the tab open, and offers no Reload, wherever saving waits while unsent work is kept nowhere', () => {
-    const blocks: BannerState['blocked'][] = [
+    const blocks: BannerState['blockReason'][] = [
       null,
       'signed_out',
       'locked',
@@ -212,29 +218,30 @@ describe('collab banner copy', () => {
     ]
     const waits: Partial<BannerState>[] = [
       { failed: true },
-      { failed: true, stopped: 'seq' },
-      { failed: true, stopped: 'browser' },
-      { newerSchema: true },
-      { newerSchema: true, canEdit: false },
-      { newerSchema: true, isNewerAfterReload: true },
-      { held: 'change' },
-      { paused: 'upload_refused' },
+      { failed: true, stopReason: 'seq' },
+      { failed: true, stopReason: 'browser' },
+      { hasNewerSchema: true },
+      { hasNewerSchema: true, canEdit: false },
+      { hasNewerSchema: true, isNewerAfterReload: true },
+      { holdReason: 'change' },
+      { pauseReason: 'upload_refused' },
     ]
-    const conditions = [...waits, {}, { restoring: true }, { atLimit: true }, { polling: true }]
-    const keptNowhere: Partial<BannerState>[] = [{ onDevice: false }, { copyFailed: true }]
-    const states = blocks.flatMap((blocked) =>
+    const conditions = [...waits, {}, { isRestoring: true }, { isAtLimit: true }, { polling: true }]
+    const keptNowhere: Partial<BannerState>[] = [{ isKeptOnDevice: false }, { hasCopyFailed: true }]
+    const states = blocks.flatMap((blockReason) =>
       conditions.flatMap((condition) =>
         keptNowhere.flatMap((where) =>
           [false, true].map((isFrozen) => ({
             condition,
-            changes: { ...condition, ...where, blocked, isFrozen },
+            changes: { ...condition, ...where, blockReason, isFrozen },
           })),
         ),
       ),
     )
     const misses = states.filter(({ condition, changes }) => {
       const text = bannerText(changes) ?? ''
-      const isWaiting = changes.blocked !== null || changes.isFrozen || waits.includes(condition)
+      const isWaiting =
+        changes.blockReason !== null || changes.isFrozen || waits.includes(condition)
       const isAsked = text.toLowerCase().includes('keep this tab open')
       const isReloadOffered =
         bannerFor({ ...defaultState, ...changes })?.canReload || text.includes('Reload')
@@ -245,10 +252,10 @@ describe('collab banner copy', () => {
   })
 
   it('names the recovery copy after a lost right or a stop', () => {
-    expect(bannerText({ blocked: 'lost_edit', recoveryKept: true })).toBe(
+    expect(bannerText({ blockReason: 'lost_edit', recoveryKept: true })).toBe(
       'You can no longer edit this document. Unsent changes were kept as a recovery copy.',
     )
-    expect(bannerText({ blocked: 'lost_read' })).toBe('You can no longer open this document.')
+    expect(bannerText({ blockReason: 'lost_read' })).toBe('You can no longer open this document.')
     expect(bannerText({ failed: true, recoveryKept: true })).toBe(
       'Saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',
     )
@@ -257,40 +264,40 @@ describe('collab banner copy', () => {
 
 describe('collab stop copy', () => {
   it('says why the server will never save a change', () => {
-    expect(bannerText({ failed: true, stopped: 'poison', recoveryKept: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'poison', recoveryKept: true })).toBe(
       "This document can't hold a change made in this tab, so saving stopped. Unsent changes were kept as a recovery copy. Reload to keep editing.",
     )
   })
 
   it('says a change too large to save should go in as files', () => {
-    expect(bannerText({ failed: true, stopped: 'too_large', recoveryKept: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'too_large', recoveryKept: true })).toBe(
       'A change in this tab is too large to save. Insert large images as files. Unsent changes were kept as a recovery copy. Reload to keep editing.',
     )
   })
 
   it('says a change a full document refused could not be saved, and where it went', () => {
-    expect(bannerText({ failed: true, stopped: 'document_full', recoveryKept: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'document_full', recoveryKept: true })).toBe(
       "This document is at its size limit, so a change in this tab couldn't be saved. Unsent changes were kept as a recovery copy. Reload to keep editing.",
     )
   })
 
   it('says saving stopped because a newer Writer edited the document, and where the unsent work went', () => {
-    expect(bannerText({ failed: true, stopped: 'schema', recoveryKept: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'schema', recoveryKept: true })).toBe(
       'This document was edited in a newer version of Writer, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',
     )
   })
 
   it('says saving stopped because collaboration was switched off, and where the unsent work went', () => {
-    expect(bannerText({ failed: true, stopped: 'disabled', recoveryKept: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'disabled', recoveryKept: true })).toBe(
       'Collaboration was switched off for this app, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.',
     )
   })
 
   it('says a document at its size limit frees space as content is deleted, and where the latest changes went', () => {
-    expect(bannerText({ atLimit: true })).toBe(
+    expect(bannerText({ isAtLimit: true })).toBe(
       'This document is at its size limit. Delete content to free space.',
     )
-    expect(bannerText({ atLimit: true, setAside: 'document_full' })).toBe(
+    expect(bannerText({ isAtLimit: true, setAside: 'document_full' })).toBe(
       'This document is at its size limit. Your latest changes went to a recovery copy. Delete content to free space.',
     )
   })
@@ -312,22 +319,22 @@ describe('collab stop copy', () => {
   })
 
   it('says a restore stopped the work typed before it, and where it went', () => {
-    expect(bannerText({ stopped: 'restored', failed: true, recoveryKept: true })).toBe(
+    expect(bannerText({ stopReason: 'restored', failed: true, recoveryKept: true })).toBe(
       "A version of this document was restored, so changes made in this tab before it weren't saved. Unsent changes were kept as a recovery copy. Reload to keep editing.",
     )
   })
 
   it('says a tab out of step with the server stopped saving, and where the unsent work went', () => {
-    expect(bannerText({ failed: true, stopped: 'clock_gap', recoveryKept: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'clock_gap', recoveryKept: true })).toBe(
       'This tab fell out of step with the server, so saving stopped. Unsent changes were kept as a recovery copy. Reload to keep editing.',
     )
   })
 
   it('says a network refusing uploads is holding the latest changes back, and where they are', () => {
-    expect(bannerText({ paused: 'upload_refused' })).toBe(
+    expect(bannerText({ pauseReason: 'upload_refused' })).toBe(
       "Your network is refusing uploads, so your latest changes aren't saved. They're kept on this device.",
     )
-    expect(bannerText({ paused: 'upload_refused', onDevice: false })).toBe(
+    expect(bannerText({ pauseReason: 'upload_refused', isKeptOnDevice: false })).toBe(
       "Your network is refusing uploads, so your latest changes aren't saved. Keep this tab open.",
     )
   })
@@ -348,10 +355,10 @@ describe('collab stop copy', () => {
 
     expect([
       bannerText({ ...frozen, failed: true }),
-      bannerText({ ...frozen, failed: true, stopped: 'browser' }),
-      bannerText({ ...frozen, blocked: 'locked' }),
-      bannerText({ ...frozen, newerSchema: true }),
-      bannerText({ ...frozen, held: 'change' }),
+      bannerText({ ...frozen, failed: true, stopReason: 'browser' }),
+      bannerText({ ...frozen, blockReason: 'locked' }),
+      bannerText({ ...frozen, hasNewerSchema: true }),
+      bannerText({ ...frozen, holdReason: 'change' }),
       bannerText({ ...frozen, polling: true }),
     ]).toEqual([
       "Saving stopped in this tab. Part of this document can't be shown here, so editing stays paused. Reload to try saving again.",
@@ -368,12 +375,12 @@ describe('collab stop copy', () => {
 
     expect([
       Boolean(bannerFor({ ...defaultState, ...frozen })?.canReload),
-      Boolean(bannerFor({ ...defaultState, ...frozen, stopped: 'browser' })?.canReload),
+      Boolean(bannerFor({ ...defaultState, ...frozen, stopReason: 'browser' })?.canReload),
     ]).toEqual([true, false])
   })
 
   it('asks a frozen tab to stay open, with no Reload, while unsent work waits only in it', () => {
-    const frozen = { ...defaultState, isFrozen: true, onDevice: false }
+    const frozen = { ...defaultState, isFrozen: true, isKeptOnDevice: false }
     const keepOpen = {
       text: "Part of this document can't be shown here, so editing is paused to keep it safe. Keep this tab open.",
     }
@@ -383,16 +390,16 @@ describe('collab stop copy', () => {
     }
 
     expect([
-      bannerFor({ ...frozen, held: 'change' }),
-      bannerFor({ ...frozen, paused: 'upload_refused' }),
-      bannerFor({ ...frozen, held: 'change', onDevice: true }),
-      bannerFor({ ...frozen, held: 'change', recoveryKept: true }),
-      bannerFor({ ...frozen, held: 'change', unsent: 0 }),
+      bannerFor({ ...frozen, holdReason: 'change' }),
+      bannerFor({ ...frozen, pauseReason: 'upload_refused' }),
+      bannerFor({ ...frozen, holdReason: 'change', isKeptOnDevice: true }),
+      bannerFor({ ...frozen, holdReason: 'change', recoveryKept: true }),
+      bannerFor({ ...frozen, holdReason: 'change', unsentCount: 0 }),
       bannerFor({ ...frozen, polling: true }),
-      bannerFor({ ...frozen, restoring: true }),
-      bannerFor({ ...frozen, atLimit: true }),
-      bannerFor({ ...frozen, paused: 'server' }),
-      bannerFor({ ...frozen, onDevice: true, copyFailed: true }),
+      bannerFor({ ...frozen, isRestoring: true }),
+      bannerFor({ ...frozen, isAtLimit: true }),
+      bannerFor({ ...frozen, pauseReason: 'server' }),
+      bannerFor({ ...frozen, isKeptOnDevice: true, hasCopyFailed: true }),
     ]).toEqual([
       keepOpen,
       keepOpen,
@@ -414,9 +421,9 @@ describe('collab stop copy', () => {
     const frozenText = "Part of this document can't be shown here, so editing stays paused."
 
     expect([
-      bannerFor({ ...stopped, copyFailed: true }),
-      bannerFor({ ...stopped, onDevice: false }),
-      bannerFor({ ...stopped, onDevice: false, recoveryKept: true }),
+      bannerFor({ ...stopped, hasCopyFailed: true }),
+      bannerFor({ ...stopped, isKeptOnDevice: false }),
+      bannerFor({ ...stopped, isKeptOnDevice: false, recoveryKept: true }),
     ]).toEqual([
       {
         text: `Saving stopped in this tab. ${frozenText} Unsent changes couldn't be kept on this device, so keep this tab open.`,
@@ -431,43 +438,43 @@ describe('collab stop copy', () => {
 
   it('asks a tab behind a newer Writer to stay open while unsent work is kept nowhere', () => {
     expect([
-      bannerText({ newerSchema: true, onDevice: false }),
-      bannerText({ newerSchema: true, copyFailed: true }),
+      bannerText({ hasNewerSchema: true, isKeptOnDevice: false }),
+      bannerText({ hasNewerSchema: true, hasCopyFailed: true }),
     ]).toEqual([
       'This document was edited in a newer version of Writer. Keep this tab open.',
       "This document was edited in a newer version of Writer. Unsent changes couldn't be kept on this device, so keep this tab open.",
     ])
-    expect(bannerText({ newerSchema: true, onDevice: false, recoveryKept: true })).toBe(
+    expect(bannerText({ hasNewerSchema: true, isKeptOnDevice: false, recoveryKept: true })).toBe(
       'This document was edited in a newer version of Writer. Reload to edit it.',
     )
   })
 
   it('does not offer a reload for a stop a reload would only repeat', () => {
-    expect(bannerText({ failed: true, stopped: 'browser', recoveryKept: true })).toBe(
+    expect(bannerText({ failed: true, stopReason: 'browser', recoveryKept: true })).toBe(
       "This document can't be edited in this browser version. Unsent changes were kept as a recovery copy.",
     )
   })
 
   it('says a held document is read-only while an admin checks it, and where the typing is', () => {
-    expect(bannerText({ held: 'change' })).toBe(
+    expect(bannerText({ holdReason: 'change' })).toBe(
       "This document is read-only while an admin checks it. Your unsent changes are saved on this device and will be added once it's editable again.",
     )
-    expect(bannerText({ held: 'change', onDevice: false })).toBe(
+    expect(bannerText({ holdReason: 'change', isKeptOnDevice: false })).toBe(
       "This document is read-only while an admin checks it. Your unsent changes will be added once it's editable again. Keep this tab open.",
     )
-    expect(bannerText({ held: 'change', unsent: 0 })).toBe(
+    expect(bannerText({ holdReason: 'change', unsentCount: 0 })).toBe(
       'This document is read-only while an admin checks it.',
     )
   })
 
   it('says editing waits while a version is restored', () => {
-    expect(bannerText({ restoring: true, paused: 'restoring' })).toBe(
+    expect(bannerText({ isRestoring: true, pauseReason: 'restoring' })).toBe(
       'Someone is restoring a version of this document. You can edit again once it is done.',
     )
   })
 
   it('says the same when the whole document is held as when one change is', () => {
-    expect(bannerText({ held: 'bad_checkpoint', unsent: 0 })).toBe(
+    expect(bannerText({ holdReason: 'bad_checkpoint', unsentCount: 0 })).toBe(
       'This document is read-only while an admin checks it.',
     )
   })
@@ -476,19 +483,24 @@ describe('collab stop copy', () => {
     const fallback =
       'This document needs a newer version of Writer than this site has. Try again in a few minutes, or ask your admin.'
     expect([
-      bannerText({ newerSchema: true, isNewerAfterReload: true }),
-      bannerText({ newerSchema: true, isNewerAfterReload: true, canEdit: false, unsent: 0 }),
+      bannerText({ hasNewerSchema: true, isNewerAfterReload: true }),
+      bannerText({
+        hasNewerSchema: true,
+        isNewerAfterReload: true,
+        canEdit: false,
+        unsentCount: 0,
+      }),
     ]).toEqual([fallback, fallback])
   })
 
   it('asks for a reload when a newer Writer edited the document', () => {
-    expect(bannerText({ newerSchema: true })).toBe(
+    expect(bannerText({ hasNewerSchema: true })).toBe(
       'This document was edited in a newer version of Writer. Reload to edit it.',
     )
   })
 
   it('asks a reader to reload to see the changes, not to edit', () => {
-    expect(bannerText({ newerSchema: true, canEdit: false, unsent: 0 })).toBe(
+    expect(bannerText({ hasNewerSchema: true, canEdit: false, unsentCount: 0 })).toBe(
       'This document was edited in a newer version of Writer. Reload to see its latest changes.',
     )
   })
@@ -497,17 +509,17 @@ describe('collab stop copy', () => {
     expect(bannerText({ polling: true })).toBe(
       "Live updates are unavailable, so others' changes show up late.",
     )
-    expect(bannerText({ polling: true, blocked: 'locked' })).toBe(
+    expect(bannerText({ polling: true, blockReason: 'locked' })).toBe(
       "This document was locked, so changes aren't saved. Unlock it to save them.",
     )
-    expect(bannerText({ polling: true, atLimit: true })).toBe(
+    expect(bannerText({ polling: true, isAtLimit: true })).toBe(
       'This document is at its size limit. Delete content to free space.',
     )
   })
 
   it('keeps the general copy for a stop it has no words for', () => {
-    for (const stopped of ['seq_conflict', 'constructor']) {
-      expect(bannerText({ failed: true, stopped })).toBe(
+    for (const stopReason of ['seq_conflict', 'constructor']) {
+      expect(bannerText({ failed: true, stopReason })).toBe(
         'Saving stopped in this tab. Reload to keep editing.',
       )
     }
@@ -521,7 +533,7 @@ describe('collab open failure copy', () => {
     expect(openFailureFor('stale_session')).toBe(
       'You signed in again in another tab. Reload to open this.',
     )
-    expect(openFailureFor('principal_changed')).toBe(
+    expect(openFailureFor('user_changed')).toBe(
       'Someone else is now signed in here. Reload to open this document.',
     )
   })

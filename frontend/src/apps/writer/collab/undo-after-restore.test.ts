@@ -1,4 +1,3 @@
-import type { CollabRoom } from '@suite/collab-client'
 import { Editor } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -7,7 +6,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-import { writerAdapter } from './adapter'
+import type { CollabRoom } from '@/platform/collab'
+
+import { writerBinding } from './binding'
 
 const editors: Editor[] = []
 
@@ -24,13 +25,13 @@ function fakeRoom() {
   const room = {
     doc: new Y.Doc(),
     presence,
-    restoreRev: 0,
+    status: { restoreRev: 0 },
     onChange(listener: () => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
     land(rev: number) {
-      room.restoreRev = rev
+      room.status = { restoreRev: rev }
       for (const listener of listeners) {
         listener()
       }
@@ -46,7 +47,7 @@ function openEditor(room: ReturnType<typeof fakeRoom>) {
     Document,
     Paragraph,
     Text,
-    ...writerAdapter.bind(room as unknown as CollabRoom, () => {}),
+    ...writerBinding(room as unknown as CollabRoom, () => {}),
   ]
   const editor = new Editor({ element, extensions })
   editors.push(editor)

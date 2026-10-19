@@ -20,7 +20,17 @@ from suite.drive._core.nodes import _trash, purge
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version, restore_version
 from suite.suite_core import content
-from suite.suite_core.content import copies, documents, live, log, scheduling, touches
+from suite.suite_core.content import (
+    capacity,
+    checkpoints,
+    copies,
+    jobs,
+    live,
+    log,
+    logged,
+    scheduling,
+    touches,
+)
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
 from suite.writer.api.docs import save_comments
@@ -36,7 +46,7 @@ from suite.writer.doctype.writer_document.writer_document import LoggedDocumentC
 
 
 def version_of(docname: str) -> dict:
-    stream, mime = writer_drive.version_bytes(docname)
+    stream, mime = routes.WRITER.version_bytes(docname)
     assert mime == "application/json"
     return json.loads(stream.getvalue())
 
@@ -80,7 +90,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
     def docname_of(self, node: str) -> str:
         return frappe.db.get_value("Drive Node", node, "content_docname")
 
-    def test_used_nodes_reads_the_pictures_a_collab_document_holds_now(self):
+    def test_used_nodes_reads_the_pictures_a_collab_document_holds_and_those_removed_since_compaction(self):
         node = self.new_document()
 
         def add_three_pictures(body):
@@ -96,9 +106,9 @@ class TestWriterDriveCallbacks(CheckpointCase):
         )
         self.push_edit(node, lambda body: body.children.__delitem__(2))
 
-        found = writer_drive.used_nodes(self.docname_of(node))
+        found = routes.WRITER.used_nodes(self.docname_of(node))
 
-        self.assertEqual(found, {"pic-kept", "pic-bare", "pic-new"})
+        self.assertEqual(found, {"pic-kept", "pic-bare", "pic-removed", "pic-new"})
 
     def test_used_nodes_raises_on_a_log_it_cannot_read_so_the_sweep_skips_it(self):
         node = self.new_document()
@@ -110,8 +120,8 @@ class TestWriterDriveCallbacks(CheckpointCase):
         )
         frappe.db.commit()
 
-        with self.assertRaises(writer_drive.UnreadableBody):
-            writer_drive.used_nodes(self.docname_of(node))
+        with self.assertRaises(logged.UnreadableBody):
+            routes.WRITER.used_nodes(self.docname_of(node))
 
     def test_the_media_sweep_keeps_a_picture_only_the_log_names(self):
         node = self.new_document()
@@ -180,7 +190,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         fallback_gz = gzip.compress(fallback.get_update())
         frappe.db.sql(
             """INSERT INTO `__writer_content_checkpoint`
-            (`doc_id`, `through_rev`, `chain`, `sha256`, `nbytes`, `gz`, `integrated`, `kernel_schema`, `created`)
+            (`doc_id`, `through_rev`, `chain`, `sha256`, `nbytes`, `gz`, `integrated`, `crdt_version`, `created`)
             VALUES (%s, %s, UNHEX(%s), UNHEX(%s), 0, UNHEX(%s), 0, 'test', NOW())""",
             (
                 doc.id,
@@ -202,7 +212,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
     def test_with_collaboration_off_a_version_is_still_the_logs_state(self):
         node = self.new_document()
         self.type_into(node, ["one"])
-        content.set_mode(writer_content.ADAPTER, "off")
+        log.set_mode(writer_content.APP, "off")
         frappe.db.commit()
 
         version = version_of(self.docname_of(node))
@@ -230,11 +240,10 @@ class TestWriterDriveCallbacks(CheckpointCase):
         size = len(snapshot.checkpoint or b"") + sum(len(payload) for payload in snapshot.payloads())
         parent = frappe.db.get_value("Drive Node", node, "parent_node")
 
-        smaller = replace(writer_content.SPEC, max_state=size - 1)
-        for spec, tail_rows in ((smaller, scheduling.TAIL_ROWS), (writer_content.SPEC, 1)):
+        for state_max, tail_rows in ((size - 1, scheduling.TAIL_ROWS), (capacity.STATE_MAX, 1)):
             with (
-                self.subTest(max_state=spec.max_state, tail_rows=tail_rows),
-                patch.object(writer_content, "SPEC", spec),
+                self.subTest(state_max=state_max, tail_rows=tail_rows),
+                patch.object(capacity, "STATE_MAX", state_max),
                 patch.object(scheduling, "TAIL_ROWS", tail_rows),
             ):
                 with self.assertRaisesRegex(
@@ -245,8 +254,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
                     drive.copy(node, parent)
                 frappe.db.rollback()
 
-        at_size = replace(writer_content.SPEC, max_state=size)
-        with patch.object(writer_content, "SPEC", at_size), patch.object(scheduling, "TAIL_ROWS", 2):
+        with patch.object(capacity, "STATE_MAX", size), patch.object(scheduling, "TAIL_ROWS", 2):
             version = version_of(self.docname_of(node))
             state_gz = base64.b64decode(version["state"])
             state = gzip.decompress(state_gz)
@@ -258,7 +266,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         node = self.new_document()
         self.type_into(node, ["one"])
         doc = self.doc_row(node)
-        room = live.rooms(writer_content.ADAPTER, doc.id, doc.lineage)["keys"][0]
+        room = live.rooms(writer_content.APP, doc.id, doc.lineage)["keys"][0]
 
         with patch("frappe.publish_realtime") as publish:
             drive_content.spec_for("Writer Document").threads_changed(node)
@@ -285,7 +293,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         node = self.new_document()
         self.type_into(node, ["one"])
         version_seq = drive.take_version(node, kind="named", label="one")
-        content.set_mode(writer_content.ADAPTER, "off")
+        log.set_mode(writer_content.APP, "off")
         frappe.db.commit()
         fields = ("content", "html", "collab")
         before = frappe.db.get_value("Writer Document", self.docname_of(node), fields)
@@ -297,6 +305,66 @@ class TestWriterDriveCallbacks(CheckpointCase):
         frappe.db.rollback()
         self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), fields), before)
         self.assertEqual(frappe.db.count("Drive Node Version", {"node": node, "kind": ("!=", "auto")}), 1)
+
+    def test_every_collab_version_starts_with_the_bytes_a_restore_refuses(self):
+        node = self.new_document()
+        self.type_into(node, ["one"])
+
+        record = logged.version(writer_content.APP, node)
+
+        self.assertTrue(record.startswith(logged.record_prefix(writer_content.APP)))
+
+    def restoring_without_a_log(self):
+        log.set_mode(writer_content.APP, "off")
+        frappe.db.commit()
+        docname = self.docname_of(self.new_document())
+        fields = ("content", "html", "collab")
+
+        def restore(raw: bytes) -> None:
+            routes.WRITER.restore_version(docname, io.BytesIO(raw))
+
+        def row() -> dict:
+            return frappe.db.get_value("Writer Document", docname, fields, as_dict=True)
+
+        return restore, row
+
+    def test_a_collab_version_is_refused_on_a_document_without_a_log(self):
+        logged_node = self.new_document()
+        self.type_into(logged_node, ["one"])
+        record = logged.version(writer_content.APP, logged_node)
+        restore, row = self.restoring_without_a_log()
+        before = row()
+
+        refusal = "This version can be restored only while collaboration is on"
+        with self.assertRaisesRegex(drive.DriveConflict, refusal):
+            restore(record)
+
+        self.assertEqual(row(), before)
+
+    def test_a_row_version_restores_on_a_document_without_a_log(self):
+        restore, row = self.restoring_without_a_log()
+        body = base64.b64encode(pycrdt.Doc().get_update()).decode("ascii")
+        record = {"schema": "writer-document/1", "content": body, "html": "<p>one</p>", "collab": 0}
+
+        restore(json.dumps(record).encode("utf-8"))
+
+        self.assertEqual(row(), {"content": body, "html": "<p>one</p>", "collab": 0})
+
+    def test_a_legacy_html_version_restores_on_a_document_without_a_log(self):
+        restore, row = self.restoring_without_a_log()
+
+        restore(b"<p>legacy</p>")
+
+        self.assertEqual(row(), {"content": "AAA=", "html": "<p>legacy</p>", "collab": 0})
+
+    def test_a_version_shorter_than_a_collab_record_meets_writers_own_refusal(self):
+        restore, row = self.restoring_without_a_log()
+        before = row()
+
+        with self.assertRaisesRegex(frappe.ValidationError, "This Writer version is not valid UTF-8"):
+            restore(b"\xff")
+
+        self.assertEqual(row(), before)
 
     def copy_of(self, node: str) -> str:
         parent = frappe.db.get_value("Drive Node", node, "parent_node")
@@ -342,7 +410,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         image, text = self.opened(copied).get("default", type=pycrdt.XmlFragment).children
         self.assertEqual(dict(image.attributes), {"src": embed(copied_picture)})
         self.assertEqual(str(text), f"see {embed(picture)}")
-        self.assertEqual(writer_drive.used_nodes(self.docname_of(copied)), {copied_picture})
+        self.assertEqual(routes.WRITER.used_nodes(self.docname_of(copied)), {copied_picture})
         source_image = self.opened(node).get("default", type=pycrdt.XmlFragment).children[0]
         self.assertEqual(dict(source_image.attributes), {"src": embed(picture)})
 
@@ -390,17 +458,17 @@ class TestWriterDriveCallbacks(CheckpointCase):
         self.push_edit(
             node, lambda body: body.children.append(pycrdt.XmlElement("image", {"src": embed(picture)}))
         )
-        content.set_mode(writer_content.ADAPTER, "off")
+        log.set_mode(writer_content.APP, "off")
         frappe.db.commit()
 
         copied = self.copy_of(node)
 
         [copied_picture] = frappe.get_all("Drive Node", {"parent_node": copied, "kind": "file"}, pluck="name")
-        [image] = documents.live_state("writer", copied).get("default", type=pycrdt.XmlFragment).children
+        [image] = logged.live_state("writer", copied).get("default", type=pycrdt.XmlFragment).children
         self.assertEqual(dict(image.attributes), {"src": embed(copied_picture)})
         self.assertEqual(version_of(self.docname_of(node))["schema"], "writer-document/2")
         with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
-            writer_drive.export(self.docname_of(node), "html")
+            routes.WRITER.export(self.docname_of(node), "html")
 
     def test_a_copys_start_cannot_change_once_a_tab_has_a_session(self):
         node = self.new_document()
@@ -410,7 +478,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         call_route(routes.sessions_post, copied, body=session_body)
 
         with self.assertRaises(ValueError):
-            content.replace_start("writer", self.doc_row(copied).id, pycrdt.Doc().get_update(), 1)
+            checkpoints.replace_start("writer", self.doc_row(copied).id, pycrdt.Doc().get_update(), 1)
 
     def test_a_source_whose_log_cannot_be_read_is_not_copied(self):
         node = self.new_document()
@@ -463,7 +531,9 @@ class TestWriterDriveCallbacks(CheckpointCase):
         )
         doc = self.doc_row(node)
         copy = "<p>one two three four</p>"
-        installed = copies.install(writer_content.ADAPTER, doc.id, 4, doc.lineage, doc.q_epoch, copy)
+        installed = copies.install(
+            writer_content.APP, doc.id, 4, doc.lineage, doc.q_epoch, copy, writer_content.SPEC.readable_copy
+        )
         self.assertEqual(installed, "installed")
 
         doc_id = self.purge_through_drive(node)
@@ -473,7 +543,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
             frappe.db.sql("SELECT `mode` FROM `__writer_content_doc` WHERE `id` = %s", doc_id)[0][0], "purged"
         )
         with patch.object(log, "PURGE_BATCH", 2):
-            documents.delete_purged(writer_content.ADAPTER, doc_id)
+            jobs.delete_purged(writer_content.APP, doc_id)
 
         self.assertEqual(set(self.row_counts(doc_id).values()), {0})
 
@@ -483,15 +553,15 @@ class TestWriterDriveCallbacks(CheckpointCase):
         doc_id = self.purge_through_drive(node)
 
         with patch.object(scheduling, "enqueue") as enqueue:
-            documents.sweep()
+            jobs.sweep()
 
         purge_job = (
-            ("suite.suite_core.content.documents.delete_purged", f"suite-collab-purge-writer-{doc_id}"),
-            {"adapter": "writer", "doc_id": doc_id},
+            ("suite.suite_core.content.jobs.delete_purged", f"suite-collab-purge-writer-{doc_id}"),
+            {"app": "writer", "doc_id": doc_id},
         )
         enqueued = [(queued.args, queued.kwargs) for queued in enqueue.call_args_list]
         self.assertIn(purge_job, enqueued)
-        documents.delete_purged(writer_content.ADAPTER, doc_id)
+        jobs.delete_purged(writer_content.APP, doc_id)
         self.assertEqual(self.row_counts(doc_id)["update"], 0)
 
     def test_a_compaction_never_stores_a_checkpoint_for_a_purged_log(self):
@@ -501,10 +571,10 @@ class TestWriterDriveCallbacks(CheckpointCase):
         frappe.db.sql("UPDATE `__writer_content_doc` SET `mode` = 'purged' WHERE `id` = %s", doc_id)
         frappe.db.commit()
 
-        documents.compact(writer_content.ADAPTER, doc_id)
+        jobs.compact(writer_content.APP, doc_id)
 
         self.assertEqual(self.row_counts(doc_id)["checkpoint"], 0)
-        documents.delete_purged(writer_content.ADAPTER, doc_id)
+        jobs.delete_purged(writer_content.APP, doc_id)
 
     def test_a_compaction_during_a_purge_raises_no_alert(self):
         node = self.new_document()
@@ -515,10 +585,10 @@ class TestWriterDriveCallbacks(CheckpointCase):
         frappe.db.commit()
         alerts = frappe.db.count("Error Log", {"method": "Collab compaction: chain_break"})
 
-        documents.compact(writer_content.ADAPTER, doc_id)
+        jobs.compact(writer_content.APP, doc_id)
 
         self.assertEqual(frappe.db.count("Error Log", {"method": "Collab compaction: chain_break"}), alerts)
-        documents.delete_purged(writer_content.ADAPTER, doc_id)
+        jobs.delete_purged(writer_content.APP, doc_id)
 
     def test_a_purged_log_reads_as_missing_on_every_route(self):
         node = self.new_document()
@@ -527,7 +597,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         sid = uuid.uuid4().hex
         frappe.db.sql("UPDATE `__writer_content_doc` SET `mode` = 'purged' WHERE `id` = %s", doc_id)
         frappe.db.commit()
-        self.addCleanup(documents.delete_purged, writer_content.ADAPTER, doc_id)
+        self.addCleanup(jobs.delete_purged, writer_content.APP, doc_id)
 
         header, _checkpoint, rows = read_open(call_route(routes.document_get, node).get_data())
         self.assertEqual((header["state"], rows), ("unconverted", []))
@@ -551,14 +621,14 @@ class TestWriterDriveCallbacks(CheckpointCase):
         lineage = self.doc_row(node).lineage
         frappe.db.sql("UPDATE `__writer_content_doc` SET `mode` = 'purged' WHERE `id` = %s", doc_id)
         frappe.db.commit()
-        self.addCleanup(documents.delete_purged, writer_content.ADAPTER, doc_id)
+        self.addCleanup(jobs.delete_purged, writer_content.APP, doc_id)
         doc = pycrdt.Doc(client_id=client_id)
         doc.get("default", type=pycrdt.XmlFragment).children.append(pycrdt.XmlText("two"))
         body = push_body(lineage, sid, client_id, 1, 1, doc.get_update())
         header, payload = content.parse_push(body)
 
         with self.assertRaises(content.Refusal) as refused:
-            content.push(writer_content.ADAPTER, doc_id, header, payload, WRITER)
+            content.push(writer_content.APP, doc_id, header, payload, WRITER)
 
         self.assertEqual((refused.exception.status, refused.exception.body), (404, {"collab": "not_found"}))
         self.assertEqual(self.row_counts(doc_id)["update"], 1)
@@ -572,7 +642,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         document = frappe.get_doc("Writer Document", self.docname_of(node))
 
         for mode in ("on", "off"):
-            content.set_mode(writer_content.ADAPTER, mode)
+            log.set_mode(writer_content.APP, mode)
             frappe.db.commit()
             for save in (
                 lambda: document.save_doc("AAA=", html="<p>older</p>"),
@@ -638,22 +708,38 @@ class TestWriterDriveCallbacks(CheckpointCase):
         refresh = "Open the document to refresh its export"
 
         with self.assertRaisesRegex(drive.DriveConflict, refresh):
-            writer_drive.export(self.docname_of(node), "html")
+            routes.WRITER.export(self.docname_of(node), "html")
 
         doc = self.doc_row(node)
-        copies.install(writer_content.ADAPTER, doc.id, 1, doc.lineage, doc.q_epoch, "<p>one</p>")
-        exported, _mime = writer_drive.export(self.docname_of(node), "html")
+        copies.install(
+            writer_content.APP,
+            doc.id,
+            1,
+            doc.lineage,
+            doc.q_epoch,
+            "<p>one</p>",
+            writer_content.SPEC.readable_copy,
+        )
+        exported, _mime = routes.WRITER.export(self.docname_of(node), "html")
         self.assertEqual(exported.read(), b"<p>one</p>")
 
         self.type_into(node, [" two"])
         with self.assertRaisesRegex(drive.DriveConflict, refresh):
-            writer_drive.export(self.docname_of(node), "html")
+            routes.WRITER.export(self.docname_of(node), "html")
 
     def test_drive_never_exports_a_copy_something_else_wrote_and_keeps_it_once(self):
         node = self.new_document()
         self.type_into(node, ["one"])
         doc = self.doc_row(node)
-        copies.install(writer_content.ADAPTER, doc.id, 1, doc.lineage, doc.q_epoch, "<p>one</p>")
+        copies.install(
+            writer_content.APP,
+            doc.id,
+            1,
+            doc.lineage,
+            doc.q_epoch,
+            "<p>one</p>",
+            writer_content.SPEC.readable_copy,
+        )
         frappe.db.set_value(
             "Writer Document", self.docname_of(node), "html", "<p>foreign</p>", update_modified=False
         )
@@ -662,7 +748,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
         for _attempt in range(2):
             with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
-                writer_drive.export(self.docname_of(node), "html")
+                routes.WRITER.export(self.docname_of(node), "html")
 
         evidence = frappe.db.sql(
             "SELECT `reason`, `payload` FROM `__writer_content_recovery` WHERE `doc_id` = %s", doc.id
@@ -676,16 +762,16 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
     def purging_on_find(self):
         """A purge that lands after a log is found and before it is read."""
-        real_find = content.find
+        real_find = log.find
 
-        def find_then_purge(adapter: str, node: str):
-            doc = real_find(adapter, node)
+        def find_then_purge(app: str, node: str):
+            doc = real_find(app, node)
             if doc:
                 frappe.db.sql("UPDATE `__writer_content_doc` SET `mode` = 'purged' WHERE `id` = %s", doc.id)
-                self.addCleanup(documents.delete_purged, writer_content.ADAPTER, doc.id)
+                self.addCleanup(jobs.delete_purged, writer_content.APP, doc.id)
             return doc
 
-        return patch.object(content, "find", find_then_purge)
+        return patch.object(log, "find", find_then_purge)
 
     def test_a_log_purged_between_finding_and_reading_it_reads_as_missing(self):
         reads = (
@@ -694,11 +780,11 @@ class TestWriterDriveCallbacks(CheckpointCase):
                 lambda node: read_open(call_route(routes.document_get, node).get_data())[0]["state"],
                 "unconverted",
             ),
-            ("live state", lambda node: documents.live_state(writer_content.ADAPTER, node), None),
-            ("live checkpoint", lambda node: documents.live_checkpoint(writer_content.ADAPTER, node), None),
+            ("live state", lambda node: logged.live_state(writer_content.APP, node), None),
+            ("live checkpoint", lambda node: logged.live_checkpoint(writer_content.APP, node), None),
             (
                 "remap",
-                lambda node: documents.remap_log(writer_content.ADAPTER, node, lambda value: value),
+                lambda node: logged.remap_log(writer_content.APP, node, lambda value: value),
                 None,
             ),
         )
@@ -744,7 +830,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         seen = []
         for minutes in (9, 10, 30):
             with self.frozen_clock(start + timedelta(minutes=minutes)), patch.object(scheduling, "enqueue"):
-                documents.sweep()
+                jobs.sweep()
             seen.append(self.content_modified(node))
 
         self.assertEqual(seen, [start, start + timedelta(minutes=10), start + timedelta(minutes=10)])
@@ -759,7 +845,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         before = self.content_modified(node)
 
         with self.frozen_clock(now_datetime() + timedelta(hours=1)), patch.object(scheduling, "enqueue"):
-            documents.sweep()
+            jobs.sweep()
 
         self.assertEqual(self.content_modified(node), before)
 
@@ -773,7 +859,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
         frappe.set_user("Administrator")
         with self.frozen_clock(start + timedelta(minutes=10)), patch.object(scheduling, "enqueue"):
-            documents.sweep()
+            jobs.sweep()
 
         self.assertEqual(self.content_modified(node), start + timedelta(minutes=10))
 
@@ -801,7 +887,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
             patch.object(scheduling, "enqueue"),
             patch.object(touches, "TOUCH_BATCH", 1),
         ):
-            documents.sweep()
+            jobs.sweep()
 
         changed = {node: self.content_modified(node) for node in nodes}
         expected = {node: start + timedelta(minutes=10) if node == waiting else start for node in nodes}
@@ -846,7 +932,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         seen: list[list[int]] = []
         for minutes in (9, 10, 30):
             with self.frozen_clock(start + timedelta(minutes=minutes)), patch.object(scheduling, "enqueue"):
-                documents.sweep()
+                jobs.sweep()
 
             seen.append(self.automatic_versions(node))
 
@@ -863,7 +949,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
         frappe.set_user("Administrator")
         with self.frozen_clock(start + timedelta(minutes=10)), patch.object(scheduling, "enqueue"):
-            documents.sweep()
+            jobs.sweep()
 
         self.assertEqual(self.automatic_versions(node), [self.doc_row(node).head_rev])
 
@@ -872,6 +958,6 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
         frappe.set_user("Administrator")
         with self.frozen_clock(now_datetime() + timedelta(hours=1)), patch.object(scheduling, "enqueue"):
-            documents.sweep()
+            jobs.sweep()
 
         self.assertEqual(self.automatic_versions(node), [])

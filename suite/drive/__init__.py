@@ -385,6 +385,13 @@ def refuse_shared_child_rows(
     _refuse_shared_child_rows(doctype, parent_doctype, parent_field, node_field, user)
 
 
+def node_field(doctype: str) -> str:
+    """Name the field of a registered content doctype that links each document to its node."""
+    from suite.drive._core.content import spec_for
+
+    return spec_for(doctype).node_field
+
+
 def touch(doctype: str, docname: str) -> None:
     """Record that one content document's body changed now."""
     from suite.drive._core.content import touch as _touch
@@ -499,6 +506,7 @@ __all__ = (
     "import_document",
     "legacy_node",
     "list_versions",
+    "node_field",
     "node_url",
     "personal_root_for",
     "push_preview",

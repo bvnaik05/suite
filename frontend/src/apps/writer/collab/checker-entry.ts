@@ -8,7 +8,7 @@ for (const name of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']) {
   Reflect.deleteProperty(globalThis, name)
 }
 
-type KernelInput = {
+type CheckerInput = {
   mode?: 'covers'
   checkpoint: string | null
   rows: string[]
@@ -19,9 +19,9 @@ type KernelInput = {
 const stdinChunks: Buffer[] = []
 
 const judgeInput = () => {
-  // Trusted as kernel.py's own request; anything else throws, and the server sees the child fail
+  // Trusted as checker.py's own request; anything else throws, and the server sees the child fail
   const inputText = Buffer.concat(stdinChunks).toString()
-  const input = JSON.parse(inputText) as KernelInput
+  const input = JSON.parse(inputText) as CheckerInput
 
   const fromBase64 = (base64: string) => new Uint8Array(Buffer.from(base64, 'base64'))
   const checkpoint = input.checkpoint ? fromBase64(input.checkpoint) : null
@@ -35,7 +35,7 @@ const judgeInput = () => {
 
   const reply = {
     ...answer,
-    yjs: __KERNEL_YJS__,
+    yjs: __CHECKER_YJS__,
   }
   process.stdout.write(JSON.stringify(reply))
 }

@@ -1,11 +1,12 @@
-import type { DeviceStore, RecoveryRecord } from '@suite/collab-client'
 import { getSchema } from '@tiptap/core'
 import * as yjs from 'yjs'
 
-import { BODY_FIELD, writerDeviceStore } from '@/apps/writer/collab'
+import { BODY_FIELD } from '@/apps/writer/collab'
+import { writerAdapter } from '@/apps/writer/collab/adapter'
 import type { Removal } from '@/apps/writer/collab/removals'
 import { writerRender } from '@/apps/writer/collab/render'
 import { writerSchema } from '@/apps/writer/schema'
+import { openSignedInDeviceStore, type DeviceStore, type RecoveryRecord } from '@/platform/collab'
 
 /**
  * Writer's recovery copies: work kept on this device because it could not
@@ -61,7 +62,7 @@ export async function keepRemovedWork(
     return null
   }
 
-  const store = await writerDeviceStore()
+  const store = await openSignedInDeviceStore(writerAdapter.app)
   if (!store) {
     return 'unkept'
   }
@@ -158,7 +159,7 @@ export async function listCopies(node?: string): Promise<RecoveryCopy[]> {
 
 /** Each copy's document, without rendering the copies; a page copy that can't be read counts as none. */
 export async function copyEntries() {
-  const store = await writerDeviceStore()
+  const store = await openSignedInDeviceStore(writerAdapter.app)
   const records = (await store?.allRecovery().catch(() => [])) ?? []
   const stored = records.map((record) => ({ document: record.doc }))
   return [...stored, ...pageKeys().flatMap(pageEntry)]
@@ -179,12 +180,12 @@ export async function discardCopy(copy: RecoveryCopy) {
     return
   }
 
-  const store = await writerDeviceStore()
+  const store = await openSignedInDeviceStore(writerAdapter.app)
   await store?.discard(Number(copy.key.slice(STORE_PREFIX.length)))
 }
 
 async function storeCopies(node?: string) {
-  const store = await writerDeviceStore()
+  const store = await openSignedInDeviceStore(writerAdapter.app)
   if (!store) {
     return []
   }

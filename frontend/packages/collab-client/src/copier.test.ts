@@ -5,10 +5,10 @@ import { fakeServer, fakeTime, idle, join } from './test-support'
 
 // An editor whose readable copy is its text in one paragraph
 const rendering = {
-  features: { schema: 1 },
-  position: (raw: unknown) => raw as object,
-  render: (doc: Y.Doc) => ({ html: `<p>${doc.getText('t')}</p>`, text: `${doc.getText('t')}` }),
-  bind: () => null,
+  app: 'test',
+  schemaVersion: 1,
+  toPeerPosition: (raw: unknown) => raw as object,
+  toHtml: (doc: Y.Doc) => `<p>${doc.getText('t')}</p>`,
 }
 
 describe('readable copy', () => {
@@ -53,7 +53,7 @@ describe('readable copy', () => {
     room.doc.getText('t').insert(0, 'one')
     await vi.waitFor(() => expect(server.rows).toHaveLength(1))
     await idle()
-    expect([room.unsent, server.copy.renders]).toEqual([1, []])
+    expect([room.status.unsentCount, server.copy.renders]).toEqual([1, []])
 
     await room.flush()
     await idle()

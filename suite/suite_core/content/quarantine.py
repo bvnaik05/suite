@@ -16,7 +16,8 @@ import pycrdt
 from frappe.utils import now_datetime
 
 from suite.suite_core.content import compaction, ingest, live, updates
-from suite.suite_core.content.snapshot import body_row, fallback_rev, start_clocks
+from suite.suite_core.content.app_row import body_row
+from suite.suite_core.content.snapshot import fallback_rev, start_clocks
 from suite.suite_core.content.tables import table
 
 
@@ -28,12 +29,12 @@ class TailRow:
     update: updates.Update | None
 
 
-def locked_control_row(adapter: str, doc_id: str) -> frappe._dict | None:
+def locked_control_row(app: str, doc_id: str) -> frappe._dict | None:
     """The control row under its lock, or None when the log is gone."""
     # The lock must be the first statement of a fresh transaction
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     locked = frappe.db.sql(
-        f"""SELECT `node`, `lineage`, `body_rev`, `start_clocks`, `mode`, `q_epoch` FROM `{table(adapter, "doc")}`
+        f"""SELECT `node`, `lineage`, `body_rev`, `start_clocks`, `mode`, `q_epoch` FROM `{table(app, "doc")}`
         WHERE `id` = %s FOR UPDATE""",
         doc_id,
         as_dict=True,
@@ -44,10 +45,10 @@ def locked_control_row(adapter: str, doc_id: str) -> frappe._dict | None:
     return locked[0]
 
 
-def tail_rows(adapter: str, doc_id: str, body_rev: int) -> list[frappe._dict]:
+def tail_rows(app: str, doc_id: str, body_rev: int) -> list[frappe._dict]:
     return frappe.db.sql(
-        f"""SELECT `u`.`rev`, `u`.`client_id`, `u`.`payload`, `s`.`principal`
-        FROM `{table(adapter, "update")}` `u` LEFT JOIN `{table(adapter, "session")}` `s`
+        f"""SELECT `u`.`rev`, `u`.`client_id`, `u`.`payload`, `s`.`user`
+        FROM `{table(app, "update")}` `u` LEFT JOIN `{table(app, "session")}` `s`
         ON `s`.`doc_id` = `u`.`doc_id` AND `s`.`sid` = `u`.`sid`
         WHERE `u`.`doc_id` = %s AND `u`.`rev` > %s AND `u`.`state` = 'ok' ORDER BY `u`.`rev`""",
         (doc_id, body_rev),
@@ -56,7 +57,7 @@ def tail_rows(adapter: str, doc_id: str, body_rev: int) -> list[frappe._dict]:
 
 
 def keep_recovery_copies(
-    adapter: str,
+    app: str,
     doc_id: str,
     control_row: frappe._dict,
     picked_rows: list[frappe._dict],
@@ -71,7 +72,7 @@ def keep_recovery_copies(
             frappe.generate_hash(length=20),
             doc_id,
             control_row.node,
-            row.principal or document_owner,
+            row.user or document_owner,
             reason,
             control_row.lineage,
             hashlib.sha256(payload).hexdigest(),
@@ -82,7 +83,7 @@ def keep_recovery_copies(
         )
         try:
             frappe.db.sql(
-                f"""INSERT INTO `{table(adapter, "recovery")}`
+                f"""INSERT INTO `{table(app, "recovery")}`
                 (`id`, `doc_id`, `node`, `owner`, `reason`, `lineage`, `sha256`, `nbytes`, `payload`, `context_rev`, `created`)
                 VALUES (%s, %s, %s, %s, %s, %s, UNHEX(%s), %s, UNHEX(%s), %s, %s)""",
                 recovery_values,
@@ -93,38 +94,38 @@ def keep_recovery_copies(
                 raise
 
 
-def take_out_rows(adapter: str, doc_id: str, picked: set[int], cut_clocks: dict[int, int]) -> None:
+def take_out_rows(app: str, doc_id: str, picked: set[int], cut_clocks: dict[int, int]) -> None:
     """Empty the picked rows, drop any fallback holding them and close the sessions past the cut."""
     frappe.db.sql(
-        f"""UPDATE `{table(adapter, "update")}` SET `state` = 'quarantined', `payload` = '', `bound` = 0
+        f"""UPDATE `{table(app, "update")}` SET `state` = 'quarantined', `payload` = '', `bound` = 0
         WHERE `doc_id` = %s AND `rev` IN %s""",
         (doc_id, tuple(picked)),
     )
     frappe.db.sql(
-        f"DELETE FROM `{table(adapter, 'checkpoint')}` WHERE `doc_id` = %s AND `through_rev` >= %s",
+        f"DELETE FROM `{table(app, 'checkpoint')}` WHERE `doc_id` = %s AND `through_rev` >= %s",
         (doc_id, min(picked)),
     )
     for client, clock in cut_clocks.items():
         # Other writers' rows that need a clock at or past `clock` are refused from now on
         frappe.db.sql(
-            f"""UPDATE `{table(adapter, "session")}` SET `closed` = 1, `next_clock` = %s
+            f"""UPDATE `{table(app, "session")}` SET `closed` = 1, `next_clock` = %s
             WHERE `doc_id` = %s AND `client_id` = %s""",
             (clock, doc_id, client),
         )
 
 
-def recount_tail(adapter: str, doc_id: str, body_rev: int) -> None:
+def recount_tail(app: str, doc_id: str, body_rev: int) -> None:
     """Bump the quarantine epoch and recount the tail after the base."""
-    base_rev = max(body_rev, fallback_rev(adapter, doc_id))
+    base_rev = max(body_rev, fallback_rev(app, doc_id))
     tail_params = {
         "doc": doc_id,
         "base": base_rev,
     }
     frappe.db.sql(
-        f"""UPDATE `{table(adapter, "doc")}` SET `q_epoch` = `q_epoch` + 1,
-        `tail_bytes` = (SELECT COALESCE(SUM(LENGTH(`payload`)), 0) FROM `{table(adapter, "update")}`
+        f"""UPDATE `{table(app, "doc")}` SET `q_epoch` = `q_epoch` + 1,
+        `tail_bytes` = (SELECT COALESCE(SUM(LENGTH(`payload`)), 0) FROM `{table(app, "update")}`
             WHERE `doc_id` = %(doc)s AND `rev` > %(base)s),
-        `tail_bound` = (SELECT COALESCE(SUM(COALESCE(`bound`, LENGTH(`payload`))), 0) FROM `{table(adapter, "update")}`
+        `tail_bound` = (SELECT COALESCE(SUM(COALESCE(`bound`, LENGTH(`payload`))), 0) FROM `{table(app, "update")}`
             WHERE `doc_id` = %(doc)s AND `rev` > %(base)s)
         WHERE `id` = %(doc)s""",
         tail_params,
@@ -132,7 +133,7 @@ def recount_tail(adapter: str, doc_id: str, body_rev: int) -> None:
 
 
 def quarantine(
-    adapter: str, doc_id: str, revs: set[int], reason: str, owner_of: Callable[[str], str | None]
+    app: str, doc_id: str, revs: set[int], reason: str, owner_of: Callable[[str], str | None]
 ) -> list[int]:
     """Quarantine `revs` and every row that depends on them; answers every rev quarantined.
 
@@ -140,7 +141,7 @@ def quarantine(
     holding a quarantined row goes with it.
     A row whose session is gone has its recovery copy kept for `owner_of(node)`, the document's owner.
     """
-    control_row = locked_control_row(adapter, doc_id)
+    control_row = locked_control_row(app, doc_id)
     try:
         if control_row is None:
             frappe.db.rollback()
@@ -150,32 +151,32 @@ def quarantine(
         if min(revs) <= body_rev:
             raise ValueError("a row in the body can't be quarantined")
 
-        rows = tail_rows(adapter, doc_id, body_rev)
+        rows = tail_rows(app, doc_id, body_rev)
         tail = [TailRow(int(row.rev), int(row.client_id), parse_or_none(bytes(row.payload))) for row in rows]
-        kept_clocks = floor_clocks(adapter, control_row)
+        kept_clocks = floor_clocks(app, control_row)
         picked, cut_clocks = dependents(tail, revs, kept_clocks)
         if not picked:
             frappe.db.rollback()
             return []
 
         picked_rows = [row for row in rows if int(row.rev) in picked]
-        sessionless_revs = [int(row.rev) for row in picked_rows if not row.principal]
+        sessionless_revs = [int(row.rev) for row in picked_rows if not row.user]
         document_owner = owner_of(control_row.node) if sessionless_revs else None
         if sessionless_revs and not document_owner:
             raise RuntimeError(f"revs {sessionless_revs} have no session and the document no owner")
 
-        keep_recovery_copies(adapter, doc_id, control_row, picked_rows, document_owner, reason)
-        take_out_rows(adapter, doc_id, picked, cut_clocks)
-        recount_tail(adapter, doc_id, body_rev)
+        keep_recovery_copies(app, doc_id, control_row, picked_rows, document_owner, reason)
+        take_out_rows(app, doc_id, picked, cut_clocks)
+        recount_tail(app, doc_id, body_rev)
         frappe.log_error(
             title=f"Collab rows quarantined: {reason}",
-            message=f"{adapter} document {doc_id}: revs {sorted(picked)} quarantined, {len(cut_clocks)} sessions closed",
+            message=f"{app} document {doc_id}: revs {sorted(picked)} quarantined, {len(cut_clocks)} sessions closed",
             reference_doctype="Suite Collab Settings",
         )
         if sessionless_revs:
             frappe.log_error(
                 title="Collab recovery copies kept for the document owner",
-                message=f"{adapter} document {doc_id}: revs {sessionless_revs} had no session, so {document_owner} keeps their copies",
+                message=f"{app} document {doc_id}: revs {sessionless_revs} had no session, so {document_owner} keeps their copies",
                 reference_doctype="Suite Collab Settings",
             )
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -184,7 +185,7 @@ def quarantine(
         raise
 
     q_epoch = int(control_row.q_epoch) + 1
-    live.publish_control(adapter, doc_id, control_row.lineage, kind="quarantine", q_epoch=q_epoch)
+    live.publish_control(app, doc_id, control_row.lineage, kind="quarantine", q_epoch=q_epoch)
     return sorted(picked)
 
 
@@ -231,10 +232,10 @@ def parse_or_none(payload: bytes) -> updates.Update | None:
         return None
 
 
-def floor_clocks(adapter: str, doc: frappe._dict) -> dict[int, int]:
+def floor_clocks(app: str, doc: frappe._dict) -> dict[int, int]:
     """Each writer's next clock in the body and the start, which no quarantine can take back."""
     clocks = start_clocks(doc)
-    row = body_row(adapter, doc.node) if int(doc.body_rev) else None
+    row = body_row(app, doc.node) if int(doc.body_rev) else None
     if row is not None:
         body_state = pycrdt.get_state(row.body)
         for client, clock in compaction.state_vector(body_state).items():

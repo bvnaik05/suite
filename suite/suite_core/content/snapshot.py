@@ -1,6 +1,5 @@
 """Reading a log: the base and every row after it from one snapshot, chain checked."""
 
-import base64
 import contextlib
 import gzip
 import hashlib
@@ -10,7 +9,7 @@ from dataclasses import dataclass
 
 import frappe
 
-from suite.suite_core.content.adapters import spec_of
+from suite.suite_core.content.app_row import body_row
 from suite.suite_core.content.log import ChainBroken, chain_next, chain_seed
 from suite.suite_core.content.tables import table
 
@@ -38,11 +37,11 @@ def start_clocks(doc: frappe._dict) -> dict[int, int]:
     return {int(client): clock for client, clock in clocks.items()}
 
 
-def rows_after(adapter: str, doc_id: str, since: int) -> list[tuple[int, bytes]]:
-    """Committed rows after `since`, in rev order, a quarantined one empty. One statement, so one snapshot."""
+def rows_after(app: str, doc_id: str, since_rev: int) -> list[tuple[int, bytes]]:
+    """Committed rows after `since_rev`, in rev order, a quarantined one empty. One statement, so one snapshot."""
     stored_rows = frappe.db.sql(
-        f"SELECT `rev`, `payload` FROM `{table(adapter, 'update')}` WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`",
-        (doc_id, since),
+        f"SELECT `rev`, `payload` FROM `{table(app, 'update')}` WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`",
+        (doc_id, since_rev),
     )
     return [(int(rev), bytes(payload)) for rev, payload in stored_rows]
 
@@ -76,32 +75,10 @@ def repeatable_read():
             frappe.db.sql(f"SET SESSION TRANSACTION ISOLATION LEVEL {previous_level.replace('-', ' ')}")
 
 
-def body_row(adapter: str, node: str, *, lock: bool = False) -> frappe._dict | None:
-    """The app's row for `node`, with its body decoded, or None when it has none."""
-    spec = spec_of(adapter)
-    found = frappe.db.sql(
-        f"""SELECT `name`, `{spec.body_field}` AS `body`, `modified` FROM `tab{spec.content_type}`
-        WHERE `{spec.node_field}` = %s ORDER BY `name` LIMIT 1{" FOR UPDATE" if lock else ""}""",
-        node,
-        as_dict=True,
-    )
-    if not found:
-        return None
-
-    row = found[0]
-    try:
-        row.body = base64.b64decode(row.body or "", validate=True)
-    except ValueError:
-        # Answered as a body no stamp matches
-        row.body = b""
-
-    return row
-
-
-def fallback_rev(adapter: str, doc_id: str) -> int:
+def fallback_rev(app: str, doc_id: str) -> int:
     """The rev the document's fallback runs through, 0 when it has none."""
     found = frappe.db.sql(
-        f"SELECT COALESCE(MAX(`through_rev`), 0) FROM `{table(adapter, 'checkpoint')}` WHERE `doc_id` = %s",
+        f"SELECT COALESCE(MAX(`through_rev`), 0) FROM `{table(app, 'checkpoint')}` WHERE `doc_id` = %s",
         doc_id,
     )
     return int(found[0][0])
@@ -117,7 +94,7 @@ class Base:
     is_intact: bool
 
 
-def pick_base(adapter: str, doc_id: str, doc: frappe._dict, body: bytes, integrated: bool) -> Base:
+def pick_base(app: str, doc_id: str, doc: frappe._dict, body: bytes, integrated: bool) -> Base:
     """The app row's body, or a fallback newer than it unless `integrated`."""
     rev = int(doc.body_rev)
     checkpoint = None
@@ -132,7 +109,7 @@ def pick_base(adapter: str, doc_id: str, doc: frappe._dict, body: bytes, integra
     fallback_rows = None
     if not integrated:
         fallback_rows = frappe.db.sql(
-            f"""SELECT `through_rev`, `gz`, `chain`, `sha256` FROM `{table(adapter, "checkpoint")}`
+            f"""SELECT `through_rev`, `gz`, `chain`, `sha256` FROM `{table(app, "checkpoint")}`
             WHERE `doc_id` = %s AND `through_rev` > %s ORDER BY `through_rev` DESC LIMIT 1""",
             (doc_id, rev),
         )
@@ -162,23 +139,23 @@ def walk_chain(stored: Sequence, chain: bytes) -> tuple[list[tuple[int, bytes]],
     return rows, quarantined, chain
 
 
-def read_once(adapter: str, doc_id: str, integrated: bool, own_snapshot: bool) -> Snapshot | None:
+def read_once(app: str, doc_id: str, integrated: bool, own_snapshot: bool) -> Snapshot | None:
     """Raises `ChainBroken` when the rows don't continue the base to the head."""
     with repeatable_read() if own_snapshot else contextlib.nullcontext():
         control_rows = frappe.db.sql(
             f"""SELECT `node`, `lineage`, `head_rev`, `head_chain`, `body_rev`, `body_chain`, `body_sha`,
-            `schema_steps`, `q_epoch` FROM `{table(adapter, "doc")}` WHERE `id` = %s AND `mode` != 'purged'""",
+            `schema_steps`, `q_epoch` FROM `{table(app, "doc")}` WHERE `id` = %s AND `mode` != 'purged'""",
             doc_id,
             as_dict=True,
         )
-        app_row = body_row(adapter, control_rows[0].node) if control_rows else None
+        app_row = body_row(app, control_rows[0].node) if control_rows else None
         if app_row is None:
             return None
 
         doc = control_rows[0]
-        base = pick_base(adapter, doc_id, doc, app_row.body, integrated)
+        base = pick_base(app, doc_id, doc, app_row.body, integrated)
         stored = frappe.db.sql(
-            f"""SELECT `rev`, `payload`, `sha256`, `state` FROM `{table(adapter, "update")}`
+            f"""SELECT `rev`, `payload`, `sha256`, `state` FROM `{table(app, "update")}`
             WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`""",
             (doc_id, base.rev),
         )
@@ -204,9 +181,7 @@ def read_once(adapter: str, doc_id: str, integrated: bool, own_snapshot: bool) -
     )
 
 
-def read(
-    adapter: str, doc_id: str, *, integrated: bool = False, own_snapshot: bool = True
-) -> Snapshot | None:
+def read(app: str, doc_id: str, *, integrated: bool = False, own_snapshot: bool = True) -> Snapshot | None:
     """The base and every row after it through the head, from one snapshot, chain checked.
     The base is the app row's checked body, or a fallback newer than it unless `integrated`.
     `rows` leaves out quarantined rows; `quarantined` lists their revs. None when the log is
@@ -217,6 +192,6 @@ def read(
     A Drive callback may not commit, so it passes `own_snapshot=False` and reads in Drive's transaction.
     """
     try:
-        return read_once(adapter, doc_id, integrated, own_snapshot)
+        return read_once(app, doc_id, integrated, own_snapshot)
     except ChainBroken:
-        return read_once(adapter, doc_id, integrated, own_snapshot)
+        return read_once(app, doc_id, integrated, own_snapshot)

@@ -14,7 +14,7 @@ from pathlib import Path
 
 SUITE_ROOT = Path(__file__).resolve().parents[2]
 ROW_CALLS = frozenset({"set_value", "new_doc", "delete_doc"})
-ROW_UPDATE = re.compile(r"UPDATE\s+`tab(Writer Document|\{spec\.content_type\})`")
+ROW_UPDATE = re.compile(r"UPDATE\s+`tab(Writer Document|\{spec\.doctype\})`")
 WRITER = "suite/writer/"
 WRITER_DOCUMENT = "suite/writer/doctype/writer_document/"
 
@@ -31,8 +31,8 @@ KNOWN_WRITERS = {
     "suite/writer/drive.py:restore_version": REFUSES,
     "suite/writer/drive.py:on_purge": "deletes the row with its log",
     "suite/writer/drive.py:remap_media": "writes the body only without a log; a log is remapped instead",
-    "suite/suite_core/content/checkpoints.py:Compaction.install_body": THE_LOG,
-    "suite/suite_core/content/checkpoints.py:replace_start": THE_LOG,
+    "suite/suite_core/content/app_row.py:write_body": THE_LOG,
+    "suite/suite_core/content/app_row.py:write_copy": "the log writes its own readable copy",
     "suite/writer/patches/move_bodies_into_rows.py:move_body": THE_LOG,
     "suite/drive/patches/build/ports.py:SiteContentTarget.update_writer_body": "migration build, run before any log",
     "suite/drive/patches/cleanup/ports.py:SiteContentRows.clear_writer_ycomments": "migration cleanup of comments Drive took over",

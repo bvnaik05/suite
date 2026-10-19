@@ -10,9 +10,9 @@ import frappe
 import pycrdt
 from frappe.tests import UnitTestCase
 
-from suite.suite_core.content import kernel
+from suite.suite_core.content import checker
 
-BUNDLE = Path(__file__).parents[1] / "dist" / "kernel.cjs"
+BUNDLE = Path(__file__).parents[1] / "dist" / "checker.cjs"
 
 
 def paragraph(text: str) -> pycrdt.XmlElement:
@@ -39,23 +39,23 @@ def table_cell():
     return append_node(pycrdt.XmlElement("tableCell", contents=[paragraph("z")]))
 
 
-class TestKernel(UnitTestCase):
+class TestChecker(UnitTestCase):
     def setUp(self):
-        if not kernel.usable_node() or not BUNDLE.is_file():
-            reason = f"needs Node {kernel.NODE_MAJOR}+ and the built bundle at {BUNDLE}; run bench build"
+        if not checker.usable_node() or not BUNDLE.is_file():
+            reason = f"needs Node {checker.NODE_MAJOR}+ and the built bundle at {BUNDLE}; run bench build"
             # A skip in CI would leave the job green with suspect documents never judged
             if os.environ.get("CI"):
                 self.fail(reason)
 
             self.skipTest(reason)
 
-        job_patch = patch.object(frappe.local, "job", frappe._dict(job_name="test_kernel"), create=True)
+        job_patch = patch.object(frappe.local, "job", frappe._dict(job_name="test_checker"), create=True)
         job_patch.start()
         self.addCleanup(job_patch.stop)
 
     def test_passes_rows_the_editor_can_hold(self):
         rows = typed_rows(append_node(paragraph("abc")), append_node(paragraph("def")))
-        self.assertEqual(kernel.judge(BUNDLE, None, rows), kernel.Verdict(None))
+        self.assertEqual(checker.judge(BUNDLE, None, rows), checker.Verdict(None))
 
     def test_names_a_table_cell_straight_in_the_body(self):
         rows = typed_rows(
@@ -65,50 +65,50 @@ class TestKernel(UnitTestCase):
             append_node(paragraph("after")),
         )
         self.assertEqual(
-            kernel.judge(BUNDLE, None, rows),
-            kernel.Verdict(2, "schema: cannot place tableCell"),
+            checker.judge(BUNDLE, None, rows),
+            checker.Verdict(2, "schema: cannot place tableCell"),
         )
 
     def test_blames_a_checkpoint_that_holds_the_bad_content(self):
         checkpoint, *rows = typed_rows(table_cell(), append_node(paragraph("after")))
-        self.assertEqual(kernel.judge(BUNDLE, checkpoint, rows).index, -1)
+        self.assertEqual(checker.judge(BUNDLE, checkpoint, rows).index, -1)
 
     def test_names_a_row_yjs_cannot_read(self):
         rows = [*typed_rows(append_node(paragraph("abc"))), b"\xff\xff\xff"]
-        verdict = kernel.judge(BUNDLE, None, rows)
+        verdict = checker.judge(BUNDLE, None, rows)
         self.assertEqual(verdict.index, 1)
         self.assertTrue(verdict.reason.startswith("throws: "), verdict.reason)
 
     def test_a_body_holds_the_rows_merged_into_it(self):
         rows = typed_rows(append_node(paragraph("abc")), append_node(paragraph("def")))
         body = pycrdt.merge_updates(*rows)
-        self.assertTrue(kernel.covers(BUNDLE, body, rows))
+        self.assertTrue(checker.covers(BUNDLE, body, rows))
 
     def test_a_body_does_not_hold_a_row_after_it(self):
         rows = typed_rows(append_node(paragraph("abc")), append_node(paragraph("def")))
-        self.assertFalse(kernel.covers(BUNDLE, rows[0], rows))
+        self.assertFalse(checker.covers(BUNDLE, rows[0], rows))
 
     def test_a_body_does_not_hold_a_row_yjs_cannot_read(self):
         rows = typed_rows(append_node(paragraph("abc")))
-        self.assertFalse(kernel.covers(BUNDLE, rows[0], [b"\xff\xff\xff"]))
+        self.assertFalse(checker.covers(BUNDLE, rows[0], [b"\xff\xff\xff"]))
 
     def test_gives_no_cover_answer_without_node_24(self):
         rows = typed_rows(append_node(paragraph("abc")))
-        with patch.object(kernel, "node_version", return_value="v22.12.0"):
-            self.assertIsNone(kernel.covers(BUNDLE, rows[0], rows))
+        with patch.object(checker, "node_version", return_value="v22.12.0"):
+            self.assertIsNone(checker.covers(BUNDLE, rows[0], rows))
 
     def test_runs_only_in_background_jobs(self):
         with patch.object(frappe.local, "job", None):
             with self.assertRaises(RuntimeError):
-                kernel.judge(BUNDLE, None, [])
+                checker.judge(BUNDLE, None, [])
 
     def test_gives_no_verdict_without_node_24(self):
         for version in (None, "v22.12.0"):
-            with patch.object(kernel, "node_version", return_value=version):
-                self.assertIsNone(kernel.judge(BUNDLE, None, typed_rows(table_cell())))
+            with patch.object(checker, "node_version", return_value=version):
+                self.assertIsNone(checker.judge(BUNDLE, None, typed_rows(table_cell())))
 
     def test_gives_no_verdict_without_the_bundle(self):
-        self.assertIsNone(kernel.judge(BUNDLE.with_name("missing.cjs"), None, typed_rows(table_cell())))
+        self.assertIsNone(checker.judge(BUNDLE.with_name("missing.cjs"), None, typed_rows(table_cell())))
 
     def test_runs_the_child_with_no_environment_files_or_processes(self):
         # macOS adds __CF_USER_TEXT_ENCODING to every process
@@ -118,15 +118,15 @@ class TestKernel(UnitTestCase):
         process.stdout.write(JSON.stringify({ verdict: 'bad', index: 0, reason: [
           `env ${env.length}`,
           `read ${tried(() => require('fs').readFileSync('/etc/hosts'))}`,
-          `write ${tried(() => require('fs').writeFileSync(require('os').tmpdir() + '/kernel-probe', 'x'))}`,
+          `write ${tried(() => require('fs').writeFileSync(require('os').tmpdir() + '/checker-probe', 'x'))}`,
           `spawn ${tried(() => require('child_process').execFileSync('ls'))}`,
         ].join(', ') }))
         """
         with tempfile.TemporaryDirectory() as folder:
             bundle = Path(folder) / "probe.cjs"
             bundle.write_text(probe)
-            with patch.dict(os.environ, {"SUITE_KERNEL_SECRET": "x"}):
-                reason = kernel.judge(bundle, None, [b"x"]).reason
+            with patch.dict(os.environ, {"SUITE_CHECKER_SECRET": "x"}):
+                reason = checker.judge(bundle, None, [b"x"]).reason
         self.assertEqual(reason, "env 0, read denied, write denied, spawn denied")
 
     def test_a_reason_keeps_no_document_text(self):
@@ -145,12 +145,12 @@ class TestKernel(UnitTestCase):
                 source = f"process.stdout.write(JSON.stringify({{ verdict: 'bad', index: 0, reason: {quoted_reason} }}))"
                 bundle.write_text(source)
                 with self.subTest(name):
-                    self.assertEqual(kernel.judge(bundle, None, [b"x"]).reason, expected)
+                    self.assertEqual(checker.judge(bundle, None, [b"x"]).reason, expected)
 
             bundle = Path(folder) / "loud.cjs"
             bundle.write_text("process.stderr.write('Error: <p>secret words</p>\\n'); process.exit(3)")
-            with self.assertRaises(kernel.KernelFailed) as failed:
-                kernel.judge(bundle, None, [])
+            with self.assertRaises(checker.CheckerFailed) as failed:
+                checker.judge(bundle, None, [])
             self.assertEqual(str(failed.exception), "exit 3: Error:")
 
     def test_the_bundle_needs_only_crypto_and_drops_the_network_globals(self):
@@ -168,7 +168,7 @@ class TestKernel(UnitTestCase):
         """
         empty_request = json.dumps({"checkpoint": None, "rows": []})
         completed = subprocess.run(
-            [kernel.usable_node(), "--permission", f"--allow-fs-read={bundle}", "-e", probe],
+            [checker.usable_node(), "--permission", f"--allow-fs-read={bundle}", "-e", probe],
             input=empty_request,
             capture_output=True,
             text=True,
@@ -183,7 +183,7 @@ class TestKernel(UnitTestCase):
         locked = set(re.findall(r'^"?yjs@[^\n]*\n\s+version "([^"]+)"', lockfile, re.M))
         empty_request = json.dumps({"checkpoint": None, "rows": []})
         completed = subprocess.run(
-            [kernel.usable_node(), str(BUNDLE)],
+            [checker.usable_node(), str(BUNDLE)],
             input=empty_request,
             capture_output=True,
             text=True,
@@ -197,6 +197,6 @@ class TestKernel(UnitTestCase):
             for name, source in (("hang", "setInterval(() => {}, 1000)"), ("crash", "process.exit(3)")):
                 bundle = Path(folder) / f"{name}.cjs"
                 bundle.write_text(source)
-                with self.subTest(name), patch.object(kernel, "TIMEOUT_S", 2):
-                    with self.assertRaises(kernel.KernelFailed):
-                        kernel.judge(bundle, None, [])
+                with self.subTest(name), patch.object(checker, "TIMEOUT_S", 2):
+                    with self.assertRaises(checker.CheckerFailed):
+                        checker.judge(bundle, None, [])

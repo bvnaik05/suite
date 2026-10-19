@@ -1,4 +1,3 @@
-import type { CollabRoom, Peer } from '@suite/collab-client'
 import { Editor, type EditorOptions } from '@tiptap/core'
 import Bold from '@tiptap/extension-bold'
 import Document from '@tiptap/extension-document'
@@ -10,7 +9,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-import { writerAdapter } from './adapter'
+import type { CollabRoom, Peer } from '@/platform/collab'
+
+import { writerBinding } from './binding'
 import { caretPosition } from './carets'
 import { assignColours, PALETTE } from './colours'
 
@@ -67,7 +68,15 @@ function openEditor(from?: Y.Doc) {
       Paragraph,
       Text,
       Bold,
-      ...writerAdapter.bind({ doc, presence, onChange: () => () => true } as unknown as CollabRoom),
+      ...writerBinding(
+        {
+          doc,
+          presence,
+          status: { restoreRev: 0 },
+          onChange: () => () => true,
+        } as unknown as CollabRoom,
+        () => {},
+      ),
     ],
   }
   const editor = new Editor(editorOptions)

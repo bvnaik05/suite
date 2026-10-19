@@ -9,18 +9,18 @@ import frappe
 KINDS = ("doc", "update", "session", "checkpoint", "stage", "recovery", "projection", "copy")
 
 
-def table(adapter: str, kind: str) -> str:
-    if kind not in KINDS or not adapter.isidentifier():
-        raise ValueError(f"Unknown content table {adapter} {kind}")
+def table(app: str, kind: str) -> str:
+    if kind not in KINDS or not app.isidentifier():
+        raise ValueError(f"Unknown content table {app} {kind}")
 
-    return f"__{adapter}_content_{kind}"
+    return f"__{app}_content_{kind}"
 
 
-def ensure_tables(adapter: str) -> None:
+def ensure_tables(app: str) -> None:
     """Create the product's tables if they are missing. Safe to run on every migrate."""
     options = "ENGINE=InnoDB ROW_FORMAT=DYNAMIC CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "doc")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "doc")}` (
             `id` varchar(20) NOT NULL,
             `node` varchar(140) NOT NULL,
             `lineage` char(32) NOT NULL,
@@ -36,7 +36,7 @@ def ensure_tables(adapter: str) -> None:
         "`body_rev` bigint unsigned NOT NULL DEFAULT 0",
         "`body_chain` binary(32) NULL",
         "`body_sha` binary(32) NULL",
-        "`kernel_schema` varchar(40) NULL",
+        "`crdt_version` varchar(40) NULL",
         "`state_bytes` bigint unsigned NOT NULL DEFAULT 0",
         "`tail_rows` bigint unsigned NOT NULL DEFAULT 0",
         "`tail_bytes` bigint unsigned NOT NULL DEFAULT 0",
@@ -83,16 +83,16 @@ def ensure_tables(adapter: str) -> None:
         # The head chain the last pre-restore version holds
         "`milestone_chain` binary(32) NULL",
     ):
-        frappe.db.sql_ddl(f"ALTER TABLE `{table(adapter, 'doc')}` ADD COLUMN IF NOT EXISTS {column}")
+        frappe.db.sql_ddl(f"ALTER TABLE `{table(app, 'doc')}` ADD COLUMN IF NOT EXISTS {column}")
     frappe.db.sql_ddl(
-        f"ALTER TABLE `{table(adapter, 'doc')}` ADD INDEX IF NOT EXISTS `next_compaction_at` (`next_compaction_at`)"
+        f"ALTER TABLE `{table(app, 'doc')}` ADD INDEX IF NOT EXISTS `next_compaction_at` (`next_compaction_at`)"
     )
     # A bound is never below its row's bytes, so this only meets tails stored before bounds were kept
     frappe.db.sql(
-        f"UPDATE `{table(adapter, 'doc')}` SET `tail_bound` = `tail_bytes` WHERE `tail_bound` < `tail_bytes`"
+        f"UPDATE `{table(app, 'doc')}` SET `tail_bound` = `tail_bytes` WHERE `tail_bound` < `tail_bytes`"
     )
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "update")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "update")}` (
             `doc_id` varchar(20) NOT NULL,
             `rev` bigint unsigned NOT NULL,
             `sid` char(32) NOT NULL,
@@ -110,26 +110,26 @@ def ensure_tables(adapter: str) -> None:
     )
     # Tables made before per-seq shas were kept
     frappe.db.sql_ddl(
-        f"ALTER TABLE `{table(adapter, 'update')}` ADD COLUMN IF NOT EXISTS `seq_shas` longblob NOT NULL AFTER `sha256`"
+        f"ALTER TABLE `{table(app, 'update')}` ADD COLUMN IF NOT EXISTS `seq_shas` longblob NOT NULL AFTER `sha256`"
     )
     # The schema of the build that wrote each row; every row before stamps came from the first
     frappe.db.sql_ddl(
-        f"ALTER TABLE `{table(adapter, 'update')}` ADD COLUMN IF NOT EXISTS `schema` smallint unsigned NOT NULL DEFAULT 1 AFTER `client_id`"
+        f"ALTER TABLE `{table(app, 'update')}` ADD COLUMN IF NOT EXISTS `schema` smallint unsigned NOT NULL DEFAULT 1 AFTER `client_id`"
     )
     # A quarantined row keeps its rev, sha and chain; its payload is emptied and kept as a recovery row
     frappe.db.sql_ddl(
-        f"ALTER TABLE `{table(adapter, 'update')}` ADD COLUMN IF NOT EXISTS `state` varchar(20) NOT NULL DEFAULT 'ok'"
+        f"ALTER TABLE `{table(app, 'update')}` ADD COLUMN IF NOT EXISTS `state` varchar(20) NOT NULL DEFAULT 'ok'"
     )
     # What the row can add to a compaction; rows stored before it count their bytes
     frappe.db.sql_ddl(
-        f"ALTER TABLE `{table(adapter, 'update')}` ADD COLUMN IF NOT EXISTS `bound` bigint unsigned NULL AFTER `payload`"
+        f"ALTER TABLE `{table(app, 'update')}` ADD COLUMN IF NOT EXISTS `bound` bigint unsigned NULL AFTER `payload`"
     )
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "session")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "session")}` (
             `doc_id` varchar(20) NOT NULL,
             `sid` char(32) NOT NULL,
             `client_id` int unsigned NOT NULL,
-            `principal` varchar(140) NOT NULL,
+            `user` varchar(140) NOT NULL,
             `acked_seq` bigint unsigned NOT NULL DEFAULT 0,
             `created` datetime(6) NOT NULL,
             `last_push_at` datetime(6) NULL,
@@ -139,14 +139,14 @@ def ensure_tables(adapter: str) -> None:
     )
     # NULL until `backfill_clocks` reads it from sessions made before it was kept
     frappe.db.sql_ddl(
-        f"ALTER TABLE `{table(adapter, 'session')}` ADD COLUMN IF NOT EXISTS `next_clock` bigint unsigned NULL AFTER `acked_seq`"
+        f"ALTER TABLE `{table(app, 'session')}` ADD COLUMN IF NOT EXISTS `next_clock` bigint unsigned NULL AFTER `acked_seq`"
     )
     # A session that wrote a quarantined row may push no more
     frappe.db.sql_ddl(
-        f"ALTER TABLE `{table(adapter, 'session')}` ADD COLUMN IF NOT EXISTS `closed` tinyint(1) NOT NULL DEFAULT 0"
+        f"ALTER TABLE `{table(app, 'session')}` ADD COLUMN IF NOT EXISTS `closed` tinyint(1) NOT NULL DEFAULT 0"
     )
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "checkpoint")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "checkpoint")}` (
             `doc_id` varchar(20) NOT NULL,
             `through_rev` bigint unsigned NOT NULL,
             `chain` binary(32) NOT NULL,
@@ -154,14 +154,14 @@ def ensure_tables(adapter: str) -> None:
             `nbytes` bigint unsigned NOT NULL,
             `gz` longblob NOT NULL,
             `integrated` tinyint(1) NOT NULL,
-            `kernel_schema` varchar(40) NOT NULL,
+            `crdt_version` varchar(40) NOT NULL,
             `report` json NULL,
             `created` datetime(6) NOT NULL,
             PRIMARY KEY (`doc_id`, `through_rev`)
         ) {options}"""
     )
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "stage")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "stage")}` (
             `doc_id` varchar(20) NOT NULL,
             `stage_id` char(32) NOT NULL,
             `idx` tinyint unsigned NOT NULL,
@@ -177,7 +177,7 @@ def ensure_tables(adapter: str) -> None:
             KEY `created` (`created`)
         ) {options}"""
     )
-    stage_table = table(adapter, "stage")
+    stage_table = table(app, "stage")
     for column in (
         "`rev` bigint unsigned NULL AFTER `seq_to`",
         "`lineage` char(32) NULL AFTER `rev`",
@@ -186,7 +186,7 @@ def ensure_tables(adapter: str) -> None:
         frappe.db.sql_ddl(f"ALTER TABLE `{stage_table}` ADD COLUMN IF NOT EXISTS {column}")
 
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "recovery")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "recovery")}` (
             `id` varchar(20) NOT NULL,
             `doc_id` varchar(20) NOT NULL,
             `node` varchar(140) NOT NULL,
@@ -210,7 +210,7 @@ def ensure_tables(adapter: str) -> None:
     )
     # The rev of the checked readable copy in the app's row, and the sha of the fields it wrote
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "projection")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "projection")}` (
             `doc_id` varchar(20) NOT NULL,
             `projected_rev` bigint unsigned NOT NULL DEFAULT 0,
             `projection_hash` binary(32) NULL,
@@ -220,7 +220,7 @@ def ensure_tables(adapter: str) -> None:
     )
     # The checked readable copy at the latest rev
     frappe.db.sql_ddl(
-        f"""CREATE TABLE IF NOT EXISTS `{table(adapter, "copy")}` (
+        f"""CREATE TABLE IF NOT EXISTS `{table(app, "copy")}` (
             `doc_id` varchar(20) NOT NULL,
             `rev` bigint unsigned NOT NULL,
             `html` longtext NULL,

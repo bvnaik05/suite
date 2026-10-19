@@ -1,4 +1,3 @@
-import type { CollabRoom } from '@suite/collab-client'
 import { useEventListener } from '@vueuse/core'
 import { toast } from 'frappe-ui'
 import { v4 } from 'uuid'
@@ -15,6 +14,7 @@ import {
   removedElsewhere,
   type CommentDraft,
 } from '@/apps/writer/recovery/commentDrafts'
+import type { CollabRoom } from '@/platform/collab'
 
 import { showError } from './useDocumentPanel'
 
@@ -153,9 +153,9 @@ function whenSaved(room: CollabRoom | null, items: Y.ID[]) {
     }
 
     function check() {
-      if (room!.committedCovers(items)) {
+      if (room!.isCommitted(items)) {
         settle(true)
-      } else if (room!.stopped) {
+      } else if (room!.status.stopReason) {
         settle(false)
       }
     }

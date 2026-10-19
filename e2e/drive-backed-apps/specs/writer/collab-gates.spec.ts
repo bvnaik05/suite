@@ -121,7 +121,7 @@ test.describe("Writer collaboration", () => {
 		await typeParagraph(owner.page, "Before the hold");
 		await expectSaved(owner.page);
 
-		await holdDocument(testApi, node, "kernel_failed");
+		await holdDocument(testApi, node, "checker_failed");
 		for (const page of [owner.page, collaborator.page]) {
 			await expect(
 				page.getByText("This document is read-only while an admin checks it."),
@@ -172,7 +172,7 @@ test.describe("Writer collaboration", () => {
 			await route.fallback();
 		};
 		await collaborator.page.route("**/api/suite/content/*/updates**", holdPulls);
-		await quarantineLast(testApi, node, "kernel_failed");
+		await quarantineLast(testApi, node, "checker_failed");
 		await expect(writerEditor(owner.page)).not.toContainText("Bad line");
 
 		await typeParagraph(collaborator.page, "After the cut");

@@ -312,7 +312,7 @@ export async function pushInPieces(
 ): Promise<PushOutcome> {
 	const contentUrl = `/api/suite/content/${encodeURIComponent(node)}`;
 	const headers = {
-		"X-Collab-Principal": user,
+		"X-Expected-User": user,
 		"Content-Type": "application/octet-stream",
 	};
 	const sessionId = randomUUID().replaceAll("-", "");
@@ -347,7 +347,7 @@ export async function pushInPieces(
 	for (let pieceIndex = pieces - 1; pieceIndex >= 0; pieceIndex--) {
 		const pieceHeader = {
 			lineage: paragraphChange.lineage,
-			principal: user,
+			expected_user: user,
 			sid: sessionId,
 			from: 1,
 			to: 1,
@@ -364,7 +364,7 @@ export async function pushInPieces(
 
 	const pushHeader = {
 		lineage: paragraphChange.lineage,
-		principal: user,
+		expected_user: user,
 		sid: sessionId,
 		from: 1,
 		to: 1,

@@ -140,15 +140,15 @@ ignore_file_permissions = True
 # `report` rights on its `All` row because a right the row does not carry is a
 # right no hook can hand back.
 drive_content_types = [
-    "suite.writer.drive.SPEC",
+    "suite.composition.content.WRITER",
     "suite.slides.drive.SPEC",
     "suite.sheets.drive.SPEC",
 ]
 
-# Dotted paths to `suite.suite_core.content.adapters.ContentAdapterSpec` objects,
+# Dotted paths to `suite.suite_core.content.editors.EditorSpec` objects,
 # one per app whose documents the content layer keeps.
-suite_content_adapters = ["suite.writer.content.SPEC"]
-# The one `suite.suite_core.content.adapters.NodeHooks`: what the layer asks Drive about a node.
+suite_content_editors = ["suite.writer.content.SPEC"]
+# The one `suite.suite_core.content.editors.NodeHooks`: what the layer asks Drive about a node.
 suite_content_nodes = ["suite.composition.content.NODES"]
 
 # ============================================================================
@@ -307,7 +307,7 @@ scheduler_events = {
     ],
     "hourly": [
         # content
-        "suite.suite_core.content.documents.trim_logs",
+        "suite.suite_core.content.jobs.trim_logs",
         # drive
         "suite.drive.webdav.locks.purge_expired_locks",
         # mail
@@ -316,7 +316,7 @@ scheduler_events = {
         "suite.mail.doctype.contacts_exchange.contacts_exchange.retry_stuck_contacts_exchanges",
     ],
     "all": [
-        "suite.suite_core.content.documents.sweep",
+        "suite.suite_core.content.jobs.sweep",
     ],
     "cron": {
         "* * * * *": [

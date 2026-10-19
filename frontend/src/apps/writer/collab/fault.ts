@@ -1,10 +1,10 @@
-import type { Fault } from '@suite/collab-client'
 import { getSchema } from '@tiptap/core'
 import { placeFragment } from '@tiptap/y-tiptap'
 import { XmlElement } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { writerSchema } from '@/apps/writer/schema'
+import type { Fault } from '@/platform/collab'
 
 const schema = getSchema(writerSchema())
 

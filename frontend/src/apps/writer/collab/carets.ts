@@ -1,4 +1,3 @@
-import type { RoomPresence } from '@suite/collab-client'
 import { Extension, type Editor } from '@tiptap/core'
 import { Plugin } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
@@ -11,6 +10,8 @@ import {
 } from '@tiptap/y-tiptap'
 import type { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
+
+import type { RoomPresence } from '@/platform/collab'
 
 import { colourStyle, type PeerColour } from './colours'
 import { peerName, personIdleSince, presenceColours, whenNamed } from './peers'

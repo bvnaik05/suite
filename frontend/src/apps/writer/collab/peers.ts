@@ -1,7 +1,6 @@
-import type { Peer, RoomPresence } from '@suite/collab-client'
-
 import { assignColours, type PeerColour } from '@/apps/writer/collab/colours'
 import { fullName, lookUp } from '@/apps/writer/composables/useUsers'
+import type { Peer, RoomPresence } from '@/platform/collab'
 import { useSession } from '@/platform/session'
 
 // A guest is named by its tab, so two guests in one document read apart

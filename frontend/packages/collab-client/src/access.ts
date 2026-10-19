@@ -55,7 +55,7 @@ export function classifyRefusal(
     blocked = reply.collab
   } else if (isStaleSession(reply)) {
     blocked = 'stale_session'
-  } else if (reply.status === 409 && reply.collab === 'principal_changed') {
+  } else if (reply.status === 409 && reply.collab === 'user_changed') {
     blocked = 'other_user'
   } else if (reply.status === 403 || reply.status === 404) {
     blocked = signInChange(room.options) ?? lostAccess

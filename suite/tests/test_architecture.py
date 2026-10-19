@@ -61,7 +61,6 @@ BASELINE_DEBT = {
         (
             "suite/drive/tests/test_content.py|dotted-string|suite.sheets.drive.SPEC",
             "suite/drive/tests/test_content.py|dotted-string|suite.slides.drive.SPEC",
-            "suite/drive/tests/test_content.py|dotted-string|suite.writer.drive.SPEC",
         ),
     ),
     **_debt(
@@ -122,6 +121,8 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_drive_callbacks.py|import|suite.drive._core.nodes",
             "suite/writer/content/tests/test_drive_callbacks.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_drive_callbacks.py|import|suite.drive._core.versions",
+            "suite/writer/content/tests/test_restores.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_restores.py|import|suite.drive._core.versions",
             # An embedded picture is a media node below the document (§9.4),
             # so the fixture builds roots and nodes and reads Drive's own
             # upload path; there is no upload fixture above it yet.
@@ -446,6 +447,27 @@ def table_write_violations(path, tree):
     return violations
 
 
+APP_ROW = "suite.suite_core.content.app_row"
+APP_ROW_REASON = "code outside the content layer reaches the app's row past it"
+
+
+def app_row_violations(path, tree):
+    if PurePosixPath(path).parts[:3] == ("suite", "suite_core", "content"):
+        return []
+
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        kind, modules = _modules(node)
+        if isinstance(node, ast.ImportFrom) and node.module == "suite.suite_core.content":
+            modules = [f"{node.module}.{alias.name}" for alias in node.names]
+
+        matched = [module for module in modules if module == APP_ROW or module.startswith(f"{APP_ROW}.")]
+        for module in matched:
+            violations.append(Violation(path, node.lineno, kind, module, APP_ROW_REASON))
+
+    return violations
+
+
 def _modules(node):
     if isinstance(node, ast.Import):
         return ("import", [alias.name for alias in node.names])
@@ -467,6 +489,7 @@ def violations_in_tree(path, tree):
             if reason:
                 violations.append(Violation(path, node.lineno, kind, module, reason))
     violations.extend(table_write_violations(path, tree))
+    violations.extend(app_row_violations(path, tree))
     return sorted(
         violations, key=lambda violation: (violation.path, violation.line, violation.kind, violation.module)
     )
@@ -544,6 +567,16 @@ class TestArchitecture(unittest.TestCase):
         write = "frappe.db.delete('Drive Grant', {'node': node})\n"
         self.assertEqual(violations_in_tree("suite/drive/_core/roots.py", ast.parse(write)), [])
 
+    def test_the_app_row_is_reached_only_inside_the_content_layer(self):
+        source = (
+            "from suite.suite_core.content import app_row, jobs\n"
+            "from suite.suite_core.content.app_row import write_body\n"
+            "target = 'suite.suite_core.content.app_row.write_copy'\n"
+        )
+        violations = violations_in_tree("suite/writer/new_caller.py", ast.parse(source))
+        self.assertEqual([violation.reason for violation in violations], [APP_ROW_REASON] * 3)
+        self.assertEqual(violations_in_tree("suite/suite_core/content/copies.py", ast.parse(source)), [])
+
     def test_package_root_import_is_allowed(self):
         tree = ast.parse("from suite import drive\n")
         self.assertEqual(violations_in_tree("suite/writer/new_caller.py", tree), [])
@@ -583,6 +616,7 @@ class TestArchitecture(unittest.TestCase):
                 "import_document",
                 "legacy_node",
                 "list_versions",
+                "node_field",
                 "node_url",
                 "personal_root_for",
                 "push_preview",

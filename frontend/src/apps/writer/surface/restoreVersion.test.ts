@@ -1,4 +1,3 @@
-import type { RestoreResult } from '@suite/collab-client'
 import { getSchema } from '@tiptap/core'
 import { prosemirrorJSONToYDoc, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
 import { describe, expect, it, vi } from 'vitest'
@@ -7,6 +6,7 @@ import * as Y from 'yjs'
 import { BODY_FIELD } from '@/apps/writer/collab'
 import { encodeAnchor, readAnchor } from '@/apps/writer/collab/anchors'
 import { writerSchema } from '@/apps/writer/schema'
+import type { RestoreResult } from '@/platform/collab'
 
 import { restoreVersion } from './restoreVersion'
 
@@ -18,7 +18,7 @@ function fakeRoom(result: RestoreResult) {
     doc: new Y.Doc(),
     lineage: 'one',
     flush: vi.fn(() => Promise.resolve()),
-    committedCovers: () => true,
+    isCommitted: () => true,
     restoreVersion: vi.fn(async (_seq: number, edit: () => void) => {
       edit()
       return result
@@ -83,7 +83,7 @@ async function restoreLostWorld(result: RestoreResult, isSaved: boolean) {
   const { doc, threads } = documentWithThread()
   const bytes = await yjsVersion(doc)
   textOf(doc).delete(5, 6)
-  const room = { ...fakeRoom(result), doc, committedCovers: () => isSaved }
+  const room = { ...fakeRoom(result), doc, isCommitted: () => isSaved }
   const notice = await restoreVersion(room, 4, bytes, threads)
   return { doc, notice }
 }

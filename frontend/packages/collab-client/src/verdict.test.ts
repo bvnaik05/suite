@@ -13,25 +13,33 @@ describe('collab room', () => {
 
     await room.pull()
 
-    expect([server.judge.reports, room.canWrite, room.paused, room.appliedThrough]).toEqual([
-      [1],
-      false,
-      'suspect',
-      0,
-    ])
+    expect([
+      server.judge.reports,
+      room.status.canWrite,
+      room.status.pauseReason,
+      room.appliedThrough,
+    ]).toEqual([[1], false, 'suspect', 0])
     room.doc.getText('t').insert(0, 'mine ')
     server.calls.length = 0
     await room.flush()
     await new Promise((resolve) => setTimeout(resolve, 10))
     await room.pull()
-    expect([server.calls, room.unsent, room.needsRebuild]).toEqual([['pull'], 1, false])
+    expect([server.calls, room.status.unsentCount, room.status.isReopenNeeded]).toEqual([
+      ['pull'],
+      1,
+      false,
+    ])
     server.judge.judged++
     server.judge.verdict = 'clean'
     await room.pull()
-    expect([room.needsRebuild, room.stopped]).toEqual([true, null])
+    expect([room.status.isReopenNeeded, room.status.stopReason]).toEqual([true, null])
     // Work held nowhere else goes out from this copy before it is rebuilt
     await vi.waitFor(() =>
-      expect([room.unsent, room.paused, server.rows.length]).toEqual([0, null, 2]),
+      expect([room.status.unsentCount, room.status.pauseReason, server.rows.length]).toEqual([
+        0,
+        null,
+        2,
+      ]),
     )
   })
 
@@ -52,12 +60,17 @@ describe('collab room', () => {
 
     await room.pull()
     await vi.advanceTimersByTimeAsync(3 * 31_000)
-    const waiting = [server.judge.reports.length, room.needsRebuild, room.stopped, room.paused]
+    const waiting = [
+      server.judge.reports.length,
+      room.status.isReopenNeeded,
+      room.status.stopReason,
+      room.status.pauseReason,
+    ]
     server.judge.judged++
     server.judge.verdict = 'quarantined'
     await room.pull()
 
-    expect([waiting, room.needsRebuild]).toEqual([[4, false, null, 'suspect'], true])
+    expect([waiting, room.status.isReopenNeeded]).toEqual([[4, false, null, 'suspect'], true])
   })
 
   it('a report refused for a lapsed sign-in is made again once the person signs back in', async () => {
@@ -75,18 +88,18 @@ describe('collab room', () => {
     browser.signedIn = 'Guest'
 
     await room.pull()
-    const blockedWhileSignedOut = room.blocked
+    const blockedWhileSignedOut = room.status.blockReason
     browser.signedIn = 'a@x.com'
     await vi.advanceTimersByTimeAsync(31_000)
     server.judge.judged++
     server.judge.verdict = 'quarantined'
     await room.pull()
 
-    expect([blockedWhileSignedOut, server.judge.reports.length, room.needsRebuild]).toEqual([
-      'signed_out',
-      2,
-      true,
-    ])
+    expect([
+      blockedWhileSignedOut,
+      server.judge.reports.length,
+      room.status.isReopenNeeded,
+    ]).toEqual(['signed_out', 2, true])
   })
 
   it('a verdict from before the report is not taken for this one', async () => {
@@ -104,7 +117,7 @@ describe('collab room', () => {
     await room.pull()
     await room.pull()
 
-    expect([room.needsRebuild, room.canWrite]).toEqual([false, false])
+    expect([room.status.isReopenNeeded, room.status.canWrite]).toEqual([false, false])
   })
 
   it('a quarantined row rebuilds the tab', async () => {
@@ -121,12 +134,16 @@ describe('collab room', () => {
 
     await room.pull()
 
-    expect([room.needsRebuild, room.stopped]).toEqual([true, null])
+    expect([room.status.isReopenNeeded, room.status.stopReason]).toEqual([true, null])
   })
 
   it('a held verdict keeps the tab locked and waiting', async () => {
     const room = await judgedOnce(fakeServer('live', 'apply-4'), 'held')
-    expect([room.needsRebuild, room.canWrite, room.stopped]).toEqual([false, false, null])
+    expect([room.status.isReopenNeeded, room.status.canWrite, room.status.stopReason]).toEqual([
+      false,
+      false,
+      null,
+    ])
   })
 
   it('a row the server already compacted is clean at once', async () => {
@@ -139,7 +156,7 @@ describe('collab room', () => {
     await writer.flush()
 
     await room.pull()
-    await vi.waitFor(() => expect(room.needsRebuild).toBe(true))
+    await vi.waitFor(() => expect(room.status.isReopenNeeded).toBe(true))
   })
 
   it('a report another tab made a moment ago is made again after the wait', async () => {
@@ -153,15 +170,16 @@ describe('collab room', () => {
     await vi.waitFor(() => expect(server.judge.reports).toEqual([1, 1]))
     server.judge.judged++
     await room.pull()
-    expect(room.needsRebuild).toBe(true)
+    expect(room.status.isReopenNeeded).toBe(true)
   })
 
   it('a third clean verdict in ten minutes stops editing in this browser', async () => {
     const server = fakeServer('live', 'apply-7')
-    for (const _ of [1, 2]) expect((await judgedOnce(server, 'clean')).needsRebuild).toBe(true)
+    for (const _ of [1, 2])
+      expect((await judgedOnce(server, 'clean')).status.isReopenNeeded).toBe(true)
     const third = await judgedOnce(server, 'clean')
-    await vi.waitFor(() => expect(third.stopped).toBe('browser'))
-    expect([third.needsRebuild, third.canWrite]).toEqual([false, false])
+    await vi.waitFor(() => expect(third.status.stopReason).toBe('browser'))
+    expect([third.status.isReopenNeeded, third.status.canWrite]).toEqual([false, false])
   })
 
   it('a held document locks the tab, keeps its typing and sends it once released', async () => {
@@ -172,23 +190,23 @@ describe('collab room', () => {
 
     room.doc.getText('t').insert(0, 'kept')
     await vi.advanceTimersByTimeAsync(1500)
-    expect([room.held, room.canWrite, room.unsent, server.rows.length]).toEqual([
-      'change',
-      false,
-      1,
-      0,
-    ])
+    expect([
+      room.status.holdReason,
+      room.status.canWrite,
+      room.status.unsentCount,
+      server.rows.length,
+    ]).toEqual(['change', false, 1, 0])
 
     server.judge.held = undefined
     await room.pull()
     await vi.advanceTimersByTimeAsync(0)
 
-    expect([room.held, room.canWrite, room.saveState, server.rows.length]).toEqual([
-      null,
-      true,
-      'clean',
-      1,
-    ])
+    expect([
+      room.status.holdReason,
+      room.status.canWrite,
+      room.status.saveState,
+      server.rows.length,
+    ]).toEqual([null, true, 'clean', 1])
   })
 
   it('a pull tells a tab with nothing to send that the document is held, and when it is not', async () => {
@@ -197,11 +215,11 @@ describe('collab room', () => {
     server.judge.held = 'bad_checkpoint'
 
     await room.pull()
-    expect([room.held, room.canWrite]).toEqual(['bad_checkpoint', false])
+    expect([room.status.holdReason, room.status.canWrite]).toEqual(['bad_checkpoint', false])
     server.judge.held = undefined
     await room.pull()
 
-    expect([room.held, room.canWrite]).toEqual([null, true])
+    expect([room.status.holdReason, room.status.canWrite]).toEqual([null, true])
   })
 
   it('a refused push does not hide that the whole document is in question', async () => {
@@ -214,7 +232,7 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, 'x')
     await vi.advanceTimersByTimeAsync(1500)
 
-    expect([room.held, room.paused]).toEqual(['bad_checkpoint', 'suspect'])
+    expect([room.status.holdReason, room.status.pauseReason]).toEqual(['bad_checkpoint', 'suspect'])
   })
 
   it('a report answered with a hold locks the tab as held', async () => {
@@ -228,7 +246,7 @@ describe('collab room', () => {
     await writer.flush()
 
     await room.pull()
-    await vi.waitFor(() => expect(room.held).toBe('change'))
+    await vi.waitFor(() => expect(room.status.holdReason).toBe('change'))
   })
 
   it('a tab tells its listeners why it stopped when it stops', async () => {
@@ -237,7 +255,7 @@ describe('collab room', () => {
     const room = await join(server.endpoints())
     breaksOn(room, 'boom')
     const seen: (string | null)[] = []
-    room.onChange(() => room.saveState === 'failed' && seen.push(room.stopped))
+    room.onChange(() => room.status.saveState === 'failed' && seen.push(room.status.stopReason))
     const writer = await join(server.endpoints())
     writer.doc.getText('t').insert(0, 'boom')
     await writer.flush()
@@ -265,7 +283,7 @@ describe('collab room', () => {
 
     await room.pull()
 
-    expect([room.needsRebuild, room.stopped]).toEqual([true, null])
+    expect([room.status.isReopenNeeded, room.status.stopReason]).toEqual([true, null])
   })
 
   it('clean verdicts older than ten minutes are not counted', async () => {
@@ -275,6 +293,6 @@ describe('collab room', () => {
     await judgedOnce(server, 'clean')
     vi.setSystemTime(Date.now() + 10 * 60_000 + 1)
     const third = await judgedOnce(server, 'clean')
-    expect([third.needsRebuild, third.stopped]).toEqual([true, null])
+    expect([third.status.isReopenNeeded, third.status.stopReason]).toEqual([true, null])
   })
 })

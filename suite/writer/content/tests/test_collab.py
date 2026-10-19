@@ -12,6 +12,7 @@ from suite import drive
 from suite.composition import content as routes
 from suite.drive._core.access import grant
 from suite.drive._core.principals import Principals
+from suite.suite_core.content import backfill, checkpoints
 from suite.suite_core.content.stage import PIECE_MAX
 from suite.suite_core.content.updates import encoded_string, encoded_uint, parse
 from suite.writer import content as writer_content
@@ -294,7 +295,7 @@ class TestWriterCollab(CollabCase):
         with patch.object(writer_content, "SPEC", newer_spec):
             self.assertEqual(call_route(routes.updates_post, node, body=body).status_code, 200)
 
-        doc_id = routes.content.find(writer_content.ADAPTER, node).id
+        doc_id = routes.content.find(writer_content.APP, node).id
         self.assertEqual(
             frappe.db.sql("SELECT `schema` FROM `__writer_content_update` WHERE `doc_id` = %s", doc_id),
             ((newer,),),
@@ -552,8 +553,8 @@ class TestWriterCollab(CollabCase):
         self.set_mode("on")
         node = self.new_document()
         original, later = typed_updates(7, ["start", "!"])
-        doc_id = routes.content.find(writer_content.ADAPTER, node).id
-        routes.content.replace_start(writer_content.ADAPTER, doc_id, original, 1)
+        doc_id = routes.content.find(writer_content.APP, node).id
+        checkpoints.replace_start(writer_content.APP, doc_id, original, 1)
         frappe.db.commit()
         (sid, client_id), (ahead_sid, ahead_client_id) = self.start_session(node), self.start_session(node)
 
@@ -581,8 +582,8 @@ class TestWriterCollab(CollabCase):
         self.set_mode("on")
         node = self.new_document()
         start, after_start = typed_updates(7, ["start", "!"])
-        doc_id = routes.content.find(writer_content.ADAPTER, node).id
-        routes.content.replace_start(writer_content.ADAPTER, doc_id, start, 1)
+        doc_id = routes.content.find(writer_content.APP, node).id
+        checkpoints.replace_start(writer_content.APP, doc_id, start, 1)
         frappe.db.commit()
         sid, client_id = self.start_session(node)
         a, b, c = typed_updates(client_id, ["a", "b", "c"])
@@ -593,7 +594,7 @@ class TestWriterCollab(CollabCase):
         frappe.db.sql("UPDATE `__writer_content_doc` SET `start_clocks` = NULL WHERE `id` = %s", doc_id)
         frappe.db.commit()
 
-        routes.content.backfill_clocks(writer_content.ADAPTER, routes.node_owner)
+        backfill.backfill_clocks(writer_content.APP, routes.node_owner)
 
         self.assertEqual(self.push(node, sid, client_id, 3, a), (409, {"collab": "clock_gap", "clock": 3}))
         self.assertEqual(self.push(node, sid, client_id, 3, c)[0], 200)
@@ -723,7 +724,7 @@ class TestWriterCollab(CollabCase):
         node = self.new_document()
         sid, client_id = self.start_session(node)
         lineage = self.open_document(node)[0]["lineage"]
-        body = push_body(lineage, sid, client_id, 1, 0, b"x", principal=WRITER)
+        body = push_body(lineage, sid, client_id, 1, 0, b"x", expected_user=WRITER)
         session_body = json.dumps({"sid": uuid.uuid4().hex}).encode()
         handlers = (
             (routes.document_get, b""),
@@ -733,14 +734,14 @@ class TestWriterCollab(CollabCase):
             (routes.suspect_post, b'{"rev": 1}'),
             (
                 lambda node: routes.stage_put(node, uuid.uuid4().hex, "0"),
-                piece_body(lineage, sid, 1, b"x", b"x", principal=WRITER),
+                piece_body(lineage, sid, 1, b"x", b"x", expected_user=WRITER),
             ),
         )
 
-        for user, expected in (("Guest", (401, "signed_out")), (OUTSIDER, (409, "principal_changed"))):
+        for user, expected in (("Guest", (401, "signed_out")), (OUTSIDER, (409, "user_changed"))):
             frappe.set_user(user)
             for handler, request_body in handlers:
-                response = call_route(handler, node, body=request_body, principal=WRITER)
+                response = call_route(handler, node, body=request_body, expected_user=WRITER)
                 self.assertEqual((response.status_code, answer(response)["collab"]), expected)
 
         frappe.set_user(WRITER)
@@ -789,7 +790,7 @@ class TestWriterCollab(CollabCase):
             for handler, request_body in handlers:
                 response = call_route(handler, node, body=request_body)
                 self.assertEqual((response.status_code, answer(response)), (404, {"collab": "not_found"}))
-        self.assertIsNone(routes.content.find(writer_content.ADAPTER, presentation))
+        self.assertIsNone(routes.content.find(writer_content.APP, presentation))
 
     def test_an_offline_tab_claims_its_own_client_id_and_then_pushes(self):
         self.set_mode("on")
@@ -824,8 +825,8 @@ class TestWriterCollab(CollabCase):
         [issued_start] = typed_updates(issued, ["start"])
         [claimed_start] = typed_updates(claimed, ["start"])
         start = pycrdt.merge_updates(issued_start, claimed_start)
-        doc_id = routes.content.find(writer_content.ADAPTER, node).id
-        routes.content.replace_start(writer_content.ADAPTER, doc_id, start, 1)
+        doc_id = routes.content.find(writer_content.APP, node).id
+        checkpoints.replace_start(writer_content.APP, doc_id, start, 1)
         frappe.db.commit()
         lineage = self.open_document(node)[0]["lineage"]
 
@@ -886,7 +887,7 @@ class TestWriterCollab(CollabCase):
         self.set_mode("on")
         node = self.new_document()
         self.push(node, *self.start_session(node), 1)
-        doc_id = routes.content.find(writer_content.ADAPTER, node).id
+        doc_id = routes.content.find(writer_content.APP, node).id
         frappe.db.sql(
             "UPDATE `__writer_content_doc` SET `head_chain` = %s WHERE `id` = %s", (b"\x00" * 32, doc_id)
         )
@@ -894,7 +895,7 @@ class TestWriterCollab(CollabCase):
         self.addCleanup(frappe.db.commit)
         logged = {
             "method": "Collab open: chain_break",
-            "error": f"{writer_content.ADAPTER} document {doc_id}",
+            "error": f"{writer_content.APP} document {doc_id}",
         }
         self.addCleanup(frappe.db.delete, "Error Log", logged)
 

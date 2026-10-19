@@ -172,8 +172,13 @@ vi.mock('@/apps/writer/components/CoreEditor.vue', async () => {
 
 vi.mock('@/apps/writer/collab', () => ({
   BODY_FIELD: 'default',
-  openWriterRoom: async () => (rooms.next ? { state: 'live', room: rooms.next } : { state: 'off' }),
-  writerDeviceStore: async () => null,
+}))
+
+vi.mock('@/platform/collab', async () => ({
+  ...(await import('@suite/collab-client')),
+  openCollabRoom: async () =>
+    rooms.next ? { state: 'live', room: rooms.next } : { state: 'disabled' },
+  openSignedInDeviceStore: async () => null,
 }))
 
 vi.mock('@/apps/writer/components/NonCollabEditor.vue', async () => {
@@ -432,12 +437,14 @@ afterEach(() => {
 function liveRoom() {
   const room = {
     doc: new Y.Doc(),
-    canWrite: true,
-    blocked: null,
-    paused: null,
-    saveState: 'clean',
-    unsent: 0,
-    onDevice: true,
+    status: {
+      canWrite: true,
+      blockReason: null,
+      pauseReason: null,
+      saveState: 'clean',
+      unsentCount: 0,
+      isKeptOnDevice: true,
+    } as Record<string, unknown>,
     onChange: () => () => {},
     flush: async () => {},
     close: vi.fn(async () => {}),
@@ -491,8 +498,7 @@ const REFUSED_KEPT =
 // A live room whose saving failed for good, which the page shows as the stop strip
 function stoppedRoom() {
   const room = liveRoom()
-  room.saveState = 'failed'
-  room.unsent = 1
+  room.status = { ...room.status, saveState: 'failed', unsentCount: 1 }
   return room
 }
 
@@ -532,7 +538,8 @@ async function discardCopies() {
 
 // Types a line the room has yet to send, shuts the write gate, and takes the file the toast's Download my changes saves
 async function downloadedChanges(afterClose: (root: Element) => unknown = () => {}, role = 30) {
-  Object.assign(liveRoom(), { saveState: 'unsaved', unsent: 1 })
+  const room = liveRoom()
+  room.status = { ...room.status, saveState: 'unsaved', unsentCount: 1 }
   const access = ref({ role: 50 })
   const root = await openedSurface(undefined, '/d/node-1', undefined, access)
   root
@@ -885,7 +892,7 @@ describe('Writer surface', () => {
 
     let during: string[] = []
     await previewAndReturn(root, async () => {
-      Object.assign(room, { saveState: 'failed', unsent: 1 })
+      room.status = { ...room.status, saveState: 'failed', unsentCount: 1 }
       for (const change of changes) {
         change()
       }
@@ -935,7 +942,13 @@ describe('Writer surface', () => {
   })
 
   it('asks to keep the tab open, with no Reload, and warns on leaving, when typing after a lost right is kept nowhere', async () => {
-    Object.assign(stoppedRoom(), { blocked: 'lost_read', stopped: 'lost_access', copyFailed: true })
+    const room = stoppedRoom()
+    room.status = {
+      ...room.status,
+      blockReason: 'lost_read',
+      stopReason: 'lost_access',
+      hasCopyFailed: true,
+    }
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('Quota exceeded', 'QuotaExceededError')
     })
@@ -951,16 +964,16 @@ describe('Writer surface', () => {
 
   it('keeps a page copy of typing after a lost right that the device could not keep', async () => {
     const listeners: (() => void)[] = []
-    const room = Object.assign(liveRoom(), {
-      blocked: 'lost_read',
-      stopped: 'lost_access',
+    const room = liveRoom()
+    room.status = { ...room.status, blockReason: 'lost_read', stopReason: 'lost_access' }
+    Object.assign(room, {
       onChange(listener: () => void) {
         listeners.push(listener)
         return () => {}
       },
     })
     const root = await openedSurface()
-    Object.assign(room, { saveState: 'failed', unsent: 1, copyFailed: true })
+    room.status = { ...room.status, saveState: 'failed', unsentCount: 1, hasCopyFailed: true }
     for (const listener of listeners) {
       listener()
     }
@@ -1032,7 +1045,8 @@ describe('Writer surface', () => {
   })
 
   it("shows the read-only notice, with no download, when the only unsent work is another tab's", async () => {
-    Object.assign(liveRoom(), { saveState: 'unsaved', othersUnsent: 3 })
+    const room = liveRoom()
+    room.status = { ...room.status, saveState: 'unsaved', othersUnsentCount: 3 }
     const access = ref({ role: 50 })
     await openedSurface(undefined, '/d/node-1', undefined, access)
     const warning = vi.spyOn(toast, 'warning')
@@ -1092,7 +1106,8 @@ describe('Writer surface', () => {
   })
 
   it('shows the stop strip, naming the freeze, when saving also stopped', async () => {
-    Object.assign(frozenRoom(), { saveState: 'failed', unsent: 1 })
+    const room = frozenRoom()
+    room.status = { ...room.status, saveState: 'failed', unsentCount: 1 }
     const root = await openedSurface()
 
     await vi.waitFor(() =>
@@ -1107,7 +1122,8 @@ describe('Writer surface', () => {
     realEditors.isOn = true
     const room = frozenRoom()
     const presence = { awareness: new Awareness(room.doc), peers: [], onChange: () => () => {} }
-    Object.assign(room, { presence, restoreRev: 0 })
+    Object.assign(room, { presence })
+    room.status = { ...room.status, restoreRev: 0 }
     const root = await openedSurface()
 
     await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
@@ -1125,7 +1141,8 @@ describe('Writer surface', () => {
   })
 
   it('shows the freeze strip over the polling notice', async () => {
-    Object.assign(frozenRoom(), { live: 'polling' })
+    const room = frozenRoom()
+    room.status = { ...room.status, liveState: 'polling' }
     const root = await openedSurface()
 
     await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
@@ -1199,7 +1216,8 @@ describe('commenting from the editor', () => {
     paragraph.insert(0, [new Y.XmlText('hello world')])
     room.doc.getXmlFragment('default').insert(0, [paragraph])
     const presence = { awareness: new Awareness(room.doc), peers: [], onChange: () => () => {} }
-    Object.assign(room, { presence, restoreRev: 0 })
+    Object.assign(room, { presence })
+    room.status = { ...room.status, restoreRev: 0 }
     const comments = { list: async () => ({ threads: threads(room.doc) }) } as unknown as Comments
     const root = await openedSurface(undefined, '/d/node-1', comments)
     const element = root.querySelector<EditorElement>('[data-editor] .ProseMirror')!

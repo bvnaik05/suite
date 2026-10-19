@@ -26,7 +26,11 @@ describe('collab room live', () => {
 
     await type(writer, 'hello')
 
-    expect([reader.live, text(reader), reader.appliedThrough]).toEqual(['live', 'hello', 1])
+    expect([reader.status.liveState, text(reader), reader.appliedThrough]).toEqual([
+      'live',
+      'hello',
+      1,
+    ])
     expect(server.pulls.length).toBe(pulls)
   })
 
@@ -36,13 +40,17 @@ describe('collab room live', () => {
     server.realtime.answers = false
     const reader = await join(server.endpoints(), { socket: server.socket(), pollMs: 1000 })
     const writer = await join(server.endpoints(), { socket: server.socket(), pollMs: 1000 })
-    const before = reader.live
+    const before = reader.status.liveState
     await vi.advanceTimersByTimeAsync(5000)
 
     await type(writer, 'polled')
     await vi.advanceTimersByTimeAsync(6000)
 
-    expect([before, reader.live, text(reader)]).toEqual(['joining', 'polling', 'polled'])
+    expect([before, reader.status.liveState, text(reader)]).toEqual([
+      'joining',
+      'polling',
+      'polled',
+    ])
   })
 
   it('a realtime restart drops tabs to polling and they catch up once it is back', async () => {
@@ -55,12 +63,12 @@ describe('collab room live', () => {
     server.realtime.sockets.forEach((socket) => socket.drop())
     await type(writer, 'missed')
     await vi.advanceTimersByTimeAsync(5000)
-    const whileDown = [reader.live, text(reader)]
+    const whileDown = [reader.status.liveState, text(reader)]
     server.realtime.sockets.forEach((socket) => socket.back())
     await vi.advanceTimersByTimeAsync(100)
 
     expect(whileDown).toEqual(['polling', ''])
-    expect([reader.live, text(reader)]).toEqual(['live', 'missed'])
+    expect([reader.status.liveState, text(reader)]).toEqual(['live', 'missed'])
   })
 
   it('a tab left alone through a long realtime outage goes live again once it is back', async () => {
@@ -77,7 +85,11 @@ describe('collab room live', () => {
     await type(writer, 'back')
     await vi.advanceTimersByTimeAsync(100)
 
-    expect([reader.live, writer.live, text(reader)]).toEqual(['live', 'live', 'back'])
+    expect([reader.status.liveState, writer.status.liveState, text(reader)]).toEqual([
+      'live',
+      'live',
+      'back',
+    ])
   })
 
   it('a writer whose own rows stop coming back three times falls back to polling until one does', async () => {
@@ -91,13 +103,17 @@ describe('collab room live', () => {
     for (const word of ['a', 'b', 'c']) {
       await type(writer, word)
       await vi.advanceTimersByTimeAsync(2000)
-      states.push(writer.live)
+      states.push(writer.status.liveState)
     }
     server.realtime.publishing = true
     await type(writer, 'd')
 
     expect(states).toEqual(['live', 'live', 'polling'])
-    expect([writer.live, text(writer), writer.appliedThrough]).toEqual(['live', 'abcd', 4])
+    expect([writer.status.liveState, text(writer), writer.appliedThrough]).toEqual([
+      'live',
+      'abcd',
+      4,
+    ])
   })
 
   it('rows heard out of order wait for the missing one, and a hole that stays open is pulled', async () => {
@@ -164,7 +180,7 @@ describe('collab room live', () => {
     await type(writer, 'newer')
     await vi.advanceTimersByTimeAsync(100)
 
-    expect([text(reader), reader.newerSchema]).toEqual(['', true])
+    expect([text(reader), reader.status.hasNewerSchema]).toEqual(['', true])
   })
 
   it('a quarantine heard live sends the tab to be opened again', async () => {
@@ -178,7 +194,7 @@ describe('collab room live', () => {
     server.quarantine(1)
     await vi.advanceTimersByTimeAsync(100)
 
-    expect(reader.needsRebuild).toBe(true)
+    expect(reader.status.isReopenNeeded).toBe(true)
   })
 
   it('a live tab learns at once that the document is held, and when it is released, without polling', async () => {
@@ -189,13 +205,13 @@ describe('collab room live', () => {
 
     server.hold('change')
     await vi.advanceTimersByTimeAsync(200)
-    const whileHeld = [room.held, room.canWrite]
+    const whileHeld = [room.status.holdReason, room.status.canWrite]
     server.hold()
     await vi.advanceTimersByTimeAsync(200)
 
-    expect(room.live).toBe('live')
+    expect(room.status.liveState).toBe('live')
     expect(whileHeld).toEqual(['change', false])
-    expect([room.held, room.canWrite]).toEqual([null, true])
+    expect([room.status.holdReason, room.status.canWrite]).toEqual([null, true])
   })
 
   it('a socket that gave up reconnecting is asked again when the browser comes online', async () => {
@@ -219,7 +235,7 @@ describe('collab room live', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     await vi.advanceTimersByTimeAsync(300_000)
-    const moved = [[...socket.joined], room.live]
+    const moved = [[...socket.joined], room.status.liveState]
     const now = server.roomKeys().keys
     vi.mocked(Math.random).mockRestore()
     await room.close()
@@ -247,7 +263,7 @@ describe('collab room live', () => {
     })
     await vi.advanceTimersByTimeAsync(1100)
 
-    expect([reader.live, text(reader), reader.presence?.peers]).toEqual([
+    expect([reader.status.liveState, text(reader), reader.presence?.peers]).toEqual([
       'live',
       'unheard',
       [{ pid, user: 'b@x.com', arrival: null, idleSince: null }],
@@ -282,7 +298,7 @@ describe('collab room live', () => {
       await vi.advanceTimersByTimeAsync(100)
     }
 
-    expect([reader.live, oddPulls, server.pulls.length]).toEqual(['live', 0, 3])
+    expect([reader.status.liveState, oddPulls, server.pulls.length]).toEqual(['live', 0, 3])
   })
   it("tells the app when another tab changes the document's comments, and only for this document", async () => {
     fakeTime()

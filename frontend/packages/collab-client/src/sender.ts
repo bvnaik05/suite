@@ -177,8 +177,8 @@ export class Sender {
       return readReply(await endpoints.push(body, request))
     }
 
-    const { lineage, principal, sid, from, to } = header
-    const place = { lineage, principal, sid, from, to }
+    const { lineage, expected_user, sid, from, to } = header
+    const place = { lineage, expected_user, sid, from, to }
     const refused = await putPieces(endpoints, pieces.stage, place, pieces.update)
     if (refused) {
       return refused
@@ -301,8 +301,8 @@ export class Sender {
     const header: PushHeader = {
       proto: 1,
       lineage: room.lineage,
-      principal: room.options.principal,
-      schema: room.options.adapter.features.schema,
+      expected_user: room.options.expectedUser,
+      schema: room.options.adapter.schemaVersion,
       sid: box.sid,
       from: entries[0].seq,
       to: entries[entries.length - 1].seq,

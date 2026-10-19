@@ -1,9 +1,10 @@
-import { sizeCheck, type Limits } from '@suite/collab-client'
 import { Extension } from '@tiptap/core'
 import { isChangeOrigin } from '@tiptap/extension-collaboration'
 import type { Fragment, Node, Slice } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type PluginSpec, type Transaction } from '@tiptap/pm/state'
 import { ReplaceStep, type Step } from '@tiptap/pm/transform'
+
+import { sizeCheck, type Limits } from '@/platform/collab'
 
 export interface PasteSizeGuardOptions {
   limits: () => Limits | null

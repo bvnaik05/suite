@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
-import { openCollabRoom } from './open'
+import { openRoom } from './open'
 import { adapterAt, fakeServer, heldPushes, idle, join, offlinePushes, text } from './test-support'
 
 describe('collab room', () => {
@@ -19,12 +19,12 @@ describe('collab room', () => {
     await writer.flush()
     await room.pull()
 
-    expect([room.newerSchema, room.canWrite, text(room), room.unsent]).toEqual([
-      true,
-      false,
-      'mine',
-      0,
-    ])
+    expect([
+      room.status.hasNewerSchema,
+      room.status.canWrite,
+      text(room),
+      room.status.unsentCount,
+    ]).toEqual([true, false, 'mine', 0])
   })
 
   it('typing from before a newer editor wrote is still saved', async () => {
@@ -37,11 +37,11 @@ describe('collab room', () => {
     await room.pull()
     await vi.advanceTimersByTimeAsync(1500)
 
-    expect([room.newerSchema, room.saveState, text(await join(server.endpoints()))]).toEqual([
-      true,
-      'clean',
-      'kept',
-    ])
+    expect([
+      room.status.hasNewerSchema,
+      room.status.saveState,
+      text(await join(server.endpoints())),
+    ]).toEqual([true, 'clean', 'kept'])
   })
 
   it('a tab opened on a document a newer editor wrote to shows it and sends nothing', async () => {
@@ -55,13 +55,13 @@ describe('collab room', () => {
     room.doc.getText('t').insert(0, 'x')
     await room.flush()
 
-    expect([room.newerSchema, room.canWrite, text(room), room.unsent, server.rows.length]).toEqual([
-      true,
-      false,
-      'xnew',
-      0,
-      1,
-    ])
+    expect([
+      room.status.hasNewerSchema,
+      room.status.canWrite,
+      text(room),
+      room.status.unsentCount,
+      server.rows.length,
+    ]).toEqual([true, false, 'xnew', 0, 1])
   })
 
   it('a tab learns how full the document is when it opens, and again on every pull', async () => {
@@ -69,16 +69,16 @@ describe('collab room', () => {
     const [writer, reader] = [await join(server.endpoints()), await join(server.endpoints())]
     writer.doc.getText('t').insert(0, 'alpha ')
     await writer.flush()
-    const opened = (await join(server.endpoints())).limits
+    const opened = (await join(server.endpoints())).status.limits
 
     await reader.pull()
 
     const row = server.rows[0].bytes.byteLength
-    expect([opened?.tail_bound, reader.limits?.tail_bound, reader.limits?.edit_max]).toEqual([
-      row,
-      row,
-      4 * 2 ** 20,
-    ])
+    expect([
+      opened?.tail_bound,
+      reader.status.limits?.tail_bound,
+      reader.status.limits?.edit_max,
+    ]).toEqual([row, row, 4 * 2 ** 20])
   })
 
   it('a tab opened later sees everything typed before', async () => {
@@ -92,9 +92,9 @@ describe('collab room', () => {
 
   it('opens nothing while collaboration is off or the document is not collaborative', async () => {
     for (const state of ['disabled', 'unconverted']) {
-      const opened = openCollabRoom({
+      const opened = openRoom({
         endpoints: fakeServer(state).endpoints(),
-        principal: 'a@x.com',
+        expectedUser: 'a@x.com',
         adapter: adapterAt(1),
         signedIn: () => 'a@x.com',
       })
@@ -122,11 +122,11 @@ describe('committed text', () => {
     room.doc.getText('t').insert(0, 'hello')
     const ends = endsOf(room.doc, 'hello')
 
-    const whileSending = ends.map((end) => room.committedCovers([end]))
+    const whileSending = ends.map((end) => room.isCommitted([end]))
     slow.release()
     await room.flush()
 
-    expect([whileSending, room.committedCovers(ends)]).toEqual([[false, false], true])
+    expect([whileSending, room.isCommitted(ends)]).toEqual([[false, false], true])
   })
 
   it('never counts text that cannot reach the server', async () => {
@@ -135,7 +135,7 @@ describe('committed text', () => {
 
     await idle()
 
-    expect(room.committedCovers(endsOf(room.doc, 'words'))).toBe(false)
+    expect(room.isCommitted(endsOf(room.doc, 'words'))).toBe(false)
   })
 
   it("counts another tab's committed text once it arrives here, and its later typing only once that is committed", async () => {
@@ -147,14 +147,14 @@ describe('committed text', () => {
     writer.doc.getText('t').insert(5, ' second')
     const secondEnds = endsOf(writer.doc, 'second')
 
-    const beforeArriving = reader.committedCovers(secondEnds)
+    const beforeArriving = reader.isCommitted(secondEnds)
     await writer.flush()
     await reader.pull()
 
     expect([
-      reader.committedCovers(endsOf(reader.doc, 'first')),
+      reader.isCommitted(endsOf(reader.doc, 'first')),
       beforeArriving,
-      reader.committedCovers(secondEnds),
+      reader.isCommitted(secondEnds),
     ]).toEqual([true, false, true])
   })
 })

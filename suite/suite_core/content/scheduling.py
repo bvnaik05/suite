@@ -10,8 +10,7 @@ from datetime import timedelta
 import frappe
 from frappe.utils import now_datetime
 
-from suite.suite_core.content import stage
-from suite.suite_core.content.adapters import spec_of
+from suite.suite_core.content import capacity, stage
 from suite.suite_core.content.admission import TIMEOUT
 from suite.suite_core.content.tables import table
 
@@ -25,22 +24,22 @@ QUEUE_PAUSE = timedelta(minutes=1)
 paused_until = 0.0
 
 
-def docs_with_base(adapter: str) -> str:
+def docs_with_base(app: str) -> str:
     """The control rows with `base`, the rev their open base runs through: the newer of the body and any fallback."""
     return f"""(SELECT `doc`.*, GREATEST(`doc`.`body_rev`, COALESCE((SELECT MAX(`c`.`through_rev`)
-        FROM `{table(adapter, "checkpoint")}` `c` WHERE `c`.`doc_id` = `doc`.`id`), 0)) AS `base`
-        FROM `{table(adapter, "doc")}` `doc`)"""
+        FROM `{table(app, "checkpoint")}` `c` WHERE `c`.`doc_id` = `doc`.`id`), 0)) AS `base`
+        FROM `{table(app, "doc")}` `doc`)"""
 
 
 def request_if_due(
-    adapter: str, doc_id: str, compact_method: str, *, final_from: str | None = None, refused: bool = False
+    app: str, doc_id: str, compact_method: str, *, final_from: str | None = None, refused: bool = False
 ) -> None:
     """Request a compaction if the document is due. `final_from` names a tab's session that is hiding or closing;
     `refused`: a push was just refused for want of room, which only a compaction makes."""
     due_rows = frappe.db.sql(
         f"""SELECT `d`.`head_rev`, `d`.`base`, `d`.`state_bytes`, `d`.`tail_rows`, `d`.`tail_bytes`, `d`.`tail_bound`,
         `d`.`next_compaction_at`, `d`.`suspect`, `u`.`created` AS `oldest`
-        FROM {docs_with_base(adapter)} `d` LEFT JOIN `{table(adapter, "update")}` `u`
+        FROM {docs_with_base(app)} `d` LEFT JOIN `{table(app, "update")}` `u`
         ON `u`.`doc_id` = `d`.`id` AND `u`.`rev` = `d`.`base` + 1
         WHERE `d`.`id` = %s""",
         doc_id,
@@ -52,16 +51,16 @@ def request_if_due(
     closing = refused
     if final_from and not closing:
         closing = not frappe.db.sql(
-            f"""SELECT 1 FROM `{table(adapter, "session")}` WHERE `doc_id` = %s AND `sid` != %s
+            f"""SELECT 1 FROM `{table(app, "session")}` WHERE `doc_id` = %s AND `sid` != %s
             AND `last_push_at` > %s LIMIT 1""",
             (doc_id, final_from, now_datetime() - QUIET_SPAN),
         )
 
-    if compaction_due(due_rows[0], now_datetime(), spec_of(adapter).max_state, closing=closing):
-        request_compaction(adapter, doc_id, compact_method)
+    if compaction_due(due_rows[0], now_datetime(), closing=closing):
+        request_compaction(app, doc_id, compact_method)
 
 
-def compaction_due(doc, now, max_state: int, *, closing: bool = False) -> bool:
+def compaction_due(doc, now, *, closing: bool = False) -> bool:
     """Whether a document's tail calls for a compaction now. `closing`: the tab that closed was the last one typing,
     or a push waits for room.
 
@@ -76,7 +75,7 @@ def compaction_due(doc, now, max_state: int, *, closing: bool = False) -> bool:
         return False
 
     state_bytes = int(doc.state_bytes)
-    room_left = max_state - state_bytes
+    room_left = capacity.STATE_MAX - state_bytes
     tail_bytes_big = int(doc.tail_bytes) >= max(TAIL_MIN, min(state_bytes // 4, room_left // 2))
     tail_bound_big = int(doc.tail_bound) >= max(TAIL_MIN, room_left // 2)
     tail_rows_many = int(doc.tail_rows) >= TAIL_ROWS
@@ -85,7 +84,7 @@ def compaction_due(doc, now, max_state: int, *, closing: bool = False) -> bool:
 
 
 def sweep(
-    adapter: str,
+    app: str,
     method: str,
     limit: int = 100,
     *,
@@ -94,25 +93,25 @@ def sweep(
 ) -> None:
     """Request compactions for documents whose tail has waited too long, whatever their traffic,
     the deletion of purged logs and expired staged pieces and the judging of suspect documents a job has not finished."""
-    stage.expire_pieces(adapter, now_datetime())
+    stage.expire_pieces(app, now_datetime())
 
     if purge_method:
         for (doc_id,) in frappe.db.sql(
-            f"SELECT `id` FROM `{table(adapter, 'doc')}` WHERE `mode` = 'purged' LIMIT %s", limit
+            f"SELECT `id` FROM `{table(app, 'doc')}` WHERE `mode` = 'purged' LIMIT %s", limit
         ):
-            enqueue(purge_method, f"suite-collab-purge-{adapter}-{doc_id}", adapter=adapter, doc_id=doc_id)
+            enqueue(purge_method, f"suite-collab-purge-{app}-{doc_id}", app=app, doc_id=doc_id)
 
     if judge_method:
         for (doc_id,) in frappe.db.sql(
-            f"""SELECT `id` FROM `{table(adapter, "doc")}` WHERE `suspect` IS NOT NULL AND `suspect_held` IS NULL
+            f"""SELECT `id` FROM `{table(app, "doc")}` WHERE `suspect` IS NOT NULL AND `suspect_held` IS NULL
             AND `mode` != 'purged' LIMIT %s""",
             limit,
         ):
-            enqueue(judge_method, f"suite-collab-judge-{adapter}-{doc_id}", adapter=adapter, doc_id=doc_id)
+            enqueue(judge_method, f"suite-collab-judge-{app}-{doc_id}", app=app, doc_id=doc_id)
 
     now = now_datetime()
     for (doc_id,) in frappe.db.sql(
-        f"""SELECT `d`.`id` FROM {docs_with_base(adapter)} `d` JOIN `{table(adapter, "update")}` `u`
+        f"""SELECT `d`.`id` FROM {docs_with_base(app)} `d` JOIN `{table(app, "update")}` `u`
         ON `u`.`doc_id` = `d`.`id` AND `u`.`rev` = `d`.`base` + 1
         WHERE `d`.`head_rev` > `d`.`base` AND `d`.`mode` != 'purged' AND `d`.`suspect` IS NULL
         AND `u`.`created` <= %s
@@ -120,7 +119,7 @@ def sweep(
         ORDER BY `u`.`created` LIMIT %s""",
         (now - SWEEP_AGE, now, limit),
     ):
-        request_compaction(adapter, doc_id, method)
+        request_compaction(app, doc_id, method)
 
 
 def enqueue(method: str, job_id: str, **kwargs) -> None:
@@ -129,19 +128,19 @@ def enqueue(method: str, job_id: str, **kwargs) -> None:
     frappe.enqueue(method, queue=queue, timeout=TIMEOUT, job_id=job_id, deduplicate=True, **kwargs)
 
 
-def request_compaction(adapter: str, doc_id: str, method: str) -> None:
-    """Enqueue `method(adapter, doc_id)` once per document."""
+def request_compaction(app: str, doc_id: str, method: str) -> None:
+    """Enqueue `method(app, doc_id)` once per document."""
     global paused_until
     if time.monotonic() < paused_until:
         return
 
     try:
-        enqueue(method, f"suite-collab-compact-{adapter}-{doc_id}", adapter=adapter, doc_id=doc_id)
+        enqueue(method, f"suite-collab-compact-{app}-{doc_id}", app=app, doc_id=doc_id)
     except Exception:
         # A request is only a hint, so the open or push that made it carries on and this process rests a while
         paused_until = time.monotonic() + QUEUE_PAUSE.total_seconds()
         frappe.log_error(
             title="Collab compaction: request failed",
-            message=f"{adapter} document {doc_id}\n{frappe.get_traceback()}",
+            message=f"{app} document {doc_id}\n{frappe.get_traceback()}",
             reference_doctype="Suite Collab Settings",
         )

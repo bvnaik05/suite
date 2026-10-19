@@ -1,47 +1,23 @@
-import {
-  CollabOpenError,
-  isRecoverable,
-  type CollabRoom,
-  type LostAccess,
-} from '@suite/collab-client'
 import { computed, nextTick, ref, shallowRef } from 'vue'
 
 import type { DocumentSession } from '@/apps/drive'
-import { openWriterRoom } from '@/apps/writer/collab'
+import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { watchRemovals, type Removal } from '@/apps/writer/collab/removals'
 import { keepRemovedWork } from '@/apps/writer/recovery/copies'
+import {
+  CollabOpenError,
+  isRecoverable,
+  openCollabRoom,
+  type CollabRoom,
+  type LostAccess,
+  type RoomStatus,
+} from '@/platform/collab'
 import { TransportError } from '@/platform/transport'
 
 import { bannerFor, isKeptNowhere, openFailureFor, type BannerState } from './collabMessages'
 import { markNewerSchemaShown } from './newerSchemaMark'
 
 export type CollabMode = 'opening' | 'legacy' | 'live' | 'failed'
-
-const STATUS_FIELDS = [
-  'saveState',
-  'canWrite',
-  'blocked',
-  'paused',
-  'stopped',
-  'copiesKept',
-  'copyFailed',
-  'held',
-  'restoring',
-  'newerSchema',
-  'unsent',
-  'othersUnsent',
-  'onDevice',
-  'atLimit',
-  'live',
-] as const satisfies readonly (keyof CollabRoom)[]
-
-type RoomStatus = Pick<CollabRoom, (typeof STATUS_FIELDS)[number]>
-
-// A snapshot, since the room's getters change under the page
-function readStatus(room: CollabRoom) {
-  const entries = STATUS_FIELDS.map((field) => [field, room[field]])
-  return Object.fromEntries(entries) as RoomStatus
-}
 
 // A Writer document's live room: opening it, mirroring its state for the page, and closing it.
 // `retainRecovery` keeps the editor's HTML in this browser when the room stops holding unsent work.
@@ -75,8 +51,13 @@ export function useWriterCollab(
 
     let stopRemovals: (() => void) | undefined
     try {
-      const opened = await openWriterRoom(session, threadsChanged, (openingRoom) => {
-        stopRemovals = watchRemovals(openingRoom, keepRemovals)
+      const opened = await openCollabRoom({
+        session,
+        adapter: writerAdapter,
+        onThreadsChanged: threadsChanged,
+        watch: (openingRoom) => {
+          stopRemovals = watchRemovals(openingRoom, keepRemovals)
+        },
       })
       if (closed) {
         stopRemovals?.()
@@ -126,29 +107,31 @@ export function useWriterCollab(
 
   // Mirrors the room's state for the page, or rebuilds the room once it asks for that
   function syncRoomStatus(liveRoom: CollabRoom) {
-    if (liveRoom.needsRebuild) {
-      if (isKeptNowhere(liveRoom, recoveryKept.value)) {
+    const liveStatus = liveRoom.status
+    if (liveStatus.isReopenNeeded) {
+      if (isKeptNowhere(liveStatus, recoveryKept.value)) {
         recoveryKept.value = retainRecovery()
       }
 
       // Unsent work held nowhere else stays on screen in the old room until it is sent
-      if (!isKeptNowhere(liveRoom, recoveryKept.value)) {
+      if (!isKeptNowhere(liveStatus, recoveryKept.value)) {
         void rebuildRoom(liveRoom)
         return
       }
     }
 
+    const { blockReason } = liveStatus
     const stopped =
-      liveRoom.saveState === 'failed' || (liveRoom.blocked && !isRecoverable(liveRoom.blocked))
-    if (stopped && liveRoom.unsent && !recoveryKept.value) {
+      liveStatus.saveState === 'failed' || (blockReason && !isRecoverable(blockReason))
+    if (stopped && liveStatus.unsentCount && !recoveryKept.value) {
       recoveryKept.value = retainRecovery()
     }
 
-    if (liveRoom.newerSchema && !isNewerSchemaMarked) {
+    if (liveStatus.hasNewerSchema && !isNewerSchemaMarked) {
       isNewerSchemaMarked = true
       isNewerAfterReload.value = markNewerSchemaShown(session.nodeId)
     }
-    status.value = readStatus(liveRoom)
+    status.value = liveStatus
   }
 
   // The editor goes before the old room, so nothing typed lands in a room that no longer sends.
@@ -156,8 +139,8 @@ export function useWriterCollab(
   async function rebuildRoom(oldRoom: CollabRoom) {
     stopWatching()
     setAside.value = null
-    if (oldRoom.unsent) {
-      setAside.value = oldRoom.stopped
+    if (oldRoom.status.unsentCount) {
+      setAside.value = oldRoom.status.stopReason
     }
     room.value = null
     mode.value = 'opening'
@@ -192,12 +175,13 @@ export function useWriterCollab(
       return 'editing'
     }
 
-    const lostAccess = roomStatus.blocked === 'lost_edit' || roomStatus.blocked === 'lost_read'
+    const lostAccess =
+      roomStatus.blockReason === 'lost_edit' || roomStatus.blockReason === 'lost_read'
     if (lostAccess) {
       return 'closed'
     }
 
-    const stopped = roomStatus.saveState === 'failed' || roomStatus.blocked === 'offline'
+    const stopped = roomStatus.saveState === 'failed' || roomStatus.blockReason === 'offline'
     if (stopped) {
       return 'paused'
     }
@@ -207,7 +191,10 @@ export function useWriterCollab(
     }
 
     const waiting =
-      roomStatus.blocked || roomStatus.paused || roomStatus.held || roomStatus.restoring
+      roomStatus.blockReason ||
+      roomStatus.pauseReason ||
+      roomStatus.holdReason ||
+      roomStatus.isRestoring
     if (waiting) {
       return 'paused'
     }
@@ -224,10 +211,10 @@ export function useWriterCollab(
       return 0
     }
 
-    return roomStatus.unsent + roomStatus.othersUnsent
+    return roomStatus.unsentCount + roomStatus.othersUnsentCount
   })
-  const paused = computed(() => (isLive.value ? (status.value?.paused ?? null) : null))
-  const copiesKept = computed(() => (status.value?.copiesKept ?? 0) + removedCopies.value)
+  const paused = computed(() => (isLive.value ? (status.value?.pauseReason ?? null) : null))
+  const copiesKept = computed(() => (status.value?.keptCopyCount ?? 0) + removedCopies.value)
   const banner = computed(() => {
     const roomStatus = status.value
     if (!isLive.value || !roomStatus) {
@@ -238,10 +225,11 @@ export function useWriterCollab(
       ...roomStatus,
       canEdit: mayEdit(),
       failed: roomStatus.saveState === 'failed',
-      recoveryKept: recoveryKept.value || (roomStatus.copiesKept > 0 && !roomStatus.copyFailed),
+      recoveryKept:
+        recoveryKept.value || (roomStatus.keptCopyCount > 0 && !roomStatus.hasCopyFailed),
       setAside: setAside.value,
       removedWork: removedWork.value,
-      polling: roomStatus.live === 'polling',
+      polling: roomStatus.liveState === 'polling',
       isNewerAfterReload: isNewerAfterReload.value,
       isFrozen: isFrozen(),
     }

@@ -1,4 +1,3 @@
-import type { CollabRoom } from '@suite/collab-client'
 import { toast } from 'frappe-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
@@ -6,6 +5,7 @@ import * as Y from 'yjs'
 import type { DocumentSession } from '@/apps/drive'
 import { anchorEnds, DOCUMENT_ANCHOR, encodeAnchor } from '@/apps/writer/collab/anchors'
 import { readDrafts } from '@/apps/writer/recovery/commentDrafts'
+import type { CollabRoom } from '@/platform/collab'
 
 import { useCommentDrafts } from './useCommentDrafts'
 
@@ -44,10 +44,10 @@ function fakeRoom() {
   const state = { stopped: null as string | null }
   const room = {
     doc: new Y.Doc(),
-    get stopped() {
-      return state.stopped
+    get status() {
+      return { stopReason: state.stopped }
     },
-    committedCovers: (items: readonly Y.ID[]) => items.every((id) => saved.has(keyOf(id))),
+    isCommitted: (items: readonly Y.ID[]) => items.every((id) => saved.has(keyOf(id))),
     onChange(listener: () => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)

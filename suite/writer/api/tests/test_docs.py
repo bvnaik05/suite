@@ -14,7 +14,7 @@ from suite import drive
 from suite.drive._core.access import grant
 from suite.drive._core.nodes import purge, update
 from suite.drive._core.principals import Principals
-from suite.suite_core import content
+from suite.suite_core.content import log
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 from suite.writer.api.docs import save_comments
@@ -57,8 +57,8 @@ class TestSaveComments(IntegrationTestCase):
     def setUp(self):
         super().setUp()
         # A document made with collaboration on saves its comments through its log instead
-        saved_mode = content.mode(writer_content.ADAPTER)
-        content.set_mode(writer_content.ADAPTER, "off")
+        saved_mode = log.mode(writer_content.APP)
+        log.set_mode(writer_content.APP, "off")
         self.addCleanup(self.restore_mode, saved_mode)
         frappe.set_user(USER)
         self.addCleanup(frappe.set_user, "Administrator")
@@ -70,7 +70,7 @@ class TestSaveComments(IntegrationTestCase):
 
     @staticmethod
     def restore_mode(mode: str):
-        content.set_mode(writer_content.ADAPTER, mode)
+        log.set_mode(writer_content.APP, mode)
         frappe.db.commit()
 
     @staticmethod

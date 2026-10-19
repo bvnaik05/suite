@@ -18,7 +18,7 @@ from suite.suite_core.content import updates
 from suite.suite_core.content.updates import Reader
 
 PYCRDT_VERSION = "0.14.8"
-KERNEL = f"pycrdt {PYCRDT_VERSION}"
+CRDT_VERSION = f"pycrdt {PYCRDT_VERSION}"
 
 
 class CompactionFailed(Exception):
@@ -36,8 +36,8 @@ class Compacted:
     ms: int = 0
 
 
-def compact(checkpoint: bytes | None, rows: list[bytes], roots: Mapping[str, type]) -> Compacted:
-    """`roots` names every root type the product writes; a document with another root is refused."""
+def compact(checkpoint: bytes | None, rows: list[bytes], part_map: Mapping[str, type]) -> Compacted:
+    """`part_map` names every root type the product writes; a document with another root is refused."""
     if pycrdt.__version__ != PYCRDT_VERSION:
         raise CompactionFailed("kernel_version")
 
@@ -70,12 +70,12 @@ def compact(checkpoint: bytes | None, rows: list[bytes], roots: Mapping[str, typ
             report["fallback"] = True
             return Compacted(merged, integrated=False, report=report)
 
-        expected_fingerprint = fingerprint(load_doc([merged]), roots)
+        expected_fingerprint = fingerprint(load_doc([merged]), part_map)
         reloaded = load_doc([state])
-        if fingerprint(reloaded, roots) != expected_fingerprint:
+        if fingerprint(reloaded, part_map) != expected_fingerprint:
             raise CompactionFailed("content_mismatch")
 
-        if fingerprint(load_doc([reloaded.get_update()]), roots) != expected_fingerprint:
+        if fingerprint(load_doc([reloaded.get_update()]), part_map) != expected_fingerprint:
             raise CompactionFailed("reencode_mismatch")
 
         for part in parts:
@@ -114,9 +114,9 @@ def first_unfit_part(parts: list[bytes]) -> tuple[int, str] | None:
     return None
 
 
-def same_content(left: bytes, right: bytes, roots: Mapping[str, type]) -> bool:
+def same_content(left: bytes, right: bytes, part_map: Mapping[str, type]) -> bool:
     """Whether two states hold the same content, state vector and delete set."""
-    return fingerprint(load_doc([left]), roots) == fingerprint(load_doc([right]), roots)
+    return fingerprint(load_doc([left]), part_map) == fingerprint(load_doc([right]), part_map)
 
 
 def load_doc(parts: list[bytes]) -> pycrdt.Doc:
@@ -127,17 +127,17 @@ def load_doc(parts: list[bytes]) -> pycrdt.Doc:
     return doc
 
 
-def fingerprint(doc: pycrdt.Doc, roots: Mapping[str, type]) -> tuple[str, dict, dict]:
-    return (content_json(doc, roots), *vector_and_deletes(doc))
+def fingerprint(doc: pycrdt.Doc, part_map: Mapping[str, type]) -> tuple[str, dict, dict]:
+    return (content_json(doc, part_map), *vector_and_deletes(doc))
 
 
-def content_json(doc: pycrdt.Doc, roots: Mapping[str, type], rewrite=None) -> str:
+def content_json(doc: pycrdt.Doc, part_map: Mapping[str, type], rewrite=None) -> str:
     """The document as JSON; `rewrite` is applied to its values, never its text, tags or keys."""
-    unknown = set(doc.keys()) - set(roots)
+    unknown = set(doc.keys()) - set(part_map)
     if unknown:
         raise CompactionFailed("unknown_root")
 
-    by_root = {name: serialize(doc.get(name, type=kind), rewrite) for name, kind in sorted(roots.items())}
+    by_root = {name: serialize(doc.get(name, type=kind), rewrite) for name, kind in sorted(part_map.items())}
     return json.dumps(by_root, ensure_ascii=False)
 
 

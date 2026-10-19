@@ -18,15 +18,16 @@ from redis.exceptions import RedisError
 from suite.composition import content as routes
 from suite.suite_core.content import (
     admission,
+    capacity,
     checkpoints,
     compaction,
-    documents,
+    jobs,
+    log,
     pushes,
     scheduling,
 )
 from suite.suite_core.content.snapshot import isolation_level
 from suite.writer import content as writer_content
-from suite.writer import drive as writer_drive
 from suite.writer.content.tests.support import (
     WRITER,
     CheckpointCase,
@@ -40,10 +41,10 @@ from suite.writer.content.tests.support import (
 
 
 class TestWriterCheckpoints(CheckpointCase):
-    def test_the_self_test_fixture_uses_the_roots_writer_writes(self):
+    def test_the_self_test_fixture_uses_the_part_map_writer_writes(self):
         from suite.suite_core.content import selftest
 
-        self.assertEqual(selftest.ROOTS, writer_content.ROOTS)
+        self.assertEqual(selftest.PART_MAP, writer_content.PART_MAP)
 
     def test_a_compaction_writes_every_row_into_the_writer_row(self):
         node = self.new_document()
@@ -133,7 +134,7 @@ class TestWriterCheckpoints(CheckpointCase):
                 frappe.init(site)
                 frappe.connect()
                 with patch.object(compaction, "compact", compact_stub):
-                    documents.compact(writer_content.ADAPTER, doc_id)
+                    jobs.compact(writer_content.APP, doc_id)
             finally:
                 os._exit(0)
 
@@ -200,7 +201,7 @@ class TestWriterCheckpoints(CheckpointCase):
         modified = frappe.db.get_value("Writer Document", {"node": node}, "modified")
 
         rows = older_snapshot.payloads()
-        compacted = compaction.compact(older_snapshot.checkpoint, rows, writer_content.ROOTS)
+        compacted = compaction.compact(older_snapshot.checkpoint, rows, writer_content.PART_MAP)
         self.compaction_job(doc_id).install(older_snapshot, compacted)
 
         self.assertEqual(self.doc_row(node).body_rev, 3)
@@ -213,7 +214,7 @@ class TestWriterCheckpoints(CheckpointCase):
         doc_id = self.doc_row(node).id
         snapshot = routes.content.read("writer", doc_id)
         rows = snapshot.payloads()
-        compacted = compaction.compact(None, rows, writer_content.ROOTS)
+        compacted = compaction.compact(None, rows, writer_content.PART_MAP)
         other_lineage = replace(snapshot, lineage="0" * 32)
 
         self.compaction_job(doc_id).install(other_lineage, compacted)
@@ -297,7 +298,7 @@ class TestWriterCheckpoints(CheckpointCase):
         """A compaction of the document through its head, not yet installed."""
         snapshot = routes.content.read("writer", self.doc_row(node).id)
         rows = snapshot.payloads()
-        compacted = compaction.compact(snapshot.checkpoint, rows, writer_content.ROOTS)
+        compacted = compaction.compact(snapshot.checkpoint, rows, writer_content.PART_MAP)
         if not integrated:
             merged = compaction.pycrdt.merge_updates(*rows)
             compacted = compaction.Compacted(merged, integrated=False)
@@ -361,7 +362,7 @@ class TestWriterCheckpoints(CheckpointCase):
         self.type_into(node, ["one"])
         doc_id = self.doc_row(node).id
         snapshot, compacted = self.compacted(node)
-        routes.content.mark_purged("writer", node)
+        log.mark_purged("writer", node)
         frappe.db.commit()
 
         with self.assertRaises(compaction.CompactionFailed) as failed:
@@ -392,7 +393,7 @@ class TestWriterCheckpoints(CheckpointCase):
 
             try:
                 with patch.object(frappe.db, "sql", signalled):
-                    writer_drive.on_purge(name)
+                    routes.WRITER.on_purge(name)
                 frappe.db.commit()
             except Exception as error:
                 errors.append(error)
@@ -418,7 +419,7 @@ class TestWriterCheckpoints(CheckpointCase):
             self.compaction_job(doc_id).install(snapshot, compacted)
         purge.join()
         frappe.db.rollback()
-        self.addCleanup(documents.delete_purged, writer_content.ADAPTER, doc_id)
+        self.addCleanup(jobs.delete_purged, writer_content.APP, doc_id)
 
         self.assertEqual(errors, [])
         self.assertFalse(frappe.db.exists("Writer Document", name))
@@ -443,7 +444,7 @@ class TestWriterCheckpoints(CheckpointCase):
                     return found
 
                 with patch.object(frappe.db, "sql", killed_after_writing):
-                    documents.compact(writer_content.ADAPTER, doc_id)
+                    jobs.compact(writer_content.APP, doc_id)
             finally:
                 os._exit(0)
 
@@ -591,14 +592,14 @@ class TestWriterCheckpoints(CheckpointCase):
         doc = self.doc_row(node)
         frappe.db.sql(
             """INSERT INTO `__writer_content_checkpoint`
-            (`doc_id`, `through_rev`, `chain`, `sha256`, `nbytes`, `gz`, `integrated`, `kernel_schema`, `report`, `created`)
+            (`doc_id`, `through_rev`, `chain`, `sha256`, `nbytes`, `gz`, `integrated`, `crdt_version`, `report`, `created`)
             VALUES (%s, 2, UNHEX(%s), UNHEX(%s), 2, UNHEX(%s), 1, %s, '{}', NOW(6))""",
             (
                 doc.id,
                 bytes(doc.head_chain).hex(),
                 (b"\x01" * 32).hex(),
                 gzip.compress(b"\x00\x00").hex(),
-                compaction.KERNEL,
+                compaction.CRDT_VERSION,
             ),
         )
         frappe.db.commit()
@@ -622,7 +623,7 @@ class TestWriterCheckpoints(CheckpointCase):
             frappe.init(site=site)
             frappe.connect()
             try:
-                documents.compact(writer_content.ADAPTER, doc_id)
+                jobs.compact(writer_content.APP, doc_id)
             finally:
                 frappe.destroy()
 
@@ -727,7 +728,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
         self.set_doc(
             node,
             body_rev=1,
-            state_bytes=writer_content.SPEC.max_state - 300 * 1024,
+            state_bytes=capacity.STATE_MAX - 300 * 1024,
             tail_rows=0,
             tail_bytes=0,
         )
@@ -741,9 +742,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
     def test_a_tail_that_could_fill_half_the_room_left_asks_even_while_its_bytes_are_few(self):
         node = self.new_document()
         self.push_bytes(node, [100])
-        self.set_doc(
-            node, state_bytes=writer_content.SPEC.max_state - 512 * 1024, tail_bound=256 * 1024 - 200
-        )
+        self.set_doc(node, state_bytes=capacity.STATE_MAX - 512 * 1024, tail_bound=256 * 1024 - 200)
         self.requested.clear()
 
         self.push_bytes(node, [100])
@@ -892,7 +891,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
         )
         frappe.db.commit()
 
-        documents.sweep()
+        jobs.sweep()
 
         self.assertIn(self.doc_row(waited).id, self.requested)
         self.assertNotIn(self.doc_row(fresh).id, self.requested)
@@ -921,7 +920,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
             for _ in range(50):
                 # Each request starts with an empty local cache
                 frappe.local.cache = {}
-                scheduling.request_compaction(writer_content.ADAPTER, "outage", "unused")
+                scheduling.request_compaction(writer_content.APP, "outage", "unused")
 
         self.assertEqual(frappe.db.count("Error Log", logged), 1)
 
@@ -939,11 +938,11 @@ class TestWriterCompactionTriggers(CheckpointCase):
             raise ConnectionError("queue down")
 
         with patch.object(frappe, "enqueue", queue_down):
-            scheduling.request_compaction(writer_content.ADAPTER, "outage", "unused")
-            scheduling.request_compaction(writer_content.ADAPTER, "outage", "unused")
+            scheduling.request_compaction(writer_content.APP, "outage", "unused")
+            scheduling.request_compaction(writer_content.APP, "outage", "unused")
             later = scheduling.time.monotonic() + scheduling.QUEUE_PAUSE.total_seconds() + 1
             with patch.object(scheduling.time, "monotonic", lambda: later):
-                scheduling.request_compaction(writer_content.ADAPTER, "outage", "unused")
+                scheduling.request_compaction(writer_content.APP, "outage", "unused")
 
         self.assertEqual(tried, ["outage", "outage"])
 

@@ -5,7 +5,7 @@ import frappe
 import pycrdt
 from frappe.tests import IntegrationTestCase
 
-from suite.suite_core.content import compaction, kernel, selftest
+from suite.suite_core.content import checker, compaction, selftest
 from suite.tests.utils import ensure_user
 
 
@@ -40,7 +40,7 @@ class TestCollabSelfTest(IntegrationTestCase):
         self.assertIn("node", report)
 
     def test_a_host_without_a_usable_node_is_recorded(self):
-        with patch.object(kernel, "usable_node", return_value=None):
+        with patch.object(checker, "usable_node", return_value=None):
             selftest.self_test()
 
         _passed, report = self.recorded()
@@ -56,8 +56,8 @@ class TestCollabSelfTest(IntegrationTestCase):
     def test_a_compaction_that_loses_a_change_fails_the_run(self):
         real_compact = compaction.compact
 
-        def drops_the_last_row(checkpoint, rows, roots):
-            return real_compact(checkpoint, rows[:-1], roots)
+        def drops_the_last_row(checkpoint, rows, part_map):
+            return real_compact(checkpoint, rows[:-1], part_map)
 
         with patch.object(compaction, "compact", drops_the_last_row):
             selftest.self_test()
