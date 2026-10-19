@@ -1,4 +1,4 @@
-import { XmlElement, XmlFragment, XmlText } from 'yjs'
+import { XmlElement, XmlFragment, XmlText, type XmlHook } from 'yjs'
 
 // The binding's name for a copy of a mark that can overlap another of its kind
 const OVERLAP_SUFFIX = /--[a-zA-Z0-9+/=]{8}$/
@@ -50,7 +50,7 @@ function addText(text: XmlText, found: Inventory) {
 }
 
 function addType(
-  type: XmlElement | XmlFragment | XmlText,
+  type: XmlElement | XmlFragment | XmlText | XmlHook,
   skipped: ReadonlySet<unknown>,
   found: Inventory,
 ) {

@@ -1,4 +1,4 @@
-import { Editor, generateJSON, getSchema } from '@tiptap/core'
+import { Editor, generateJSON, getSchema, type JSONContent } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
 import Heading from '@tiptap/extension-heading'
@@ -560,7 +560,10 @@ describe('convertLegacy', () => {
 
     const result = convert({ content: null, html, collab: 0 })
 
-    const media = bodyOf(result.state).content.map(({ type, attrs }) => [type, attrs.src])
+    const media = bodyOf(result.state).content.map(({ type, attrs }: JSONContent) => [
+      type,
+      attrs?.src,
+    ])
     expect(media).toEqual([['video', '/v.mp4']])
   })
 
@@ -819,10 +822,10 @@ describe('convertLegacy', () => {
 
     const result = convert(stored(legacyDoc(block, heading)))
 
-    const blocks = bodyOf(result.state).content.map((converted) => [
+    const blocks = bodyOf(result.state).content.map((converted: JSONContent) => [
       converted.type,
-      converted.attrs.lineHeight ?? null,
-      converted.content[0].text,
+      converted.attrs?.lineHeight ?? null,
+      converted.content?.[0].text,
     ])
     expect(blocks).toEqual([
       ['paragraph', '100%', 'one'],
@@ -856,7 +859,10 @@ describe('convertLegacy', () => {
 
     const result = convert({ content: null, html, collab: 0 })
 
-    const blocks = bodyOf(result.state).content.map((block) => [block.type, block.content[0].text])
+    const blocks = bodyOf(result.state).content.map((block: JSONContent) => [
+      block.type,
+      block.content?.[0].text,
+    ])
     expect(blocks).toEqual([
       ['paragraph', 'one'],
       ['heading', 'Two'],

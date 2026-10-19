@@ -22,6 +22,7 @@ import {
   XmlText,
   type AbstractStruct,
   type AbstractType,
+  type XmlHook,
 } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
@@ -69,7 +70,7 @@ function insertedText({ insert }: { insert: unknown }) {
   return typeof insert === 'string' ? insert : ''
 }
 
-function textOf(type: AbstractType<unknown>): string {
+function textOf(type: AbstractType<unknown> | XmlFragment | XmlText | XmlHook): string {
   if (type instanceof XmlText) {
     return type.toDelta().map(insertedText).join('')
   }

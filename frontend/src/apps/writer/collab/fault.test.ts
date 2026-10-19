@@ -76,7 +76,9 @@ describe('writerFault', () => {
       image.setAttribute('src', '/files/x.png')
       image.setAttribute('bold', {})
       const block = new Y.XmlElement('paragraph')
-      block.insert(0, [new Y.XmlText('a'), mention, image, new Y.XmlText('b')])
+      block.insert(0, [new Y.XmlText('a'), mention, image, new Y.XmlText('b')] as (
+        Y.XmlElement | Y.XmlText
+      )[])
       fragment.insert(0, [block])
     }
 

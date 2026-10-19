@@ -5,9 +5,9 @@ import {
   XmlElement,
   XmlFragment,
   XmlText,
-  type AbstractType,
   type Doc,
   type RelativePosition,
+  type XmlHook,
 } from 'yjs'
 
 import { encodeAnchor } from '@/apps/writer/collab/anchors'
@@ -28,7 +28,7 @@ const ANNOTATIONS_ROOT = 'docAnnotations'
 export const OLD_THREAD_TAGS = 'span[data-comment], span[data-annotation-id]'
 
 interface Run {
-  type: AbstractType<unknown>
+  type: XmlElement | XmlFragment | XmlText
   from: number
   to: number
 }
@@ -61,7 +61,7 @@ function isUnreadableMark([key, attrs]: [string, unknown]) {
   return ANNOTATION_KEY.test(key) || (ANY_COMMENT_KEY.test(key) && threadId(attrs) === undefined)
 }
 
-function markEntries(type: AbstractType<unknown>): [string, unknown][] {
+function markEntries(type: XmlElement | XmlFragment | XmlText | XmlHook): [string, unknown][] {
   if (type instanceof XmlText) {
     return (type.toDelta() as Insert[]).flatMap((op) => Object.entries(op.attributes ?? {}))
   }
@@ -107,7 +107,7 @@ function textRuns(text: XmlText) {
 
 // An inline atom such as a mention keeps its comment in its attributes and its place by index
 function atomRuns(
-  parent: AbstractType<unknown>,
+  parent: XmlElement | XmlFragment,
   child: unknown,
   index: number,
   schema: Schema,
@@ -124,7 +124,10 @@ function atomRuns(
   return [[id, { type: parent, from: index, to: index + 1 }]]
 }
 
-function commentRuns(type: AbstractType<unknown>, schema: Schema): [string, Run][] {
+function commentRuns(
+  type: XmlElement | XmlFragment | XmlText | XmlHook,
+  schema: Schema,
+): [string, Run][] {
   if (type instanceof XmlText) {
     return textRuns(type)
   }

@@ -53,7 +53,7 @@ function yText(content: string, commentId: string) {
 
 function yInline(...children: (XmlText | XmlElement<Record<string, object | string>>)[]) {
   const node = new XmlElement('paragraph')
-  node.insert(0, children)
+  node.insert(0, children as (XmlText | XmlElement)[])
   return node
 }
 
