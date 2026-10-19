@@ -52,19 +52,6 @@ BASELINE_DEBT = {
         ),
     ),
     **_debt(
-        "Suite migration",
-        "Remove when this fixture stops asserting what the shipped `drive_content_types` hook holds.",
-        # A Drive test that proves what activation settled has to name the
-        # three dotted paths the hook ships. Naming a path is not importing
-        # one: nothing here reaches into a content product, and the registry
-        # is still built by the framework.
-        (
-            "suite/drive/tests/test_content.py|dotted-string|suite.sheets.drive.SPEC",
-            "suite/drive/tests/test_content.py|dotted-string|suite.slides.drive.SPEC",
-            "suite/drive/tests/test_content.py|dotted-string|suite.writer.drive.SPEC",
-        ),
-    ),
-    **_debt(
         "Suite Drive",
         "Remove when `suite.drive` exposes a grant workflow and a shipped-templates folder for "
         "Administrator (the seed in `suite/slides/install.py` then needs nothing below the facade).",
