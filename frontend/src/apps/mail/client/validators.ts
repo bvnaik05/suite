@@ -247,6 +247,8 @@ import type {
   GetUnifiedTabCountsOutput,
   GetUnifiedThreadsInput,
   GetUnifiedThreadsOutput,
+  GetUnsubscribeOptionsInput,
+  GetUnsubscribeOptionsOutput,
   GetUserForResetPasswordKeyInput,
   GetUserForResetPasswordKeyOutput,
   GetUserInfoInput,
@@ -339,6 +341,8 @@ import type {
   UndoScreeningVerdictOutput,
   UnscreenEmailAddressesInput,
   UnscreenEmailAddressesOutput,
+  UnsubscribeMailInput,
+  UnsubscribeMailOutput,
   UpdateAccountPreferencesInput,
   UpdateAccountPreferencesOutput,
   UpdateBookInput,
@@ -8072,6 +8076,77 @@ export const operationGetMimeMessage: Validators<GetMimeMessageInput, GetMimeMes
         type: 'object',
       },
       'get_mime_message output',
+    )
+  },
+}
+
+export const operationGetUnsubscribeOptions: Validators<
+  GetUnsubscribeOptionsInput,
+  GetUnsubscribeOptionsOutput
+> = {
+  validateInput(value: unknown): asserts value is GetUnsubscribeOptionsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+        },
+        required: ['account', 'ids'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_unsubscribe_options input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetUnsubscribeOptionsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          UnsubscribeOption: {
+            properties: {
+              one_click: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'One Click' },
+              mailto: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailto' },
+              link: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Link' },
+              unsubscribed: { title: 'Unsubscribed', type: 'boolean' },
+            },
+            required: ['one_click', 'mailto', 'link', 'unsubscribed'],
+            title: 'UnsubscribeOption',
+            type: 'object',
+          },
+        },
+        additionalProperties: { $ref: '#/$defs/UnsubscribeOption' },
+        type: 'object',
+      },
+      'get_unsubscribe_options output',
+    )
+  },
+}
+
+export const operationUnsubscribeMail: Validators<UnsubscribeMailInput, UnsubscribeMailOutput> = {
+  validateInput(value: unknown): asserts value is UnsubscribeMailInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          id: { title: 'Id', type: 'string' },
+        },
+        required: ['account', 'id'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'unsubscribe_mail input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is UnsubscribeMailOutput {
+    assertSchema(
+      value,
+      { enum: ['one_click', 'mailto'], type: 'string' },
+      'unsubscribe_mail output',
     )
   },
 }

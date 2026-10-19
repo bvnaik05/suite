@@ -270,68 +270,89 @@
 												     finding the rest of their mail. A folded row only opens. -->
                             <!-- Focus stays put on open: the first button taking it showed its
 												     tooltip the moment the card appeared. -->
-                            <Popover
-                              trigger="manual"
-                              :auto-focus="false"
-                              :open="senderCardFor === mail.name"
-                              @update:open="(open: boolean) => !open && (senderCardFor = null)"
-                            >
-                              <template #trigger>
-                                <!-- self-start: stacked over the recipients, it would stretch to
-												     the full width, and the empty space after the address opened
-												     the card too. -->
-                                <div
-                                  class="flex max-w-full items-center space-x-1.5"
-                                  :class="{
-                                    'cursor-pointer': !isCollapsed(mail) && !isMobile,
-                                    'self-start': !isCollapsed(mail) || isMobile,
-                                  }"
-                                  @pointerdown="noteSenderCardPress(mail)"
-                                  @click="toggleSenderCard(mail, $event)"
-                                >
-                                  <span
-                                    class="truncate text-[15px] !font-semibold sm:text-base"
+                            <div class="flex min-w-0 items-center gap-2">
+                              <Popover
+                                trigger="manual"
+                                :auto-focus="false"
+                                :open="senderCardFor === mail.name"
+                                @update:open="(open: boolean) => !open && (senderCardFor = null)"
+                              >
+                                <template #trigger>
+                                  <!-- self-start: stacked over the recipients, it would stretch to
+  												     the full width, and the empty space after the address opened
+  												     the card too. -->
+                                  <div
+                                    class="flex max-w-full items-center space-x-1.5"
                                     :class="{
-                                      /* A collapsed row is centered against the taller avatar, so
-														   whatever sets the text block's height decides where the name
-														   sits. The preview beside it states a 20px line box, matching
-														   the 20px hover actions that replace the timestamp — but a mail
-														   with no body has an empty preview, so the name's own 18.9px box
-														   set the height and the row rose ~1px under the cursor.
-														   sm:, because the preset's font sizes carry a line-height of
-														   their own: a bare leading-5 loses to the sm:text-base above. */
-                                      'sm:leading-5': isCollapsed(mail) && !isMobile,
+                                      'cursor-pointer': !isCollapsed(mail) && !isMobile,
+                                      'self-start': !isCollapsed(mail) || isMobile,
                                     }"
+                                    @pointerdown="noteSenderCardPress(mail)"
+                                    @click="toggleSenderCard(mail, $event)"
                                   >
-                                    {{ mail.from_name || mail.from_email }}
-                                  </span>
-                                  <!-- leading-4: 16px holds Inter's ~15.7px glyph box at 13px, so truncate's
-												     overflow-hidden keeps the descenders of a g or a p, and it still sits
-												     under the sender name beside it, so the row does not grow. -->
-                                  <span
-                                    v-if="!isMobile && !isCollapsed(mail)"
-                                    class="text-ink-gray-5 truncate leading-4"
-                                  >
-                                    &lt;{{ mail.from_email }}&gt;
-                                  </span>
-                                </div>
-                              </template>
-                              <template #default="{ close }">
-                                <SenderCard
-                                  :name="mail.from_name || mail.from_email"
-                                  :email="mail.from_email"
-                                  :image="mail.user_image"
-                                  :initial="getSenderInitial(mail)"
-                                  :thread-id="threadID"
-                                  @open="close()"
-                                  @email="
-                                    (close(), requestCompose({ to: [{ email: mail.from_email }] }))
-                                  "
-                                  @copy="(close(), copyToClipBoard(mail.from_email))"
-                                  @view-all="(close(), viewAllWith(mail.from_email))"
-                                />
-                              </template>
-                            </Popover>
+                                    <span
+                                      class="truncate text-[15px] !font-semibold sm:text-base"
+                                      :class="{
+                                        /* A collapsed row is centered against the taller avatar, so
+  														   whatever sets the text block's height decides where the name
+  														   sits. The preview beside it states a 20px line box, matching
+  														   the 20px hover actions that replace the timestamp — but a mail
+  														   with no body has an empty preview, so the name's own 18.9px box
+  														   set the height and the row rose ~1px under the cursor.
+  														   sm:, because the preset's font sizes carry a line-height of
+  														   their own: a bare leading-5 loses to the sm:text-base above. */
+                                        'sm:leading-5': isCollapsed(mail) && !isMobile,
+                                      }"
+                                    >
+                                      {{ mail.from_name || mail.from_email }}
+                                    </span>
+                                    <!-- leading-4: 16px holds Inter's ~15.7px glyph box at 13px, so truncate's
+  												     overflow-hidden keeps the descenders of a g or a p, and it still sits
+  												     under the sender name beside it, so the row does not grow. -->
+                                    <span
+                                      v-if="!isMobile && !isCollapsed(mail)"
+                                      class="text-ink-gray-5 truncate leading-4"
+                                    >
+                                      &lt;{{ mail.from_email }}&gt;
+                                    </span>
+                                  </div>
+                                </template>
+                                <template #default="{ close }">
+                                  <SenderCard
+                                    :name="mail.from_name || mail.from_email"
+                                    :email="mail.from_email"
+                                    :image="mail.user_image"
+                                    :initial="getSenderInitial(mail)"
+                                    :thread-id="threadID"
+                                    @open="close()"
+                                    @email="
+                                      (close(),
+                                      requestCompose({ to: [{ email: mail.from_email }] }))
+                                    "
+                                    @copy="(close(), copyToClipBoard(mail.from_email))"
+                                    @view-all="(close(), viewAllWith(mail.from_email))"
+                                  />
+                                </template>
+                              </Popover>
+                              <!-- Unsubscribe, where the mail's List-Unsubscribe header offers it:
+							     a quiet link after the sender, plainly a link without a button's
+							     weight; once used, a word in lighter grey (see useUnsubscribe). -->
+                              <span
+                                v-if="!isCollapsed(mail) && offersUnsubscribe(mail)"
+                                class="text-ink-gray-4 flex shrink-0 items-center gap-2 text-sm"
+                              >
+                                <span aria-hidden="true">·</span>
+                                <span v-if="isUnsubscribed(mail)">{{ __('Unsubscribed') }}</span>
+                                <button
+                                  v-else
+                                  type="button"
+                                  class="text-ink-gray-6 decoration-outline-gray-3 hover:text-ink-gray-8 underline underline-offset-2"
+                                  @click.stop="unsubscribe(mail)"
+                                >
+                                  {{ __('Unsubscribe') }}
+                                </button>
+                              </span>
+                            </div>
                             <!-- Same 13px truncate, same shaved descenders. Collapsed
 											     mails keep just sender + preview — recipients belong to
 											     the expanded reading view. A compact summary, not the
@@ -736,6 +757,7 @@ import {
   isComposeWindowOpen,
 } from '@/apps/mail/composables/useComposeWindow'
 import { trustableDomains, useScreener } from '@/apps/mail/composables/useScreener'
+import { useUnsubscribe } from '@/apps/mail/composables/useUnsubscribe'
 import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import { getAttachmentsZipUrl } from '@/apps/mail/resources'
 import { isMailRoute } from '@/apps/mail/router'
@@ -776,6 +798,7 @@ import {
 import { containEmailHtml } from '@/apps/mail/utils/containEmailHtml'
 import { mailCopies, mailCopyIds } from '@/apps/mail/utils/mailCopies'
 import { getSenderInitial } from '@/apps/mail/utils/participants'
+import { isReceived } from '@/apps/mail/utils/receivedMail'
 import {
   foldedNames,
   holdNewestOpen,
@@ -1253,6 +1276,25 @@ const filterRelevantMails = (mail: Mail) => {
   if (mailbox === mailboxIds.value.junk) return !!mail.junk
   return !mailboxes.includes(trash) && !mail.junk
 }
+
+// Unsubscribing from a list (see useUnsubscribe): offered on mail you received, never in Junk, nor
+// while the Screener is asking about its sender — its No blocks inside Suite only, and unsubscribing
+// would tell a stranger the address is read.
+const {
+  offers: offersUnsubscribe,
+  isUnsubscribed,
+  unsubscribe,
+} = useUnsubscribe(
+  () => scopeAccountId.value,
+  () => (readonly ? [] : thread.value),
+  (mail) =>
+    isReceived(mail, mailboxIds.value.sent) &&
+    !mail.junk &&
+    mailbox !== mailboxIds.value.junk &&
+    !screenedSenders.value.some(
+      (sender) => sender.email.toLowerCase() === (mail.from_email || '').toLowerCase(),
+    ),
+)
 
 // ── Screener prototype ──────────────────────────────────────────────────────────────────────────
 // With a Screener variant on, a screened thread opens here like any other. It carries a banner with

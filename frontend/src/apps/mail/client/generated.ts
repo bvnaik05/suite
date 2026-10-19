@@ -5812,6 +5812,67 @@ const operationGetMimeMessage: QueryRef<
   loadValidators: async () => (await import('./validators')).operationGetMimeMessage,
 }
 
+export type GetUnsubscribeOptionsOutputUnsubscribeOption = {
+  one_click: string | null
+  mailto: string | null
+  link: string | null
+  unsubscribed: boolean
+}
+
+export type GetUnsubscribeOptionsInput = { account: string; ids: Array<string> }
+
+export type GetUnsubscribeOptionsOutput = {
+  [key: string]: GetUnsubscribeOptionsOutputUnsubscribeOption
+}
+
+export type GetUnsubscribeOptionsError = 'PermissionError' | 'ValidationError'
+
+const operationGetUnsubscribeOptions: QueryRef<
+  GetUnsubscribeOptionsInput,
+  GetUnsubscribeOptionsOutput,
+  GetUnsubscribeOptionsError
+> = {
+  id: 'get_unsubscribe_options',
+  owner: 'mail',
+  kind: 'query',
+  publicName: 'messages.unsubscribeOptions',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.get_unsubscribe_options',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationGetUnsubscribeOptions,
+}
+
+export type UnsubscribeMailInput = { account: string; id: string }
+
+export type UnsubscribeMailOutput = 'one_click' | 'mailto'
+
+export type UnsubscribeMailError = 'PermissionError' | 'ValidationError'
+
+const operationUnsubscribeMail: MutationRef<
+  UnsubscribeMailInput,
+  UnsubscribeMailOutput,
+  UnsubscribeMailError
+> = {
+  id: 'unsubscribe_mail',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'messages.unsubscribe',
+  envelope: 'message',
+  method: 'POST',
+  path: '/api/method/suite.mail.api.mail.unsubscribe_mail',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: ['PermissionError', 'ValidationError'],
+  loadValidators: async () => (await import('./validators')).operationUnsubscribeMail,
+}
+
 export type GetDeliveryStatusOutputDeliveryRecipient = {
   email: string
   action: string
@@ -7061,6 +7122,8 @@ export const api = {
     clearList: operationClearList,
     search: operationSearchMails,
     mime: operationGetMimeMessage,
+    unsubscribeOptions: operationGetUnsubscribeOptions,
+    unsubscribe: operationUnsubscribeMail,
     deliveryStatus: operationGetDeliveryStatus,
     create: operationCreateMail,
     updateDraft: operationUpdateDraftMail,
