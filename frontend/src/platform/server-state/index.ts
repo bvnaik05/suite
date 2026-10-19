@@ -146,7 +146,9 @@ export function createApiClient(
     // current, and this catches what a sleeping laptop or a dropped socket missed. Not on window
     // focus — clicking back out of a frame (a mail's body) gives the window focus, so every such click
     // refetched every read on the page — and not after a glance at another tab.
-    let hiddenAt: number | undefined
+    // A page opened in a background tab counts as away from the start.
+    let hiddenAt: number | undefined =
+      document.visibilityState === 'hidden' ? Date.now() : undefined
     const visibility = () => {
       if (document.visibilityState === 'hidden') {
         hiddenAt = Date.now()

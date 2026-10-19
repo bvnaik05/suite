@@ -62,6 +62,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const scope of scopes.splice(0)) scope.stop()
   engine.dispose()
+  vi.restoreAllMocks()
 })
 function observe<T>(create: () => T): T {
   const scope = effectScope()
@@ -571,7 +572,6 @@ describe('Suite API references and shared client', () => {
 
     await leaveFor(60_000)
     await vi.waitFor(() => expect(fetches()).toBe(before + 1))
-    now.mockRestore()
   })
 
   it('refreshes Recent after a visit and settings readers after settings writes', async () => {
