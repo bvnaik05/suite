@@ -65,6 +65,8 @@ and no Suite Cloud is fully usable by anyone who has an account. The Admin Dashb
 creation and signup need Suite Cloud: without it the dashboard is hidden from admins, its routes
 lead back to the mailbox, and every endpoint in `suite/mail/api/admin.py` refuses.
 
+Suite's own emails, such as invites, password resets and share notices, go through `suite/suite_core/suite_email.py`. On a site connected to Suite Cloud, Suite names the email and its parameters, and Suite Cloud sends it from its own template. A site without Suite Cloud renders it from the templates in `suite/templates/emails/` and sends it through its own Email Account. Any other mail of the site, such as Frappe's own notifications, always goes through an Email Account the site owner sets up.
+
 The client lives in `suite/mail/suite_cloud/`, the facade the rest of Mail uses in
 `suite/mail/directory.py`, and the Admin Dashboard's endpoints in `suite/mail/api/admin.py`.
 
