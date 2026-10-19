@@ -1,6 +1,6 @@
 # Copyright (c) 2026, Asif and Contributors
 # See license.txt
-"""SSRF guard for the link-preview fetcher — the security-critical piece."""
+"""SSRF guard for requests to the public internet — the security-critical piece."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest import mock
 
 import frappe
 
-from suite.sheets.link_preview import _validate_and_resolve
+from suite.suite_core.public_http import _resolve_public
 
 
 def _addrinfo(*ips):
@@ -18,13 +18,17 @@ def _addrinfo(*ips):
 
 class AssertPublicHttpUrl(unittest.TestCase):
     def _allow(self, url, resolves_to="93.184.216.34"):
-        with mock.patch("suite.sheets.link_preview.socket.getaddrinfo", return_value=_addrinfo(resolves_to)):
-            _validate_and_resolve(url)  # must not raise
+        with mock.patch(
+            "suite.suite_core.public_http.socket.getaddrinfo", return_value=_addrinfo(resolves_to)
+        ):
+            _resolve_public(url)  # must not raise
 
     def _block(self, url, resolves_to="93.184.216.34"):
-        with mock.patch("suite.sheets.link_preview.socket.getaddrinfo", return_value=_addrinfo(resolves_to)):
+        with mock.patch(
+            "suite.suite_core.public_http.socket.getaddrinfo", return_value=_addrinfo(resolves_to)
+        ):
             with self.assertRaises(frappe.ValidationError):
-                _validate_and_resolve(url)
+                _resolve_public(url)
 
     def test_public_https_url_passes(self):
         self._allow("https://frappe.io/")
@@ -52,15 +56,15 @@ class AssertPublicHttpUrl(unittest.TestCase):
 
     def test_mixed_resolution_blocked_if_any_ip_private(self):
         with mock.patch(
-            "suite.sheets.link_preview.socket.getaddrinfo",
+            "suite.suite_core.public_http.socket.getaddrinfo",
             return_value=_addrinfo("93.184.216.34", "127.0.0.1"),
         ):
             with self.assertRaises(frappe.ValidationError):
-                _validate_and_resolve("https://tricky.example.com/")
+                _resolve_public("https://tricky.example.com/")
 
     def test_unresolvable_host_blocked(self):
         import socket as _socket
 
-        with mock.patch("suite.sheets.link_preview.socket.getaddrinfo", side_effect=_socket.gaierror):
+        with mock.patch("suite.suite_core.public_http.socket.getaddrinfo", side_effect=_socket.gaierror):
             with self.assertRaises(frappe.ValidationError):
-                _validate_and_resolve("https://no-such-host.invalid/")
+                _resolve_public("https://no-such-host.invalid/")

@@ -51,6 +51,11 @@ export const registration: OwnerRegistration = {
     // Blocking moves mail to Junk as well as writing the rule, so it reads as a message change.
     if (['block_senders', 'junk_senders_inbox_mail'].includes(reference.id))
       return messagePolicy<I, O>(reference.id)
+    // Unsubscribing marks the message and nothing else a list shows: only the way out is read again.
+    if (reference.id === 'unsubscribe_mail')
+      return {
+        effects: { matches: matchingAccount, invalidates: ['mail.get_unsubscribe_options'] },
+      }
     if (reference.id === 'create_calendar_import' || reference.id === 'create_calendar_export')
       return { effects: { invalidates: ['mail.ongoing_calendar_exchange'] } }
     if (

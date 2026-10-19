@@ -10,11 +10,12 @@ import pydenticon
 import requests
 from frappe import _
 from frappe.model.document import bulk_insert
+from frappe.rate_limiter import rate_limit
 from frappe.utils import add_to_date, cint, now, random_string
 from jmap import MethodError
 from werkzeug.wrappers import Response
 
-from suite.mail import classification
+from suite.mail import classification, unsubscribe
 from suite.mail.api.contacts import (
     create_contacts_if_not_exists,
     enrich_contacts_with_user_images,
@@ -1421,6 +1422,22 @@ def empty_user_mailbox(account: str, mailbox: str) -> None:
     """Empties the given mailbox."""
 
     empty_mailbox(account, mailbox)
+
+
+@frappe.whitelist()
+def get_unsubscribe_options(account: str, ids: list[str]) -> dict:
+    """How each of the given messages can be unsubscribed from (see suite.mail.unsubscribe)."""
+
+    return unsubscribe.options(account, ids)
+
+
+@frappe.whitelist(methods=["POST"])
+@rate_limit(limit=30, seconds=60)
+def unsubscribe_mail(account: str, id: str) -> str:
+    """Unsubscribes from the list the message came from; returns which way went (see
+    suite.mail.unsubscribe)."""
+
+    return unsubscribe.unsubscribe(account, id)
 
 
 @frappe.whitelist()

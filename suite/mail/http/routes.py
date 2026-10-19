@@ -116,6 +116,7 @@ from suite.mail.api.mail import (
     get_unified_folders,
     get_unified_tab_counts,
     get_unified_threads,
+    get_unsubscribe_options,
     junk_senders_inbox_mail,
     move_mails,
     remove_mails_from_mailbox,
@@ -129,6 +130,7 @@ from suite.mail.api.mail import (
     set_mails_spam_status,
     undo_screening_verdict,
     unscreen_email_addresses,
+    unsubscribe_mail,
     update_draft_mail,
     update_mailbox,
 )
