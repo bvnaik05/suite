@@ -145,4 +145,40 @@ it('a conversation is starred while any of its messages is, whichever was starre
   }
   // Unstarring the newest leaves the older one's star on the conversation.
   expect(star(['n'], false, both)).toBe(1)
+  // A copy shown as one message counts: starring it stars the conversation.
+  const withCopy = {
+    rows: [
+      {
+        id: 'n',
+        flagged: 0,
+        messages: [{ id: 'n', flagged: 0, duplicates: [{ id: 'c', flagged: 0 }] }],
+      },
+    ],
+  }
+  expect(star(['c'], true, withCopy)).toBe(1)
+})
+
+it('a star on one conversation leaves every other conversation’s star alone', () => {
+  const policy = registration.policy({
+    id: 'set_flagged',
+    kind: 'mutation',
+    publicName: 'messages.flag',
+  } as never) as {
+    effects: {
+      optimisticReads: { update: (input: unknown, query: unknown, data: unknown) => unknown }
+    }
+  }
+  // Starred on the server by a hidden copy the list shows no star for.
+  const other = {
+    id: 'x',
+    flagged: 1,
+    messages: [{ id: 'x', flagged: 0, duplicates: [{ id: 'y', flagged: 1 }] }],
+  }
+  const list = { rows: [{ id: 'n', flagged: 0, messages: [{ id: 'n', flagged: 0 }] }, other] }
+  const after = policy.effects.optimisticReads.update(
+    { account: 'a', ids: ['n'], flagged: true },
+    { account: 'a', mailbox: 'inbox' },
+    list,
+  ) as typeof list
+  expect(after.rows.map((row) => row.flagged)).toEqual([1, 1])
 })

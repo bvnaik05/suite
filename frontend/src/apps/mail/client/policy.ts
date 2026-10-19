@@ -386,10 +386,23 @@ function messagePolicy<I, O>(id: string, publicName?: string): Policy<I, O> {
               return row
             const messages = Array.isArray(row.messages) ? row.messages.map(patch) : undefined
             if (!field) return row
-            // A conversation is starred while any of its messages is, whichever one was starred.
+            // A conversation is starred while any of its messages is, whichever one was starred —
+            // a copy the thread shows as one message (`duplicates`) included, as the server counts
+            // it. Worked out only for the conversation the write touched: any other keeps its star.
+            const copies = (m: Record<string, unknown>) => [
+              m,
+              ...(Array.isArray(m.duplicates) ? m.duplicates.filter(isRecord) : []),
+            ]
+            const starred = (copy: Record<string, unknown>) =>
+              ids.has(copy.id) ? !!input.flagged : !!copy.flagged
+            const touched =
+              ids.has(row.id) ||
+              !!messages?.some((m) => isRecord(m) && copies(m).some((c) => ids.has(c.id)))
             const flagged =
-              field === 'flagged' && messages?.length
-                ? { flagged: messages.some((m) => isRecord(m) && m.flagged) ? 1 : 0 }
+              field === 'flagged' && touched && messages?.length
+                ? {
+                    flagged: messages.some((m) => isRecord(m) && copies(m).some(starred)) ? 1 : 0,
+                  }
                 : {}
             return {
               ...row,
