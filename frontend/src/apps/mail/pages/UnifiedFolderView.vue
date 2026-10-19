@@ -172,9 +172,9 @@
                     :account-label="shortAccountLabel(row.threads[0].account_name)"
                     :class="rowClasses(row)"
                     :data-row-key="row.key"
+                    :unarchive="true"
                     @toggle="toggleStack(row)"
                     @set-seen="(seen: boolean) => setThreadsSeen(row.threads, seen)"
-                    :unarchive="true"
                     @archive-threads="archiveThreads(row.threads)"
                     @unarchive-threads="unarchiveThreads(row.threads)"
                     @trash-threads="trashThreads(row.threads)"
@@ -199,8 +199,8 @@
                     :hide-sender="row.inStack"
                     :class="rowClasses(row)"
                     :data-row-key="row.key"
-                    @set-seen="(seen: boolean) => handleSetSeen(row.thread, seen)"
                     :unarchive="true"
+                    @set-seen="(seen: boolean) => handleSetSeen(row.thread, seen)"
                     @archive-thread="handleArchive(row.thread)"
                     @unarchive-thread="handleUnarchive(row.thread)"
                     @trash-thread="handleTrash(row.thread)"
@@ -313,6 +313,7 @@ import ThreadPane from '@/apps/mail/components/ThreadPane.vue'
 import { listScope } from '@/apps/mail/composables/useClearList'
 import { closeComposeWindowFor } from '@/apps/mail/composables/useComposeWindow'
 import { tabName, useInboxTabs } from '@/apps/mail/composables/useInboxTabs'
+import { useKeptRead } from '@/apps/mail/composables/useKeptRead'
 import { useListRows } from '@/apps/mail/composables/useListRows'
 import { useListSelection } from '@/apps/mail/composables/useListSelection'
 import { useMailRemoval } from '@/apps/mail/composables/useMailRemoval'
@@ -489,12 +490,21 @@ const {
   holdDraft,
   releaseDraft,
 } = useDiscardingDrafts()
+// Filtered to unread mail, what is read here stays until the list changes (see useKeptRead).
+const keptRead = useKeptRead({
+  filtering: () => !!filter.value?.split(',').includes('unread'),
+  scope: () => [folder, filter.value, inboxTab.value],
+  key: threadKey,
+})
 const threadRows = computed(() =>
-  threads.rows
-    .map((row) => threadRow(row, store.accountId))
-    .filter((row) => !isDiscardingDraft(row, { inDrafts: folder === 'drafts' }))
-    .map(withoutHeldDrafts),
+  keptRead.withKept(
+    threads.rows
+      .map((row) => threadRow(row, store.accountId))
+      .filter((row) => !isDiscardingDraft(row, { inDrafts: folder === 'drafts' }))
+      .map(withoutHeldDrafts),
+  ),
 )
+watch(threadRows, keptRead.keep)
 const isLoading = computed(
   () =>
     threads.status === 'pending' && !(tabSwitched.value && inboxTab.value) && !filterChanged.value,
@@ -992,7 +1002,16 @@ const { runMailRemoval } = useMailRemoval({
   row: () => openRow.value,
   mailThreadRef: mailThread,
   onEmptied: () => closeThread(),
-  removeRow: () => refreshThreads,
+  // Its last message gone, a conversation kept read on the list goes too; a failure keeps it again.
+  removeRow: (_mail, thread) => {
+    if (thread) keptRead.release([threadKey(thread)])
+    // Put back only on the list it left: another filter or folder since has rules of its own.
+    const at = keptRead.current()
+    return () => {
+      if (thread) keptRead.restore([thread], at)
+      refreshThreads()
+    }
+  },
   viewMailbox: (thread) => thread.view_mailbox,
   outgoing: () => isOutgoingFolder.value,
 })
@@ -1175,7 +1194,11 @@ const fileThreads = (
 ) => {
   if (!threads.length) return
   const leaves = leavesFolder(action, threads[0], target)
-  if (leaves) goToNextThreadOrClose(threads.map(threadKey))
+  // The next thread is found on the list as it stands, the conversations still on it.
+  if (leaves) {
+    goToNextThreadOrClose(threads.map(threadKey))
+    keptRead.release(threads.map(threadKey))
+  }
   if (action === 'trash' || action === 'junk') closeComposeWindowFor(copyIds(threads))
   const one = threads.length === 1
   const folderOfTarget = target ? folderName(target) : undefined
@@ -1449,6 +1472,7 @@ const discardDrafts = (rows: Thread[]) => {
 const handleDelete = (rows: Thread[]) => {
   const names = copiesHere(rows)
   goToNextThreadOrClose(rows.map(threadKey))
+  keptRead.release(rows.map(threadKey))
   closeComposeWindowFor(rows.flatMap(messageIds))
   raiseOptimisticToast(
     client.mutation(api.mail.messages.delete, { names }).then(refreshCounts, (error) => {
