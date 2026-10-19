@@ -8145,7 +8145,7 @@ export const operationUnsubscribeMail: Validators<UnsubscribeMailInput, Unsubscr
   validateOutput(value: unknown): asserts value is UnsubscribeMailOutput {
     assertSchema(
       value,
-      { enum: ['one_click', 'mailto'], type: 'string' },
+      { enum: ['one_click', 'mailto', 'already'], type: 'string' },
       'unsubscribe_mail output',
     )
   },

@@ -348,7 +348,7 @@ _OPERATIONS: tuple[
         "mutation",
         "messages.unsubscribe",
         UnsubscribeInput,
-        Literal["one_click", "mailto"],
+        Literal["one_click", "mailto", "already"],
         None,
     ),
     (mail.get_delivery_status, "query", "messages.deliveryStatus", BlobInput, DeliveryReport, None),

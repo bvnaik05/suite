@@ -32,18 +32,30 @@ def message(id: str = "m", *, urls=(ONE_CLICK, MAILTO), post="List-Unsubscribe=O
 class Stubs:
     """The mail server holding `emails`, and a sender's server answering `status`."""
 
-    def __init__(self, emails: list[dict], status: int = 200, error: Exception | None = None):
+    def __init__(
+        self,
+        emails: list[dict],
+        status: int = 200,
+        error: Exception | None = None,
+        queue_status: str = "Submitted",
+        mark_saved: bool = True,
+    ):
         self.emails = emails
         self.posts: list[tuple] = []
         self.queued: list[dict] = []
         self.marked: list[dict] = []
         self.status, self.error = status, error
+        self.queue_status, self.mark_saved = queue_status, mark_saved
 
     def __enter__(self):
         client = MagicMock()
-        client.batch.return_value.__enter__.return_value.mail.email.set.side_effect = (
-            lambda update: self.marked.append(update)
-        )
+
+        def mark(update):
+            self.marked.append(update)
+            saved = list(update) if self.mark_saved else []
+            return MagicMock(result=MagicMock(updated=saved, not_updated={} if saved else update))
+
+        client.batch.return_value.__enter__.return_value.mail.email.set.side_effect = mark
 
         def post(method, url, **kwargs):
             self.posts.append((method, url, kwargs))
@@ -67,8 +79,11 @@ class Stubs:
         self.stack.enter_context(
             patch(
                 "suite.mail.doctype.mail_queue.mail_queue.MailQueue._create",
-                side_effect=lambda **kwargs: self.queued.append(kwargs),
+                side_effect=lambda **kwargs: self.queued.append(kwargs) or MagicMock(name="queued"),
             )
+        )
+        self.stack.enter_context(
+            patch.object(unsubscribe.frappe.db, "get_value", return_value=self.queue_status)
         )
         self.stack.enter_context(
             patch("suite.mail.doctype.mail_message.mail_message._remove_cached_messages")
@@ -128,6 +143,7 @@ class TestUnsubscribing(UnitTestCase):
         self.assertEqual(queued["recipients"][0]["email"], "leave@news.example.com")
         self.assertEqual(queued["subject"], "remove me")
         self.assertTrue(queued["destroy_after_submit"])
+        self.assertEqual(stubs.marked, [{"m": {"keywords/$unsubscribed": True}}])
         self.assertEqual(stubs.posts, [])
 
     def test_a_refusal_fails_and_leaves_the_mail_unmarked(self):
@@ -144,3 +160,19 @@ class TestUnsubscribing(UnitTestCase):
             with Stubs([email]) as stubs, self.assertRaises(frappe.ValidationError):
                 unsubscribe.unsubscribe("account", "m")
             self.assertEqual((stubs.posts, stubs.queued, stubs.marked), ([], [], []))
+
+    def test_a_mail_request_not_sent_fails_and_leaves_the_mail_unmarked(self):
+        with Stubs([message(post=None)], queue_status="Failed") as stubs:
+            with self.assertRaises(unsubscribe.UnsubscribeFailed):
+                unsubscribe.unsubscribe("account", "m")
+        self.assertEqual(stubs.marked, [])
+
+    def test_mail_unsubscribed_from_before_sends_nothing_again(self):
+        with Stubs([message(keywords={"$unsubscribed": True})]) as stubs:
+            self.assertEqual(unsubscribe.unsubscribe("account", "m"), "already")
+        self.assertEqual((stubs.posts, stubs.queued, stubs.marked), ([], [], []))
+
+    def test_a_mark_that_fails_to_save_still_counts_as_unsubscribed(self):
+        with Stubs([message()], mark_saved=False) as stubs:
+            self.assertEqual(unsubscribe.unsubscribe("account", "m"), "one_click")
+        self.assertEqual(len(stubs.posts), 1)

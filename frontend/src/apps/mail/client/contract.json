@@ -18234,7 +18234,8 @@
       "output": {
         "enum": [
           "one_click",
-          "mailto"
+          "mailto",
+          "already"
         ],
         "type": "string"
       },

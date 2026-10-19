@@ -29,8 +29,6 @@ from suite.suite_core.public_http import request_public
 UNSUBSCRIBED = "$unsubscribed"
 ONE_CLICK_BODY = b"List-Unsubscribe=One-Click"
 HEADERS = ["header:List-Unsubscribe:asURLs", "header:List-Unsubscribe-Post:asText"]
-# How many messages one look-up reads: a thread's worth, with room.
-MAX_IDS = 100
 
 
 class Option(TypedDict):
@@ -43,7 +41,9 @@ class Option(TypedDict):
     unsubscribed: bool
 
 
-Via = Literal["one_click", "mailto"]
+# `already`: the message was unsubscribed from before, and nothing was sent again — a request held
+# for Undo can be sent twice when a page closes after sending it but before forgetting it.
+Via = Literal["one_click", "mailto", "already"]
 
 
 class UnsubscribeFailed(frappe.ValidationError):
@@ -60,7 +60,7 @@ def options(account: str, ids: list[str]) -> dict[str, Option]:
     junk = get_mailbox_id_by_role(account, "junk")
     return {
         email["id"]: option
-        for email in _read(account, list(dict.fromkeys(ids))[:MAX_IDS], ["keywords", "mailboxIds"])
+        for email in _read(account, list(dict.fromkeys(ids)), ["keywords", "mailboxIds"])
         if not _is_junk(email, junk) and (option := _option(email))
     }
 
@@ -79,6 +79,8 @@ def unsubscribe(account: str, id: str) -> Via:
     option = _option(email)
     if not option or not (option["one_click"] or option["mailto"]):
         raise frappe.ValidationError(_("This mail can't be unsubscribed from here."))
+    if option["unsubscribed"]:
+        return "already"
 
     via: Via
     if option["one_click"]:
@@ -88,6 +90,7 @@ def unsubscribe(account: str, id: str) -> Via:
         _write_to(account, option["mailto"] or "", _addressed_to(account, email))
         via = "mailto"
 
+    # Sent by now: a mark that fails to save is logged, not reported as a failed unsubscribe.
     _mark_unsubscribed(account, id)
     return via
 
@@ -170,7 +173,9 @@ def _write_to(account: str, mailto: str, from_email: str) -> None:
     if not address or "@" not in address:
         raise UnsubscribeFailed(_("Couldn't unsubscribe: the sender's address is invalid."))
     query = parse_qs(target.query)
-    MailQueue._create(
+    # Submitted here and now rather than queued, so the mark below follows a request that went: one
+    # queued could still fail in the worker, long after the person was told it was done.
+    queued = MailQueue._create(
         user=get_user_for_jmap_account(account, raise_exception=True),
         account=account,
         from_email=from_email,
@@ -178,10 +183,12 @@ def _write_to(account: str, mailto: str, from_email: str) -> None:
         subject=(query.get("subject") or ["unsubscribe"])[0],
         text_body=(query.get("body") or ["unsubscribe"])[0],
         via_api=True,
-        delivery_mode="Enqueue",
+        delivery_mode="Immediate",
         # A request to a machine, not mail the person wrote: kept nowhere once sent.
         destroy_after_submit=True,
     )
+    if frappe.db.get_value("Mail Queue", queued.name, "status") != "Submitted":
+        raise UnsubscribeFailed(_("Couldn't unsubscribe: the request could not be sent."))
 
 
 def _mark_unsubscribed(account: str, id: str) -> None:
@@ -192,6 +199,10 @@ def _mark_unsubscribed(account: str, id: str) -> None:
     _remove_cached_messages(account, [id])
     try:
         with client.batch() as b:
-            b.mail.email.set(update={id: {f"keywords/{UNSUBSCRIBED}": True}})
+            marked = b.mail.email.set(update={id: {f"keywords/{UNSUBSCRIBED}": True}})
+        if id not in marked.result.updated:
+            log_mail_error(_("Failed to mark mail unsubscribed"), str(marked.result.not_updated))
+    except Exception:
+        log_mail_error(_("Failed to mark mail unsubscribed"), frappe.get_traceback(with_context=True))
     finally:
         _remove_cached_messages(account, [id])

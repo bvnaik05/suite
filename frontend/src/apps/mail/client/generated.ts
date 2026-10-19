@@ -5849,7 +5849,7 @@ const operationGetUnsubscribeOptions: QueryRef<
 
 export type UnsubscribeMailInput = { account: string; id: string }
 
-export type UnsubscribeMailOutput = 'one_click' | 'mailto'
+export type UnsubscribeMailOutput = 'one_click' | 'mailto' | 'already'
 
 export type UnsubscribeMailError = 'PermissionError' | 'ValidationError'
 
