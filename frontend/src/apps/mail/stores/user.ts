@@ -144,15 +144,21 @@ export const userStore = defineStore('mail-user', () => {
     useSession().user.value ? {} : false,
   )
   const sieveScripts = useQuery(api.mail.sieve.list, account)
-  // Keep the unified counts in step with the per-account mailbox counts: refresh them whenever the
-  // active account's mailboxes reload — after any thread action and on the periodic poll.
-  watch(
-    () => mailboxes.data,
-    () => {
-      if ((userResource.data?.accounts.length ?? 0) > 1)
-        void unifiedFolders.refetch().catch(() => {})
-    },
+  // The active account's counts, as one value that changes only when a count does. Each read of the
+  // mailbox list is a fresh copy, so watching the list itself fired on every refetch and every
+  // optimistic change — three count requests a click — whether anything had moved or not.
+  const mailboxCounts = computed(() =>
+    (mailboxes.data ?? [])
+      .map((m) => `${m.id}:${m.unread_threads}:${m.total_threads}:${m.total_emails}`)
+      .join('|'),
   )
+  // Keep the unified counts in step with the per-account mailbox counts: refresh them when the
+  // active account's counts change — the periodic poll finding new mail, say. A write refreshes
+  // them itself (see the client policy).
+  watch(mailboxCounts, (_counts, before) => {
+    if (before && (userResource.data?.accounts.length ?? 0) > 1)
+      void unifiedFolders.refetch().catch(() => {})
+  })
 
   const mailboxIds = computed(() => deriveMailboxIds(mailboxes.data))
 
@@ -173,15 +179,12 @@ export const userStore = defineStore('mail-user', () => {
         { folder: 'inbox' }
       : false,
   )
-  // In step with the mailbox counts, as the unified folders are: after any thread action and on the
-  // periodic poll.
-  watch(
-    () => mailboxes.data,
-    () => {
-      if (tabCounts.data) void tabCounts.refetch().catch(() => {})
-      if (unifiedTabCounts.data) void unifiedTabCounts.refetch().catch(() => {})
-    },
-  )
+  // In step with the mailbox counts, as the unified folders are.
+  watch(mailboxCounts, (_counts, before) => {
+    if (!before) return
+    if (tabCounts.data) void tabCounts.refetch().catch(() => {})
+    if (unifiedTabCounts.data) void unifiedTabCounts.refetch().catch(() => {})
+  })
 
   // Short display labels for the merged views (All Inboxes, all-accounts search), keyed by the
   // account's full name. Only the odd ones out get labelled: the currently open account is

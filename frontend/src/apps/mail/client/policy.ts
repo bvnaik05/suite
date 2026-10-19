@@ -249,7 +249,7 @@ export const registration: OwnerRegistration = {
         )) ||
       reference.id === 'empty_user_mailbox'
     )
-      return messagePolicy<I, O>(reference.id)
+      return messagePolicy<I, O>(reference.id, reference.publicName)
     if (reference.kind === 'mutation' && reference.publicName?.startsWith('push.'))
       return { effects: { invalidates: ['mail.fetch_push_subscriptions'] } }
     return { staleTime: 30_000 }
@@ -304,21 +304,59 @@ const messageReaders = [
   'get_unified_tab_counts',
   'get_all_inbox_unread_count',
   'inbox_summary',
-  'get_submissions',
-  'get_scheduled_mail',
 ].map((id) => `mail.${id}`)
 
-function messagePolicy<I, O>(id: string): Policy<I, O> {
+// The counts a write can move: each folder's, the Inbox's tabs, the badge on the app.
+const countReaders = [
+  'get_mailboxes',
+  'get_unified_folders',
+  'get_tab_counts',
+  'get_unified_tab_counts',
+  'get_all_inbox_unread_count',
+  'inbox_summary',
+].map((id) => `mail.${id}`)
+// Who a sent mail went to: the next to be suggested and carded.
+const peopleReaders = ['get_contacts', 'get_contact_cards', 'get_email_suggestions'].map(
+  (id) => `mail.${id}`,
+)
+// Mail on its way out: the Outbox, and the mail waiting for its time.
+const outgoingReaders = ['get_submissions', 'get_scheduled_mail'].map((id) => `mail.${id}`)
+
+/**
+ * What a write to mail reads again, beyond what its optimistic update already shows. Every write
+ * read everything once — the lists page by page, every count, the contacts — and some come with
+ * each click (opening unread mail marks it read) or every couple of seconds (a draft's autosave).
+ */
+function messageInvalidates(id: string, publicName: string | undefined, input: unknown) {
+  const sends =
+    isRecord(input) &&
+    ((id === 'create_mail' && !input.save_as_draft) ||
+      (id === 'update_draft_mail' && !!input.submit))
+  // Read: the rows say so already; only the unread counts move. Starred: nothing counts stars.
+  if (id === 'set_mails_seen') return countReaders
+  if (id === 'set_flagged') return []
+  // A draft saved: the composer reloads the lists itself, never mid-sentence (see useComposeMail),
+  // and only a new one changes a count.
+  if ((id === 'create_mail' || id === 'update_draft_mail') && !sends)
+    return id === 'create_mail' ? ['mail.get_mailboxes'] : []
+  const readers = [...messageReaders]
+  if (sends || publicName?.startsWith('scheduled.')) readers.push(...outgoingReaders)
+  if (sends) readers.push(...peopleReaders)
+  // A verdict on a sender, given outright or with a junking.
+  if (
+    publicName?.startsWith('screener.') ||
+    ['block_senders', 'junk_senders_inbox_mail'].includes(id) ||
+    (isRecord(input) && !!input.screen_action)
+  )
+    readers.push('mail.get_screened_addresses')
+  return readers
+}
+
+function messagePolicy<I, O>(id: string, publicName?: string): Policy<I, O> {
   return {
     effects: {
       matches: matchingAccount,
-      invalidates: [
-        ...messageReaders,
-        'mail.get_screened_addresses',
-        'mail.get_contacts',
-        'mail.get_contact_cards',
-        'mail.get_email_suggestions',
-      ],
+      invalidates: (input: I) => messageInvalidates(id, publicName, input),
       optimisticReads: {
         references: messageReaders,
         update(input, queryInput, data) {
@@ -356,8 +394,27 @@ function messagePolicy<I, O>(id: string): Policy<I, O> {
           }
           if (field) {
             if (Array.isArray(data)) return data.map(patch)
-            if (isRecord(data) && Array.isArray(data.rows))
-              return { ...data, rows: data.rows.map(patch) }
+            if (isRecord(data) && Array.isArray(data.rows)) {
+              const rows = data.rows.map(patch)
+              // Unstarred in Starred, a conversation with no star left leaves the list on the click:
+              // the star is the list's one rule, and nothing reads the list again after a star.
+              const starredList =
+                isRecord(queryInput) &&
+                (queryInput.mailbox === 'starred' || queryInput.folder === 'starred')
+              if (field !== 'flagged' || input.flagged || !starredList) return { ...data, rows }
+              const touched = (row: Record<string, unknown>) =>
+                ids.has(row.id) ||
+                (Array.isArray(row.messages) &&
+                  row.messages.some((m) => isRecord(m) && ids.has(m.id)))
+              const starred = (row: Record<string, unknown>) =>
+                Array.isArray(row.messages) && row.messages.length
+                  ? row.messages.some((m) => isRecord(m) && m.flagged)
+                  : !!row.flagged
+              return {
+                ...data,
+                rows: rows.filter((row) => !isRecord(row) || !touched(row) || starred(row)),
+              }
+            }
           }
           if (!isRecord(queryInput) || !isRecord(data) || !Array.isArray(data.rows))
             return undefined
