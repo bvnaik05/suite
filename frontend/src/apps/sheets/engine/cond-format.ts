@@ -29,6 +29,7 @@
 
 import { cellId, parseCellId } from '../utils/cells.js'
 import { deepClone } from '../utils/deep-clone.js'
+import { newItemNumber } from './item-id.js'
 import { remapRect } from './ref-remap.js'
 import type { IndexMap, Rect } from './types.js'
 
@@ -110,8 +111,6 @@ interface RangeStats {
 
 type Bucket = 'low' | 'mid' | 'high'
 
-let _nextId = 1
-
 export function createCondFormatEngine() {
   const store: CfSnapshot = {}
 
@@ -126,7 +125,8 @@ export function createCondFormatEngine() {
 
   function addRule(rule: Omit<CfRule, 'id'>, sheet = 'Sheet1') {
     const rules = ensure(sheet)
-    const r = { ...rule, id: _nextId++ }
+    // Random, so two tabs adding a rule at once never share an id (item-id.ts).
+    const r = { ...rule, id: newItemNumber() }
     rules.push(r)
     return r.id
   }
@@ -445,7 +445,10 @@ export function createCondFormatEngine() {
   // The copies get new ids: a rule id names one rule across the workbook.
   function duplicateSheet(srcName: string, newName: string) {
     if (store[newName]) return
-    store[newName] = deepClone(store[srcName] || []).map((rule) => ({ ...rule, id: _nextId++ }))
+    store[newName] = deepClone(store[srcName] || []).map((rule) => ({
+      ...rule,
+      id: newItemNumber(),
+    }))
   }
 
   function deleteSheet(name: string) {
@@ -459,15 +462,7 @@ export function createCondFormatEngine() {
 
   function restore(snap: CfSnapshot) {
     for (const k of Object.keys(store)) delete store[k]
-    // Advance the id counter past every restored rule: a reload resets the
-    // module counter, so a new or pasted rule would otherwise reuse an id and
-    // removeRule() would drop both rules (ISSUES #19).
-    let maxId = 0
-    for (const [k, v] of Object.entries(snap)) {
-      store[k] = v
-      for (const rule of v) if (rule.id > maxId) maxId = rule.id
-    }
-    if (maxId >= _nextId) _nextId = maxId + 1
+    for (const [k, v] of Object.entries(snap)) store[k] = v
     _invalidateStats()
   }
 
