@@ -45,17 +45,6 @@ class ClaimedBlob:
     key: str
 
 
-class BlobConflict(Exception):
-    """Another `File Blob` already holds this content's unique triple.
-
-    `File Blob` carries a unique index on `(checksum, is_private, driver)`
-    (`frappe/core/doctype/file_blob/file_blob.py`). A row that `claim_blob`
-    would not take — one still `Pending` — therefore blocks the insert.
-    Build reports that row and carries on; it must not abort a migration
-    and then fail the same way on every rerun. `SiteStorage.insert_blob`
-    takes a savepoint so "carries on" holds on Postgres too."""
-
-
 class StorageGateway(Protocol):
     """Framework storage v2: its switch, its driver config, its blob rows."""
 
@@ -81,13 +70,11 @@ class StorageGateway(Protocol):
         The key comes back with it: a row is not proof that its object
         survives, and only the caller can head it."""
 
-    def blocked_by(self, checksum: str) -> str | None:
-        """Status of the row that holds this content's unique triple, if any."""
-
     def insert_blob(self, *, name: str, key: str, checksum: str, size: int, mime_type: str) -> str:
         """Insert one private S3 `File Blob` named `name` and return its name.
 
-        Raises `BlobConflict` when the unique triple is already taken."""
+        Another blob with the same content does not stop it: `File Blob`
+        allows duplicates, and `claim_blob` is the dedup."""
 
 
 class LegacyFiles(Protocol):
@@ -170,11 +157,6 @@ class SiteStorage:
             return ClaimedBlob(existing.name, existing.key)
         return None
 
-    def blocked_by(self, checksum: str) -> str | None:
-        return frappe.db.get_value(
-            "File Blob", {"checksum": checksum, "is_private": 1, "driver": "s3"}, "status"
-        )
-
     def insert_blob(self, *, name: str, key: str, checksum: str, size: int, mime_type: str) -> str:
         blob = frappe.new_doc("File Blob")
         blob.update(
@@ -191,26 +173,7 @@ class SiteStorage:
                 "status": "Ready",
             }
         )
-        # The insert runs inside a savepoint so the caller can really carry
-        # on after a conflict. Postgres aborts the whole transaction on a
-        # unique violation, so without the rollback the next statement in the
-        # batch raises `InFailedSqlTransaction` and the migration dies anyway
-        # — the outcome `BlobConflict` exists to avoid. MariaDB does not need
-        # it. Two extra statements against a row that already paid for an S3
-        # copy is not a cost worth branching on.
-        #
-        # The rollback goes through the shared deadlock-aware helper, the way
-        # the root-pair and per-unit savepoints below already do. A Build unit
-        # takes row locks, so it can be an InnoDB deadlock victim, and a victim
-        # has no savepoint left to roll back to.
-        savepoint = "drive_build_insert_blob"
-        frappe.db.savepoint(savepoint)
-        try:
-            blob.insert(ignore_permissions=True, set_name=name)
-        except frappe.UniqueValidationError as e:
-            rollback_savepoint(savepoint, e)
-            raise BlobConflict(checksum) from e
-        frappe.db.release_savepoint(savepoint)
+        blob.insert(ignore_permissions=True, set_name=name)
         return blob.name
 
 
@@ -777,10 +740,10 @@ class BlobRow:
     is_private: int
     status: str
     key: str | None = None
-    # The content checksum. `File Blob` is unique on
-    # `(checksum, is_private, driver)`, so one picture stored public and later
-    # made private is two rows with one checksum. Step 8 reads it to tell that
-    # pair apart from two rows that hold different bytes.
+    # The content checksum. `File Blob` allows several rows with one
+    # checksum, so one picture stored public and later made private is two
+    # rows with one checksum. Step 8 reads it to tell that pair apart from
+    # two rows that hold different bytes.
     checksum: str | None = None
 
 

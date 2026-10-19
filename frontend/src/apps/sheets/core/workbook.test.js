@@ -78,6 +78,26 @@ describe('workbook — formulas through commands', () => {
     expect(wb.getDisplayValue('Sheet1', 1, 1)).toBe('1')
     expect(wb.getDisplayValue('Sheet1', 2, 2)).toBe('4')
   })
+
+  // Like Google Sheets: typed `1,000` is the number 1000 shown as `1,000`,
+  // not the text "1,000" (the old engines got this wrong).
+  it('stores a number typed with thousands separators as a number', () => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 1, 3, '1,000')
+    setInput(wb, 'Sheet1', 2, 3, '-1,234.5')
+    setInput(wb, 'Sheet1', 3, 3, '$1,000')
+    setInput(wb, 'Sheet1', 1, 5, '=C1*2')
+    setInput(wb, 'Sheet1', 2, 5, '=ISNUMBER(C2)')
+    setInput(wb, 'Sheet1', 3, 5, '=SUM(C1:C3)=765.5')
+    expect(wb.getInput('Sheet1', 1, 3)).toBe('1000')
+    expect(wb.getDisplayValue('Sheet1', 1, 3)).toBe('1,000')
+    expect(wb.getDisplayValue('Sheet1', 1, 5)).toBe('2,000')
+    expect(wb.getDisplayValue('Sheet1', 2, 5)).toBe('TRUE')
+    expect(wb.getDisplayValue('Sheet1', 3, 5)).toBe('TRUE')
+    // Not a valid grouping: stays text, as in Google Sheets
+    setInput(wb, 'Sheet1', 4, 3, '1,00')
+    expect(wb.getInput('Sheet1', 4, 3)).toBe('1,00')
+  })
 })
 
 describe('workbook — structure ops', () => {

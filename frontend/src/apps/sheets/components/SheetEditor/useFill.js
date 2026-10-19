@@ -27,6 +27,7 @@ export function useFill({
   diffRefs: _diffRefs,
   queueOp: _queueOp,
   rectBlocked: _rectBlocked,
+  refitRowsFor,
 }) {
   function _fillValidation(src, total, sn) {
     const srcRows = src.r1 - src.r0 + 1,
@@ -65,6 +66,9 @@ export function useFill({
     // every dragged-over destination.
     _fillMerges(src, total, sheetName)
     const fillAfter = { ...fillBefore, ...writes }
+    // Rows with wrapped text refit to what the fill wrote (after the formats,
+    // which may carry the wrap); the height change undoes with the fill.
+    const rowH = refitRowsFor?.(sheetName, fillAfter)
     const afterFmt = _captureFormatsRange(total, sheetName)
     const afterVal = _captureValidationRange(total, sheetName)
     const afterMergeSnap = merge.snapshot?.()
@@ -101,6 +105,7 @@ export function useFill({
         afterFormats: afterFmt,
         beforeValidation: beforeVal,
         afterValidation: afterVal,
+        ...(rowH && { beforeRowH: rowH.before, afterRowH: rowH.after }),
         // Merge restore rides on the same op shape now — revertOp/applyOp
         // call merge.restore when these are present.
         ...(mergeChanged

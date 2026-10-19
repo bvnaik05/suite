@@ -27,7 +27,6 @@ from suite.drive.patches.build.ports import (
     NODE_READ_COLUMNS,
     ROOT_COLUMNS,
     ROOT_READ_COLUMNS,
-    BlobConflict,
     BotoBucket,
     SiteContentSource,
     SiteContentTarget,
@@ -232,15 +231,6 @@ class TestSiteStorage(StubbedDatabase):
         with patch("frappe.storage.blob.revive_blob", return_value=False):
             self.assertIsNone(self.storage.claim_blob("abc"))
 
-    def test_the_blocking_row_is_looked_up_without_the_status_filter(self):
-        # The unique index is (checksum, is_private, driver); a Pending row
-        # blocks the insert, and the run has to say so instead of dying.
-        self.db.get_value.return_value = "Pending"
-        self.assertEqual(self.storage.blocked_by("abc"), "Pending")
-        self.db.get_value.assert_called_once_with(
-            "File Blob", {"checksum": "abc", "is_private": 1, "driver": "s3"}, "status"
-        )
-
     # Above the signed `int(11)` ceiling the column used to carry, and above
     # the 5 GB single-part copy limit. This port is the only thing that
     # writes `File Blob.file_size`, so a narrowing cast belongs here.
@@ -273,43 +263,6 @@ class TestSiteStorage(StubbedDatabase):
             }
         )
         blob.insert.assert_called_once_with(ignore_permissions=True, set_name="b7x2k9q4mz")
-
-    def test_the_insert_is_wrapped_in_a_savepoint(self):
-        blob = MagicMock()
-        blob.name = "blob-9"
-        with patch.object(frappe, "new_doc", return_value=blob):
-            self.storage.insert_blob(
-                name="b7x2k9q4mz",
-                key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
-                checksum="x",
-                size=12,
-                mime_type="text/plain",
-            )
-
-        # Released, not rolled back: a clean insert must leave the batch's
-        # own transaction alone.
-        self.db.savepoint.assert_called_once_with("drive_build_insert_blob")
-        self.db.release_savepoint.assert_called_once_with("drive_build_insert_blob")
-        self.db.rollback.assert_not_called()
-
-    def test_a_conflict_rolls_back_to_the_savepoint_before_it_is_reported(self):
-        # Postgres aborts the whole transaction on a unique violation, so
-        # without this rollback the next statement in the batch dies and
-        # `BlobConflict` never gets to mean "carry on".
-        blob = MagicMock()
-        blob.insert.side_effect = frappe.UniqueValidationError("File Blob")
-        with patch.object(frappe, "new_doc", return_value=blob):
-            with self.assertRaises(BlobConflict):
-                self.storage.insert_blob(
-                    name="b7x2k9q4mz",
-                    key="5e1f0c3a9b7d/b7x2k9q4mz/x.txt",
-                    checksum="x",
-                    size=12,
-                    mime_type="text/plain",
-                )
-
-        self.db.rollback.assert_called_once_with(save_point="drive_build_insert_blob")
-        self.db.release_savepoint.assert_not_called()
 
 
 class StubClientError(Exception):

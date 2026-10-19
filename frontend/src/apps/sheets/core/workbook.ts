@@ -104,6 +104,8 @@ export interface Workbook {
   /** The editable string: the formula (with '=') or the raw value. */
   getInput(sheet: string, row: number, col: number): string
   getStyle(sheet: string, row: number, col: number): ExtendedCellStyle
+  /** Whether the cell holds a number (a formula result included). */
+  isNumber(sheet: string, row: number, col: number): boolean
   getSheets(): string[]
   getFrozen(sheet: string): { rows: number; cols: number }
   getColumnWidth(sheet: string, col: number): number
@@ -365,6 +367,15 @@ export function createWorkbook({
       read(() => model.getFormattedCellValue(sheetIndex(sheet), row, col)),
     getInput: (sheet, row, col) => read(() => model.getCellContent(sheetIndex(sheet), row, col)),
     getStyle: (sheet, row, col) => read(() => model.getCellStyle(sheetIndex(sheet), row, col)),
+    // An empty cell reports the number type too.
+    isNumber: (sheet, row, col) =>
+      read(() => {
+        const idx = sheetIndex(sheet)
+        return (
+          model.getCellContent(idx, row, col) !== '' &&
+          model.getCellType(idx, row, col) === NUMBER_CELL
+        )
+      }),
     getSheets: () => read(() => model.getWorksheetsProperties().map((p) => p.name)),
     getFrozen: (sheet) =>
       read(() => {

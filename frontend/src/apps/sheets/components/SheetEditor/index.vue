@@ -206,6 +206,13 @@
         </div>
       </div>
 
+      <SheetUpgradeBanner
+        v-if="legacyUpgrade && !upgradeBannerClosed"
+        :upgrade="legacyUpgrade"
+        :read-only="readOnly"
+        @close="upgradeBannerClosed = true"
+      />
+
       <!-- Canvas grid + filter overlay -->
       <!-- wheel.capture: the link hover card is anchored to a cell's pixel rect,
          which any scroll invalidates — hide it rather than let it float. -->
@@ -844,6 +851,7 @@ import SheetTabsBar from './SheetTabsBar.vue'
 import SheetToolbar from './SheetToolbar.vue'
 import SheetTopbar from './SheetTopbar.vue'
 import SheetTopbarActions from './SheetTopbarActions.vue'
+import SheetUpgradeBanner from './SheetUpgradeBanner.vue'
 import SlicerPanel from './SlicerPanel.vue'
 import SplitTextPopover from './SplitTextPopover.vue'
 import { buildAlignOptions, buildBorderOptions, buildMoreToolbarOptions } from './toolbar.config.js'
@@ -974,6 +982,7 @@ const {
   readIds: _readIds,
   readInput: _readInput,
   displayValue: _displayValue,
+  isNumberAt: _isNumberAt,
   refreshUsedCells: _refreshUsedCells,
   usedCellIds: _usedCellIds,
   usedExtent: _usedExtent,
@@ -1530,6 +1539,7 @@ const {
   popLastOp: _popLastOp,
   cellSilentlyProtected: (id, sn) => _cellSilentlyProtected(id, sn),
   flashProtected: (sn) => _flashProtected(sn),
+  refitRowsFor: _refitRowsFor,
 })
 
 // Remove the most recently queued op of a given type (used when an AI change
@@ -1541,6 +1551,18 @@ function _popLastOp(opType) {
       return
     }
   }
+}
+
+// After a write ({cellId: value}), the rows it touched fit their wrapped or
+// multi-line text unless sized by hand, like Google Sheets: they grow or
+// shrink with the new values. Returns the height change, which the write puts
+// on its history op (beforeRowH / afterRowH) so undo/redo restores it;
+// _queueOp destructures only the known keys, so server sync is unaffected.
+// Row heights live in the open sheet's canvas view, so a write to another
+// sheet doesn't refit.
+function _refitRowsFor(sn, writes) {
+  if (sn !== currentSheet.value) return null
+  return grid?.refitRowsFor?.(writes) ?? null
 }
 const hAlignIcon = computed(() => {
   if (activeFormat.value?.align === 'center') return 'lucide-align-center'
@@ -1913,13 +1935,19 @@ const {
   saveError,
   canWrite,
   loadError,
+  legacyUpgrade,
   loadSheet,
   autoCreate,
   saveExisting,
   retrySave,
   workbookJson,
 } = usePersistence({
-  engine: { start: _startEngine, toBytes: _engineBytes },
+  engine: {
+    start: _startEngine,
+    toBytes: _engineBytes,
+    client: _client,
+    syncDefinedNames: _syncDefinedNames,
+  },
   formats,
   merge,
   comments,
@@ -2441,6 +2469,8 @@ function _setupGridInstance() {
       // cold-path scans (Cmd+A extent, autofit) that used to walk the grid's
       // own `data` keys.
       getCellIds: () => _usedCellIds(),
+      // Formulas shown as text: let the painter guess from what it shows.
+      isNumber: (id) => (showFormulas.value ? undefined : _isNumberAt(id)),
       getMergeInfo: (id) => merge.getMasterInfo(id, currentSheet.value),
       isSlave: (id) => merge.isSlave(id, currentSheet.value),
       getMasterId: (id) => merge.getMasterId(id, currentSheet.value),
@@ -2566,23 +2596,11 @@ function _setupGridInstance() {
               [id]: value,
             },
           }
-          // A row fits its wrapped or multi-line text (Cmd+Enter) unless it
-          // was sized by hand, like Google Sheets: it grows or shrinks with
-          // the edit. The height diff rides the history op so undo/redo
-          // restores it; _queueOp destructures only the known keys, so server
-          // sync is unaffected. Row heights live in the current sheet's
-          // canvas view, hence the writeSheet guard.
-          if (writeSheet === currentSheet.value) {
-            const p = parseCellId(id)
-            const grow = p && grid?.refitRowFor?.(p.row, p.col, value)
-            if (grow) {
-              op.beforeRowH = {
-                [p.row]: grow.before,
-              }
-              op.afterRowH = {
-                [p.row]: grow.after,
-              }
-            }
+          // The row refits to the edit (wrapped text, Cmd+Enter lines).
+          const rowH = _refitRowsFor(writeSheet, { [id]: value })
+          if (rowH) {
+            op.beforeRowH = rowH.before
+            op.afterRowH = rowH.after
           }
           _queueOp(op)
           history.pushOp(op)
@@ -2674,6 +2692,12 @@ function _setupGridInstance() {
             before,
             after,
             summary: refs.length > 1 ? `Edited ${refs.length} cells` : '',
+          }
+          // Delete clears wrapped text: its rows shrink back.
+          const rowH = _refitRowsFor(currentSheet.value, after)
+          if (rowH) {
+            op.beforeRowH = rowH.before
+            op.afterRowH = rowH.after
           }
           _queueOp(op)
           history.pushOp(op)
@@ -2810,8 +2834,9 @@ async function _loadInitialData() {
     // so a saved filter still shows its hidden rows on first load.
     _applyHiddenRows()
     syncNames()
-    // Reopen the tab this browser had open last.
-    const last = _lastTab()
+    // Reopen the tab this browser had open last (a converted develop sheet:
+    // the one that editor had open).
+    const last = _lastTab() ?? legacyUpgrade.value?.current
     if (last && last !== currentSheet.value && sheetNames.value.includes(last)) switchSheet(last)
     _rememberTab = true
     activeCell.value = 'A1'
@@ -2824,6 +2849,8 @@ async function _loadInitialData() {
     // blank the sheet on the first snapshot-based undo (e.g. insert column).
     history.reset()
     syncFlags()
+    // A develop sheet converted on open is saved in the IronCalc format.
+    if (legacyUpgrade.value?.save && !readOnly.value) isDirty.value = true
   } else {
     // A new sheet starts as an empty workbook.
     await _startEngine()
@@ -2844,6 +2871,8 @@ async function _loadInitialData() {
 // surfaced a load error — flipped in a finally so a thrown exception
 // never strands the editor with a permanent spinner.
 const isInitialLoad = ref(true)
+// The develop-sheet upgrade banner, closed by its ×.
+const upgradeBannerClosed = ref(false)
 onMounted(async () => {
   _setupGridInstance()
   _setupEventListeners()
@@ -3439,6 +3468,7 @@ const {
   diffRefs: _diffRefs,
   queueOp: _queueOp,
   rectBlocked: _rectBlocked,
+  refitRowsFor: _refitRowsFor,
 })
 
 // Mirrors `clipboard.hasData()` reactively so the context menu can show /
@@ -3541,6 +3571,7 @@ const {
   captureFormatsRange: _captureFormatsRange,
   captureValidationRange: _captureValidationRange,
   diffRefs: _diffRefs,
+  refitRowsFor: _refitRowsFor,
 })
 
 // ── History ───────────────────────────────────────────────────────────────────
