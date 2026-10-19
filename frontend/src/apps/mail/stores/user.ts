@@ -144,22 +144,6 @@ export const userStore = defineStore('mail-user', () => {
     useSession().user.value ? {} : false,
   )
   const sieveScripts = useQuery(api.mail.sieve.list, account)
-  // The active account's counts, as one value that changes only when a count does. Each read of the
-  // mailbox list is a fresh copy, so watching the list itself fired on every refetch and every
-  // optimistic change — three count requests a click — whether anything had moved or not.
-  const mailboxCounts = computed(() =>
-    (mailboxes.data ?? [])
-      .map((m) => `${m.id}:${m.unread_threads}:${m.total_threads}:${m.total_emails}`)
-      .join('|'),
-  )
-  // Keep the unified counts in step with the per-account mailbox counts: refresh them when the
-  // active account's counts change — the periodic poll finding new mail, say. A write refreshes
-  // them itself (see the client policy).
-  watch(mailboxCounts, (_counts, before) => {
-    if (before && (userResource.data?.accounts.length ?? 0) > 1)
-      void unifiedFolders.refetch().catch(() => {})
-  })
-
   const mailboxIds = computed(() => deriveMailboxIds(mailboxes.data))
 
   // The categories the Inbox is split into, in the order of their tabs (none, no tabs), and each tab's
@@ -179,12 +163,19 @@ export const userStore = defineStore('mail-user', () => {
         { folder: 'inbox' }
       : false,
   )
-  // In step with the mailbox counts, as the unified folders are.
-  watch(mailboxCounts, (_counts, before) => {
-    if (!before) return
+  // Every count the sidebar and the tabs show, read again: the active account's folders, the Inbox's
+  // tabs, and the merged ones across accounts — which mail arriving in another account, or moving
+  // between tabs, changes without touching the active account's folders. For the polls and the mail
+  // sockets; a write reads again what it changes itself (see the client policy). These followed the
+  // mailbox list once, by a watcher, but the list is a new object on every read and every optimistic
+  // change, so each click asked for all of them again.
+  // Settles with the active account's folders, which the polls read next.
+  const refreshCounts = (): Promise<unknown> => {
+    if ((userResource.data?.accounts.length ?? 0) > 1) void unifiedFolders.refetch().catch(() => {})
     if (tabCounts.data) void tabCounts.refetch().catch(() => {})
     if (unifiedTabCounts.data) void unifiedTabCounts.refetch().catch(() => {})
-  })
+    return mailboxes.refetch().catch(() => {})
+  }
 
   // Short display labels for the merged views (All Inboxes, all-accounts search), keyed by the
   // account's full name. Only the odd ones out get labelled: the currently open account is
@@ -214,6 +205,7 @@ export const userStore = defineStore('mail-user', () => {
   }
 
   return {
+    refreshCounts,
     accountId,
     resolveAccount,
     userResource,

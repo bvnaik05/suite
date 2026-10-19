@@ -386,10 +386,16 @@ function messagePolicy<I, O>(id: string, publicName?: string): Policy<I, O> {
               return row
             const messages = Array.isArray(row.messages) ? row.messages.map(patch) : undefined
             if (!field) return row
+            // A conversation is starred while any of its messages is, whichever one was starred.
+            const flagged =
+              field === 'flagged' && messages?.length
+                ? { flagged: messages.some((m) => isRecord(m) && m.flagged) ? 1 : 0 }
+                : {}
             return {
               ...row,
               ...(messages ? { messages } : {}),
               ...(ids.has(row.id) ? { [field]: input[field] ? 1 : 0 } : {}),
+              ...flagged,
             }
           }
           if (field) {

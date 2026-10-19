@@ -96,3 +96,53 @@ it('unstarring in Starred takes a conversation with no star left off the list at
   // Anywhere else the row only loses its star.
   expect(unstar(['q'], 'inbox')).toEqual(['q', 's'])
 })
+
+it('a conversation is starred while any of its messages is, whichever was starred', () => {
+  const policy = registration.policy({
+    id: 'set_flagged',
+    kind: 'mutation',
+    publicName: 'messages.flag',
+  } as never) as {
+    effects: {
+      optimisticReads: { update: (input: unknown, query: unknown, data: unknown) => unknown }
+    }
+  }
+  const update = policy.effects.optimisticReads.update
+  // The row stands for its newest message, `n`; `o` is an older one.
+  const list = {
+    rows: [
+      {
+        id: 'n',
+        flagged: 0,
+        messages: [
+          { id: 'o', flagged: 0 },
+          { id: 'n', flagged: 0 },
+        ],
+      },
+    ],
+  }
+  const star = (ids: string[], flagged: boolean, data: unknown) =>
+    (
+      update(
+        { account: 'a', ids, flagged },
+        { account: 'a', mailbox: 'inbox' },
+        data,
+      ) as typeof list
+    ).rows[0].flagged
+
+  expect(star(['o'], true, list)).toBe(1)
+  const both = {
+    rows: [
+      {
+        id: 'n',
+        flagged: 1,
+        messages: [
+          { id: 'o', flagged: 1 },
+          { id: 'n', flagged: 1 },
+        ],
+      },
+    ],
+  }
+  // Unstarring the newest leaves the older one's star on the conversation.
+  expect(star(['n'], false, both)).toBe(1)
+})
