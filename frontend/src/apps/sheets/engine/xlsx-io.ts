@@ -9,7 +9,7 @@
 //   f  a formula WITHOUT the leading '=' (Excel convention)
 //   z  a number-format code (Excel's grammar, e.g. '#,##0.00', '0.00%')
 
-import { CURRENCIES, parseNumberFmt, type Currency } from '../utils/format-number.js'
+import { CURRENCIES, displayNumber, parseNumberFmt, type Currency } from '../utils/format-number.js'
 import type { MergeInfo } from './merge.js'
 import type { Rect } from './types.js'
 
@@ -218,8 +218,11 @@ function _iso(d: Date) {
  */
 export function toXlsxCell(raw: unknown, computed: unknown, fmt: unknown): XlsxCell | null {
   const isFormula = typeof raw === 'string' && raw.startsWith('=')
-  const src = isFormula ? computed : raw
+  let src = isFormula ? computed : raw
   if (!isFormula && (src === '' || src == null)) return null
+  // A formula's computed value is IronCalc's display, which it may have
+  // formatted ($4.50, 1,000, 50%): the number in it, not the text.
+  if (isFormula && !_isNumeric(src) && !isNaN(displayNumber(src))) src = displayNumber(src)
 
   const z = numFmtToZ(fmt)
   // Filled field by field to keep SheetJS's key order (f, t, v, z); every

@@ -128,6 +128,14 @@ describe('toXlsxCell — engine → SheetJS', () => {
     })
     expect(toXlsxCell('0.5', null, 'time:hm').v).toBe(0.5)
   })
+  // A formula's computed value is IronCalc's display, which IronCalc may
+  // have formatted ($4.50, 1,000, 50%): it went out as text.
+  it('a formatted formula result is still a number', () => {
+    expect(toXlsxCell('=B2*C2', '$4.50', 'currency:USD:2')).toMatchObject({ t: 'n', v: 4.5 })
+    expect(toXlsxCell('=SUM(A1:A3)', '1,015', '')).toEqual({ f: 'SUM(A1:A3)', t: 'n', v: 1015 })
+    expect(toXlsxCell('=A1*2', '100%', '')).toMatchObject({ t: 'n', v: 1 })
+    expect(toXlsxCell('=A1&"x"', '12 apples', '')).toMatchObject({ t: 's', v: '12 apples' })
+  })
   it('empty non-formula cell → null (skip)', () => {
     expect(toXlsxCell('', null, '')).toBe(null)
     expect(toXlsxCell(null, null, '')).toBe(null)

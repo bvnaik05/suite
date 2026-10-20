@@ -1,4 +1,10 @@
-import { fromXlsxCell, mergesFromXlsx, mergesToXlsx, toXlsxCell } from '../../engine/xlsx-io.js'
+import {
+  fromXlsxCell,
+  mergesFromXlsx,
+  mergesToXlsx,
+  numFmtFromEngine,
+  toXlsxCell,
+} from '../../engine/xlsx-io.js'
 import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
 
 // ── private helpers ────────────────────────────────────────────────────────────
@@ -54,8 +60,8 @@ function _parseCSV(text) {
 /**
  * @param {object} opts
  * @param {object} opts.cells – the workbook, through IronCalc:
- *   readSheet(sn) → Promise<{ inputs, displays }>, rows from A1 to the last
- *     used cell ([] when the sheet is empty);
+ *   readSheet(sn, { numFmts }) → Promise<{ inputs, displays, numFmts? }>, rows
+ *     from A1 to the last used cell ([] when the sheet is empty);
  *   write(sn, map) writes a {cellId: input} map; clear(sn) → Promise, empties
  *   the sheet's cells; addSheet(name) adds a sheet; idle() resolves once all
  *   of it applied.
@@ -109,7 +115,9 @@ export function useExportImport({
   // formulas (with their computed value), number formats, and merges — the
   // lossy display-string path only round-tripped visible text.
   async function _buildWorksheet(formats, merge, sn) {
-    const { inputs, displays } = await cells.readSheet(sn)
+    // numFmts: IronCalc's own format of a typed $1.50 or 15%, used where
+    // the side store has none.
+    const { inputs, displays, numFmts } = await cells.readSheet(sn, { numFmts: true })
     const ws = {}
     let maxR = 0,
       maxC = 0
@@ -118,7 +126,7 @@ export function useExportImport({
         if (raw === '') return
         const id = cellId(r, c)
         const computed = raw.startsWith('=') ? displays[r][c] : null
-        const fmt = formats?.get(id, sn)?.numberFormat || ''
+        const fmt = formats?.get(id, sn)?.numberFormat || numFmtFromEngine(numFmts?.[r]?.[c]) || ''
         const cell = toXlsxCell(raw, computed, fmt)
         if (!cell) return
         ws[id] = cell
