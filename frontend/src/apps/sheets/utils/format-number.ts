@@ -167,20 +167,33 @@ function _formatWith(map: DateTimeFormatters, variant: string | undefined, d: Da
   return _dtFmt(cfg[0], cfg[1]).format(d)
 }
 
+// A day serial (IronCalc, Excel and Google Sheets all count dates this way:
+// days since 1899-12-30, the fraction is the time of day) as a local Date.
+// Built from calendar parts, not milliseconds, so a DST change or the
+// runner's timezone can't shift it. Rounded to the second, like Sheets, so
+// float noise (14:29:59.9999) shows as 14:30:00.
+function _serialToDate(serial: number): Date | null {
+  if (!isFinite(serial)) return null
+  const days = Math.floor(serial)
+  const secs = Math.round((serial - days) * 86400)
+  return new Date(1899, 11, 30 + days, 0, 0, secs)
+}
+
 // Coerce a cell value into a Date for date/time/datetime formatting, or null
 // if it isn't a date. Handles three shapes:
 //   • a Date instance
-//   • a number / bare numeric string → epoch milliseconds (the serial model)
+//   • a number / bare numeric string → a day serial (what IronCalc's date
+//     functions return; reading it as epoch ms painted 1970, ISSUES #39)
 //   • a date string like "2026-03-15 14:50:30.789345" or "2026-03-15"
 // For strings we normalise "YYYY-MM-DD HH:mm:ss.ffffff": space→T and trim
 // sub-millisecond digits (JS Date only takes 3), and pin a bare date to local
 // midnight so an ISO date-only value isn't parsed as UTC and shifted a day.
 function _toDate(value: unknown): Date | null {
   if (value instanceof Date) return isNaN(value.getTime()) ? null : value
-  if (typeof value === 'number') return isNaN(value) ? null : new Date(value)
+  if (typeof value === 'number') return _serialToDate(value)
   const s = String(value).trim()
   if (s === '') return null
-  if (/^-?\d+(\.\d+)?$/.test(s)) return new Date(parseFloat(s))
+  if (/^-?\d+(\.\d+)?$/.test(s)) return _serialToDate(parseFloat(s))
   let norm = s.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1')
   if (/^\d{4}-\d{2}-\d{2}$/.test(norm)) norm += 'T00:00:00'
   let d = new Date(norm)

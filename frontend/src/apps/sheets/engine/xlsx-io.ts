@@ -209,7 +209,9 @@ export function toXlsxCell(raw: unknown, computed: unknown, fmt: unknown): XlsxC
   if (isFormula) cell.f = (raw as string).slice(1)
 
   const { type } = parseNumberFmt(fmt || '')
-  const asDate = DATE_TYPES.has(type) ? _toDate(src) : null
+  // A number under a date format is a day serial, the same number Excel
+  // stores, so it falls through to the number branch with its date code.
+  const asDate = DATE_TYPES.has(type) && !_isNumeric(src) ? _toDate(src) : null
   if (asDate) {
     cell.t = 'd'
     cell.v = asDate

@@ -113,6 +113,19 @@ describe('toXlsxCell — engine → SheetJS', () => {
     expect(c.v instanceof Date).toBe(true)
     expect(c.z).toBe('yyyy-mm-dd')
   })
+  // ISSUES #39: IronCalc dates are day serials, which is also what Excel
+  // stores, so a serial goes out as that number with the date code. It was
+  // parsed as a date string: new Date('46000') is the year 46000.
+  it('a date-formatted serial stays a number with the date code', () => {
+    expect(toXlsxCell('46000', null, 'date:dmy')).toEqual({ t: 'n', v: 46000, z: 'dd/mm/yyyy' })
+    expect(toXlsxCell('=EOMONTH(A1,0)', '46081', 'date:ymd')).toEqual({
+      f: 'EOMONTH(A1,0)',
+      t: 'n',
+      v: 46081,
+      z: 'yyyy-mm-dd',
+    })
+    expect(toXlsxCell('0.5', null, 'time:hm').v).toBe(0.5)
+  })
   it('empty non-formula cell → null (skip)', () => {
     expect(toXlsxCell('', null, '')).toBe(null)
     expect(toXlsxCell(null, null, '')).toBe(null)

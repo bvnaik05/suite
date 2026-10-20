@@ -173,44 +173,57 @@ describe('applyNumberFmt — currency variants', () => {
 })
 
 describe('applyNumberFmt — date variants', () => {
-  // 2025-01-15T00:00:00 UTC — exact ms varies with the test-runner TZ, so we
-  // assert on character/format shape rather than exact string.
-  const ms = Date.UTC(2025, 0, 15)
+  // Numbers are IronCalc/Google day serials: days since 1899-12-30, the
+  // fraction is the time of day. 45672 = 2025-01-15.
+  const serial = 45672
 
   it('bare `date` defers to user locale (legacy)', () => {
     // Just verify we get *some* date-like string, not the raw number.
-    const out = applyNumberFmt(ms, 'date')
-    expect(out).not.toBe(String(ms))
-    expect(out).toMatch(/\d/)
+    const out = applyNumberFmt(serial, 'date')
+    expect(out).not.toBe(String(serial))
+    expect(out).toMatch(/2025/)
   })
 
   it('date:dmy → DD/MM/YYYY', () => {
-    expect(applyNumberFmt(ms, 'date:dmy')).toMatch(/^\d{2}\/\d{2}\/\d{4}$/)
+    expect(applyNumberFmt(serial, 'date:dmy')).toBe('15/01/2025')
   })
 
   it('date:mdy → MM/DD/YYYY', () => {
-    expect(applyNumberFmt(ms, 'date:mdy')).toMatch(/^\d{2}\/\d{2}\/\d{4}$/)
+    expect(applyNumberFmt(serial, 'date:mdy')).toBe('01/15/2025')
   })
 
   it('date:ymd → YYYY-MM-DD', () => {
-    expect(applyNumberFmt(ms, 'date:ymd')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(applyNumberFmt(serial, 'date:ymd')).toBe('2025-01-15')
   })
 
   it('date:long → "15 Jan 2025"', () => {
-    const out = applyNumberFmt(ms, 'date:long')
-    expect(out).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}$/)
+    expect(applyNumberFmt(serial, 'date:long')).toBe('15 Jan 2025')
   })
 
   it('date:full → weekday-prefixed long date', () => {
-    const out = applyNumberFmt(ms, 'date:full')
-    expect(out).toMatch(/^[A-Z][a-z]{2}, \d{1,2} [A-Z][a-z]{2} \d{4}$/)
+    expect(applyNumberFmt(serial, 'date:full')).toBe('Wed, 15 Jan 2025')
   })
 
   it('unknown date variant falls back to locale default', () => {
-    expect(applyNumberFmt(ms, 'date:xyz')).toMatch(/\d/)
+    expect(applyNumberFmt(serial, 'date:xyz')).toMatch(/2025/)
   })
 
-  it('non-numeric value passes through (no ms-since-epoch to parse)', () => {
+  // ISSUES #39: a serial (what every IronCalc date function returns, shown
+  // as a bare number string) was read as Unix milliseconds → 1970.
+  it('reads a number as a day serial, not epoch ms (not 1970)', () => {
+    expect(applyNumberFmt(46000, 'date:dmy')).toBe('09/12/2025')
+    expect(applyNumberFmt('46000', 'date:long')).toBe('9 Dec 2025')
+    expect(applyNumberFmt('46081', 'date:ymd')).toBe('2026-02-28') // an EOMONTH result
+    expect(applyNumberFmt(1, 'date:ymd')).toBe('1899-12-31')
+    expect(applyNumberFmt(0, 'date:ymd')).toBe('1899-12-30')
+    expect(applyNumberFmt(-1, 'date:ymd')).toBe('1899-12-29')
+  })
+
+  it('drops the time of day for a date format', () => {
+    expect(applyNumberFmt(46000.75, 'date:dmy')).toBe('09/12/2025')
+  })
+
+  it('non-numeric value passes through (no serial to parse)', () => {
     expect(applyNumberFmt('hello', 'date:dmy')).toBe('hello')
   })
 
@@ -231,28 +244,43 @@ describe('applyNumberFmt — date variants', () => {
       '2026-03-15, 14:50',
     )
   })
+
+  it('still takes a Date instance', () => {
+    expect(applyNumberFmt(new Date(2025, 0, 15), 'date:ymd')).toBe('2025-01-15')
+  })
 })
 
 describe('applyNumberFmt — time variants', () => {
-  // 15:30:45 local — pick a fixed clock-only ms so all assertions stay in
-  // local timezone without ms-since-epoch arithmetic.
-  const d = new Date(2025, 0, 15, 15, 30, 45)
-  const ms = d.getTime()
+  // The fraction of a day: 15:30:45 = 55845 s / 86400. Serial 45672 + that.
+  const serial = 45672 + 55845 / 86400
 
   it('time:hm → HH:MM (24h)', () => {
-    expect(applyNumberFmt(ms, 'time:hm')).toBe('15:30')
+    expect(applyNumberFmt(serial, 'time:hm')).toBe('15:30')
   })
 
   it('time:hms → HH:MM:SS (24h)', () => {
-    expect(applyNumberFmt(ms, 'time:hms')).toBe('15:30:45')
+    expect(applyNumberFmt(serial, 'time:hms')).toBe('15:30:45')
   })
 
   it('time:hm12 → H:MM AM/PM', () => {
-    expect(applyNumberFmt(ms, 'time:hm12')).toMatch(/^3:30 PM$/)
+    expect(applyNumberFmt(serial, 'time:hm12')).toBe('3:30 PM')
   })
 
   it('time:hms12 → H:MM:SS AM/PM', () => {
-    expect(applyNumberFmt(ms, 'time:hms12')).toMatch(/^3:30:45 PM$/)
+    expect(applyNumberFmt(serial, 'time:hms12')).toBe('3:30:45 PM')
+  })
+
+  // ISSUES #39: 0.5 (noon) was 1970-01-01 00:00:00.0005 UTC, i.e. the
+  // runner's UTC offset ("05:30" in India).
+  it('a bare fraction is a time of day', () => {
+    expect(applyNumberFmt(0.5, 'time:hm')).toBe('12:00')
+    expect(applyNumberFmt('0.75', 'time:hm12')).toBe('6:00 PM')
+    expect(applyNumberFmt(0, 'time:hms')).toBe('00:00:00')
+  })
+
+  it('rounds to the nearest second (float noise in the serial)', () => {
+    // 14:29:59.9999 in floating point is 14:30:00 in Sheets.
+    expect(applyNumberFmt(0.6041666666, 'time:hms')).toBe('14:30:00')
   })
 
   it('non-numeric value passes through', () => {
@@ -261,19 +289,22 @@ describe('applyNumberFmt — time variants', () => {
 })
 
 describe('applyNumberFmt — datetime', () => {
-  const d = new Date(2025, 0, 15, 15, 30, 0)
-  const ms = d.getTime()
+  const serial = 45672 + (15 * 3600 + 30 * 60) / 86400
 
   it('datetime:dmy_hm12 → "DD/MM/YYYY, H:MM AM/PM"', () => {
-    expect(applyNumberFmt(ms, 'datetime:dmy_hm12')).toBe('15/01/2025, 3:30 PM')
+    expect(applyNumberFmt(serial, 'datetime:dmy_hm12')).toBe('15/01/2025, 3:30 PM')
   })
 
   it('datetime:ymd_hms → "YYYY-MM-DD, HH:MM:SS"', () => {
-    expect(applyNumberFmt(ms, 'datetime:ymd_hms')).toBe('2025-01-15, 15:30:00')
+    expect(applyNumberFmt(serial, 'datetime:ymd_hms')).toBe('2025-01-15, 15:30:00')
   })
 
   it('datetime:long_hm → "15 Jan 2025, 15:30"', () => {
-    expect(applyNumberFmt(ms, 'datetime:long_hm')).toBe('15 Jan 2025, 15:30')
+    expect(applyNumberFmt(serial, 'datetime:long_hm')).toBe('15 Jan 2025, 15:30')
+  })
+
+  it('a time that rounds up to midnight rolls the date over', () => {
+    expect(applyNumberFmt(45672.9999999, 'datetime:ymd_hms')).toBe('2025-01-16, 00:00:00')
   })
 })
 
