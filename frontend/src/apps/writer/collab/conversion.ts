@@ -331,8 +331,103 @@ function paletteName(property: ColourProperty, value: string) {
   return name
 }
 
-// The key setting an old text colour as the palette name the editor draws, empty and Drive's ink
-// holding none; null when it reads as no palette colour
+// Old colours that look like none where they're drawn: black text is the default text, a
+// see-through highlight shows the page
+const LOOKS_UNSET: Record<ColourProperty, string> = {
+  color: 'black',
+  'background-color': 'transparent',
+}
+
+// The default text Writer draws, prose-v3's var(--ink-gray-7): frappe-ui's gray 800,
+// oklch(0.341 0 0)
+const INK = { red: 56, green: 56, blue: 56 }
+
+// The anchor frappe-ui's textColorHexMap matches gray text to
+const GRAY_TEXT = { red: 107, green: 114, blue: 128 }
+
+type Rgb = typeof INK
+
+const CHANNELS = 3
+const BYTE = 255
+const PERCENT = 100
+const HEX = 16
+
+// A colour as frappe-ui's color-parse reads it: the first hex must have exactly 6 digits,
+// otherwise rgb() or rgba() with 3 channels; the alpha it ignores comes after a ',' or a '/'
+function rgbOf(value: string): (Rgb & { alpha: number }) | null {
+  const [hex] = /#[0-9a-f]{3,8}/i.exec(value) ?? []
+  if (hex) {
+    const [, ...pairs] = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex) ?? []
+    if (!pairs.length) {
+      return null
+    }
+
+    const [red, green, blue] = pairs.map((pair) => parseInt(pair, HEX))
+    return { red, green, blue, alpha: 1 }
+  }
+
+  const [, body] = /rgba?\(([^)]+)\)/i.exec(value) ?? []
+  if (!body) {
+    return null
+  }
+
+  const [channels, slashed] = body.split('/')
+  const parts = channels.split(/[\s,]+/).filter(Boolean)
+  const [red, green, blue] = parts.slice(0, CHANNELS).map(byteOf)
+  if (parts.length < CHANNELS || [red, green, blue].some(Number.isNaN)) {
+    return null
+  }
+
+  return { red, green, blue, alpha: parseFloat(slashed ?? parts[CHANNELS] ?? '1') }
+}
+
+// A channel as frappe-ui's color-parse reads it, a number or a percentage, rounded into a byte
+function byteOf(channel: string) {
+  let byte = parseFloat(channel)
+  if (channel.endsWith('%')) {
+    byte = (byte / PERCENT) * BYTE
+  }
+
+  return Math.max(0, Math.min(BYTE, Math.round(byte)))
+}
+
+// The distance frappe-ui's color-parse matches colours by, straight across red, green and blue
+function distance(from: Rgb, to: Rgb) {
+  return Math.hypot(from.red - to.red, from.green - to.green, from.blue - to.blue)
+}
+
+// The palette name an old colour keeps its look as, '' when it looks like none: the one the editor
+// reads, or for a tone it reads as none, gray text or the default text by whichever is closer and
+// a gray highlight; null when it can't be read
+function oldPaletteName(property: ColourProperty, value: string): string | null {
+  if (value.includes(';')) {
+    return null
+  }
+
+  const rgb = rgbOf(value)
+  const isSeeThrough = property === 'background-color' && rgb?.alpha === 0
+  if (isSeeThrough || value.trim().toLowerCase() === LOOKS_UNSET[property]) {
+    return ''
+  }
+
+  const name = paletteName(property, value)
+  if (typeof name === 'string' && name) {
+    return name
+  }
+
+  if (!rgb) {
+    return null
+  }
+
+  if (property === 'background-color' || distance(rgb, GRAY_TEXT) < distance(rgb, INK)) {
+    return 'gray'
+  }
+
+  return ''
+}
+
+// The key setting an old text colour as the palette name the editor draws, empty, Drive's ink and
+// colours that look like the default text holding none; null when it can't be read
 function textColourFormat(color: unknown): Attributes | null {
   if (typeof color !== 'string') {
     return { color }
@@ -342,25 +437,50 @@ function textColourFormat(color: unknown): Attributes | null {
     return { color: null }
   }
 
-  const name = paletteName('color', color)
-  if (!name) {
+  const name = oldPaletteName('color', color)
+  if (name === null) {
     return null
   }
 
-  return { color: name }
+  return { color: name || null }
 }
 
-// The highlight an old background colour reads as, which must agree with one the run holds; null
-// when it reads as no palette colour
+// The highlight old colours read as: a background colour, which must agree with the highlight the
+// run holds, or that highlight's own colour; null when one can't be read
 function highlightFormat(backgroundColor: unknown, held: unknown): Attributes | null {
-  if (backgroundColor == null || backgroundColor === '') {
-    return {}
+  const heldColour = (held as Attributes | undefined)?.color
+  let heldName = heldColour
+  if (typeof heldColour === 'string') {
+    heldName = oldPaletteName('background-color', heldColour)
+    if (heldName === null) {
+      return null
+    }
   }
 
-  const name =
-    typeof backgroundColor === 'string' && paletteName('background-color', backgroundColor)
-  const heldName = (held as Attributes | undefined)?.color
-  if (!name || (heldName != null && heldName !== name)) {
+  let name = ''
+  if (backgroundColor != null && backgroundColor !== '') {
+    const backgroundName =
+      typeof backgroundColor === 'string' && oldPaletteName('background-color', backgroundColor)
+    if (typeof backgroundName !== 'string') {
+      return null
+    }
+
+    name = backgroundName
+  }
+
+  if (!name) {
+    if (typeof heldColour !== 'string') {
+      return {}
+    }
+
+    if (!heldName) {
+      return { namedHighlight: null }
+    }
+
+    return { namedHighlight: { ...(held as Attributes), color: heldName } }
+  }
+
+  if (heldName != null && heldName !== '' && heldName !== name) {
     return null
   }
 
