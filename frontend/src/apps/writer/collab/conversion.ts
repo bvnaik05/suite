@@ -345,28 +345,36 @@ const INK = { red: 56, green: 56, blue: 56 }
 // The anchor frappe-ui's textColorHexMap matches gray text to
 const GRAY_TEXT = { red: 107, green: 114, blue: 128 }
 
+// The page Writer draws behind the text, bg-surface-base: frappe-ui's neutral white
+const PAGE = { red: 255, green: 255, blue: 255 }
+
+// The anchor frappe-ui's highlightColorHexMap matches a gray highlight to
+const GRAY_HIGHLIGHT = { red: 229, green: 231, blue: 235 }
+
 type Rgb = typeof INK
+
+// The gray an old tone the editor reads as none keeps its look as, and what shows with no colour
+const TONES: Record<ColourProperty, { gray: Rgb; none: Rgb }> = {
+  color: { gray: GRAY_TEXT, none: INK },
+  'background-color': { gray: GRAY_HIGHLIGHT, none: PAGE },
+}
 
 const CHANNELS = 3
 const BYTE = 255
 const PERCENT = 100
 const HEX = 16
 
-// A colour as frappe-ui's color-parse reads it: the first hex must have exactly 6 digits,
-// otherwise rgb() or rgba() with 3 channels; the alpha it ignores comes after a ',' or a '/'
+// A colour as frappe-ui's color-parse reads it, when it's the whole value: a hex of exactly 6
+// digits, or rgb() or rgba() with 3 channels; the alpha it ignores comes after a ',' or a '/'
 function rgbOf(value: string): (Rgb & { alpha: number }) | null {
-  const [hex] = /#[0-9a-f]{3,8}/i.exec(value) ?? []
-  if (hex) {
-    const [, ...pairs] = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex) ?? []
-    if (!pairs.length) {
-      return null
-    }
-
+  const colour = value.trim()
+  const [, ...pairs] = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(colour) ?? []
+  if (pairs.length) {
     const [red, green, blue] = pairs.map((pair) => parseInt(pair, HEX))
     return { red, green, blue, alpha: 1 }
   }
 
-  const [, body] = /rgba?\(([^)]+)\)/i.exec(value) ?? []
+  const [, body] = /^rgba?\(([^)]+)\)$/i.exec(colour) ?? []
   if (!body) {
     return null
   }
@@ -397,8 +405,8 @@ function distance(from: Rgb, to: Rgb) {
 }
 
 // The palette name an old colour keeps its look as, '' when it looks like none: the one the editor
-// reads, or for a tone it reads as none, gray text or the default text by whichever is closer and
-// a gray highlight; null when it can't be read
+// reads, or for a tone it reads as none, gray or no colour by whichever is nearer; null when it
+// can't be read
 function oldPaletteName(property: ColourProperty, value: string): string | null {
   if (value.includes(';')) {
     return null
@@ -419,7 +427,8 @@ function oldPaletteName(property: ColourProperty, value: string): string | null 
     return null
   }
 
-  if (property === 'background-color' || distance(rgb, GRAY_TEXT) < distance(rgb, INK)) {
+  const { gray, none } = TONES[property]
+  if (distance(rgb, gray) < distance(rgb, none)) {
     return 'gray'
   }
 
@@ -445,46 +454,46 @@ function textColourFormat(color: unknown): Attributes | null {
   return { color: name || null }
 }
 
+// The palette name an old highlight colour keeps its look as, '' when there is none; null when it
+// can't be read
+function highlightName(value: unknown): string | null {
+  if (value == null || value === '') {
+    return ''
+  }
+
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  return oldPaletteName('background-color', value)
+}
+
 // The highlight old colours read as: a background colour, which must agree with the highlight the
 // run holds, or that highlight's own colour; null when one can't be read
 function highlightFormat(backgroundColor: unknown, held: unknown): Attributes | null {
   const heldColour = (held as Attributes | undefined)?.color
-  let heldName = heldColour
-  if (typeof heldColour === 'string') {
-    heldName = oldPaletteName('background-color', heldColour)
-    if (heldName === null) {
-      return null
-    }
-  }
-
-  let name = ''
-  if (backgroundColor != null && backgroundColor !== '') {
-    const backgroundName =
-      typeof backgroundColor === 'string' && oldPaletteName('background-color', backgroundColor)
-    if (typeof backgroundName !== 'string') {
-      return null
-    }
-
-    name = backgroundName
-  }
-
-  if (!name) {
-    if (typeof heldColour !== 'string') {
-      return {}
-    }
-
-    if (!heldName) {
-      return { namedHighlight: null }
-    }
-
-    return { namedHighlight: { ...(held as Attributes), color: heldName } }
-  }
-
-  if (heldName != null && heldName !== '' && heldName !== name) {
+  const [name, heldName] = [backgroundColor, heldColour].map(highlightName)
+  if (name === null || heldName === null) {
     return null
   }
 
-  return { namedHighlight: { color: name } }
+  if (name) {
+    if (heldName && heldName !== name) {
+      return null
+    }
+
+    return { namedHighlight: { color: name } }
+  }
+
+  if (typeof heldColour !== 'string') {
+    return {}
+  }
+
+  if (!heldName) {
+    return { namedHighlight: null }
+  }
+
+  return { namedHighlight: { ...(held as Attributes), color: heldName } }
 }
 
 // The keys that set formatting's old text style colours as palette names, its background on the

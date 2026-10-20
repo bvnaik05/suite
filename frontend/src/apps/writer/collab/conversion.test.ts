@@ -1085,7 +1085,7 @@ describe('convertLegacy', () => {
     },
   )
 
-  it.each(['#333', 'navy', 'grey'])(
+  it.each(['#333', 'navy', 'grey', '#6b7280junk', 'x #6b7280 y', 'rgb(107,114,128) junk'])(
     'refuses an old Yjs text colour %s with no palette colour',
     (value) => {
       const legacy = stored(legacyDoc(yMarked('word', { textStyle: { color: value } })))
@@ -1124,6 +1124,13 @@ describe('convertLegacy', () => {
     { value: 'transparent', drawn: [] },
     { value: 'rgba(254, 249, 195, 0)', drawn: [] },
     { value: 'rgb(254 249 195 / 0)', drawn: [] },
+    { value: '#ffffff', drawn: [] },
+    { value: 'rgb(255,255,255)', drawn: [] },
+    { value: '#fafafa', drawn: [] },
+    { value: 'rgba(255,255,255,0.5)', drawn: [] },
+    { value: '#d1d5db', drawn: [['namedHighlight', 'gray']] },
+    { value: '#f3f4f6', drawn: [] },
+    { value: '#f1f2f4', drawn: [['namedHighlight', 'gray']] },
   ])('reads an old Yjs background colour $value as the highlight drawn', ({ value, drawn }) => {
     const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: value } })))
 
@@ -1133,17 +1140,21 @@ describe('convertLegacy', () => {
     expect(drawnColours(content)).toEqual([['lit', drawn]])
   })
 
-  it.each(['black', 'navy'])('refuses an old Yjs background colour %s', (value) => {
-    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: value } })))
+  it.each(['black', 'navy', '#6b7280junk', 'x #6b7280 y', 'rgb(107,114,128) junk'])(
+    'refuses an old Yjs background colour %s',
+    (value) => {
+      const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: value } })))
 
-    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
-  })
+      expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    },
+  )
 
   it.each([
     { value: '#fef9c3', drawn: [['namedHighlight', 'yellow']] },
     { value: '#e5e7eb', drawn: [['namedHighlight', 'gray']] },
     { value: 'yellow', drawn: [['namedHighlight', 'yellow']] },
     { value: 'transparent', drawn: [] },
+    { value: '', drawn: [] },
   ])('reads an old Yjs highlight $value as the highlight drawn', ({ value, drawn }) => {
     const legacy = stored(legacyDoc(yMarked('lit', { namedHighlight: { color: value } })))
 
@@ -1158,6 +1169,15 @@ describe('convertLegacy', () => {
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
+
+  it.each([{}, { textStyle: { backgroundColor: '#fef9c3' } }])(
+    'refuses an old Yjs highlight whose colour is not text, with the style %j',
+    (style) => {
+      const legacy = stored(legacyDoc(yMarked('lit', { ...style, namedHighlight: { color: 5 } })))
+
+      expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    },
+  )
 
   it('reads an old highlight on a mention as its palette colour', () => {
     const mention = yAtom('mention', { id: 'x', label: 'Ann' })
@@ -1175,6 +1195,7 @@ describe('convertLegacy', () => {
   it.each([
     { value: '#e5e7eb', held: 'gray', drawn: [['namedHighlight', 'gray']] },
     { value: 'transparent', held: 'yellow', drawn: [['namedHighlight', 'yellow']] },
+    { value: '#fef9c3', held: '', drawn: [['namedHighlight', 'yellow']] },
   ])(
     'reads an old background colour $value over a $held highlight as the highlight drawn',
     ({ value, held, drawn }) => {
