@@ -141,6 +141,23 @@ export function zToNumFmt(z: string | null | undefined): string {
 
 // Reattach a decimals suffix only when non-zero, so `number`/`percentage`
 // (whose defaults differ) stay minimal and round-trip.
+/**
+ * IronCalc's own number format for a cell (what typing `$1.50`, `15%` or
+ * `1,000` sets; Excel-style codes) as one of ours, or '' when there is
+ * nothing to carry. Copy and fill use it, since a cell's input is its bare
+ * number (`1.5`) and would otherwise lose the format. Dates are left out:
+ * their input is the typed text, which re-parses to the same date.
+ */
+export function numFmtFromEngine(code: string | null | undefined): string {
+  if (!code || /^general$/i.test(code) || code === '@') return ''
+  const fmt = zToNumFmt(code)
+  if (DATE_TYPES.has(parseNumberFmt(fmt).type)) return ''
+  // A code zToNumFmt doesn't know stays custom; only a numeric pattern
+  // renders (a date code like m/d/yyyy would paint as literal text).
+  if (fmt.startsWith('custom:') && !/[0#]/.test(code.replace(/"[^"]*"/g, ''))) return ''
+  return fmt
+}
+
 function _withDec(type: 'number' | 'percentage', dec: number) {
   if (type === 'percentage') return dec === 2 ? 'percentage' : `percentage:${dec}`
   return dec === 0 ? 'number' : `number:${dec}`

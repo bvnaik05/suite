@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
+import { applyNumberFmt } from '../utils/format-number.js'
 import {
   fromXlsxCell,
   mergesFromXlsx,
   mergesToXlsx,
+  numFmtFromEngine,
   numFmtToZ,
   toXlsxCell,
   zToNumFmt,
@@ -129,6 +131,25 @@ describe('toXlsxCell — engine → SheetJS', () => {
   it('empty non-formula cell → null (skip)', () => {
     expect(toXlsxCell('', null, '')).toBe(null)
     expect(toXlsxCell(null, null, '')).toBe(null)
+  })
+})
+
+// IronCalc formats a typed `$1.50`, `15%` or `1,000` itself; copy and fill
+// carry that format into the side store with this.
+describe('numFmtFromEngine — IronCalc num_fmt → our format', () => {
+  it('maps the formats typing produces', () => {
+    expect(numFmtFromEngine('$#,##0.00')).toBe('custom:$#,##0.00')
+    expect(applyNumberFmt('1.5', numFmtFromEngine('$#,##0.00'))).toBe('$1.50')
+    expect(numFmtFromEngine('€#,##0')).toBe('custom:€#,##0')
+    expect(numFmtFromEngine('"₹"#,##0.00')).toBe('currency:INR:2')
+    expect(numFmtFromEngine('#,##0%')).toBe('percentage:0')
+    expect(numFmtFromEngine('#,##0.00%')).toBe('percentage')
+    expect(numFmtFromEngine('#,##0')).toBe('number')
+  })
+  it('leaves general, text and dates alone', () => {
+    // A date's input is its typed text, which re-parses to the same date.
+    for (const code of ['general', 'General', '', '@', 'yyyy-mm-dd', 'm/d/yyyy', 'h:mm AM/PM'])
+      expect(numFmtFromEngine(code)).toBe('')
   })
 })
 

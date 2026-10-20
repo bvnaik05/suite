@@ -1015,7 +1015,10 @@ const validation = createValidationEngine()
 const protection = createProtectionEngine()
 const condFormat = createCondFormatEngine()
 const clipboard = createClipboard({
-  cells: { read: (sn, rect) => _readRect(sn, rect), write: (sn, map) => _writeInputs(sn, map) },
+  cells: {
+    read: (sn, rect, opts) => _readRect(sn, rect, opts),
+    write: (sn, map) => _writeInputs(sn, map),
+  },
   getCurrentSheet: () => currentSheet.value,
   formats,
   condFormat,
@@ -1563,6 +1566,19 @@ function _popLastOp(opType) {
 function _refitRowsFor(sn, writes) {
   if (sn !== currentSheet.value) return null
   return grid?.refitRowsFor?.(writes) ?? null
+}
+
+// {cellId: IronCalc num_fmt} for a rect's formatted cells: the format a
+// typed `$1.50` or `15%` got from IronCalc, which fill carries along.
+async function _readEngineFormats(rect, sn) {
+  const { numFmts } = await _readRect(sn, rect, { numFmts: true })
+  const out = {}
+  numFmts.forEach((row, i) =>
+    row.forEach((fmt, j) => {
+      if (fmt && !/^general$/i.test(fmt)) out[cellId(rect.r0 + i, rect.c0 + j)] = fmt
+    }),
+  )
+  return out
 }
 const hAlignIcon = computed(() => {
   if (activeFormat.value?.align === 'center') return 'lucide-align-center'
@@ -3475,6 +3491,7 @@ const {
   queueOp: _queueOp,
   rectBlocked: _rectBlocked,
   refitRowsFor: _refitRowsFor,
+  readEngineFormats: _readEngineFormats,
 })
 
 // Mirrors `clipboard.hasData()` reactively so the context menu can show /
