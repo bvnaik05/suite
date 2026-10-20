@@ -51,22 +51,7 @@ export function readAnchor(anchor: string): ThreadAnchor {
     return { kind: 'document' }
   }
 
-  const stored = parsed(anchor)
-  if (!stored) {
-    return { kind: 'unplaced' }
-  }
-
-  if (!('s' in stored)) {
-    return { kind: 'deleted', quote: stored.q }
-  }
-
-  try {
-    const start = Y.decodeRelativePosition(fromBase64(stored.s))
-    const end = Y.decodeRelativePosition(fromBase64(stored.e))
-    return { kind: 'text', start, end, quote: stored.q }
-  } catch {
-    return { kind: 'unplaced' }
-  }
+  return parsed(anchor)
 }
 
 /** The text a text anchor was made on; empty for any other anchor. */
@@ -97,29 +82,35 @@ export function anchorEnds(anchor: string): Y.ID[] {
   return ends
 }
 
-function parsed(anchor: string): StoredAnchor | { v: 1; q: string } | null {
+function parsed(anchor: string): ThreadAnchor {
   let value: unknown
   try {
     value = JSON.parse(anchor)
   } catch {
     // An old comment id from before collaboration
-    return null
+    return { kind: 'unplaced' }
   }
 
   const stored = value as Partial<StoredAnchor> | null
   if (stored?.v !== 1 || typeof stored.q !== 'string') {
-    return null
+    return { kind: 'unplaced' }
   }
 
   if (stored.s === undefined && stored.e === undefined) {
-    return { v: 1, q: stored.q }
+    return { kind: 'deleted', quote: stored.q }
   }
 
   if (typeof stored.s !== 'string' || typeof stored.e !== 'string') {
-    return null
+    return { kind: 'unplaced' }
   }
 
-  return stored as StoredAnchor
+  try {
+    const start = Y.decodeRelativePosition(fromBase64(stored.s))
+    const end = Y.decodeRelativePosition(fromBase64(stored.e))
+    return { kind: 'text', start, end, quote: stored.q }
+  } catch {
+    return { kind: 'unplaced' }
+  }
 }
 
 function toBase64(bytes: Uint8Array): string {

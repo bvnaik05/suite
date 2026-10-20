@@ -98,7 +98,7 @@ describe('anchors', () => {
     expect(readAnchor('{"v":1,"q":"gone words"}')).toEqual({ kind: 'deleted', quote: 'gone words' })
   })
 
-  // The anchor forms the server writes or reads; the server's tests can read this file too
+  // The forms a stored thread anchor can take, and broken ones that read as unplaced
   it.each(anchorForms)('reads $anchor as $kind', ({ anchor, kind }) => {
     expect(readAnchor(anchor).kind).toBe(kind)
   })
