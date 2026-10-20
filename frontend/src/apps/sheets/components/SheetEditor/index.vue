@@ -171,8 +171,19 @@
 
       <!-- Bar 3 · Formula bar -->
       <div class="sn-formula-bar">
-        <Tooltip :text="`Active cell ${activeCell}`">
-          <span class="sn-cell-ref">{{ activeCell }}</span>
+        <Tooltip :text="__('Type a cell or range, then Enter')">
+          <input
+            class="sn-cell-ref"
+            name="name-box"
+            :aria-label="__('Name box')"
+            :value="nameBox"
+            spellcheck="false"
+            autocomplete="off"
+            @focus="$event.target.select()"
+            @keydown.enter.prevent="onNameBoxEnter"
+            @keydown.esc.prevent="onNameBoxDone($event)"
+            @blur="$event.target.value = nameBox"
+          />
         </Tooltip>
         <span class="sn-fx-label" aria-hidden="true">fx</span>
         <div class="sn-formula-wrap">
@@ -844,6 +855,7 @@ import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
 import { applyNumberFmt, buildNumberFmt, parseNumberFmt } from '../../utils/format-number.js'
 import { AC_FUN_KEYS } from '../../utils/formula-ac.js'
 import { autoCloseKey } from '../../utils/formula-autoclose.js'
+import { nameBoxLabel, parseNameBox } from '../../utils/name-box.js'
 import { userInitials } from '../../utils/session.js'
 import { getTextWrap } from '../../utils/text-wrap.js'
 import AISettingsDialog from './AISettingsDialog.vue'
@@ -1158,6 +1170,8 @@ const formulaInputRef = ref(null)
 const csvInputRef = ref(null)
 const xlsxInputRef = ref(null)
 const activeCell = ref('A1')
+// What the name box shows: the active cell, or the selected range.
+const nameBox = ref('A1')
 const formulaValue = ref('')
 const canUndo = ref(false)
 const canRedo = ref(false)
@@ -1640,6 +1654,11 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
 })
 
 let grid = null
+// Undo, a sheet switch and the like set the active cell without a select.
+watch(activeCell, (id) => {
+  const range = grid?.getSelection?.()
+  nameBox.value = id.includes(':') || !range ? id : nameBoxLabel(range)
+})
 let ro = null
 function syncFlags() {
   canUndo.value = history.canUndo()
@@ -2545,6 +2564,10 @@ function _setupGridInstance() {
     host: {
       onSelect(id) {
         activeCell.value = id
+        // Row and column picks arrive labelled (3:3, B:B); a range shows both
+        // corners.
+        const range = grid?.getSelection?.()
+        nameBox.value = id.includes(':') || !range ? id : nameBoxLabel(range)
         _typedCell = null
         _showInputInFormulaBar(id)
         refreshActiveFormat()
@@ -4082,6 +4105,23 @@ const {
 // takes focus back unless something else (a click, an editor) has it.
 function _refocusGridAfterDialog() {
   setTimeout(_refocusGridIfIdle)
+}
+
+// The name box takes a typed cell or range (k40, A1:B5, 3:5, B:D) and
+// jumps there, as in Excel and Google (ISSUES #66). Anything else is
+// dropped and the box shows the selection again.
+function onNameBoxEnter(e) {
+  const range = grid && parseNameBox(e.target.value, grid.getTotalRows(), grid.getTotalCols())
+  if (range) {
+    grid.moveTo(range.r0, range.c0)
+    if (range.r0 !== range.r1 || range.c0 !== range.c1 || range.mode !== 'cell')
+      grid.setSelection(range)
+  }
+  onNameBoxDone(e)
+}
+function onNameBoxDone(e) {
+  e.target.value = nameBox.value
+  canvasRef.value?.focus()
 }
 
 const showRenameDialog = ref(false)
