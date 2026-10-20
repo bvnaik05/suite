@@ -164,6 +164,22 @@ describe('numFmtFromEngine — IronCalc num_fmt → our format', () => {
   })
 })
 
+describe('numFmtFromEngine with dates', () => {
+  // Clear formatting resets IronCalc's format; its undo needs the date look
+  // too, since the cell then holds a bare serial.
+  it('maps date and time codes when asked', () => {
+    const d = (code: string) => numFmtFromEngine(code, { dates: true })
+    expect(d('yyyy-mm-dd')).toBe('date:ymd')
+    expect(d('mm/dd/yyyy')).toBe('date:mdy')
+    expect(d('m/d/yyyy')).toBe('date:mdy')
+    expect(d('dd/mm/yyyy')).toBe('date:dmy')
+    expect(d('m/d/yyyy h:mm')).toBe('datetime')
+    expect(d('h:mm AM/PM')).toBe('time:hm12')
+    expect(d('$#,##0.00')).toBe('currency:USD:2')
+    expect(d('general')).toBe('')
+  })
+})
+
 describe('fromXlsxCell — SheetJS → engine', () => {
   it('number', () => expect(fromXlsxCell({ t: 'n', v: 42 })).toEqual({ value: '42', fmt: '' }))
   it('string', () => expect(fromXlsxCell({ t: 's', v: 'hi' })).toEqual({ value: 'hi', fmt: '' }))

@@ -139,27 +139,36 @@ export function zToNumFmt(z: string | null | undefined): string {
   return 'custom:' + z // preserve verbatim
 }
 
-// Reattach a decimals suffix only when non-zero, so `number`/`percentage`
-// (whose defaults differ) stay minimal and round-trip.
 /**
  * IronCalc's own number format for a cell (what typing `$1.50`, `15%` or
  * `1,000` sets; Excel-style codes) as one of ours, or '' when there is
  * nothing to carry. Copy and fill use it, since a cell's input is its bare
- * number (`1.5`) and would otherwise lose the format. Dates are left out:
- * their input is the typed text, which re-parses to the same date.
+ * number (`1.5`) and would otherwise lose the format. Dates are left out
+ * unless asked for (`dates: true`): their input is the typed text, which
+ * re-parses to the same date.
  */
-export function numFmtFromEngine(code: string | null | undefined): string {
+export function numFmtFromEngine(
+  code: string | null | undefined,
+  { dates = false }: { dates?: boolean } = {},
+): string {
   if (!code || /^general$/i.test(code) || code === '@') return ''
   // IronCalc writes `$#,##0.00` unquoted; as our USD currency (not a custom
   // pattern) the decimal buttons can change it.
   const fmt = zToNumFmt(/^\$#,##0(\.0+)?$/.test(code) ? `"$"${code.slice(1)}` : code)
-  if (DATE_TYPES.has(parseNumberFmt(fmt).type)) return ''
+  if (DATE_TYPES.has(parseNumberFmt(fmt).type)) return dates ? fmt : ''
+  if (dates && /[dy]/i.test(code.replace(/"[^"]*"/g, ''))) {
+    // A date code ours has no exact variant for (IronCalc's m/d/yyyy).
+    if (/h/i.test(code)) return 'datetime'
+    return /^\s*y/i.test(code) ? 'date:ymd' : /^\s*d/i.test(code) ? 'date:dmy' : 'date:mdy'
+  }
   // A code zToNumFmt doesn't know stays custom; only a numeric pattern
   // renders (a date code like m/d/yyyy would paint as literal text).
   if (fmt.startsWith('custom:') && !/[0#]/.test(code.replace(/"[^"]*"/g, ''))) return ''
   return fmt
 }
 
+// Reattach a decimals suffix only when non-zero, so `number`/`percentage`
+// (whose defaults differ) stay minimal and round-trip.
 function _withDec(type: 'number' | 'percentage', dec: number) {
   if (type === 'percentage') return dec === 2 ? 'percentage' : `percentage:${dec}`
   return dec === 0 ? 'number' : `number:${dec}`

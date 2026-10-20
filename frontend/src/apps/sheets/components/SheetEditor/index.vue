@@ -1581,6 +1581,16 @@ async function _readEngineFormats(rect, sn) {
   )
   return out
 }
+
+// Sets cells back to IronCalc's general number format (Clear formatting).
+function _resetEngineFormats(ids, sn) {
+  const commands = ids.map((id) => {
+    const p = parseCellId(id)
+    const range = { r1: p.row + 1, c1: p.col + 1, r2: p.row + 1, c2: p.col + 1 }
+    return _command('setRangeStyle', { sheet: sn, range, style: { num_fmt: 'general' } })
+  })
+  if (commands.length) _client()?.dispatch(_command('batch', { commands }))
+}
 const hAlignIcon = computed(() => {
   if (activeFormat.value?.align === 'center') return 'lucide-align-center'
   if (activeFormat.value?.align === 'right') return 'lucide-align-right'
@@ -1744,6 +1754,8 @@ const {
   markDirty: () => {
     isDirty.value = true
   },
+  readEngineFormats: _readEngineFormats,
+  resetEngineFormats: _resetEngineFormats,
 })
 
 // Selection + grid bounds, so full-column / full-row / whole-sheet selections
