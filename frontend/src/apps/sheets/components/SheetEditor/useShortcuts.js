@@ -407,8 +407,12 @@ export function useShortcuts(actions) {
         return
       }
       if (clipboard.hasData()) {
-        clipboard.clear()
-        clipboardHas.value = false
+        // Like Google: Esc hides a copy's marching ants but the copy still
+        // pastes (with formulas; ISSUES #64). It cancels a cut.
+        if (clipboard.getMode?.() !== 'copy') {
+          clipboard.clear()
+          clipboardHas.value = false
+        }
         setMarchingAnts(null)
         return
       }

@@ -246,8 +246,24 @@ describe('escape cascade (onGlobalKey)', () => {
     onGlobalKey(key({ key: 'Escape' }))
     expect(a.dropdownPanel.open).toBe(false)
   })
-  it('Escape clears clipboard marching ants', () => {
-    const a = makeActions({ clipboard: { hasData: vi.fn(() => true), clear: vi.fn() } })
+  // ISSUES #64: Esc cleared the copy, so the next paste fell back to the
+  // system clipboard's values (=D2*2 pasted as 100). Like Google, Esc only
+  // hides the marching ants; the copy still pastes formulas.
+  it('Escape after a copy hides the marching ants and keeps the copy', () => {
+    const a = makeActions({
+      clipboard: { hasData: vi.fn(() => true), getMode: () => 'copy', clear: vi.fn() },
+    })
+    a.clipboardHas.value = true
+    const { onGlobalKey } = useShortcuts(a)
+    onGlobalKey(key({ key: 'Escape' }))
+    expect(a.clipboard.clear).not.toHaveBeenCalled()
+    expect(a.clipboardHas.value).toBe(true)
+    expect(a.setMarchingAnts).toHaveBeenCalledWith(null)
+  })
+  it('Escape after a cut cancels the cut', () => {
+    const a = makeActions({
+      clipboard: { hasData: vi.fn(() => true), getMode: () => 'cut', clear: vi.fn() },
+    })
     const { onGlobalKey } = useShortcuts(a)
     onGlobalKey(key({ key: 'Escape' }))
     expect(a.clipboard.clear).toHaveBeenCalled()
