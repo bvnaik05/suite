@@ -195,7 +195,13 @@ function isWordOrPart(type: AbstractType<unknown>) {
     return false
   }
 
-  return type instanceof XmlElement && !type.length && !WORDLESS.has(type.nodeName)
+  // An atom or media holds its data whatever stray children it has
+  return (
+    type instanceof XmlElement &&
+    (isAtomName(type.nodeName) ||
+      MEDIA.has(type.nodeName) ||
+      (!type.length && !WORDLESS.has(type.nodeName)))
+  )
 }
 
 // No words, embeds or parts; what empty blocks store, like a heading's level, isn't counted

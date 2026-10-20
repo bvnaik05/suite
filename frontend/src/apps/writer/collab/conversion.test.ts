@@ -98,6 +98,11 @@ function yAtom(name: string, attributes: Record<string, string>) {
   return node
 }
 
+function withChildren(node: XmlElement, ...children: (XmlElement | XmlText)[]) {
+  node.insert(0, children)
+  return node
+}
+
 function oldMedia(attributes: Record<string, string>) {
   const node = new XmlElement('resizableMedia')
   for (const [key, value] of Object.entries(attributes)) {
@@ -449,6 +454,19 @@ describe('convertLegacy', () => {
   it.each([
     { name: 'words', block: () => yParagraph('typed') },
     { name: 'a part', block: () => new XmlElement('horizontalRule') },
+    {
+      name: 'an image with a stray child',
+      block: () => yElement('paragraph', withChildren(yAtom('image', { src: SRC }), new XmlText())),
+    },
+    {
+      name: 'old media with a stray paragraph',
+      block: () => withChildren(oldMedia({ src: SRC }), yElement('paragraph')),
+    },
+    {
+      name: 'a mention with a stray child',
+      block: () =>
+        yElement('paragraph', withChildren(yAtom('mention', { id: 'x' }), new XmlText())),
+    },
   ])('converts from a Yjs body holding $name, not the HTML', ({ block }) => {
     const legacy = { ...stored(legacyDoc(yElement('paragraph'), block())), html: '<p>older</p>' }
 
