@@ -615,11 +615,10 @@ function read(legacy: LegacyBody) {
   return { ...fromHtml(legacy.html ?? ''), from: 'html' as const }
 }
 
-/** The old document as a fresh collaborative body, checked to hold the old text, formatting and parts apart from what it drops. */
-export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
+function checkedBody(legacy: LegacyBody) {
   const { node, dropped, hasUnreadableThreads, isKept, from } = read(legacy)
   if (hasUnreadableThreads) {
-    return { kind: 'failed', reason: 'check' }
+    return null
   }
 
   const converted = withHeadingIds(node)
@@ -627,19 +626,35 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   const body = fresh.getXmlFragment(BODY_FIELD)
   prosemirrorToYXmlFragment(converted, body)
   if (!isKept(body) || breaksStyle(body)) {
-    return { kind: 'failed', reason: 'check' }
+    return null
   }
 
   const comments = moveComments(body)
   if (!comments.isMoved) {
+    return null
+  }
+
+  return { fresh, from, anchors: comments.anchors, dropped: [...dropped, ...comments.dropped] }
+}
+
+/** The old document as a fresh collaborative body, checked to hold the old text, formatting and parts apart from what it drops. */
+export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
+  let checked: ReturnType<typeof checkedBody>
+  try {
+    checked = checkedBody(legacy)
+  } catch {
+    checked = null
+  }
+
+  if (!checked) {
     return { kind: 'failed', reason: 'check' }
   }
 
-  const state = encodeStateAsUpdate(fresh)
+  const state = encodeStateAsUpdate(checked.fresh)
   if (state.byteLength > maxState) {
     return { kind: 'failed', reason: 'too_large' }
   }
 
-  const { anchors } = comments
-  return { kind: 'converted', state, dropped: [...dropped, ...comments.dropped], from, anchors }
+  const { dropped, from, anchors } = checked
+  return { kind: 'converted', state, dropped, from, anchors }
 }

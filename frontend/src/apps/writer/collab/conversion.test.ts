@@ -553,7 +553,14 @@ describe('convertLegacy', () => {
     })
     const legacy = { ...stored(legacyDoc(yParagraph('typed'))), html: '<p>older</p>' }
 
-    expect(() => convertLegacy(legacy, MAX_STATE)).toThrow('conversion bug')
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses, rather than throwing, an old body the editor cannot read', () => {
+    // Relies on jsdom having no innerText, which frappe-ui's tag rule reads for a tag with no label
+    const legacy = { content: null, html: '<p><span class="tag-item">#plan</span></p>', collab: 0 }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
   it('keeps a mention saved in the HTML, its words matching its label', () => {
