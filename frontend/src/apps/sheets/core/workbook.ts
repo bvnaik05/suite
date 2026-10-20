@@ -14,6 +14,7 @@ import { CommandTypes, validateCommand, type Command, type CommandType } from '.
 import { isDateDifference, isDateFormat } from './date-diff.js'
 import { MAX_ROWS } from './limits.js'
 import { percentFormatFor } from './percent-format.js'
+import { typedCurrency, withSymbol } from './typed-currency.js'
 
 const LANGUAGE = 'en'
 
@@ -194,6 +195,7 @@ export function createWorkbook({
 
   // A typed input, as IronCalc's setUserInput, plus the formats IronCalc
   // gets wrong (Google Sheets is the reference):
+  //   - a ₹ or £ amount is a number with that currency (typed-currency.ts);
   //   - a formula scaling one percent cell by plain numbers shows a percent
   //     (percent-format.ts);
   //   - one date minus another shows the days between (date-diff.ts).
@@ -201,8 +203,14 @@ export function createWorkbook({
     const area = { sheet: si, row, column: col, width: 1, height: 1 }
     const numFmt = (sheet: string | null, r: number, c: number) =>
       model.getCellStyle(sheet == null ? si : sheetIndex(sheet), r, c).style.num_fmt
-    model.setUserInput(si, row, col, input)
+    const currency = typedCurrency(input)
+    model.setUserInput(si, row, col, currency ? currency.input : input)
     const fmt = numFmt(null, row, col)
+    if (currency) {
+      if (fmt.includes('$'))
+        model.updateRangeStyle(area, 'num_fmt', withSymbol(fmt, currency.symbol))
+      return
+    }
     if (!input.startsWith('=')) return
     if (/^general$/i.test(fmt)) {
       // Only a cell IronCalc left unformatted: a format it inferred stays.

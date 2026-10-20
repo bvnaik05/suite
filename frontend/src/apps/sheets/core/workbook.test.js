@@ -179,6 +179,37 @@ describe('workbook — days between two dates are a number', () => {
   })
 })
 
+// IronCalc reads `$` and `€` amounts as numbers but not `₹` or `£`, which
+// stayed text (and =A1*2 gave #VALUE!).
+describe('workbook — ₹ and £ amounts are numbers', () => {
+  const typed = (input) => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 1, 1, input)
+    setInput(wb, 'Sheet1', 1, 2, '=A1*2')
+    return [wb.getDisplayValue('Sheet1', 1, 1), wb.getDisplayValue('Sheet1', 1, 2)]
+  }
+
+  it('reads a rupee amount', () => {
+    expect(typed('₹2')).toEqual(['₹2', '₹4'])
+    expect(typed('₹1,234.5')).toEqual(['₹1,234.50', '₹2,469.00'])
+    expect(typed('-₹3')).toEqual(['-₹3', '-₹6'])
+    expect(typed('₹ 50')).toEqual(['₹50', '₹100'])
+  })
+
+  it('reads Indian digit grouping after a rupee sign', () => {
+    expect(typed('₹1,50,000')[1]).toBe('₹300,000')
+  })
+
+  it('reads a pound amount', () => {
+    expect(typed('£9.99')).toEqual(['£9.99', '£19.98'])
+  })
+
+  it('leaves text with a rupee sign alone', () => {
+    expect(typed('₹ per kg')[0]).toBe('₹ per kg')
+    expect(typed('₹2 each')[0]).toBe('₹2 each')
+  })
+})
+
 describe('workbook — structure ops', () => {
   it('insertRows adjusts references', () => {
     const wb = createWorkbook()
