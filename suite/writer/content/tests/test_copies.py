@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import frappe
 
-from suite.composition import content as routes
-from suite.suite_core.content import copies, jobs, scheduling
-from suite.suite_core.content.stage import PIECE_MAX
+from suite.content import copies, jobs, scheduling
+from suite.content.http import routes
+from suite.content.stage import PIECE_MAX
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
     OUTSIDER,
@@ -36,7 +36,7 @@ class TestReadableCopies(CheckpointCase):
             self.doc.id,
             rev,
             html=html,
-            html_copy=writer_content.SPEC.readable_copy,
+            html_copy=writer_content.EDITOR.readable_copy,
             **fields,
         )
 
@@ -247,7 +247,7 @@ class TestStagedRenders(CheckpointCase):
             self.doc.lineage,
             int(self.doc.q_epoch),
             "<p>one</p>",
-            writer_content.SPEC.readable_copy,
+            writer_content.EDITOR.readable_copy,
         )
         stale_renders = [
             {"rev": 1},

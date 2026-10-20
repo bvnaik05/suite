@@ -11,7 +11,7 @@ import pycrdt
 from frappe.utils import now_datetime
 
 from suite import drive
-from suite.composition import content as routes
+from suite.content.http import routes
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version
 from suite.writer.content.tests.support import (

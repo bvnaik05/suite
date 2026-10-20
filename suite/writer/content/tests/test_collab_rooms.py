@@ -5,10 +5,10 @@ from unittest.mock import Mock, patch
 import frappe
 
 from suite import drive
-from suite.composition import content as routes
+from suite.content import live
+from suite.content.http import routes
 from suite.drive._core.access import grant
 from suite.drive._core.principals import Principals
-from suite.suite_core.content import live
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
     READER,

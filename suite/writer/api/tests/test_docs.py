@@ -11,10 +11,10 @@ import pycrdt
 from frappe.tests import IntegrationTestCase
 
 from suite import drive
+from suite.content import log
 from suite.drive._core.access import grant
 from suite.drive._core.nodes import purge, update
 from suite.drive._core.principals import Principals
-from suite.suite_core.content import log
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 from suite.writer.api.docs import save_comments

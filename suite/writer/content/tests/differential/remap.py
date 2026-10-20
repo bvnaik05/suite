@@ -9,8 +9,8 @@ import sys
 
 import pycrdt
 
-from suite.suite_core.content.compaction import compact
-from suite.suite_core.content.updates import rewrite_values
+from suite.content.compaction import compact
+from suite.content.updates import rewrite_values
 from suite.writer.content.files import value_rewriter
 
 WRITER_ROOTS = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}

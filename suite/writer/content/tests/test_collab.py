@@ -9,12 +9,12 @@ import frappe
 import pycrdt
 
 from suite import drive
-from suite.composition import content as routes
+from suite.content import backfill, checkpoints
+from suite.content.http import routes
+from suite.content.stage import PIECE_MAX
+from suite.content.updates import encoded_string, encoded_uint, parse
 from suite.drive._core.access import grant
 from suite.drive._core.principals import Principals
-from suite.suite_core.content import backfill, checkpoints
-from suite.suite_core.content.stage import PIECE_MAX
-from suite.suite_core.content.updates import encoded_string, encoded_uint, parse
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
     OUTSIDER,
@@ -291,8 +291,8 @@ class TestWriterCollab(CollabCase):
         self.assertEqual(self.open_document(node)[1], [])
 
         newer_schema = replace(writer_content.SCHEMA, version=newer)
-        newer_spec = replace(writer_content.SPEC, schema=newer_schema)
-        with patch.object(writer_content, "SPEC", newer_spec):
+        newer_spec = replace(writer_content.EDITOR, schema=newer_schema)
+        with patch.object(writer_content, "EDITOR", newer_spec):
             self.assertEqual(call_route(routes.updates_post, node, body=body).status_code, 200)
 
         doc_id = routes.content.find(writer_content.APP, node).id
@@ -313,7 +313,7 @@ class TestWriterCollab(CollabCase):
             features={**writer_content.SCHEMA.features, "marquee": 2},
             nodes=writer_content.SCHEMA.nodes | {"marquee"},
         )
-        stepped_spec = replace(writer_content.SPEC, schema=stepped)
+        stepped_spec = replace(writer_content.EDITOR, schema=stepped)
         [other_typing] = typed_updates(other_client_id, ["b"])
         other_body = push_body(lineage, other_sid, other_client_id, 1, 0, other_typing)
         stamped_body = push_body(
@@ -321,7 +321,7 @@ class TestWriterCollab(CollabCase):
         )
 
         undeclared = call_route(routes.updates_post, node, body=marquee)
-        with patch.object(writer_content, "SPEC", stepped_spec):
+        with patch.object(writer_content, "EDITOR", stepped_spec):
             too_early = call_route(routes.updates_post, node, body=marquee)
             other = call_route(routes.updates_post, node, body=other_body)
             stamped = call_route(routes.updates_post, node, body=stamped_body)
@@ -387,7 +387,7 @@ class TestWriterCollab(CollabCase):
             features={**writer_content.SCHEMA.features, "marquee": 2},
             nodes=writer_content.SCHEMA.nodes | {"marquee"},
         )
-        stepped_spec = replace(writer_content.SPEC, schema=stepped)
+        stepped_spec = replace(writer_content.EDITOR, schema=stepped)
 
         def schema_steps():
             [(value,)] = frappe.db.sql(
@@ -403,7 +403,7 @@ class TestWriterCollab(CollabCase):
 
         self.assertEqual(schema_steps(), [[0, 1]])
         self.assertEqual(self.open_document(node)[0]["schema"], 1)
-        with patch.object(writer_content, "SPEC", stepped_spec):
+        with patch.object(writer_content, "EDITOR", stepped_spec):
             refused = [
                 push_with_schema(
                     newer_sid, newer_client_id, 2, element_update(newer_client_id, "marquee"), 2
@@ -594,7 +594,7 @@ class TestWriterCollab(CollabCase):
         frappe.db.sql("UPDATE `__writer_content_doc` SET `start_clocks` = NULL WHERE `id` = %s", doc_id)
         frappe.db.commit()
 
-        backfill.backfill_clocks(writer_content.APP, routes.node_owner)
+        backfill.backfill_clocks(writer_content.APP)
 
         self.assertEqual(self.push(node, sid, client_id, 3, a), (409, {"collab": "clock_gap", "clock": 3}))
         self.assertEqual(self.push(node, sid, client_id, 3, c)[0], 200)

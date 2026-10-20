@@ -4,8 +4,7 @@
 import frappe
 from frappe.model.document import Document
 
-from suite import drive
-from suite.suite_core import content
+from suite import content, drive
 from suite.writer.content import APP
 
 COLLISION_ERRORS = (

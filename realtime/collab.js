@@ -252,7 +252,7 @@ function site_allows_join(socket) {
 	if (known && known.until > now) return known.answer;
 
 	const answer = socket
-		.frappe_request("/api/v2/method/suite.suite_core.content.live.joinable")
+		.frappe_request("/api/v2/method/suite.content.live.joinable")
 		.then((response) => response.json())
 		.then((body) => body?.data === true)
 		.catch(() => false);

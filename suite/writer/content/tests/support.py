@@ -14,8 +14,7 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
 from suite import drive
-from suite.composition import content as routes
-from suite.suite_core.content import (
+from suite.content import (
     checkpoints,
     compaction,
     jobs,
@@ -24,9 +23,10 @@ from suite.suite_core.content import (
     scheduling,
     tables,
 )
-from suite.suite_core.content.log import chain_next, chain_seed
-from suite.suite_core.content.stage import PIECE_MAX
-from suite.suite_core.content.updates import encoded_string, encoded_uint
+from suite.content.http import routes
+from suite.content.log import chain_next, chain_seed
+from suite.content.stage import PIECE_MAX
+from suite.content.updates import encoded_string, encoded_uint
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 
@@ -394,8 +394,7 @@ class CheckpointCase(IntegrationTestCase):
             "writer",
             doc_id,
             writer_content.PART_MAP,
-            "suite.suite_core.content.jobs.judge",
-            routes.node_owner,
+            "suite.content.jobs.judge",
         )
 
     def restore_mode(self):

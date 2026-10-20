@@ -155,6 +155,7 @@ which is what an offboarded user looks like.
 | `bind_legacy_storage_reservation` | the same, plus one read to detect an already-bound row |
 | `legacy_node` | one primary-key read of `Drive Legacy Route` |
 | `node_url` | one primary-key read of the node's kind |
+| `node_owner` | one primary-key read of the node's owner |
 | `ensure_folder` | one indexed read of the parent's children; on a miss, one folder create under the parent-chain lock |
 | `store_file` | one pass over the bytes to hash and store them, then one file create under the parent-chain lock |
 
@@ -329,6 +330,13 @@ def node_url(node: str) -> str:
     from suite.drive._core.nodes import node_url as _node_url
 
     return _node_url(node)
+
+
+def node_owner(node: str) -> str:
+    """Answer the user who owns one node. No role is checked; an unknown node raises `DriveNotFound`."""
+    from suite.drive._core.nodes import node_owner as _node_owner
+
+    return _node_owner(node)
 
 
 def legacy_node(old_id: str) -> str:
@@ -507,6 +515,7 @@ __all__ = (
     "legacy_node",
     "list_versions",
     "node_field",
+    "node_owner",
     "node_url",
     "personal_root_for",
     "push_preview",

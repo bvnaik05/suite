@@ -23,12 +23,12 @@ from frappe.tests.test_api import make_request
 from frappe.utils import get_test_client
 
 from suite import drive
+from suite.content import log
 from suite.drive._core import content
 from suite.drive._core.access import grant
 from suite.drive._core.nodes import purge, update
 from suite.drive._core.roots import provision_personal_root
 from suite.drive.framework import principals_for
-from suite.suite_core.content import log
 from suite.tests.utils import ensure_user
 
 OWNER = "framework-link-owner@example.com"

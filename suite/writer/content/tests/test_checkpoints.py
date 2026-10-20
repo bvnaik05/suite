@@ -15,8 +15,7 @@ import pycrdt
 from frappe.utils.background_jobs import get_redis_conn
 from redis.exceptions import RedisError
 
-from suite.composition import content as routes
-from suite.suite_core.content import (
+from suite.content import (
     admission,
     capacity,
     checkpoints,
@@ -26,8 +25,10 @@ from suite.suite_core.content import (
     pushes,
     scheduling,
 )
-from suite.suite_core.content.snapshot import isolation_level
+from suite.content.http import routes
+from suite.content.snapshot import isolation_level
 from suite.writer import content as writer_content
+from suite.writer import drive as writer_drive
 from suite.writer.content.tests.support import (
     WRITER,
     CheckpointCase,
@@ -42,7 +43,7 @@ from suite.writer.content.tests.support import (
 
 class TestWriterCheckpoints(CheckpointCase):
     def test_the_self_test_fixture_uses_the_part_map_writer_writes(self):
-        from suite.suite_core.content import selftest
+        from suite.content import selftest
 
         self.assertEqual(selftest.PART_MAP, writer_content.PART_MAP)
 
@@ -393,7 +394,8 @@ class TestWriterCheckpoints(CheckpointCase):
 
             try:
                 with patch.object(frappe.db, "sql", signalled):
-                    routes.WRITER.on_purge(name)
+                    writer_drive.SPEC.on_purge(name)
+
                 frappe.db.commit()
             except Exception as error:
                 errors.append(error)

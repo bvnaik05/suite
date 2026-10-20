@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
 // Writer's checker build: one Node file with the browsers' Yjs, y-tiptap and the editor schema,
-// which the server runs on demand to judge rows (suite_core/content/checker.py)
+// which the server runs on demand to judge rows (suite/content/checker.py)
 const yjsVersion = createRequire(path.resolve(__dirname, 'package.json'))(
   'yjs/package.json',
 ).version

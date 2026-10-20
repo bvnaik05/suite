@@ -1965,7 +1965,7 @@ class TestContentWorkflows(IntegrationTestCase):
             ["Presentation", "Sheet", "Writer Document"],
         )
         for doctype, dotted in (
-            ("Writer Document", "suite.composition.content.WRITER"),
+            ("Writer Document", "suite.writer.drive.SPEC"),
             ("Presentation", "suite.slides.drive.SPEC"),
             ("Sheet", "suite.sheets.drive.SPEC"),
         ):

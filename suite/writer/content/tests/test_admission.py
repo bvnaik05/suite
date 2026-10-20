@@ -5,12 +5,12 @@ from unittest.mock import patch
 import frappe
 import pycrdt
 
-from suite.composition import content as routes
-from suite.suite_core.content import (
+from suite.content import (
     capacity,
     live,
     logged,
 )
+from suite.content.http import routes
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
     CheckpointCase,

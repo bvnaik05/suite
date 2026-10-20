@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pycrdt
 
-from suite.suite_core import content
-from suite.suite_core.content.editors import EditorSpec, HtmlCopy, MediaReferences
+from suite import content
+from suite.content.editors import EditorSpec, HtmlCopy, MediaReferences
 from suite.writer.content.files import node_ids, value_rewriter
 from suite.writer.content.readable_copy import is_html_complete
 
@@ -29,7 +29,7 @@ SCHEMA = content.EditorSchema(
 )
 
 
-SPEC = EditorSpec(
+EDITOR = EditorSpec(
     app=APP,
     doctype="Writer Document",
     body_field="content",

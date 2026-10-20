@@ -61,6 +61,21 @@ BASELINE_DEBT = {
         (
             "suite/drive/tests/test_content.py|dotted-string|suite.sheets.drive.SPEC",
             "suite/drive/tests/test_content.py|dotted-string|suite.slides.drive.SPEC",
+            "suite/drive/tests/test_content.py|dotted-string|suite.writer.drive.SPEC",
+        ),
+    ),
+    **_debt(
+        "Suite Drive",
+        "Remove when the Writer link case no longer has to turn Writer's collaboration off.",
+        # The case saves a Writer document's HTML, which a document with a log refuses
+        ("suite/drive/tests/test_framework.py|import|suite.content",),
+    ),
+    **_debt(
+        "Suite content layer",
+        "Remove when `suite.drive` can register a content type for one test.",
+        (
+            "suite/content/tests/test_editors.py|import|suite.drive._core.content",
+            "suite/content/tests/test_note.py|import|suite.drive._core.content",
         ),
     ),
     **_debt(
@@ -342,6 +357,7 @@ def _owner(path):
         in PRODUCTS
         | {
             "composition",
+            "content",
             "suite_core",
         }
     ):
@@ -351,7 +367,7 @@ def _owner(path):
 
 def _classify(path, module):
     parts = module.split(".")
-    if len(parts) < 2 or parts[0] != "suite" or parts[1] not in PRODUCTS | {"suite_core"}:
+    if len(parts) < 2 or parts[0] != "suite" or parts[1] not in PRODUCTS | {"content", "suite_core"}:
         return None
 
     source = _owner(path)
@@ -362,6 +378,10 @@ def _classify(path, module):
         return "Drive imports a concrete content-product implementation"
     if source == "suite_core" and target in PRODUCTS:
         return "suite_core imports a product implementation"
+    if source == "content" and target in PRODUCTS - {"drive"}:
+        return "the content layer imports a product implementation"
+    if source == "drive" and target == "content":
+        return "Drive imports the content layer"
     if source in PRODUCTS and target in PRODUCTS and source != target:
         if module == f"suite.{target}":
             return None
@@ -447,18 +467,18 @@ def table_write_violations(path, tree):
     return violations
 
 
-APP_ROW = "suite.suite_core.content.app_row"
+APP_ROW = "suite.content.app_row"
 APP_ROW_REASON = "code outside the content layer reaches the app's row past it"
 
 
 def app_row_violations(path, tree):
-    if PurePosixPath(path).parts[:3] == ("suite", "suite_core", "content"):
+    if PurePosixPath(path).parts[:2] == ("suite", "content"):
         return []
 
     violations: list[Violation] = []
     for node in ast.walk(tree):
         kind, modules = _modules(node)
-        if isinstance(node, ast.ImportFrom) and node.module == "suite.suite_core.content":
+        if isinstance(node, ast.ImportFrom) and node.module == "suite.content":
             modules = [f"{node.module}.{alias.name}" for alias in node.names]
 
         matched = [module for module in modules if module == APP_ROW or module.startswith(f"{APP_ROW}.")]
@@ -569,13 +589,31 @@ class TestArchitecture(unittest.TestCase):
 
     def test_the_app_row_is_reached_only_inside_the_content_layer(self):
         source = (
-            "from suite.suite_core.content import app_row, jobs\n"
-            "from suite.suite_core.content.app_row import write_body\n"
-            "target = 'suite.suite_core.content.app_row.write_copy'\n"
+            "from suite.content import app_row, jobs\n"
+            "from suite.content.app_row import write_body\n"
+            "target = 'suite.content.app_row.write_copy'\n"
         )
         violations = violations_in_tree("suite/writer/new_caller.py", ast.parse(source))
         self.assertEqual([violation.reason for violation in violations], [APP_ROW_REASON] * 3)
-        self.assertEqual(violations_in_tree("suite/suite_core/content/copies.py", ast.parse(source)), [])
+        self.assertEqual(violations_in_tree("suite/content/copies.py", ast.parse(source)), [])
+
+    def test_the_content_layer_sits_above_drive_and_below_the_products(self):
+        source = "from suite import drive, writer\nfrom suite.slides import drive as slides_drive\n"
+        violations = violations_in_tree("suite/content/new_caller.py", ast.parse(source))
+        self.assertEqual(
+            [(violation.module, violation.reason) for violation in violations],
+            [
+                ("suite.writer", "the content layer imports a product implementation"),
+                ("suite.slides", "the content layer imports a product implementation"),
+            ],
+        )
+        drive_source = "from suite import content\n"
+        drive_violations = violations_in_tree("suite/drive/new_caller.py", ast.parse(drive_source))
+        self.assertEqual(
+            [violation.reason for violation in drive_violations], ["Drive imports the content layer"]
+        )
+        product_source = "from suite.content import log\n"
+        self.assertEqual(violations_in_tree("suite/writer/new_caller.py", ast.parse(product_source)), [])
 
     def test_package_root_import_is_allowed(self):
         tree = ast.parse("from suite import drive\n")
@@ -617,6 +655,7 @@ class TestArchitecture(unittest.TestCase):
                 "legacy_node",
                 "list_versions",
                 "node_field",
+                "node_owner",
                 "node_url",
                 "personal_root_for",
                 "push_preview",

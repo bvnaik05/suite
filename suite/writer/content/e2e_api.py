@@ -6,8 +6,8 @@ import frappe
 import pycrdt
 from frappe.tests.utils import whitelist_for_tests
 
-from suite.suite_core import content
-from suite.suite_core.content import (
+from suite import content
+from suite.content import (
     capacity,
     compaction,
     jobs,
@@ -17,10 +17,9 @@ from suite.suite_core.content import (
     suspect,
     trimming,
 )
-from suite.suite_core.content.checkpoints import replace_start
-from suite.suite_core.content.editors import node_hooks
-from suite.suite_core.content.log import create, set_mode
-from suite.suite_core.content.tables import KINDS, table
+from suite.content.checkpoints import replace_start
+from suite.content.log import create, set_mode
+from suite.content.tables import KINDS, table
 from suite.writer import content as writer_content
 
 
@@ -145,7 +144,7 @@ def quarantine_last(node: str, why: str) -> dict:
     """Quarantine `node`'s last row, as a judge that finds it bad does."""
     log_row = find_log(node)
     revs = {int(log_row["head_rev"])}
-    quarantine.quarantine(writer_content.APP, log_row["id"], revs, why, node_hooks().owner)
+    quarantine.quarantine(writer_content.APP, log_row["id"], revs, why)
     return state(node)
 
 

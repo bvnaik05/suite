@@ -6,11 +6,11 @@ from unittest.mock import patch
 import frappe
 
 from suite import drive
-from suite.composition import content as routes
+from suite.content import capacity, jobs, scheduling
+from suite.content.http import routes
+from suite.content.stage import PIECE_MAX
 from suite.drive._core.access import grant
 from suite.drive._core.principals import Principals
-from suite.suite_core.content import capacity, jobs, scheduling
-from suite.suite_core.content.stage import PIECE_MAX
 from suite.writer.content.tests.support import (
     OUTSIDER,
     READER,

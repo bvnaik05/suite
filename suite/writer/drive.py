@@ -64,9 +64,9 @@ caller's savepoint. Nothing here commits either way.
 
 ## Collab documents
 
-These callbacks read and write the row only. `suite.composition.content.WRITER`
-wraps them with the content layer's branch for a document in a log, and that
-is what `drive_content_types` registers.
+These callbacks read and write the row only. `with_content` wraps them with
+the content layer's branch for a document in a log, and `SPEC` is that wrapped
+declaration.
 """
 
 import base64
@@ -80,6 +80,7 @@ import pycrdt
 from frappe import _
 
 from suite import drive
+from suite.content import with_content
 from suite.writer import content as writer_content
 from suite.writer.content.files import BODY_FRAGMENT, elements, ids_in, load, remap_text, remapped_attribute
 
@@ -236,24 +237,26 @@ def remap_media(docname: str, mapping: dict[str, str]) -> None:
     frappe.db.set_value(DOCTYPE, docname, values, update_modified=False)
 
 
-SPEC = drive.ContentTypeSpec(
-    doctype=DOCTYPE,
-    mime=MIME,
-    node_field=NODE_FIELD,
-    listing_type="document",
-    # Drive's Download sends no format; WebDAV hides documents by their node kind
-    default_export=HTML_FORMAT,
-    export_formats=(HTML_FORMAT,),
-    create_empty=create_empty,
-    duplicate=duplicate,
-    export=export,
-    version_bytes=version_bytes,
-    restore_version=restore_version,
-    pushes_preview=False,
-    on_purge=on_purge,
-    satellites=(),
-    used_nodes=used_nodes,
-    remap_media=remap_media,
+SPEC = with_content(
+    drive.ContentTypeSpec(
+        doctype=DOCTYPE,
+        mime=MIME,
+        node_field=NODE_FIELD,
+        listing_type="document",
+        # Drive's Download sends no format; WebDAV hides documents by their node kind
+        default_export=HTML_FORMAT,
+        export_formats=(HTML_FORMAT,),
+        create_empty=create_empty,
+        duplicate=duplicate,
+        export=export,
+        version_bytes=version_bytes,
+        restore_version=restore_version,
+        pushes_preview=False,
+        on_purge=on_purge,
+        satellites=(),
+        used_nodes=used_nodes,
+        remap_media=remap_media,
+    )
 )
 
 
@@ -325,7 +328,7 @@ def _body_ids(content: str | None) -> set[str]:
         if raw is None:
             return set()
         with _readable_body():
-            found = writer_content.SPEC.media.node_ids(raw)
+            found = writer_content.EDITOR.media.node_ids(raw)
     except UnreadableBody:
         # An unreadable body must never cost somebody a picture, so fall back
         # to a raw scan. It over-reports, which only keeps media alive.

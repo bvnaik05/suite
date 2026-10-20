@@ -13,14 +13,8 @@ import pycrdt
 from frappe.storage.blob import put_blob
 from frappe.utils import now_datetime
 
-from suite import drive
-from suite.composition import content as routes
-from suite.drive._core import content as drive_content
-from suite.drive._core.nodes import _trash, purge
-from suite.drive._core.principals import Principals
-from suite.drive._core.versions import read_version, restore_version
-from suite.suite_core import content
-from suite.suite_core.content import (
+from suite import content, drive
+from suite.content import (
     capacity,
     checkpoints,
     copies,
@@ -31,6 +25,11 @@ from suite.suite_core.content import (
     scheduling,
     touches,
 )
+from suite.content.http import routes
+from suite.drive._core import content as drive_content
+from suite.drive._core.nodes import _trash, purge
+from suite.drive._core.principals import Principals
+from suite.drive._core.versions import read_version, restore_version
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
 from suite.writer.api.docs import save_comments
@@ -46,7 +45,7 @@ from suite.writer.doctype.writer_document.writer_document import LoggedDocumentC
 
 
 def version_of(docname: str) -> dict:
-    stream, mime = routes.WRITER.version_bytes(docname)
+    stream, mime = writer_drive.SPEC.version_bytes(docname)
     assert mime == "application/json"
     return json.loads(stream.getvalue())
 
@@ -57,8 +56,8 @@ def declaring(*names: str):
     features = {**writer_content.SCHEMA.features, **dict.fromkeys(names, 1)}
     shared_types = writer_content.SCHEMA.shared_types | {0, 1, 2}
     schema = replace(writer_content.SCHEMA, features=features, shared_types=shared_types)
-    spec = replace(writer_content.SPEC, schema=schema)
-    return patch.object(writer_content, "SPEC", spec)
+    spec = replace(writer_content.EDITOR, schema=schema)
+    return patch.object(writer_content, "EDITOR", spec)
 
 
 def embed(media: str) -> str:
@@ -106,7 +105,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         )
         self.push_edit(node, lambda body: body.children.__delitem__(2))
 
-        found = routes.WRITER.used_nodes(self.docname_of(node))
+        found = writer_drive.SPEC.used_nodes(self.docname_of(node))
 
         self.assertEqual(found, {"pic-kept", "pic-bare", "pic-removed", "pic-new"})
 
@@ -121,7 +120,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         frappe.db.commit()
 
         with self.assertRaises(logged.UnreadableBody):
-            routes.WRITER.used_nodes(self.docname_of(node))
+            writer_drive.SPEC.used_nodes(self.docname_of(node))
 
     def test_the_media_sweep_keeps_a_picture_only_the_log_names(self):
         node = self.new_document()
@@ -321,7 +320,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         fields = ("content", "html", "collab")
 
         def restore(raw: bytes) -> None:
-            routes.WRITER.restore_version(docname, io.BytesIO(raw))
+            writer_drive.SPEC.restore_version(docname, io.BytesIO(raw))
 
         def row() -> dict:
             return frappe.db.get_value("Writer Document", docname, fields, as_dict=True)
@@ -410,7 +409,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         image, text = self.opened(copied).get("default", type=pycrdt.XmlFragment).children
         self.assertEqual(dict(image.attributes), {"src": embed(copied_picture)})
         self.assertEqual(str(text), f"see {embed(picture)}")
-        self.assertEqual(routes.WRITER.used_nodes(self.docname_of(copied)), {copied_picture})
+        self.assertEqual(writer_drive.SPEC.used_nodes(self.docname_of(copied)), {copied_picture})
         source_image = self.opened(node).get("default", type=pycrdt.XmlFragment).children[0]
         self.assertEqual(dict(source_image.attributes), {"src": embed(picture)})
 
@@ -419,8 +418,8 @@ class TestWriterDriveCallbacks(CheckpointCase):
         picture = self.old_media(node, "picture.png")
         self.type_into(node, ["one"])
         schema_two = replace(writer_content.SCHEMA, version=2)
-        spec_at_schema_two = replace(writer_content.SPEC, schema=schema_two)
-        with patch.object(writer_content, "SPEC", spec_at_schema_two):
+        spec_at_schema_two = replace(writer_content.EDITOR, schema=schema_two)
+        with patch.object(writer_content, "EDITOR", spec_at_schema_two):
             self.push_edit(
                 node,
                 lambda body: body.children.append(pycrdt.XmlElement("image", {"src": embed(picture)})),
@@ -468,7 +467,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         self.assertEqual(dict(image.attributes), {"src": embed(copied_picture)})
         self.assertEqual(version_of(self.docname_of(node))["schema"], "writer-document/2")
         with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
-            routes.WRITER.export(self.docname_of(node), "html")
+            writer_drive.SPEC.export(self.docname_of(node), "html")
 
     def test_a_copys_start_cannot_change_once_a_tab_has_a_session(self):
         node = self.new_document()
@@ -532,7 +531,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         doc = self.doc_row(node)
         copy = "<p>one two three four</p>"
         installed = copies.install(
-            writer_content.APP, doc.id, 4, doc.lineage, doc.q_epoch, copy, writer_content.SPEC.readable_copy
+            writer_content.APP, doc.id, 4, doc.lineage, doc.q_epoch, copy, writer_content.EDITOR.readable_copy
         )
         self.assertEqual(installed, "installed")
 
@@ -556,7 +555,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
             jobs.sweep()
 
         purge_job = (
-            ("suite.suite_core.content.jobs.delete_purged", f"suite-collab-purge-writer-{doc_id}"),
+            ("suite.content.jobs.delete_purged", f"suite-collab-purge-writer-{doc_id}"),
             {"app": "writer", "doc_id": doc_id},
         )
         enqueued = [(queued.args, queued.kwargs) for queued in enqueue.call_args_list]
@@ -708,7 +707,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
         refresh = "Open the document to refresh its export"
 
         with self.assertRaisesRegex(drive.DriveConflict, refresh):
-            routes.WRITER.export(self.docname_of(node), "html")
+            writer_drive.SPEC.export(self.docname_of(node), "html")
 
         doc = self.doc_row(node)
         copies.install(
@@ -718,14 +717,14 @@ class TestWriterDriveCallbacks(CheckpointCase):
             doc.lineage,
             doc.q_epoch,
             "<p>one</p>",
-            writer_content.SPEC.readable_copy,
+            writer_content.EDITOR.readable_copy,
         )
-        exported, _mime = routes.WRITER.export(self.docname_of(node), "html")
+        exported, _mime = writer_drive.SPEC.export(self.docname_of(node), "html")
         self.assertEqual(exported.read(), b"<p>one</p>")
 
         self.type_into(node, [" two"])
         with self.assertRaisesRegex(drive.DriveConflict, refresh):
-            routes.WRITER.export(self.docname_of(node), "html")
+            writer_drive.SPEC.export(self.docname_of(node), "html")
 
     def test_drive_never_exports_a_copy_something_else_wrote_and_keeps_it_once(self):
         node = self.new_document()
@@ -738,7 +737,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
             doc.lineage,
             doc.q_epoch,
             "<p>one</p>",
-            writer_content.SPEC.readable_copy,
+            writer_content.EDITOR.readable_copy,
         )
         frappe.db.set_value(
             "Writer Document", self.docname_of(node), "html", "<p>foreign</p>", update_modified=False
@@ -748,7 +747,7 @@ class TestWriterDriveCallbacks(CheckpointCase):
 
         for _attempt in range(2):
             with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
-                routes.WRITER.export(self.docname_of(node), "html")
+                writer_drive.SPEC.export(self.docname_of(node), "html")
 
         evidence = frappe.db.sql(
             "SELECT `reason`, `payload` FROM `__writer_content_recovery` WHERE `doc_id` = %s", doc.id

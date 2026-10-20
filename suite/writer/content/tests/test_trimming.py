@@ -7,10 +7,10 @@ from unittest.mock import patch
 import frappe
 
 from suite import drive
-from suite.composition import content as routes
+from suite.content import checker, compaction, trimming
+from suite.content.http import routes
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version
-from suite.suite_core.content import checker, compaction, trimming
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import WRITER, CheckpointCase, call_route, read_frame, read_open
 

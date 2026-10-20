@@ -10,7 +10,7 @@ import frappe
 import pycrdt
 from frappe.tests import UnitTestCase
 
-from suite.suite_core.content import checker
+from suite.content import checker
 
 BUNDLE = Path(__file__).parents[1] / "dist" / "checker.cjs"
 

@@ -10,10 +10,7 @@ from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_redis_conn
 
 from suite import drive
-from suite.composition import content as routes
-from suite.drive._core.access import grant
-from suite.drive._core.principals import Principals
-from suite.suite_core.content import (
+from suite.content import (
     admission,
     checker,
     compaction,
@@ -23,6 +20,9 @@ from suite.suite_core.content import (
     scheduling,
     suspect,
 )
+from suite.content.http import routes
+from suite.drive._core.access import grant
+from suite.drive._core.principals import Principals
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 from suite.writer.content.tests import test_checkpoints, test_quarantine
@@ -37,7 +37,7 @@ from suite.writer.content.tests.support import (
 )
 from suite.writer.content.tests.test_checker import BUNDLE, paragraph
 
-JUDGE = "suite.suite_core.content.jobs.judge"
+JUDGE = "suite.content.jobs.judge"
 
 
 class Pen(test_quarantine.Tab):
@@ -93,7 +93,6 @@ class TestSuspect(CheckpointCase):
             self.doc_row(node).id,
             writer_content.PART_MAP,
             writer_content.CHECKER_BUILD,
-            routes.node_owner,
         )
 
     def alert_count(self, title: str) -> int:
@@ -709,4 +708,4 @@ class TestSuspect(CheckpointCase):
 
                 doc = self.doc_row(node)
                 self.assertEqual((doc.verdict, doc.next_compaction_at), (verdict, None))
-                self.assertEqual(self.requested, [("suite.suite_core.content.jobs.compact", doc_id)])
+                self.assertEqual(self.requested, [("suite.content.jobs.compact", doc_id)])

@@ -21,12 +21,12 @@ HTML = '<p>See <a href="https://example.com/plan">the plan</a></p><img src="/pri
 class TestReadableCopy(UnitTestCase):
     def test_a_copy_with_every_character_link_and_image_of_the_state_matches_it(self):
         self.assertTrue(
-            writer_content.SPEC.readable_copy.is_html_complete(linked_state(), HTML, "See the plan")
+            writer_content.EDITOR.readable_copy.is_html_complete(linked_state(), HTML, "See the plan")
         )
 
     def test_a_copy_missing_a_character_does_not_match(self):
         self.assertFalse(
-            writer_content.SPEC.readable_copy.is_html_complete(linked_state(), HTML, "See the pan")
+            writer_content.EDITOR.readable_copy.is_html_complete(linked_state(), HTML, "See the pan")
         )
 
     def test_a_copy_missing_a_link_or_an_image_does_not_match(self):
@@ -35,5 +35,5 @@ class TestReadableCopy(UnitTestCase):
         for html in (no_link, no_image):
             with self.subTest(html=html):
                 self.assertFalse(
-                    writer_content.SPEC.readable_copy.is_html_complete(linked_state(), html, "See the plan")
+                    writer_content.EDITOR.readable_copy.is_html_complete(linked_state(), html, "See the plan")
                 )
