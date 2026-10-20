@@ -34,14 +34,15 @@ export function placeThread(state: EditorState, anchor: string): ThreadPlace {
   }
 
   const { doc, type, binding } = sync
-  if (isInDeletedBlock(doc, read.start) || isInDeletedBlock(doc, read.end)) {
-    return { kind: 'deleted', quote: read.quote }
-  }
-
   const { mapping, hidden } = binding
-  const from = relativePositionToAbsolutePosition(doc, type, read.start, mapping, hidden)
-  const to = relativePositionToAbsolutePosition(doc, type, read.end, mapping, hidden)
-  if (from === null || to === null || from >= to) {
+  const [from, to] = [read.start, read.end].map((end) => {
+    if (isInDeletedBlock(doc, end)) {
+      return null
+    }
+
+    return relativePositionToAbsolutePosition(doc, type, end, mapping, hidden)
+  })
+  if (from === null || to === null || from >= to || !holdsLeaf(state.doc, from, to)) {
     return { kind: 'deleted', quote: read.quote }
   }
 
@@ -81,16 +82,26 @@ function positionAt(doc: Y.Doc, position: Y.RelativePosition, assoc: number) {
 
 // A tab whose undo history keeps a deleted block would otherwise place the end where the block was
 function isInDeletedBlock(doc: Y.Doc, position: Y.RelativePosition) {
-  let type = Y.createAbsolutePositionFromRelativePosition(position, doc)?.type
-  while (type?._item) {
+  let type: unknown = Y.createAbsolutePositionFromRelativePosition(position, doc)?.type
+  while (type instanceof Y.AbstractType && type._item) {
     if (type._item.deleted) {
       return true
     }
 
-    type = type._item.parent as Y.AbstractType<unknown>
+    type = type._item.parent
   }
 
   return false
+}
+
+// A range across blocks with no words left may still cover an atom or a block such as a rule
+function holdsLeaf(doc: PMNode, from: number, to: number) {
+  let hasLeaf = false
+  doc.nodesBetween(from, to, (node) => {
+    hasLeaf ||= node.isLeaf
+    return !hasLeaf
+  })
+  return hasLeaf
 }
 
 // Yjs can't tell text not received yet from text deleted for good, so this asks first

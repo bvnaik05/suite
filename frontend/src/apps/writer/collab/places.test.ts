@@ -1,6 +1,8 @@
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
+import HorizontalRule from '@tiptap/extension-horizontal-rule'
+import { BulletList, ListItem } from '@tiptap/extension-list'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -20,7 +22,15 @@ afterEach(() => {
 function openEditor(doc = new Y.Doc()) {
   const editor = new Editor({
     element: document.createElement('div'),
-    extensions: [Document, Paragraph, Text, Collaboration.configure({ document: doc })],
+    extensions: [
+      Document,
+      Paragraph,
+      Text,
+      BulletList,
+      ListItem,
+      HorizontalRule,
+      Collaboration.configure({ document: doc }),
+    ],
   })
   editors.push(editor)
   return editor
@@ -235,18 +245,26 @@ describe('where a thread shows after another tab edits its text', () => {
   })
 })
 
+const PARAGRAPHS = { content: '<p>aa bb</p><p>cc dd</p>', from: 4, to: 10 }
+const LIST_ITEMS = {
+  content: '<ul><li><p>aa bb</p></li><li><p>cc dd</p></li></ul>',
+  from: 6,
+  to: 14,
+}
+const RULED = { content: '<p>aa bb</p><hr><p>cc dd</p>', from: 4, to: 11 }
+
 // A thread from "bb" to "cc", across two paragraphs, made in a tab
-function threadAcrossParagraphs() {
+function threadAcrossParagraphs({ content, from, to }: typeof PARAGRAPHS) {
   const local = new Y.Doc()
   const editor = openEditor(local)
-  editor.commands.setContent('<p>aa bb</p><p>cc dd</p>')
-  editor.commands.setTextSelection({ from: 4, to: 10 })
+  editor.commands.setContent(content)
+  editor.commands.setTextSelection({ from, to })
   return { local, editor, anchor: anchorSelection(editor.state)! }
 }
 
 // Where it shows after `edit` in the editing tab, a tab it reaches, and a doc opened after it
-function shownInEveryTab(edit: (editor: Editor) => void) {
-  const { local, editor, anchor } = threadAcrossParagraphs()
+function shownInEveryTab(edit: (editor: Editor) => void, paragraphs = PARAGRAPHS) {
+  const { local, editor, anchor } = threadAcrossParagraphs(paragraphs)
   const remote = new Y.Doc()
   Y.applyUpdate(remote, Y.encodeStateAsUpdate(local))
   const remoteEditor = openEditor(remote)
@@ -264,14 +282,20 @@ function deleteBetween(from: number, to: number) {
   }
 }
 
+function joinBackwardAt(position: number) {
+  return (editor: Editor) => {
+    editor.commands.setTextSelection(position)
+    editor.commands.joinBackward()
+  }
+}
+
 describe('where a thread across two paragraphs shows after the tab holding it edits', () => {
   it.each([
+    { name: 'joins the paragraphs', edit: joinBackwardAt(8), shown: 'deleted' },
     {
-      name: 'joins the paragraphs',
-      edit: (editor: Editor) => {
-        editor.commands.setTextSelection(8)
-        editor.commands.joinBackward()
-      },
+      name: 'joins the list items they are in',
+      paragraphs: LIST_ITEMS,
+      edit: joinBackwardAt(12),
       shown: 'deleted',
     },
     { name: 'deletes across the paragraph break', edit: deleteBetween(5, 9), shown: 'deleted' },
@@ -286,11 +310,20 @@ describe('where a thread across two paragraphs shows after the tab holding it ed
         deleteBetween(1, 6)(editor)
         deleteBetween(3, 5)(editor)
       },
+      shown: 'deleted',
+    },
+    {
+      name: 'deletes all of its words, leaving a rule between the paragraphs',
+      paragraphs: RULED,
+      edit: (editor: Editor) => {
+        deleteBetween(1, 6)(editor)
+        deleteBetween(4, 6)(editor)
+      },
       shown: '',
     },
     { name: 'leaves it alone', edit: () => {}, shown: 'bbcc' },
-  ])('shows the same in every tab when it $name', ({ edit, shown }) => {
-    expect(shownInEveryTab(edit)).toEqual([shown, shown, shown])
+  ])('shows the same in every tab when it $name', ({ edit, paragraphs, shown }) => {
+    expect(shownInEveryTab(edit, paragraphs)).toEqual([shown, shown, shown])
   })
 })
 
