@@ -3407,6 +3407,12 @@ function _commitFormulaBar() {
       after: { [targetId]: value },
       summary: 'Edit cell',
     }
+    // The row refits to the edit, as a commit in the cell does.
+    const rowH = _refitRowsFor(targetSheet, { [targetId]: value })
+    if (rowH) {
+      op.beforeRowH = rowH.before
+      op.afterRowH = rowH.after
+    }
     _queueOp(op)
     history.pushOp(op)
     broadcastCellChange(targetSheet, targetId, value)
@@ -4723,6 +4729,7 @@ const { pushEditOp: _pushEditOp } = useEditOps({
   broadcastBatchChange: (sn, cells) => broadcastBatchChange(sn, cells),
   syncFlags,
   isDirty,
+  refitRowsFor: _refitRowsFor,
 })
 
 // ── Repopulate ────────────────────────────────────────────────────────────────
