@@ -107,3 +107,45 @@ describe('filtering from refreshed values', () => {
     expect(sf.getHeader(0, 'Sheet1')).toBe('')
   })
 })
+
+// Values are compared as the numbers they show. IronCalc shows a typed
+// 1,000 as `1,000` and 50% as `50%`; parseFloat read those as 1 and 50, so
+// a descending sort put 12 and 3 above 1,000.
+describe('numbers IronCalc formatted', () => {
+  const inputs = {
+    A1: 'h',
+    A2: '12',
+    A3: '1000',
+    A4: '3',
+    B1: 'p',
+    B2: '0.6',
+    B3: '0.5',
+    B4: '0.05',
+  }
+  const displays = { A3: '1,000', B2: '0.6', B3: '50%', B4: '$0.05' }
+
+  it('sorts 1,000 as a thousand', async () => {
+    const cells = makeCells(inputs, displays)
+    const sf = createSortFilter(cells)
+    sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 0 }, 'Sheet1')
+    await sf.sort(0, 'desc', 'Sheet1')
+    expect(cells.writes[0][1]).toEqual({ A2: '1000', A3: '12', A4: '3' })
+  })
+
+  it('sorts 50% as a half', async () => {
+    const cells = makeCells(inputs, displays)
+    const sf = createSortFilter(cells)
+    sf.setRange({ r0: 0, c0: 1, r1: 3, c1: 1 }, 'Sheet1')
+    await sf.sort(1, 'asc', 'Sheet1')
+    expect(cells.writes[0][1]).toEqual({ B2: '0.05', B3: '0.5', B4: '0.6' })
+  })
+
+  it('filters and lists by the number shown', async () => {
+    const sf = createSortFilter(makeCells(inputs, displays))
+    sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 1 }, 'Sheet1')
+    sf.setFilter(0, { operator: 'gt', value: '100' }, 'Sheet1')
+    await sf.refresh('Sheet1')
+    expect([...sf.computeHiddenRows('Sheet1')]).toEqual([1, 3])
+    expect(sf.getColumnValues(0, 'Sheet1')).toEqual(['3', '12', '1,000'])
+  })
+})

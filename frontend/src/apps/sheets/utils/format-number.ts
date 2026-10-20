@@ -193,7 +193,7 @@ function _toDate(value: unknown): Date | null {
   if (typeof value === 'number') return _serialToDate(value)
   const s = String(value).trim()
   if (s === '') return null
-  const n = _displayNumber(s)
+  const n = displayNumber(s)
   if (!isNaN(n)) return _serialToDate(n)
   let norm = s.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1')
   if (/^\d{4}-\d{2}-\d{2}$/.test(norm)) norm += 'T00:00:00'
@@ -209,10 +209,11 @@ function _toDate(value: unknown): Date | null {
 const DISPLAY_NUMBER =
   /^([-+]?)\s*(?:[A-Z]{0,2}[$€£¥₹])?\s*(\d[\d,]*(?:\.\d*)?|\.\d+)(?:[eE]([-+]?\d+))?\s*([$€£¥₹]?)\s*(%?)$/
 
-// The number a cell shows. The grid formats IronCalc's display string, and
-// IronCalc has already formatted a typed `1,000` or `50%`; parseFloat read
-// those as 1 and 50 (so the $ button showed $1.00, the % button 5000.00%).
-function _displayNumber(value: unknown): number {
+// The number a cell shows, or NaN. The grid formats IronCalc's display
+// string, and IronCalc has already formatted a typed `1,000` or `50%`;
+// parseFloat read those as 1 and 50 (so the $ button showed $1.00, the %
+// button 5000.00%, and a sort put 12 above 1,000).
+export function displayNumber(value: unknown): number {
   if (typeof value === 'number') return value
   const m = DISPLAY_NUMBER.exec(String(value ?? '').trim())
   if (!m) return NaN
@@ -234,7 +235,7 @@ export function applyNumberFmt<T>(value: T, format: unknown): T | string {
   // Cells flagged 'text' should also be treated as text in formulas; that's
   // handled by the engine's strict-arithmetic — see toNumStrict.
   if (type === 'text') return value == null ? '' : String(value)
-  const n = _displayNumber(value)
+  const n = displayNumber(value)
   if (isNaN(n) && !DATE_LIKE.has(type)) return value
   if (type === 'number') {
     const loc = NUMBER_LOCALES[variant] !== undefined ? NUMBER_LOCALES[variant] : undefined
@@ -282,7 +283,7 @@ export function applyNumberFmt<T>(value: T, format: unknown): T | string {
 // so `"$"#,##0.00`, `0.0%`, `#,##0 "kg"` all work. Negatives get a leading '-'
 // (Excel's `positive;negative` sections are a later follow-up).
 function applyCustomFmt<T>(value: T, pattern: string): T | string {
-  const n = _displayNumber(value)
+  const n = displayNumber(value)
   if (isNaN(n)) return value == null ? '' : String(value)
   const { prefix, numSpec, suffix, percent } = _parseCustomPattern(pattern)
   if (!numSpec) return prefix + suffix

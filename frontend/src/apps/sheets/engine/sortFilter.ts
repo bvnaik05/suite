@@ -1,5 +1,6 @@
 import { cellId } from '../utils/cells.js'
 import { deepClone } from '../utils/deep-clone.js'
+import { displayNumber } from '../utils/format-number.js'
 import { adjustFormula } from './formula-adjust.js'
 import { remapIndexKeys, remapRect } from './ref-remap.js'
 import type { CellPort, IndexMap, Rect } from './types.js'
@@ -118,8 +119,8 @@ export function createSortFilter(cells: CellPort) {
     if (av === '' && bv === '') return 0
     if (av === '') return 1
     if (bv === '') return -1
-    const an = parseFloat(av),
-      bn = parseFloat(bv)
+    const an = displayNumber(av),
+      bn = displayNumber(bv)
     const cmp = !isNaN(an) && !isNaN(bn) ? an - bn : String(av).localeCompare(String(bv))
     return dir === 'asc' ? cmp : -cmp
   }
@@ -178,8 +179,8 @@ export function createSortFilter(cells: CellPort) {
       const op = spec.operator
       if (op === 'contains' && !cellVal.toLowerCase().includes(specVal.toLowerCase())) return true
       else if (op === 'equals' && cellVal !== specVal) return true
-      else if (op === 'gt' && !(parseFloat(cellVal) > parseFloat(specVal))) return true
-      else if (op === 'lt' && !(parseFloat(cellVal) < parseFloat(specVal))) return true
+      else if (op === 'gt' && !(displayNumber(cellVal) > displayNumber(specVal))) return true
+      else if (op === 'lt' && !(displayNumber(cellVal) < displayNumber(specVal))) return true
       else if (op === 'empty' && cellVal !== '') return true
       else if (op === 'notempty' && cellVal === '') return true
       // Google-Sheets-style "Filter by values": spec.values is an array of the
@@ -208,8 +209,8 @@ export function createSortFilter(cells: CellPort) {
     return [...seen].sort((a, b) => {
       if (a === '' && b !== '') return -1
       if (b === '' && a !== '') return 1
-      const an = parseFloat(a),
-        bn = parseFloat(b)
+      const an = displayNumber(a),
+        bn = displayNumber(b)
       if (!isNaN(an) && !isNaN(bn)) return an - bn
       return a.localeCompare(b)
     })
