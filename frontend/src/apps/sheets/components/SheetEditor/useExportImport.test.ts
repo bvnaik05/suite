@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { useExportImport } from './useExportImport.js'
 
@@ -46,5 +46,81 @@ describe('exportXLSX', () => {
     // A typed date is the day serial with its date code, not the text.
     expect(ws.F1).toEqual({ t: 'n', v: 46000, z: 'yyyy-mm-dd' })
     expect(ws.G1).toEqual({ f: 'DATE(2025,12,9)', t: 'n', v: 46000, z: 'm/d/yyyy' })
+  })
+})
+
+// ISSUES #58 / #59. SheetJS turns a JS Date into a serial (and a serial into
+// a Date, with cellDates) in the runner's local time, and an Indian 1899
+// is +5:21:10. A UTC-midnight date went out as 05:30:10, and a plain date
+// serial came in as the day before at 18:29:50, as text.
+describe('xlsx dates in a timezone ahead of UTC', () => {
+  const tz = process.env.TZ
+  beforeAll(() => {
+    process.env.TZ = 'Asia/Kolkata'
+  })
+  afterAll(() => {
+    process.env.TZ = tz
+  })
+
+  function editor(
+    sheet: { inputs: string[][]; displays: string[][]; numFmts: string[][] },
+    tabs = ['Sheet1'],
+  ) {
+    const writes: Record<string, Record<string, string>> = {}
+    const fmts: Record<string, string> = {}
+    const opts = {
+      cells: {
+        readSheet: async () => sheet,
+        write: (sn: string, map: Record<string, string>) =>
+          (writes[sn] = { ...writes[sn], ...map }),
+        addSheet: vi.fn(),
+        idle: async () => {},
+      },
+      sheetNames: () => tabs,
+      currentSheet: { value: 'Sheet1' },
+      getCurrentTitle: () => 't',
+      // A side-store date format on A1 and B1, as the toolbar sets it.
+      getFormats: () => ({
+        get: (id: string) => (id === 'A1' || id === 'B1' ? { numberFormat: 'date:long' } : {}),
+        set: (id: string, f: { numberFormat: string }) => (fmts[id] = f.numberFormat),
+      }),
+      getMerge: () => null,
+      repopulateGrid: vi.fn(),
+      syncNames: vi.fn(),
+      switchSheet: vi.fn(),
+      syncFlags: vi.fn(),
+      isDirty: { value: false },
+    }
+    return { ...useExportImport(opts), writes, fmts }
+  }
+
+  it('exports a date as its whole day serial, with no time', async () => {
+    const { exportXLSX } = editor({
+      inputs: [['2026-01-15', '=DATE(2026,4,1)']],
+      displays: [['2026-01-15', '4/1/2026']],
+      numFmts: [['yyyy-mm-dd', 'm/d/yyyy']],
+    })
+    await exportXLSX()
+    const ws = written.wb?.Sheets.Sheet1 as Record<string, { t: string; v: unknown; z?: string }>
+    expect(ws.A1).toEqual({ t: 'n', v: 46037, z: 'd mmm yyyy' })
+    expect(ws.B1).toEqual({ f: 'DATE(2026,4,1)', t: 'n', v: 46113, z: 'd mmm yyyy' })
+  })
+
+  it('imports a date serial as that date, not text from the day before', async () => {
+    const { utils, write } = await import('xlsx')
+    const wb = utils.book_new()
+    const ws = {
+      '!ref': 'A1:C1',
+      A1: { t: 'n', v: 46037, z: 'd mmm yyyy' },
+      B1: { t: 'n', v: 46037, z: 'm/d/yyyy' },
+      C1: { t: 'n', v: 46037.75, z: 'yyyy-mm-dd hh:mm' },
+    }
+    utils.book_append_sheet(wb, ws, 'Sales')
+    const buf = write(wb, { type: 'array', bookType: 'xlsx' })
+    const file = { arrayBuffer: async () => buf }
+    const ed = editor({ inputs: [], displays: [], numFmts: [] })
+    await ed.importXLSX({ target: { files: [file], value: '' } })
+    expect(ed.writes.Sales).toEqual({ A1: '2026-01-15', B1: '2026-01-15', C1: '46037.75' })
+    expect(ed.fmts).toEqual({ A1: 'date:long', B1: 'date:mdy', C1: 'datetime:ymd_hm' })
   })
 })
