@@ -140,6 +140,13 @@ describe('registered shortcuts', () => {
     fire({ key: 'f', ctrl: true })
     expect(a.showFindReplace.value).toBe(true)
   })
+  // ISSUES #68: Google's replace shortcut did nothing.
+  it('Mod+H opens find/replace too', () => {
+    const a = makeActions()
+    useShortcuts(a)
+    fire({ key: 'h', ctrl: true })
+    expect(a.showFindReplace.value).toBe(true)
+  })
   it('Mod+= / Mod+- / Mod+0 register zoom', () => {
     const a = makeActions()
     useShortcuts(a)
