@@ -100,6 +100,55 @@ describe('workbook — formulas through commands', () => {
   })
 })
 
+// ISSUES #34: IronCalc gives a formula's result the format of its inputs,
+// but on purpose not for a percent times a plain number (=A1*2 over 50%
+// showed 1). Google Sheets shows 100%; so does the workbook now.
+describe('workbook — a percent times plain numbers stays a percent', () => {
+  const shown = (formula, a1 = '50%') => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 1, 1, a1)
+    setInput(wb, 'Sheet1', 2, 1, '200')
+    setInput(wb, 'Sheet1', 3, 1, formula)
+    return wb.getDisplayValue('Sheet1', 3, 1)
+  }
+
+  it('multiplies and divides by numbers', () => {
+    expect(shown('=A1*2')).toBe('100%')
+    expect(shown('=2*A1')).toBe('100%')
+    expect(shown('=A1/2')).toBe('25%')
+    expect(shown('=($A$1*3)/4')).toBe('38%')
+    expect(shown('=A1*-2')).toBe('-100%')
+  })
+
+  it('keeps the decimals of the percent cell', () => {
+    expect(shown('=A1*2', '12.5%')).toBe('25.00%')
+  })
+
+  it('leaves everything else to IronCalc', () => {
+    expect(shown('=A1*A2')).toBe('100') // 50% of 200: a number
+    expect(shown('=2/A1')).toBe('4') // a percent below the line
+    expect(shown('=SUM(A1)*2')).toBe('1')
+    expect(shown('=A1+10%')).toBe('60%') // IronCalc's own rule
+    expect(shown('=A1*2', '0.5')).toBe('1') // not a percent
+  })
+
+  it('keeps a format the cell already has', () => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 1, 1, '50%')
+    setInput(wb, 'Sheet1', 2, 1, '$5')
+    setInput(wb, 'Sheet1', 2, 1, '=A1*2')
+    expect(wb.getDisplayValue('Sheet1', 2, 1)).toBe('$1')
+  })
+
+  it('reads a percent cell on another sheet', () => {
+    const wb = createWorkbook()
+    wb.apply(cmd(CommandTypes.addSheet, { name: 'Rates' }))
+    setInput(wb, 'Rates', 1, 1, '50%')
+    setInput(wb, 'Sheet1', 1, 1, '=Rates!A1*2')
+    expect(wb.getDisplayValue('Sheet1', 1, 1)).toBe('100%')
+  })
+})
+
 describe('workbook — structure ops', () => {
   it('insertRows adjusts references', () => {
     const wb = createWorkbook()

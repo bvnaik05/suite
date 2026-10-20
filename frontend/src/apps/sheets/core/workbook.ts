@@ -12,6 +12,7 @@ import { Model, type ExtendedCellStyle } from '@ironcalc/wasm'
 
 import { CommandTypes, validateCommand, type Command, type CommandType } from './commands.js'
 import { MAX_ROWS } from './limits.js'
+import { percentFormatFor } from './percent-format.js'
 
 const LANGUAGE = 'en'
 
@@ -190,11 +191,29 @@ export function createWorkbook({
     return { version }
   }
 
+  // A formula that scales one percent cell by plain numbers shows a percent
+  // (see percent-format.ts). Only a cell IronCalc left unformatted, so a
+  // format the cell already had, or one IronCalc inferred, stays.
+  function inheritPercent(si: number, row: number, col: number, input: string): void {
+    if (!input.startsWith('=')) return
+    if (model.getCellStyle(si, row, col).style.num_fmt.toLowerCase() !== 'general') return
+    const fmt = percentFormatFor(
+      input,
+      (sheet, r, c) =>
+        model.getCellStyle(sheet == null ? si : sheetIndex(sheet), r, c).style.num_fmt,
+    )
+    if (!fmt) return
+    const area = { sheet: si, row, column: col, width: 1, height: 1 }
+    model.updateRangeStyle(area, 'num_fmt', fmt)
+  }
+
   function applyOne(cmd: Command): void {
     switch (cmd.type) {
       case CommandTypes.setInput: {
         const p = cmd.payload
-        model.setUserInput(sheetIndex(p.sheet), p.row, p.col, p.input)
+        const si = sheetIndex(p.sheet)
+        model.setUserInput(si, p.row, p.col, p.input)
+        inheritPercent(si, p.row, p.col, p.input)
         return
       }
       // setUserArrayFormula pins the result to a fixed width × height
