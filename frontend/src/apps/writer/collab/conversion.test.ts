@@ -1035,10 +1035,109 @@ describe('convertLegacy', () => {
     ])
   })
 
-  it('refuses a Yjs text style with a background colour', () => {
-    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: '#fef08a' } })))
+  it.each([
+    { value: '#dc2626', name: 'red' },
+    { value: '#1579d0', name: 'blue' },
+    { value: '#1579D0', name: 'blue' },
+    { value: 'rgb(220, 38, 38)', name: 'red' },
+    { value: '#dd2222', name: 'red' },
+    { value: 'pink', name: 'pink' },
+  ])('reads an old Yjs text colour $value as the palette colour $name', ({ value, name }) => {
+    const result = convert(stored(legacyDoc(yMarked('word', { textStyle: { color: value } }))))
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['word', [['textStyle', name]]]])
+  })
+
+  it.each(['#1F272E', '#1f272e', 'rgb(31, 39, 46)', 'RGB(31, 39, 46)', ''])(
+    "drops an old Yjs text colour %j, Drive's ink or none, and keeps the rest of the style",
+    (value) => {
+      const style = { textStyle: { color: value, fontSize: '20px' } }
+
+      const result = convert(stored(legacyDoc(yMarked('word', style))))
+
+      const [{ content }] = bodyOf(result.state).content
+      expect(content[0].marks).toEqual([
+        { type: 'textStyle', attrs: expect.objectContaining({ color: null, fontSize: '20px' }) },
+      ])
+    },
+  )
+
+  it.each(['black', '#333333'])(
+    'refuses an old Yjs text colour %s with no palette colour',
+    (value) => {
+      const legacy = stored(legacyDoc(yMarked('word', { textStyle: { color: value } })))
+
+      expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    },
+  )
+
+  it('reads an old colour on a mention as its palette colour', () => {
+    const mention = yAtom('mention', { id: 'x', label: 'Ann' })
+    mention.setAttribute('textStyle', { color: '#dc2626' } as never)
+    const legacy = stored(legacyDoc(yElement('paragraph', new XmlText('hi '), mention)))
+
+    const result = convert(legacy)
+
+    const shownMention = openConverted(result.state).state.doc.firstChild!.child(1)
+    expect(shownMention.marks.map((mark) => mark.toJSON())).toEqual([
+      { type: 'textStyle', attrs: expect.objectContaining({ color: 'red' }) },
+    ])
+  })
+
+  it("moves an old Yjs text style's background colour onto the highlight as its palette colour", () => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: '#fef9c3' } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content[0].marks).toEqual([
+      { type: 'namedHighlight', attrs: expect.objectContaining({ color: 'yellow' }) },
+    ])
+  })
+
+  it('converts an old background colour over a highlight of the same colour', () => {
+    const marks = { textStyle: { backgroundColor: '#fef9c3' }, namedHighlight: { color: 'yellow' } }
+
+    const result = convert(stored(legacyDoc(yMarked('lit', marks))))
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', [['namedHighlight', 'yellow']]]])
+  })
+
+  it('refuses an old background colour over a highlight of another colour', () => {
+    const marks = { textStyle: { backgroundColor: '#fef9c3' }, namedHighlight: { color: 'red' } }
+    const legacy = stored(legacyDoc(yMarked('lit', marks)))
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it.each(['color', 'backgroundColor', 'fontFamily', 'fontSize', 'lineHeight'])(
+    "refuses a Yjs text style whose %s holds a ';', which would end its style where it's drawn",
+    (key) => {
+      const style = { textStyle: { [key]: 'x; color: #dc2626' } }
+      const legacy = stored(legacyDoc(yMarked('word', style)))
+
+      expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    },
+  )
+
+  it("refuses an HTML font family holding a ';' inside its quotes", () => {
+    const html = `<p><span style="font-family: 'a; color: red'">word</span></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it("converts a Yjs text style whose values hold no ';'", () => {
+    const style = { color: 'red', fontFamily: 'Inter', fontSize: '20px', lineHeight: '1.5' }
+
+    const result = convert(stored(legacyDoc(yMarked('word', { textStyle: style }))))
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content[0].marks).toEqual([{ type: 'textStyle', attrs: expect.objectContaining(style) }])
   })
 
   it("keeps Drive's HTML text colour and highlight as palette colours, and its ink as none", () => {

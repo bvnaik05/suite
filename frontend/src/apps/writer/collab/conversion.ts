@@ -1,4 +1,4 @@
-import { generateJSON, getSchema } from '@tiptap/core'
+import { generateJSON, getSchema, type JSONContent } from '@tiptap/core'
 import { DOMSerializer, type Node as PMNode } from '@tiptap/pm/model'
 import { Transform } from '@tiptap/pm/transform'
 import {
@@ -279,8 +279,182 @@ function dropDriveDefaults(body: XmlFragment) {
   }
 }
 
+type Attributes = Record<string, unknown>
+
+interface Run {
+  insert: unknown
+  attributes?: Attributes
+}
+
+// Where the editor reads each colour from pasted HTML, and the variable it draws a palette name with
+const COLOUR_READS = {
+  color: { tag: 'span', mark: 'textStyle', variable: 'prose-color' },
+  'background-color': { tag: 'mark', mark: 'namedHighlight', variable: 'prose-highlight' },
+}
+
+type ColourProperty = keyof typeof COLOUR_READS
+
+// Drive's ink as Yjs stored it, in either form
+function isDriveInk(value: string) {
+  return ['#1f272e', DRIVE_INK].includes(value.toLowerCase())
+}
+
+const paletteNames = new Map<string, unknown>()
+
+// The palette name the editor reads from a colour as it reads pasted HTML, a palette name coming
+// back from its variable; a ';' would end the declaration
+function paletteName(property: ColourProperty, value: string) {
+  const key = `${property} ${value}`
+  if (value.includes(';')) {
+    return null
+  }
+
+  if (paletteNames.has(key)) {
+    return paletteNames.get(key)
+  }
+
+  const { tag, mark, variable } = COLOUR_READS[property]
+  const element = document.createElement(tag)
+  element.textContent = 'x'
+  let name: unknown = null
+  for (const colour of [`var(--${variable}-${value})`, value]) {
+    element.setAttribute('style', `${property}: ${colour}`)
+    const json: JSONContent = generateJSON(`<p>${element.outerHTML}</p>`, extensions)
+    const text = json.content?.[0]?.content?.[0]
+    name = text?.marks?.find(({ type }) => type === mark)?.attrs?.color
+    if (name) {
+      break
+    }
+  }
+
+  paletteNames.set(key, name)
+  return name
+}
+
+// The key setting an old text colour as the palette name the editor draws, empty and Drive's ink
+// holding none; null when it reads as no palette colour
+function textColourFormat(color: unknown): Attributes | null {
+  if (typeof color !== 'string') {
+    return { color }
+  }
+
+  if (!color || isDriveInk(color)) {
+    return { color: null }
+  }
+
+  const name = paletteName('color', color)
+  if (!name) {
+    return null
+  }
+
+  return { color: name }
+}
+
+// The highlight an old background colour reads as, which must agree with one the run holds; null
+// when it reads as no palette colour
+function highlightFormat(backgroundColor: unknown, held: unknown): Attributes | null {
+  if (backgroundColor == null || backgroundColor === '') {
+    return {}
+  }
+
+  const name =
+    typeof backgroundColor === 'string' && paletteName('background-color', backgroundColor)
+  const heldName = (held as Attributes | undefined)?.color
+  if (!name || (heldName != null && heldName !== name)) {
+    return null
+  }
+
+  return { namedHighlight: { color: name } }
+}
+
+// The keys that set formatting's old text style colours as palette names, its background on the
+// highlight; null when one reads as no palette colour
+function paletteFormat({ textStyle, namedHighlight }: Attributes): Attributes | null {
+  const { color, backgroundColor, ...rest } = (textStyle ?? {}) as Attributes
+  const colour = textColourFormat(color)
+  const highlight = highlightFormat(backgroundColor, namedHighlight)
+  if (!colour || !highlight) {
+    return null
+  }
+
+  const style = { ...rest, ...colour }
+  const isUnset = Object.values(style).every((value) => value == null)
+  return { ...highlight, textStyle: isUnset ? null : style }
+}
+
+// Old colours on a text's runs as palette names; false when one reads as none
+function mapTextColours(text: XmlText) {
+  let at = 0
+  for (const { insert, attributes = {} } of text.toDelta() as Run[]) {
+    const format = paletteFormat(attributes)
+    if (!format) {
+      return false
+    }
+
+    let length = 1
+    if (typeof insert === 'string') {
+      length = insert.length
+    }
+
+    text.format(at, length, format)
+    at += length
+  }
+
+  return true
+}
+
+// Old colours on an inline part, which holds its marks as attributes, as palette names; false when
+// one reads as none
+function mapPartColours(part: XmlElement) {
+  const format = paletteFormat(part.getAttributes())
+  if (!format) {
+    return false
+  }
+
+  for (const [key, value] of Object.entries(format)) {
+    if (value == null) {
+      part.removeAttribute(key)
+    } else {
+      part.setAttribute(key, value as string)
+    }
+  }
+
+  return true
+}
+
+// Writer draws a colour only as a palette name, so old Yjs colours are read as palette names the
+// way pasted HTML is; false when one reads as none
+function mapOldColours(body: XmlFragment) {
+  return [...body.createTreeWalker(() => true)].every((part) => {
+    if (part instanceof XmlText) {
+      return mapTextColours(part)
+    }
+
+    return !(part instanceof XmlElement) || mapPartColours(part)
+  })
+}
+
+// Whether formatting holds a text style value with a ';', which would end its declaration where
+// it's drawn
+function holdsStyleBreak({ textStyle }: Attributes = {}) {
+  return Object.values((textStyle ?? {}) as Attributes).some(
+    (value) => typeof value === 'string' && value.includes(';'),
+  )
+}
+
+function breaksStyle(body: XmlFragment) {
+  return [...body.createTreeWalker(() => true)].some((part) => {
+    if (part instanceof XmlText) {
+      return (part.toDelta() as Run[]).some(({ attributes }) => holdsStyleBreak(attributes))
+    }
+
+    return part instanceof XmlElement && holdsStyleBreak(part.getAttributes())
+  })
+}
+
 // The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
-// checked on its own by where the media points; Drive's defaults, dropped; the parts the build set
+// checked on its own by where the media points; Drive's defaults, dropped; old colours, read as
+// palette names, or the check fails; the parts the build set
 // aside holding nothing, hidden or lost (recorded), and Drive's table of contents holding only its
 // hint, left out of the source, so a lost part with content fails; and the extras the result may
 // hold, being the filler the build adds, declared defaults and heading ids
@@ -290,6 +464,7 @@ function fromYjs(old: Doc) {
   const media = mediaSources(body)
   convertOldMedia(body)
   dropDriveDefaults(body)
+  const isColourMapped = mapOldColours(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(body) === media
   const source = inventory(body, new Set([...hidden, ...lost.filter(isDroppable)]))
@@ -297,7 +472,8 @@ function fromYjs(old: Doc) {
     node,
     dropped: [...lostParts(lost), ...pendingDrop(old)],
     hasUnreadableThreads,
-    isKept: (fresh: XmlFragment) => isMediaKept && !unkept(source, inventory(fresh)).length,
+    isKept: (fresh: XmlFragment) =>
+      isColourMapped && isMediaKept && !unkept(source, inventory(fresh)).length,
   }
 }
 
@@ -450,7 +626,7 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   const fresh = new Doc()
   const body = fresh.getXmlFragment(BODY_FIELD)
   prosemirrorToYXmlFragment(converted, body)
-  if (!isKept(body)) {
+  if (!isKept(body) || breaksStyle(body)) {
     return { kind: 'failed', reason: 'check' }
   }
 
