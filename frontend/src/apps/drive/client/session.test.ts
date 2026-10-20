@@ -217,17 +217,21 @@ describe('document session media', () => {
 })
 
 describe('document session access refresh', () => {
-  const transportError = (type: string, status: number) =>
-    new TransportError({ type, message: type, status })
+  function transportError(type: string, status: number) {
+    return new TransportError({ type, message: type, status })
+  }
 
   it('keeps access through network and server errors and refuses on a real answer', async () => {
     vi.useFakeTimers()
     let nextFailure: TransportError | null = null
     const requester: Transport = {
-      request: (operation, input) =>
-        operation.id === 'node_get' && nextFailure
-          ? Promise.reject(nextFailure)
-          : Promise.resolve(documentNode((input as { node: string }).node) as never),
+      request: (operation, input) => {
+        if (operation.id === 'node_get' && nextFailure) {
+          return Promise.reject(nextFailure)
+        }
+
+        return Promise.resolve(documentNode((input as { node: string }).node) as never)
+      },
     }
     const dependencies = {
       client: testClient(requester),

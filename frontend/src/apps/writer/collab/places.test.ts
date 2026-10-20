@@ -6,7 +6,7 @@ import { BulletList, ListItem } from '@tiptap/extension-list'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { writerSchema } from '../schema'
 import { anchorEnds, DOCUMENT_ANCHOR, encodeAnchor, readAnchor } from './anchors'
@@ -19,7 +19,7 @@ afterEach(() => {
   }
 })
 
-function openEditor(doc = new Y.Doc()) {
+function openEditor(doc = new yjs.Doc()) {
   const editor = new Editor({
     element: document.createElement('div'),
     extensions: [
@@ -40,7 +40,7 @@ function openEditor(doc = new Y.Doc()) {
 function openWriterEditor(content: string) {
   const editor = new Editor({
     element: document.createElement('div'),
-    extensions: [...writerSchema(), Collaboration.configure({ document: new Y.Doc() })],
+    extensions: [...writerSchema(), Collaboration.configure({ document: new yjs.Doc() })],
   })
   editors.push(editor)
   editor.commands.setContent(content)
@@ -57,14 +57,14 @@ function quoteOf(editor: Editor, from: number, to: number) {
   return read.quote
 }
 
-function paragraphText(doc: Y.Doc, index = 0) {
-  return (doc.getXmlFragment('default').get(index) as Y.XmlElement).get(0) as Y.XmlText
+function paragraphText(doc: yjs.Doc, index = 0) {
+  return (doc.getXmlFragment('default').get(index) as yjs.XmlElement).get(0) as yjs.XmlText
 }
 
 // A thread on characters [start, end) of a paragraph, made the way a tab makes one
-function anchorOn(text: Y.XmlText, start: number, end: number) {
-  const from = Y.createRelativePositionFromTypeIndex(text, start, 0)
-  const to = Y.createRelativePositionFromTypeIndex(text, end, -1)
+function anchorOn(text: yjs.XmlText, start: number, end: number) {
+  const from = yjs.createRelativePositionFromTypeIndex(text, start, 0)
+  const to = yjs.createRelativePositionFromTypeIndex(text, end, -1)
   return encodeAnchor(from, to, text.toString().slice(start, end))
 }
 
@@ -79,7 +79,7 @@ function shownText(editor: Editor, anchor: string) {
 
 describe('where a thread shows', () => {
   it('follows its words while text is typed before them and at both edges', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const editor = openEditor(doc)
     editor.commands.setContent('<p>hello world</p>')
     const anchor = anchorOn(paragraphText(doc), 6, 11)
@@ -92,7 +92,7 @@ describe('where a thread shows', () => {
   })
 
   it('keeps what is left when its first or last character is deleted', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const editor = openEditor(doc)
     editor.commands.setContent('<p>hello world</p>')
     const anchor = anchorOn(paragraphText(doc), 6, 11)
@@ -104,7 +104,7 @@ describe('where a thread shows', () => {
   })
 
   it('is deleted, with its quote, once all its words are gone or their paragraph is', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const editor = openEditor(doc)
     editor.commands.setContent('<p>hello world</p><p>second line</p>')
     const onWorld = anchorOn(paragraphText(doc), 6, 11)
@@ -119,17 +119,17 @@ describe('where a thread shows', () => {
   })
 
   it("waits for another tab's text before showing a thread on it", () => {
-    const local = new Y.Doc()
+    const local = new yjs.Doc()
     const editor = openEditor(local)
     editor.commands.setContent('<p>hello</p>')
-    const remote = new Y.Doc()
-    Y.applyUpdate(remote, Y.encodeStateAsUpdate(local))
-    const before = Y.encodeStateVector(remote)
+    const remote = new yjs.Doc()
+    yjs.applyUpdate(remote, yjs.encodeStateAsUpdate(local))
+    const before = yjs.encodeStateVector(remote)
     paragraphText(remote).insert(5, ' there')
     const anchor = anchorOn(paragraphText(remote), 6, 11)
 
     const waiting = placeThread(editor.state, anchor)
-    Y.applyUpdate(local, Y.encodeStateAsUpdate(remote, before))
+    yjs.applyUpdate(local, yjs.encodeStateAsUpdate(remote, before))
 
     expect(waiting).toEqual({ kind: 'arriving', quote: 'there' })
     expect(shownText(editor, anchor)).toBe('there')
@@ -159,25 +159,25 @@ const ORDERINGS = [
 
 // A thread on "quick brown" made in a tab, and another tab's doc holding the same text
 function threadWithRemote([localClient, remoteClient]: number[]) {
-  const local = new Y.Doc()
+  const local = new yjs.Doc()
   local.clientID = localClient
   const editor = openEditor(local)
   editor.commands.setContent('<p>The quick brown fox jumps</p>')
   editor.commands.setTextSelection({ from: 5, to: 16 })
   const anchor = anchorSelection(editor.state)!
-  const remote = new Y.Doc()
+  const remote = new yjs.Doc()
   remote.clientID = remoteClient
-  Y.applyUpdate(remote, Y.encodeStateAsUpdate(local))
+  yjs.applyUpdate(remote, yjs.encodeStateAsUpdate(local))
   return { local, editor, anchor, remote }
 }
 
-function editRemotely(local: Y.Doc, remote: Y.Doc, edit: (doc: Y.Doc) => void) {
-  const before = Y.encodeStateVector(local)
+function editRemotely(local: yjs.Doc, remote: yjs.Doc, edit: (doc: yjs.Doc) => void) {
+  const before = yjs.encodeStateVector(local)
   edit(remote)
-  Y.applyUpdate(local, Y.encodeStateAsUpdate(remote, before))
+  yjs.applyUpdate(local, yjs.encodeStateAsUpdate(remote, before))
 }
 
-function shownAfterRemoteEdit(ordering: number[], edit: (text: Y.XmlText) => void) {
+function shownAfterRemoteEdit(ordering: number[], edit: (text: yjs.XmlText) => void) {
   const { local, editor, anchor, remote } = threadWithRemote(ordering)
   editRemotely(local, remote, (doc) => edit(paragraphText(doc)))
   const place = placeThread(editor.state, anchor)
@@ -194,7 +194,7 @@ describe('where a thread shows after another tab edits its text', () => {
   it.each([
     {
       name: 'retypes its first character',
-      edit: (text: Y.XmlText) => {
+      edit: (text: yjs.XmlText) => {
         text.delete(4, 1)
         text.insert(4, 'Q')
       },
@@ -202,28 +202,28 @@ describe('where a thread shows after another tab edits its text', () => {
     },
     {
       name: 'types inside it',
-      edit: (text: Y.XmlText) => text.insert(9, ' very'),
+      edit: (text: yjs.XmlText) => text.insert(9, ' very'),
       shown: 'quick very brown',
     },
     {
       name: 'deletes it with its neighbours',
-      edit: (text: Y.XmlText) => text.delete(3, 13),
+      edit: (text: yjs.XmlText) => text.delete(3, 13),
       shown: removed,
     },
     {
       name: 'deletes its last character',
-      edit: (text: Y.XmlText) => text.delete(14, 1),
+      edit: (text: yjs.XmlText) => text.delete(14, 1),
       shown: 'quick brow',
     },
-    { name: 'deletes all of it', edit: (text: Y.XmlText) => text.delete(4, 11), shown: removed },
+    { name: 'deletes all of it', edit: (text: yjs.XmlText) => text.delete(4, 11), shown: removed },
     {
       name: 'types right after it',
-      edit: (text: Y.XmlText) => text.insert(15, '!!'),
+      edit: (text: yjs.XmlText) => text.insert(15, '!!'),
       shown: 'quick brown',
     },
     {
       name: 'types right before it',
-      edit: (text: Y.XmlText) => text.insert(4, '>>'),
+      edit: (text: yjs.XmlText) => text.insert(4, '>>'),
       shown: 'quick brown',
     },
   ])('shows the same place in every client order when another tab $name', ({ edit, shown }) => {
@@ -236,8 +236,8 @@ describe('where a thread shows after another tab edits its text', () => {
     const places = ORDERINGS.map((ordering) => {
       const { local, anchor, remote } = threadWithRemote(ordering)
       editRemotely(local, remote, (doc) => doc.getXmlFragment('default').delete(0, 1))
-      const fresh = new Y.Doc()
-      Y.applyUpdate(fresh, Y.encodeStateAsUpdate(local))
+      const fresh = new yjs.Doc()
+      yjs.applyUpdate(fresh, yjs.encodeStateAsUpdate(local))
       return placeThread(openEditor(fresh).state, anchor)
     })
 
@@ -255,7 +255,7 @@ const RULED = { content: '<p>aa bb</p><hr><p>cc dd</p>', from: 4, to: 11 }
 
 // A thread from "bb" to "cc", across two paragraphs, made in a tab
 function threadAcrossParagraphs({ content, from, to }: typeof PARAGRAPHS) {
-  const local = new Y.Doc()
+  const local = new yjs.Doc()
   const editor = openEditor(local)
   editor.commands.setContent(content)
   editor.commands.setTextSelection({ from, to })
@@ -265,13 +265,13 @@ function threadAcrossParagraphs({ content, from, to }: typeof PARAGRAPHS) {
 // Where it shows after `edit` in the editing tab, a tab it reaches, and a doc opened after it
 function shownInEveryTab(edit: (editor: Editor) => void, paragraphs = PARAGRAPHS) {
   const { local, editor, anchor } = threadAcrossParagraphs(paragraphs)
-  const remote = new Y.Doc()
-  Y.applyUpdate(remote, Y.encodeStateAsUpdate(local))
+  const remote = new yjs.Doc()
+  yjs.applyUpdate(remote, yjs.encodeStateAsUpdate(local))
   const remoteEditor = openEditor(remote)
   edit(editor)
-  Y.applyUpdate(remote, Y.encodeStateAsUpdate(local, Y.encodeStateVector(remote)))
-  const fresh = new Y.Doc()
-  Y.applyUpdate(fresh, Y.encodeStateAsUpdate(local))
+  yjs.applyUpdate(remote, yjs.encodeStateAsUpdate(local, yjs.encodeStateVector(remote)))
+  const fresh = new yjs.Doc()
+  yjs.applyUpdate(fresh, yjs.encodeStateAsUpdate(local))
   return [editor, remoteEditor, openEditor(fresh)].map((each) => shownText(each, anchor))
 }
 
@@ -329,7 +329,7 @@ describe('where a thread across two paragraphs shows after the tab holding it ed
 
 describe('an anchor on the selection', () => {
   it('holds its first and last characters, so text typed at either edge stays outside', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const editor = openEditor(doc)
     editor.commands.setContent('<p>hello world</p><p>second line</p>')
     editor.commands.setTextSelection({ from: 7, to: 20 })
@@ -345,13 +345,13 @@ describe('an anchor on the selection', () => {
   })
 
   it('names the characters at its ends for the saved check', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const editor = openEditor(doc)
     editor.commands.setContent('<p>hello world</p>')
     editor.commands.setTextSelection({ from: 7, to: 12 })
     const text = paragraphText(doc)
     const [first, last] = [6, 10].map((index) => {
-      const item = Y.createRelativePositionFromTypeIndex(text, index, 0).item!
+      const item = yjs.createRelativePositionFromTypeIndex(text, index, 0).item!
       return [item.client, item.clock]
     })
 

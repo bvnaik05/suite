@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { encodeAnchor } from '@/apps/writer/collab/anchors'
 
@@ -70,12 +70,12 @@ function placeholderRow(root: Element) {
 
 // An anchor on the start of a text holding `quote`
 function anchorOn(quote: string) {
-  const content = new Y.XmlText()
-  new Y.Doc().getXmlFragment('default').insert(0, [content])
+  const content = new yjs.XmlText()
+  new yjs.Doc().getXmlFragment('default').insert(0, [content])
   content.insert(0, quote)
   return encodeAnchor(
-    Y.createRelativePositionFromTypeIndex(content, 0, 0),
-    Y.createRelativePositionFromTypeIndex(content, quote.length, -1),
+    yjs.createRelativePositionFromTypeIndex(content, 0, 0),
+    yjs.createRelativePositionFromTypeIndex(content, quote.length, -1),
     quote,
   )
 }

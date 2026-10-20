@@ -38,26 +38,34 @@ SUSPECT_RETRY_MS = 5 * 60_000
 FINAL_PUSH_WAIT_S = 2
 
 
-def replay(app: str, doc_id: str, header: PushHeader, acked_seq: int, head_rev: int) -> dict | None:
-    """The original answer for a push the session already committed, if every sha matches. A push
-    that starts inside the committed seqs and reaches past them is only checked."""
-    if header.seq_from > acked_seq:
-        return None
-
-    last_seq = min(header.seq_to, acked_seq)
+def stored_seqs_through(
+    app: str, doc_id: str, header: PushHeader, last_seq: int
+) -> dict[int, tuple[bytes, frappe._dict]]:
+    """Load each committed seq of the push through `last_seq` with its sha and the row that holds it."""
+    update_table = table(app, "update")
     rows = frappe.db.sql(
-        f"""SELECT `rev`, `seq_from`, `seq_to`, `seq_shas`, `chain` FROM `{table(app, "update")}`
+        f"""SELECT `rev`, `seq_from`, `seq_to`, `seq_shas`, `chain` FROM `{update_table}`
         WHERE `doc_id` = %s AND `sid` = %s AND `seq_to` >= %s AND `seq_from` <= %s ORDER BY `rev`""",
         (doc_id, header.sid, header.seq_from, last_seq),
         as_dict=True,
     )
 
-    stored_seqs = {}
+    stored_seqs: dict[int, tuple[bytes, frappe._dict]] = {}
     for row in rows:
         shas = bytes(row.seq_shas)
         for index, seq in enumerate(range(int(row.seq_from), int(row.seq_to) + 1)):
             stored_seqs[seq] = (shas[32 * index : 32 * index + 32], row)
 
+    return stored_seqs
+
+
+def replay(app: str, doc_id: str, header: PushHeader, acked_seq: int, head_rev: int) -> dict | None:
+    """Answer a committed push as first answered if every sha matches; one reaching past is only checked."""
+    if header.seq_from > acked_seq:
+        return None
+
+    last_seq = min(header.seq_to, acked_seq)
+    stored_seqs = stored_seqs_through(app, doc_id, header, last_seq)
     for seq in range(header.seq_from, last_seq + 1):
         sha, _row = stored_seqs.get(seq, (None, None))
         if sha != header.shas[seq - header.seq_from]:
@@ -107,7 +115,7 @@ def lock_clause(app: str, doc_id: str, final: bool) -> Iterator[str]:
 
 
 def unacked_part(header: PushHeader, payload: bytes, acked: int, next_clock: int) -> tuple[PushHeader, bytes]:
-    """The seqs of a push past `acked`, with the update cut to the writer's clocks from `next_clock`."""
+    """Cut a push to its seqs past `acked`, with the update cut to the writer's clocks from `next_clock`."""
     committed = acked + 1 - header.seq_from
     state = (
         updates.encoded_uint(1) + updates.encoded_uint(header.client_id) + updates.encoded_uint(next_clock)
@@ -127,12 +135,15 @@ def assembled_payload(app: str, doc_id: str, stage_id: str, header: PushHeader) 
 
 
 def replay_unlocked(app: str, doc_id: str, header: PushHeader, user: str) -> dict | None:
+    """Answer a repeat of committed seqs before taking the lock, so a lost answer costs no wait."""
     session = session_for(app, doc_id, header, user)
-    head = frappe.db.sql(f"SELECT `head_rev` FROM `{table(app, 'doc')}` WHERE `id` = %s", doc_id)[0][0]
+    doc_table = table(app, "doc")
+    [[head]] = frappe.db.sql(f"SELECT `head_rev` FROM `{doc_table}` WHERE `id` = %s", doc_id)
     return replay(app, doc_id, header, int(session.acked_seq), int(head))
 
 
 def checked_row(payload: bytes, client_id: int) -> ingest.Row:
+    """Read the push's change as a row, refused as malformed when it can't be read."""
     try:
         return ingest.check_row(payload, client_id)
     except ValueError:
@@ -140,7 +151,7 @@ def checked_row(payload: bytes, client_id: int) -> ingest.Row:
 
 
 def admissible_row(spec: EditorSpec, header: PushHeader, payload: bytes) -> ingest.Row:
-    """The row the push makes, refused when it is too big, unreadable or not the editor's to write."""
+    """Answer the row the push makes, refused when it is too big, unreadable or not the editor's to write."""
     if len(payload) > capacity.edit_max():
         raise Refusal(400, "malformed")
 
@@ -153,7 +164,8 @@ def admissible_row(spec: EditorSpec, header: PushHeader, payload: bytes) -> inge
 
 
 def locked_doc(app: str, doc_id: str, is_final: bool) -> frappe._dict:
-    """The control row under its lock, or `busy` when another push holds it."""
+    """Load the control row under its lock, or refuse as `busy` when another push holds it."""
+    doc_table = table(app, "doc")
     # The lock must be the first statement of a fresh transaction
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     with lock_clause(app, doc_id, is_final) as lock:
@@ -162,7 +174,7 @@ def locked_doc(app: str, doc_id: str, is_final: bool) -> frappe._dict:
                 f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `start_clocks`, `schema_steps`, `suspect_held`,
                 `state_bytes`, `tail_rows`, `tail_bound`, `next_compaction_at`, `last_compaction_ms`,
                 `restore_token`, `restore_deadline`, `restore_rev`
-                FROM `{table(app, "doc")}` WHERE `id` = %s FOR UPDATE {lock}""",
+                FROM `{doc_table}` WHERE `id` = %s FOR UPDATE {lock}""",
                 doc_id,
                 as_dict=True,
             )
@@ -182,6 +194,7 @@ def schema_through(steps: list[list[int]], rev: int) -> int:
 
 
 def check_doc_open(doc: frappe._dict, header: PushHeader) -> None:
+    """Refuse a push the document can't take now: purged, another lineage or schema, held or restoring."""
     if doc.mode == "purged":
         raise Refusal(404, "not_found")
 
@@ -208,6 +221,7 @@ def check_doc_open(doc: frappe._dict, header: PushHeader) -> None:
 
 
 def check_seqs(header: PushHeader, acked: int, head: int) -> None:
+    """Refuse a push that doesn't follow its session's last seq or has seen past the head."""
     if header.seq_from != acked + 1:
         raise Refusal(409, "seq", acked=acked)
 
@@ -235,6 +249,30 @@ def admit_row(
         raise Refusal(409, unclosed.reason, **unclosed.extra) from None
 
 
+def move_head(
+    app: str,
+    doc_id: str,
+    doc: frappe._dict,
+    header: PushHeader,
+    rev: int,
+    chain: bytes,
+    payload_len: int,
+    row_bound: int,
+) -> None:
+    """Move the control row's head to `rev`, grow its tail and record a newer editor schema from `rev`."""
+    schema_steps = json.loads(doc.schema_steps)
+    if header.schema > schema_steps[-1][1]:
+        schema_steps.append([rev, header.schema])
+
+    doc_table = table(app, "doc")
+    frappe.db.sql(
+        f"""UPDATE `{doc_table}` SET `head_rev` = %s, `head_chain` = UNHEX(%s),
+        `tail_rows` = `tail_rows` + 1, `tail_bytes` = `tail_bytes` + %s, `tail_bound` = `tail_bound` + %s,
+        `schema_steps` = %s WHERE `id` = %s""",
+        (rev, chain.hex(), payload_len, row_bound, json.dumps(schema_steps), doc_id),
+    )
+
+
 def insert_row(
     app: str,
     doc_id: str,
@@ -246,14 +284,11 @@ def insert_row(
     now: datetime,
 ) -> bytes:
     """Write the row as `rev` and move the head to it; answers the new chain."""
-    schema_steps = json.loads(doc.schema_steps)
-    if header.schema > schema_steps[-1][1]:
-        schema_steps.append([rev, header.schema])
-
     payload_sha = hashlib.sha256(payload).digest()
     chain = chain_next(bytes(doc.head_chain), rev, payload_sha)
+    update_table = table(app, "update")
     frappe.db.sql(
-        f"""INSERT INTO `{table(app, "update")}`
+        f"""INSERT INTO `{update_table}`
         (`doc_id`, `rev`, `sid`, `seq_from`, `seq_to`, `client_id`, `schema`, `payload`, `bound`, `sha256`, `seq_shas`, `chain`, `created`)
         VALUES (%s, %s, %s, %s, %s, %s, %s, UNHEX(%s), %s, UNHEX(%s), UNHEX(%s), UNHEX(%s), %s)""",
         (
@@ -272,21 +307,21 @@ def insert_row(
             now,
         ),
     )
-    frappe.db.sql(
-        f"""UPDATE `{table(app, "doc")}` SET `head_rev` = %s, `head_chain` = UNHEX(%s),
-        `tail_rows` = `tail_rows` + 1, `tail_bytes` = `tail_bytes` + %s, `tail_bound` = `tail_bound` + %s,
-        `schema_steps` = %s WHERE `id` = %s""",
-        (rev, chain.hex(), len(payload), row_bound, json.dumps(schema_steps), doc_id),
-    )
+    move_head(app, doc_id, doc, header, rev, chain, len(payload), row_bound)
     return chain
 
 
 def advance_session(
     app: str, doc_id: str, header: PushHeader, row: ingest.Row, session: frappe._dict, now: datetime
 ) -> None:
-    next_clock = row.clock_to if row.update.structs else session.next_clock
+    """Move the session's acked seq and next clock on past the committed push."""
+    next_clock = session.next_clock
+    if row.update.structs:
+        next_clock = row.clock_to
+
+    session_table = table(app, "session")
     frappe.db.sql(
-        f"""UPDATE `{table(app, "session")}` SET `acked_seq` = %s, `next_clock` = %s, `last_push_at` = %s
+        f"""UPDATE `{session_table}` SET `acked_seq` = %s, `next_clock` = %s, `last_push_at` = %s
         WHERE `doc_id` = %s AND `sid` = %s""",
         (
             header.seq_to,
@@ -386,35 +421,33 @@ def commit_row(
     return rev, chain
 
 
-def put_piece(
-    app: str, doc_id: str, stage_id: str, header: dict, index: int, piece: bytes, user: str
-) -> dict:
-    """Stage one piece of a big change for this user's session. A piece of a change the
-    session already committed is answered as a duplicate and not kept."""
-    doc = frappe.db.sql(
-        f"SELECT `lineage`, `mode` FROM `{table(app, 'doc')}` WHERE `id` = %s", doc_id, as_dict=True
-    )[0]
+def put_piece(app: str, doc_id: str, stage_id: str, piece: stage.Piece, user: str) -> dict:
+    """Stage one piece of a big change for the user's session; one of a committed change is a duplicate."""
+    doc_table = table(app, "doc")
+    [doc] = frappe.db.sql(
+        f"SELECT `lineage`, `mode` FROM `{doc_table}` WHERE `id` = %s", doc_id, as_dict=True
+    )
     if doc.mode == "purged":
         raise Refusal(404, "not_found")
 
-    if header["lineage"] != doc.lineage:
+    if piece.shape.lineage != doc.lineage:
         raise Refusal(409, "lineage")
 
-    session = load_session(app, doc_id, header["sid"], user)
+    session = load_session(app, doc_id, piece.shape.sid, user)
     if session is None:
         raise Refusal(409, "session_unknown")
 
     if session.closed:
         raise Refusal(409, "client_closed")
 
-    if header["purpose"] == "save" and int(session.acked_seq) >= header["to"]:
+    if piece.shape.purpose == "save" and int(session.acked_seq) >= piece.shape.seq_to:
         return {"dup": True}
 
     try:
-        stage.store_piece(app, doc_id, stage_id, index, header, piece, user)
+        stage.store_piece(app, doc_id, stage_id, piece, user)
     except stage.Conflict:
         raise Refusal(409, "stage_conflict") from None
     except stage.Full:
         raise Refusal(423, "stage_full", retry_ms=stage.FULL_RETRY_MS) from None
 
-    return {"staged": index}
+    return {"staged": piece.index}

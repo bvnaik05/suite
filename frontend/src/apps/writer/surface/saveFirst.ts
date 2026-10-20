@@ -1,6 +1,5 @@
+import { HOLD_UP_MS } from '@/apps/writer/collab/timeout'
 import type { CollabRoom, RoomStatus } from '@/platform/collab'
-
-const WAIT_MS = 10_000
 
 type SavingRoom = Pick<CollabRoom, 'flush' | 'onChange'> & {
   readonly status: Pick<RoomStatus, 'saveState' | 'blockReason' | 'pauseReason'>
@@ -47,7 +46,7 @@ function notSavedReason(room: SavingRoom) {
 }
 
 /** Saves this tab's edits and waits for Saved; throws why when it can't. */
-export async function saveFirst(room: SavingRoom, waitMs = WAIT_MS): Promise<void> {
+export async function saveFirst(room: SavingRoom, waitMs = HOLD_UP_MS): Promise<void> {
   void room.flush()
   if (!(await whenSaved(room, waitMs))) {
     throw new Error(notSavedReason(room))

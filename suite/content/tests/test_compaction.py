@@ -1,4 +1,5 @@
 import random
+from collections.abc import Callable
 from unittest.mock import patch
 
 import pycrdt
@@ -8,53 +9,65 @@ from suite.content import compaction
 from suite.content.compaction import CompactionFailed, compact, load_doc, same_content
 
 PART_MAP = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
+DELETE_CHANCE = 0.3
+MIN_KEPT_CHARS = 2
+CONTINUATION_BIT = 0x80
 
 
 def typing(seed: int, edits: int = 12, client_id: int = 7):
-    """A document typed into one paragraph, and the update each edit sent."""
     rng = random.Random(seed)
     doc = pycrdt.Doc(client_id=client_id)
-    updates = []
+    updates: list[bytes] = []
     doc.observe(lambda event: updates.append(event.update))
     fragment = doc.get("default", type=pycrdt.XmlFragment)
     paragraph = fragment.children.append(pycrdt.XmlElement("paragraph"))
     text = paragraph.children.append(pycrdt.XmlText())
     for _ in range(edits):
         length = len(str(text))
-        if length > 2 and rng.random() < 0.3:
+        if length > MIN_KEPT_CHARS and rng.random() < DELETE_CHANCE:
             index = rng.randrange(length - 1)
             del text[index : index + 1]
         else:
             text.insert(rng.randint(0, length), rng.choice("abcdef"))
+
     return str(text), updates
 
 
 def encoded_varuint(value: int) -> bytes:
     encoded = bytearray()
-    while value >= 0x80:
-        encoded.append(value & 0x7F | 0x80)
+    while value >= CONTINUATION_BIT:
+        encoded.append(value & 0x7F | CONTINUATION_BIT)
         value >>= 7
+
     return bytes(encoded + bytes([value]))
 
 
+def encoded_insert(insert: tuple[int, int, tuple[int, int], tuple[int, int] | None, str]) -> bytes:
+    client, clock, origin, right_origin, text = insert
+    encoded = text.encode()
+    info = 0x84
+    origins = [origin]
+    if right_origin:
+        info |= 0x40
+        origins.append(right_origin)
+
+    out = (
+        encoded_varuint(1)
+        + encoded_varuint(1)
+        + encoded_varuint(client)
+        + encoded_varuint(clock)
+        + bytes([info])
+    )
+    for origin_client, origin_clock in origins:
+        out += encoded_varuint(origin_client) + encoded_varuint(origin_clock)
+
+    return out + encoded_varuint(len(encoded)) + encoded
+
+
 def crafted(*, insert=None, delete=None) -> bytes:
-    """A v1 row no editor would send. `insert` is (client, clock, origin, right_origin, text), `delete` is (client, clock, length)."""
     out = encoded_varuint(0)
     if insert:
-        client, clock, origin, right_origin, text = insert
-        encoded = text.encode()
-        info = 0x84 | (0x40 if right_origin else 0)
-        out = (
-            encoded_varuint(1)
-            + encoded_varuint(1)
-            + encoded_varuint(client)
-            + encoded_varuint(clock)
-            + bytes([info])
-        )
-        origins = (origin, right_origin) if right_origin else (origin,)
-        for origin_id in origins:
-            out += encoded_varuint(origin_id[0]) + encoded_varuint(origin_id[1])
-        out += encoded_varuint(len(encoded)) + encoded
+        out = encoded_insert(insert)
 
     if delete:
         client, clock, length = delete
@@ -72,10 +85,20 @@ def crafted(*, insert=None, delete=None) -> bytes:
 
 def text_of(state: bytes) -> str:
     fragment = load_doc([state]).get("default", type=pycrdt.XmlFragment)
-    return "".join(str(text) for paragraph in fragment.children for text in paragraph.children)
+    texts: list[str] = []
+    for paragraph in fragment.children:
+        texts.extend(str(text) for text in paragraph.children)
+
+    return "".join(texts)
 
 
 class TestCompaction(UnitTestCase):
+    def refusal_reason(self, rows: list[bytes], target: str, disagreeing: Callable[..., tuple]) -> str:
+        with patch.object(compaction, target, disagreeing), self.assertRaises(CompactionFailed) as failed:
+            compact(None, rows, PART_MAP)
+
+        return failed.exception.reason
+
     def test_rows_compact_into_the_text_that_was_typed(self):
         typed, rows = typing(seed=3)
 
@@ -110,6 +133,7 @@ class TestCompaction(UnitTestCase):
 
         with self.assertRaises(CompactionFailed) as failed:
             compact(None, rows[:4] + rows[5:], PART_MAP)
+
         self.assertEqual(failed.exception.reason, "missing_dependency")
 
         compacted = compact(None, rows, PART_MAP)
@@ -120,6 +144,7 @@ class TestCompaction(UnitTestCase):
 
         with patch.object(pycrdt, "__version__", "0.12.26"), self.assertRaises(CompactionFailed) as failed:
             compact(None, rows, PART_MAP)
+
         self.assertEqual(failed.exception.reason, "kernel_version")
 
     def test_a_row_pycrdt_panics_on_fails_the_compaction(self):
@@ -133,6 +158,7 @@ class TestCompaction(UnitTestCase):
 
         with patch.object(pycrdt.Doc, "apply_update", panics), self.assertRaises(CompactionFailed) as failed:
             compact(None, rows, PART_MAP)
+
         self.assertEqual(failed.exception.reason, "unreadable")
 
     def test_a_root_the_product_does_not_write_is_refused(self):
@@ -141,6 +167,7 @@ class TestCompaction(UnitTestCase):
 
         with self.assertRaises(CompactionFailed) as failed:
             compact(None, [doc.get_update()], PART_MAP)
+
         self.assertEqual(failed.exception.reason, "unknown_root")
 
     def test_deleting_content_shrinks_the_compacted_state(self):
@@ -178,6 +205,7 @@ class TestCompaction(UnitTestCase):
         ):
             with self.subTest(name), self.assertRaises(CompactionFailed) as failed:
                 compact(None, [typed, row], PART_MAP)
+
             self.assertEqual(failed.exception.reason, "cut_surrogate")
 
     def test_edits_beside_an_emoji_compact(self):
@@ -205,20 +233,22 @@ class TestCompaction(UnitTestCase):
         with self.assertRaises(CompactionFailed) as failed:
             malformed = rows[-1] + b"\x00"
             compact(None, [*rows, malformed], PART_MAP)
+
         self.assertEqual(failed.exception.reason, "malformed_row")
 
     def test_a_result_any_check_disagrees_with_is_refused(self):
         # Each check, made to disagree once, must refuse rather than install
         _typed, rows = typing(seed=3)
 
-        real_fingerprint, real_vector_and_deletes = compaction.fingerprint, compaction.vector_and_deletes
+        real_fingerprint = compaction.fingerprint
+        real_vector_and_deletes = compaction.vector_and_deletes
         for reason, target, call in (
             ("content_mismatch", "fingerprint", 2),
             ("reencode_mismatch", "fingerprint", 3),
             ("not_contained", "vector_and_deletes", 4),
         ):
             real_check = real_fingerprint if target == "fingerprint" else real_vector_and_deletes
-            calls = []
+            calls: list[int] = []
 
             def disagreeing(*args, real_check=real_check, call=call, calls=calls):
                 calls.append(1)
@@ -228,7 +258,5 @@ class TestCompaction(UnitTestCase):
 
                 return real_result
 
-            with self.subTest(reason), patch.object(compaction, target, disagreeing):
-                with self.assertRaises(CompactionFailed) as failed:
-                    compact(None, rows, PART_MAP)
-                self.assertEqual(failed.exception.reason, reason)
+            with self.subTest(reason):
+                self.assertEqual(self.refusal_reason(rows, target, disagreeing), reason)

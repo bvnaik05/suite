@@ -1,5 +1,15 @@
 import type { Answer, OpenOptions } from './types'
 
+export const HTTP_OK = 200
+export const HTTP_ACCEPTED = 202
+export const HTTP_BAD_REQUEST = 400
+export const HTTP_UNAUTHORIZED = 401
+export const HTTP_FORBIDDEN = 403
+export const HTTP_NOT_FOUND = 404
+export const HTTP_CONFLICT = 409
+export const HTTP_TOO_LARGE = 413
+export const HTTP_LOCKED = 423
+
 // What the server's JSON answers carry: `collab` names a refusal, the rest is per route
 export interface ReplyBody {
   collab?: string
@@ -30,25 +40,28 @@ export function readReply(answer: Answer): Reply {
   try {
     const text = new TextDecoder().decode(answer.bytes)
     const body = JSON.parse(text)
-    return {
-      ...(body && typeof body === 'object' ? body : {}),
-      status: answer.status,
+    if (!body || typeof body !== 'object') {
+      return { status: answer.status }
     }
+
+    return { ...body, status: answer.status }
   } catch {
     return { status: answer.status }
   }
 }
 
 // Frappe refuses a token from before the browser signed in again; only a reload brings the new one
-export const isStaleSession = (reply: Reply) =>
-  reply.status === 400 && reply.exc_type === 'CSRFTokenError'
+export function isStaleSession(reply: Reply) {
+  return reply.status === HTTP_BAD_REQUEST && reply.exc_type === 'CSRFTokenError'
+}
 
 export class CollabOpenError extends Error {
   constructor(
     readonly status: number,
     readonly reason: string | null,
   ) {
-    super(`Could not open the collaborative document (${reason ?? status})`)
+    const cause = reason ?? status
+    super(`Could not open the collaborative document (${cause})`)
     this.name = 'CollabOpenError'
   }
 }
@@ -74,13 +87,13 @@ export function toOpenError(answer: Answer, options: OpenOptions) {
   }
 
   const reason = reply.collab ?? null
-  if (reply.status !== 403 && reply.status !== 404) {
+  if (reply.status !== HTTP_FORBIDDEN && reply.status !== HTTP_NOT_FOUND) {
     return new CollabOpenError(reply.status, reason)
   }
 
   const change = signInChange(options)
   if (change === 'signed_out') {
-    return new CollabOpenError(401, 'signed_out')
+    return new CollabOpenError(HTTP_UNAUTHORIZED, 'signed_out')
   }
 
   if (change === 'other_user') {

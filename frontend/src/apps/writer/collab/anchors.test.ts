@@ -1,23 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import anchorForms from './anchor-forms.json'
 import { ANCHOR_LIMIT, DOCUMENT_ANCHOR, encodeAnchor, readAnchor } from './anchors'
 
 function paragraph(words: string) {
-  const doc = new Y.Doc()
-  const element = new Y.XmlElement('paragraph')
-  const text = new Y.XmlText()
+  const doc = new yjs.Doc()
+  const element = new yjs.XmlElement('paragraph')
+  const text = new yjs.XmlText()
   doc.getXmlFragment('default').insert(0, [element])
   element.insert(0, [text])
   text.insert(0, words)
   return { doc, text }
 }
 
-function range(text: Y.XmlText, from: number, to: number) {
+function range(text: yjs.XmlText, from: number, to: number) {
   return [
-    Y.createRelativePositionFromTypeIndex(text, from, 0),
-    Y.createRelativePositionFromTypeIndex(text, to, -1),
+    yjs.createRelativePositionFromTypeIndex(text, from, 0),
+    yjs.createRelativePositionFromTypeIndex(text, to, -1),
   ] as const
 }
 
@@ -38,8 +38,8 @@ describe('anchors', () => {
       return
     }
 
-    const from = Y.createAbsolutePositionFromRelativePosition(anchor.start, doc)!.index
-    const to = Y.createAbsolutePositionFromRelativePosition(anchor.end, doc)!.index
+    const from = yjs.createAbsolutePositionFromRelativePosition(anchor.start, doc)!.index
+    const to = yjs.createAbsolutePositionFromRelativePosition(anchor.end, doc)!.index
     expect([text.toString().slice(from, to), anchor.quote]).toEqual(['brave', 'brave'])
   })
 

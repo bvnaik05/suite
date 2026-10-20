@@ -8,7 +8,7 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { ySyncPluginKey } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 const VENDORED_DIR = path.resolve(__dirname, '../../../../packages/collab-prosemirror')
 
@@ -54,7 +54,7 @@ describe('owned collab binding', () => {
     const installed = path.join(root, 'node_modules/@tiptap/y-tiptap')
     expect(fs.realpathSync(installed)).toBe(VENDORED_DIR)
 
-    const collaboration = Collaboration.configure({ document: new Y.Doc() })
+    const collaboration = Collaboration.configure({ document: new yjs.Doc() })
     const editorOptions = {
       extensions: [Document, Paragraph, Text, collaboration],
     }
@@ -65,9 +65,16 @@ describe('owned collab binding', () => {
 })
 
 const editors: Editor[] = []
-afterEach(() => editors.splice(0).forEach((editor) => editor.destroy()))
 
-function openEditor(ydoc: Y.Doc) {
+function destroyEditors() {
+  for (const editor of editors.splice(0)) {
+    editor.destroy()
+  }
+}
+
+afterEach(destroyEditors)
+
+function openEditor(ydoc: yjs.Doc) {
   const element = document.createElement('div')
   document.body.append(element)
   const editorOptions = {
@@ -79,52 +86,56 @@ function openEditor(ydoc: Y.Doc) {
   return editor
 }
 
-const syncAll = (docs: Y.Doc[]) => {
+function syncAll(docs: yjs.Doc[]) {
   for (const target of docs) {
-    for (const source of docs) {
-      if (source !== target) {
-        const targetStateVector = Y.encodeStateVector(target)
-        const missing = Y.encodeStateAsUpdate(source, targetStateVector)
-        Y.applyUpdate(target, missing, 'remote')
-      }
+    for (const source of docs.filter((doc) => doc !== target)) {
+      const targetStateVector = yjs.encodeStateVector(target)
+      const missing = yjs.encodeStateAsUpdate(source, targetStateVector)
+      yjs.applyUpdate(target, missing, 'remote')
     }
   }
 }
 
-const typeAtEnd = (editor: Editor, text: string) =>
-  editor
+function typeAtEnd(editor: Editor, text: string) {
+  return editor
     .chain()
     .setTextSelection(editor.state.doc.content.size - 1)
     .insertContent(text)
     .run()
+}
+
+function expectEachTokenOnce(editor: Editor, trial: number) {
+  const text = editor.state.doc.textContent
+  for (const token of ['TOKA', 'TOKB', 'TOKC']) {
+    expect(text.split(token).length - 1, `trial ${trial}: ${text}`).toBe(1)
+  }
+}
 
 describe('typing at the same time', () => {
   it('two people typing into the same new empty line keep one copy each', () => {
     for (let trial = 0; trial < 40; trial++) {
-      const docs = [new Y.Doc(), new Y.Doc(), new Y.Doc()]
+      const docs = [new yjs.Doc(), new yjs.Doc(), new yjs.Doc()]
       const [docA, docB, docC] = docs
       const [editorA, editorB, editorC] = docs.map(openEditor)
       editorA.commands.setContent('<p>first</p><p></p>')
       syncAll(docs)
 
-      const before = Y.encodeStateVector(docA)
+      const before = yjs.encodeStateVector(docA)
       typeAtEnd(editorA, 'TOKA')
       typeAtEnd(editorB, 'TOKB')
-      const fromA = Y.encodeStateAsUpdate(docA, before)
-      Y.applyUpdate(docC, fromA, 'remote')
-      const fromB = Y.encodeStateAsUpdate(docB, before)
-      Y.applyUpdate(docC, fromB, 'remote')
+      const fromA = yjs.encodeStateAsUpdate(docA, before)
+      yjs.applyUpdate(docC, fromA, 'remote')
+      const fromB = yjs.encodeStateAsUpdate(docB, before)
+      yjs.applyUpdate(docC, fromB, 'remote')
       typeAtEnd(editorC, 'TOKC')
       syncAll(docs)
       syncAll(docs)
 
       for (const editor of [editorA, editorB, editorC]) {
-        const text = editor.state.doc.textContent
-        for (const token of ['TOKA', 'TOKB', 'TOKC']) {
-          expect(text.split(token).length - 1, `trial ${trial}: ${text}`).toBe(1)
-        }
+        expectEachTokenOnce(editor, trial)
       }
-      editors.splice(0).forEach((editor) => editor.destroy())
+
+      destroyEditors()
     }
   })
 })

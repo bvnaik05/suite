@@ -277,6 +277,7 @@ The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 5. `suite_core` MUST NOT import product implementations.
 6. Dynamic imports and Frappe hook strings MUST follow the same dependency rules as static imports.
 7. The content layer MAY import the Drive interface. It MUST NOT import a product implementation; a product registers its editor through `suite_content_editors`. Drive MUST NOT import the content layer.
+8. A product MAY import the content layer's package root or one of its named modules, such as `from suite.content import log`, but never `suite.content.app_row`, which stays inside the content layer.
 
 ### 3. Interfaces and depth
 

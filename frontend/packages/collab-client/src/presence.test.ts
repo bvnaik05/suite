@@ -32,14 +32,20 @@ function setup({ sends = true, at = 4 } = {}) {
     // The app reads a position as a caret only when it has both ends
     position: (raw: unknown) => {
       const { anchor, head } = (raw ?? {}) as { anchor?: unknown; head?: unknown }
-      return anchor && head ? { anchor, head } : null
+      if (anchor && head) {
+        return { anchor, head }
+      }
+
+      return null
     },
   }
   const presence = new Presence(socket, hooks)
   presences.push(presence)
-  const hear = (event: string, message: object) =>
+  function hear(event: string, message: object) {
     handlers.get(`suite_collab_presence${event}`)!(message)
-  const answer = (roster: object[] = [], carets: object[] = [], rooms = OWN_ROOMS) => {
+  }
+
+  function answer(roster: object[] = [], carets: object[] = [], rooms = OWN_ROOMS) {
     const ack = {
       rooms,
       pid: OWN_PID,
@@ -50,10 +56,12 @@ function setup({ sends = true, at = 4 } = {}) {
     }
     presence.answered(ack, rooms)
   }
-  const remoteStates = () => {
+
+  function remoteStates() {
     const states = [...presence.awareness.getStates()]
     return new Map(states.filter(([id]) => id !== 0))
   }
+
   return { presence, hear, answer, emitted, ahead, handlers, remoteStates }
 }
 
@@ -193,7 +201,7 @@ describe('collab presence', () => {
     const { hear, answer, remoteStates } = setup()
     answer([{ room: OWN_ROOMS[0], pid: PEER_PID, user: 'b@x.com' }])
 
-    const drawnFor = (sent: unknown, index: number) => {
+    function drawnFor(sent: unknown, index: number) {
       const batch = {
         room: OWN_ROOMS[0],
         states: [{ pid: PEER_PID, user: 'b', n: index + 1, state: { cursor: sent } }],
@@ -201,6 +209,7 @@ describe('collab presence', () => {
       hear('', batch)
       return remoteStates().get(PEER_PID)?.cursor
     }
+
     const sent = [{ anchor: 1 }, { anchor: 1, head: 2, stray: 3 }]
 
     expect(sent.map(drawnFor)).toEqual([null, { anchor: 1, head: 2 }])
@@ -233,6 +242,7 @@ describe('collab presence', () => {
       presence.awareness.setLocalStateField('cursor', { step })
       await vi.advanceTimersByTimeAsync(10)
     }
+
     await vi.advanceTimersByTimeAsync(200)
 
     expect(emitted.length).toBeGreaterThanOrEqual(5)
@@ -277,6 +287,7 @@ describe('collab presence', () => {
     for (const tab of [viewer, outside]) {
       tab.presence.awareness.setLocalStateField('cursor', 1)
     }
+
     await vi.advanceTimersByTimeAsync(200)
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
     hidden.presence.awareness.setLocalStateField('cursor', 1)

@@ -28,7 +28,7 @@
                 v-model="localContent"
                 :upload-function="uploadFunction"
                 :autofocus="true"
-                placeholder="Start thinking…"
+                :placeholder="__('Start thinking…')"
                 :extensions="editorExtensions"
                 :editable
                 @change="handleEditorChange"
@@ -47,17 +47,17 @@
                       @click="addComment"
                     >
                       <span class="lucide-message-square-plus size-4" aria-hidden="true" />
-                      Comment
+                      {{ __('Comment') }}
                     </button>
                   </BubbleMenu>
                   <EditorTableMenu :editor />
-                  <EditorDropZone :editor :disabled="!editable" class="grow flex flex-col">
+                  <EditorDropZone :editor :disabled="isReadOnly" class="grow flex flex-col">
                     <EditorContent
                       :editor
                       role="textbox"
-                      aria-label="Document editor"
+                      :aria-label="__('Document editor')"
                       aria-multiline="true"
-                      :class="[EDITOR_TEXT_CLASS, isPainting && 'cursor-crosshair']"
+                      :class="editorClass"
                       :style="editorStyle"
                     />
                   </EditorDropZone>
@@ -88,8 +88,8 @@
             <Button
               :icon="LucideMessageSquareQuote"
               variant="outline"
-              label="Comment visibility"
-              tooltip="Comment visibility"
+              :label="__('Comment visibility')"
+              :tooltip="__('Comment visibility')"
             />
           </Dropdown>
         </div>
@@ -116,7 +116,7 @@ import {
 } from 'frappe-ui/editor'
 import { v4 as uuidv4 } from 'uuid'
 import { computed, inject, onBeforeUnmount, provide, ref, useTemplateRef, watch } from 'vue'
-import type * as Y from 'yjs'
+import type { Doc, Map as YMap } from 'yjs'
 
 import { hasDefaultDocumentTitle } from '@/apps/drive'
 import { searchMentions, useUsers } from '@/apps/writer/composables/useUsers'
@@ -153,9 +153,9 @@ const props = withDefaults(
     settings: WriterSettings
     editable?: boolean
     collaborative?: boolean
-    yjsDoc?: Y.Doc | null
+    yjsDoc?: Doc | null
     extensions?: AnyExtension[]
-    comments?: Y.Map<unknown>
+    comments?: YMap<unknown>
     newComment?: (
       id: string,
       from: number,
@@ -220,6 +220,8 @@ const scrollParent = computed(() => document.querySelector<HTMLElement>('#editor
 // The format painter keeps its flag in plain editor storage, which Vue does
 // not track. Read it again after each transaction.
 const isPainting = ref(false)
+const editorClass = computed(() => [EDITOR_TEXT_CLASS, isPainting.value && 'cursor-crosshair'])
+const isReadOnly = computed(() => !props.editable)
 
 watch(
   editor,
@@ -256,21 +258,21 @@ const commentFilterOptions = computed(() => {
   })
   return [
     {
-      label: 'Comments',
+      label: __('Comments'),
       switch: true as const,
       switchValue: showComments.value,
       onClick: () => (showComments.value = !showComments.value),
     },
     hasResolved &&
       showComments.value && {
-        label: 'Resolved',
+        label: __('Resolved'),
         switch: true as const,
         switchValue: showResolved.value,
         onClick: () => (showResolved.value = !showResolved.value),
       },
     showUnanchoredButton.value &&
       showComments.value && {
-        label: 'Outdated',
+        label: __('Outdated'),
         switch: true as const,
         switchValue: showUnanchored.value,
         onClick: () => (showUnanchored.value = !showUnanchored.value),
@@ -298,7 +300,7 @@ const { users } = useUsers()
 const renameDocument = inject(RENAME_DOCUMENT, null)
 
 const writerEditorOptions = {
-  collaborative: props.collaborative,
+  isCollaborative: props.collaborative,
   mentionItems: () => users.value,
   onMentionQuery: searchMentions,
   onCommentActivated,
@@ -313,7 +315,9 @@ const writerEditorOptions = {
   showComments,
   showResolved,
   edited,
-  onCommentsPainted: () => (commentsPainted.value = true),
+  onCommentsPainted: () => {
+    commentsPainted.value = true
+  },
 }
 
 const editorExtensions = [...writerEditorExtensions(writerEditorOptions), ...props.extensions]
@@ -355,12 +359,14 @@ function handleEditorChange(value: Content) {
   emit('editor-change', value)
 }
 
-const autorename = () => {
-  const { $anchor } = editor.value!.view.state.selection
+function autorename() {
+  const instance = editor.value
+  if (!instance) return
+
+  const { $anchor } = instance.view.state.selection
   const inFirstBlock = $anchor.index(0) === 1 && $anchor.depth === 1
   if (!inFirstBlock) {
-    const inLastLine =
-      $anchor.depth === 1 && editor.value!.state.doc.childCount - 1 === $anchor.index(0)
+    const inLastLine = $anchor.depth === 1 && instance.state.doc.childCount - 1 === $anchor.index(0)
     if (inLastLine) {
       scrollParent.value!.scroll(0, scrollParent.value!.scrollHeight)
     }
@@ -368,29 +374,33 @@ const autorename = () => {
   }
   if (!hasDefaultDocumentTitle(props.file.doc.file_name)) return
 
-  const implicitTitle = editor
-    .value!.state.doc.firstChild!.textContent.replaceAll('#', '')
+  const implicitTitle = instance.state.doc
+    .firstChild!.textContent.replaceAll('#', '')
     .replaceAll('@', '')
     .slice(0, 30)
     .trim()
   if (!implicitTitle.length) return
 
   renameDocument?.(implicitTitle.slice(0, 100)).catch((error) => {
-    toast.error(error?.message || 'Could not rename this file.')
+    toast.error(error?.message || __('Could not rename this file.'))
   })
 }
 
-const addComment = () => {
+function addComment() {
   if (props.commentOnSelection) {
     return props.commentOnSelection()
   }
   if (!props.yjsDoc) {
-    return toast.warning("New comments aren't supported on this doc.", {
+    return toast.warning(__("New comments aren't supported on this doc."), {
       duration: 1,
     })
   }
+
+  const instance = editor.value
+  if (!instance) return
+
   showComments.value = true
-  const { state } = editor.value!
+  const { state } = instance
   const { from, to } = state.selection
   if (from === to) return
 
@@ -398,7 +408,7 @@ const addComment = () => {
   props.newComment!(id, from, to, useSessionStore().user, state.doc.textBetween(from, to, ' '))
   activeComment.value = id
   const tr = state.tr.setSelection(TextSelection.create(state.doc, from))
-  editor.value!.view.dispatch(tr)
+  instance.view.dispatch(tr)
 }
 
 function manualSave(func?: () => void) {
@@ -428,7 +438,7 @@ onKeyDown('p', (e) => {
 onKeyDown('s', (e) => {
   if (!props.editable || !isModKey(e) || e.shiftKey) return
   e.preventDefault()
-  manualSave(() => toast.success('Saved document'))
+  manualSave(() => toast.success(__('Saved document')))
 })
 
 onKeyDown('Enter', autorename)
@@ -442,8 +452,9 @@ emitter.on('print-file', () => {
 emitter.on('manual-save', manualSave)
 
 onBeforeUnmount(() => {
-  if (edited.value) {
-    emit('save', false, editor.value!.getHTML())
+  const instance = editor.value
+  if (edited.value && instance) {
+    emit('save', false, instance.getHTML())
   }
   emitter.off('print-file')
   emitter.off('manual-save')

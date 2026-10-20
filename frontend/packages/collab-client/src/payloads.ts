@@ -57,7 +57,11 @@ export interface Departure {
 
 // A payload's fields, none when it isn't an object
 function fieldsOf(heard: unknown): Record<string, unknown> {
-  return heard && typeof heard === 'object' ? (heard as Record<string, unknown>) : {}
+  if (!heard || typeof heard !== 'object') {
+    return {}
+  }
+
+  return heard as Record<string, unknown>
 }
 
 function objectsIn(raw: unknown): object[] {
@@ -108,6 +112,7 @@ export function parseRow(heard: unknown, lineage: string): HeardRow | null {
     const bytes = decodedOrNull(u)
     content = bytes && { bytes, schema }
   }
+
   return {
     rev,
     content,

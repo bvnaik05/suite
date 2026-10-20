@@ -8,8 +8,8 @@ from suite.content.log import Refusal
 from suite.content.wire import parse_push
 
 
-def push_body(push_header: dict, payload: bytes = b"\x01") -> bytes:
-    encoded = json.dumps(push_header).encode()
+def push_body(header: dict, payload: bytes = b"\x01") -> bytes:
+    encoded = json.dumps(header).encode()
     return struct.pack(">I", len(encoded)) + encoded + payload
 
 

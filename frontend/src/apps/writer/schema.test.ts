@@ -3,7 +3,7 @@ import Collaboration from '@tiptap/extension-collaboration'
 import type { Schema } from '@tiptap/pm/model'
 import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { writerEditorExtensions, type WriterEditorOptions } from './editor-extensions'
 import { writerSchema } from './schema'
@@ -11,10 +11,10 @@ import { writerSchema } from './schema'
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
 
-const buildEditorSchema = (collaborative: boolean) => {
-  const ydoc = new Y.Doc()
+function buildEditorSchema(isCollaborative: boolean) {
+  const ydoc = new yjs.Doc()
   const options: WriterEditorOptions = {
-    collaborative,
+    isCollaborative,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},
@@ -29,20 +29,26 @@ const buildEditorSchema = (collaborative: boolean) => {
     edited: ref(false),
     onCommentsPainted: () => {},
   }
-  const binding = collaborative
-    ? [Collaboration.configure({ document: ydoc, field: 'default' })]
-    : []
-  const extensions = [...writerEditorExtensions(options), ...binding]
+  const extensions = writerEditorExtensions(options)
+  if (isCollaborative) {
+    extensions.push(Collaboration.configure({ document: ydoc, field: 'default' }))
+  }
+
   const editor = new Editor({ extensions })
   const { schema } = editor
   editor.destroy()
   return schema
 }
 
-const functionAsText = (_key: string, value: unknown) =>
-  typeof value === 'function' ? value.toString() : value
+function functionAsText(_key: string, value: unknown) {
+  if (typeof value === 'function') {
+    return value.toString()
+  }
 
-const describeSchema = (schema: Schema) => {
+  return value
+}
+
+function describeSchema(schema: Schema) {
   const specs = {
     nodes: schema.spec.nodes.toObject(),
     marks: schema.spec.marks.toObject(),
@@ -54,8 +60,8 @@ const describeSchema = (schema: Schema) => {
 describe('writer schema', () => {
   it('holds every node and mark the editor does, with the same specs', () => {
     const standaloneSchema = getSchema(writerSchema())
-    for (const collaborative of [false, true]) {
-      const editorSchema = buildEditorSchema(collaborative)
+    for (const isCollaborative of [false, true]) {
+      const editorSchema = buildEditorSchema(isCollaborative)
       expect(Object.keys(standaloneSchema.nodes)).toEqual(Object.keys(editorSchema.nodes))
       expect(Object.keys(standaloneSchema.marks)).toEqual(Object.keys(editorSchema.marks))
       expect(describeSchema(standaloneSchema)).toEqual(describeSchema(editorSchema))

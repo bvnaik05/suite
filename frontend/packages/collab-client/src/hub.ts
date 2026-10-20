@@ -24,6 +24,7 @@ export class Hub {
       hub = new Hub(socket)
       Hub.hubs.set(socket, hub)
     }
+
     return hub
   }
 
@@ -32,21 +33,29 @@ export class Hub {
       for (const member of this.members) {
         member.connected()
       }
+
       this.sendRoomSet()
     }
+
     const dropped = () => {
       this.roomSetVersion++
       for (const member of this.members) {
         member.dropped()
       }
     }
+
     socket.on('connect', connected)
     socket.on('disconnect', dropped)
   }
 
   sendRoomSet() {
     const keys = [...this.members].flatMap((member) => member.currentKeys())
-    const rooms = [...new Set(keys)].slice(0, ROOMS_MAX)
+    const uniqueKeys = [...new Set(keys)]
+    if (uniqueKeys.length > ROOMS_MAX) {
+      console.warn(`collab: ${uniqueKeys.length} rooms on one socket, only ${ROOMS_MAX} joined`)
+    }
+
+    const rooms = uniqueKeys.slice(0, ROOMS_MAX)
     const version = ++this.roomSetVersion
     if (!this.socket.connected) return
 
@@ -58,6 +67,7 @@ export class Hub {
         member.answered(answer, rooms)
       }
     }
+
     this.socket.emit('suite_collab_rooms', { rooms }, answered)
   }
 

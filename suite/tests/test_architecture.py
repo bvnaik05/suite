@@ -10,6 +10,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SUITE_ROOT = REPOSITORY_ROOT / "suite"
 PRODUCTS = frozenset({"calendar", "drive", "mail", "meet", "sheets", "slides", "writer"})
 CONTENT_PRODUCTS = frozenset({"sheets", "slides", "writer"})
+MIN_SUITE_MODULE_PARTS = 2
 
 
 @dataclass(frozen=True)
@@ -117,9 +118,9 @@ BASELINE_DEBT = {
             "suite/writer/api/tests/test_docs.py|import|suite.drive._core.access",
             "suite/writer/api/tests/test_docs.py|import|suite.drive._core.nodes",
             "suite/writer/api/tests/test_docs.py|import|suite.drive._core.principals",
-            # The collab reader case needs a READ grant, which has no public call yet.
-            "suite/writer/content/tests/test_collab.py|import|suite.drive._core.access",
-            "suite/writer/content/tests/test_collab.py|import|suite.drive._core.principals",
+            # The collab reader case needs a READ grant, which has no public call yet
+            "suite/writer/content/tests/test_collab_access.py|import|suite.drive._core.access",
+            "suite/writer/content/tests/test_collab_access.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_collab_rooms.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_collab_rooms.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_collab_stage.py|import|suite.drive._core.access",
@@ -131,11 +132,17 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_trimming.py|import|suite.drive._core.versions",
             # The callback cases run Drive's media sweep on one document, and
             # trash, purge and restore a version as its writer; none of these
-            # is a public call yet.
-            "suite/writer/content/tests/test_drive_callbacks.py|import|suite.drive._core",
-            "suite/writer/content/tests/test_drive_callbacks.py|import|suite.drive._core.nodes",
-            "suite/writer/content/tests/test_drive_callbacks.py|import|suite.drive._core.principals",
-            "suite/writer/content/tests/test_drive_callbacks.py|import|suite.drive._core.versions",
+            # is a public call yet
+            "suite/writer/content/tests/drive_callback_case.py|import|suite.drive._core",
+            "suite/writer/content/tests/test_document_row.py|import|suite.drive._core",
+            "suite/writer/content/tests/test_drive_versions.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_drive_versions.py|import|suite.drive._core.versions",
+            "suite/writer/content/tests/test_media_sweep.py|import|suite.drive._core",
+            "suite/writer/content/tests/test_purges.py|import|suite.drive._core.nodes",
+            "suite/writer/content/tests/test_purges.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_touches.py|import|suite.drive._core",
+            "suite/writer/content/tests/test_touches.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_touches.py|import|suite.drive._core.versions",
             "suite/writer/content/tests/test_restores.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_restores.py|import|suite.drive._core.versions",
             # An embedded picture is a media node below the document (§9.4),
@@ -162,8 +169,8 @@ BASELINE_DEBT = {
         "Suite Writer",
         "Remove when Drive's media sweep takes the time it measures the grace period from.",
         # The sweep spares media younger than its grace period, so the case
-        # backdates one media node's `creation` to make it eligible.
-        ("suite/writer/content/tests/test_drive_callbacks.py|drive-table-write|Drive Node",),
+        # backdates one media node's `creation` to make it eligible
+        ("suite/writer/content/tests/drive_callback_case.py|drive-table-write|Drive Node",),
     ),
     **_debt(
         "Suite Slides",
@@ -365,37 +372,56 @@ def _owner(path):
     return None
 
 
-def _classify(path, module):
-    parts = module.split(".")
-    if len(parts) < 2 or parts[0] != "suite" or parts[1] not in PRODUCTS | {"content", "suite_core"}:
-        return None
-
-    source = _owner(path)
-    target = parts[1]
-    if source == "composition":
-        return None
+def layer_violation(source, target):
     if source == "drive" and target in CONTENT_PRODUCTS:
         return "Drive imports a concrete content-product implementation"
+
     if source == "suite_core" and target in PRODUCTS:
         return "suite_core imports a product implementation"
+
     if source == "content" and target in PRODUCTS - {"drive"}:
         return "the content layer imports a product implementation"
+
     if source == "drive" and target == "content":
         return "Drive imports the content layer"
+
+    return None
+
+
+def interface_violation(path, module, source, target):
     if source in PRODUCTS and target in PRODUCTS and source != target:
         if module == f"suite.{target}":
             return None
         return "a product imports another product below its package-root interface"
+
     if target == "drive" and source != "drive":
         if module == "suite.drive":
             return None
         if path == "suite/hooks.py" and module.startswith(("suite.drive.framework.", "suite.drive.jobs.")):
             return None
         return "code outside Drive imports a private Drive module"
+
     if source is None and path != "suite/hooks.py" and target in PRODUCTS:
         if module != f"suite.{target}":
             return "Suite-level code imports a product below its package-root interface"
+
     return None
+
+
+def classify(path, module):
+    parts = module.split(".")
+    if len(parts) < MIN_SUITE_MODULE_PARTS or parts[0] != "suite":
+        return None
+
+    if parts[1] not in PRODUCTS | {"content", "suite_core"}:
+        return None
+
+    source = _owner(path)
+    target = parts[1]
+    if source == "composition":
+        return None
+
+    return layer_violation(source, target) or interface_violation(path, module, source, target)
 
 
 DRIVE_TABLE_WRITE_CALLS = frozenset(
@@ -505,7 +531,7 @@ def violations_in_tree(path, tree):
     for node in ast.walk(tree):
         kind, modules = _modules(node)
         for module in modules:
-            reason = _classify(path, module)
+            reason = classify(path, module)
             if reason:
                 violations.append(Violation(path, node.lineno, kind, module, reason))
     violations.extend(table_write_violations(path, tree))

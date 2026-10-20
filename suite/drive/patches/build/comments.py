@@ -16,6 +16,8 @@ from suite.drive.patches.build.content_mapping import (
 )
 from suite.drive.patches.build.state import LegacyComment
 
+MAX_LINK_CHARS = 140
+
 # Every column `_bulk` writes, so a rerun validates the whole row rather than
 # blessing one whose primary key happens to exist (plan §13).
 THREAD_FIELDS = (
@@ -268,40 +270,72 @@ def _sheet_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
     return plans
 
 
-def _entry(value, *, identity, owner_key, name_key, time_key, fallback, timezone) -> dict:
-    if not isinstance(value, dict):
-        raise InvalidLegacyContent("comment entry is not an object")
+def entry_text(value: dict) -> str:
+    """Answer a comment entry's text, refusing a blank one or one over the comment limit."""
     text = value.get("text")
     if not isinstance(text, str) or not text.strip():
         raise InvalidLegacyContent("comment text is blank")
+
     if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:
         raise InvalidLegacyContent("comment text exceeds the comment limit")
 
-    source_author = value.get(owner_key)
+    return text
+
+
+def entry_author(value: dict, source_author: object, name_key: str | None) -> tuple[str, str | None]:
+    """Answer a comment entry's author, Guest when it names none, and its author name."""
     author = source_author if isinstance(source_author, str) and source_author else "Guest"
-    if len(author) > 140:
+    if len(author) > MAX_LINK_CHARS:
         # `Drive Comment.author` is `varchar(140)`. Over it, MariaDB raises
         # error 1406, which is neither `InvalidLegacyContent` nor
-        # `ValueError`, so it would escape and repeat on every rerun.
+        # `ValueError`, so it would escape and repeat on every rerun
         raise InvalidLegacyContent("comment author exceeds the target Link column")
-    author_name = value.get(name_key) if name_key else None
-    if author_name is not None and (not isinstance(author_name, str) or len(author_name) > 140):
+
+    author_name = None
+    if name_key:
+        author_name = value.get(name_key)
+
+    if author_name is not None and (not isinstance(author_name, str) or len(author_name) > MAX_LINK_CHARS):
         raise InvalidLegacyContent("comment author_name exceeds the target field")
+
+    return author, author_name
+
+
+def entry_mentions(value: dict) -> list[str]:
+    """Answer the ids a comment entry mentions, each a mention's `id` or a bare string."""
+    mentions = value.get("mentions") or []
+    if not isinstance(mentions, list):
+        raise InvalidLegacyContent("comment mentions are not a list")
+
+    mention_ids: list[str] = []
+    for mention in mentions:
+        candidate = mention
+        if isinstance(mention, dict):
+            candidate = mention.get("id")
+
+        if not isinstance(candidate, str):
+            raise InvalidLegacyContent("comment mention has no text id")
+
+        mention_ids.append(candidate)
+
+    return mention_ids
+
+
+def _entry(value, *, identity, owner_key, name_key, time_key, fallback, timezone) -> dict:
+    if not isinstance(value, dict):
+        raise InvalidLegacyContent("comment entry is not an object")
+
+    text = entry_text(value)
+    source_author = value.get(owner_key)
+    author, author_name = entry_author(value, source_author, name_key)
     source_complete = isinstance(source_author, str) and bool(source_author)
     try:
         stamp = epoch_millis(value.get(time_key), timezone)
     except InvalidLegacyContent:
-        stamp = fallback()[1]
+        _author, stamp = fallback()
         source_complete = False
-    mentions = value.get("mentions") or []
-    if not isinstance(mentions, list):
-        raise InvalidLegacyContent("comment mentions are not a list")
-    mention_ids = []
-    for mention in mentions:
-        candidate = mention.get("id") if isinstance(mention, dict) else mention
-        if not isinstance(candidate, str):
-            raise InvalidLegacyContent("comment mention has no text id")
-        mention_ids.append(candidate)
+
+    mention_ids = entry_mentions(value)
     return {
         "id": identity,
         "text": text,

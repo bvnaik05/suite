@@ -24,6 +24,7 @@ from suite.writer import content as writer_content
 
 
 def find_log(node: str) -> dict:
+    """Answer `node`'s collab log row, refusing a node that has none."""
     log_row = content.find(writer_content.APP, node)
     if log_row is None:
         raise frappe.DoesNotExistError(f"{node} has no collab log")
@@ -38,6 +39,7 @@ def enable_collab(node: str) -> dict:
     frappe.db.set_value("Writer Document", {"node": node}, "collab", 1)
     if content.find(writer_content.APP, node) is None:
         create(writer_content.APP, node)
+
     frappe.db.commit()
     return state(node)
 
@@ -123,8 +125,9 @@ def trimmed_rev(node: str) -> int:
 def hold(node: str, why: str) -> dict:
     """Hold `node` for an admin, as a judge that can't settle a compaction's suspect does."""
     doc_id = find_log(node)["id"]
+    doc_table = table(writer_content.APP, "doc")
     frappe.db.sql(
-        f"UPDATE `{table(writer_content.APP, 'doc')}` SET `suspect` = 'unreadable' WHERE `id` = %s",
+        f"UPDATE `{doc_table}` SET `suspect` = 'unreadable' WHERE `id` = %s",
         doc_id,
     )
     suspect.hold_document(writer_content.APP, doc_id, why, "Held by the Playwright suite")
@@ -152,8 +155,9 @@ def quarantine_last(node: str, why: str) -> dict:
 def leave_no_room(node: str) -> dict:
     """Count `node`'s state as big as the tail leaves room for, so its next adding push waits for a compaction."""
     doc_id = find_log(node)["id"]
+    doc_table = table(writer_content.APP, "doc")
     frappe.db.sql(
-        f"""UPDATE `{table(writer_content.APP, "doc")}` SET `state_bytes` = %s - `tail_bound` WHERE `id` = %s""",
+        f"""UPDATE `{doc_table}` SET `state_bytes` = %s - `tail_bound` WHERE `id` = %s""",
         (capacity.STATE_MAX, doc_id),
     )
     return state(node)
@@ -163,8 +167,9 @@ def leave_no_room(node: str) -> dict:
 def fill_up(node: str) -> dict:
     """Count `node`'s state as big as a document may be, so nothing that adds is taken again."""
     doc_id = find_log(node)["id"]
+    doc_table = table(writer_content.APP, "doc")
     frappe.db.sql(
-        f"""UPDATE `{table(writer_content.APP, "doc")}` SET `state_bytes` = %s WHERE `id` = %s""",
+        f"""UPDATE `{doc_table}` SET `state_bytes` = %s WHERE `id` = %s""",
         (capacity.STATE_MAX, doc_id),
     )
     return state(node)
@@ -179,8 +184,9 @@ def write_newer_schema(node: str) -> dict:
     next_schema = steps[-1][1] + 1
     steps.append([next_rev, next_schema])
     steps_json = json.dumps(steps)
+    doc_table = table(writer_content.APP, "doc")
     frappe.db.sql(
-        f"UPDATE `{table(writer_content.APP, 'doc')}` SET `schema_steps` = %s WHERE `id` = %s",
+        f"UPDATE `{doc_table}` SET `schema_steps` = %s WHERE `id` = %s",
         (steps_json, log_row["id"]),
     )
     return state(node)
@@ -188,7 +194,7 @@ def write_newer_schema(node: str) -> dict:
 
 @whitelist_for_tests(methods=["POST"])
 def paragraph_change(node: str, client_id: int, length: int) -> dict:
-    """What a tab writing as `client_id` sends when it adds a paragraph of `length` letters to the end of `node`."""
+    """Build the change a tab as `client_id` sends to add a paragraph of `length` letters to `node`."""
     live_state = logged.live_state(writer_content.APP, node)
     assert live_state is not None
     tab: pycrdt.Doc = pycrdt.Doc(client_id=int(client_id))
@@ -250,9 +256,10 @@ def state_bytes(node: str) -> int:
 def state(node: str) -> dict:
     """Where `node`'s collab log stands: its body, its head and the rows between."""
     doc_id = find_log(node)["id"]
+    doc_table = table(writer_content.APP, "doc")
     rows = frappe.db.sql(
         f"""SELECT `body_rev`, `head_rev`, `tail_rows`
-        FROM `{table(writer_content.APP, "doc")}` WHERE `id` = %s""",
+        FROM `{doc_table}` WHERE `id` = %s""",
         doc_id,
         as_dict=True,
     )
@@ -262,19 +269,21 @@ def state(node: str) -> dict:
 
 @whitelist_for_tests(methods=["GET", "POST"])
 def log_id(node: str) -> str:
+    """Answer the id of `node`'s collab log."""
     return find_log(node)["id"]
 
 
 @whitelist_for_tests(methods=["GET", "POST"])
 def log_rows(log: str) -> dict:
     """How many rows each collab table holds for the log `log`, its control row included."""
-    counts = {}
+    counts: dict[str, int] = {}
     for kind in KINDS:
         key_column = "id" if kind == "doc" else "doc_id"
-        row_count = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `{table(writer_content.APP, kind)}` WHERE `{key_column}` = %s",
+        kind_table = table(writer_content.APP, kind)
+        ((row_count,),) = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `{kind_table}` WHERE `{key_column}` = %s",
             log,
-        )[0][0]
+        )
         counts[kind] = row_count
 
     return counts
@@ -282,7 +291,7 @@ def log_rows(log: str) -> dict:
 
 @whitelist_for_tests(methods=["GET", "POST"])
 def server_text(node: str) -> list[str]:
-    """The text of each top-level block of `node`, read from the body and the rows after it."""
+    """Read the text of each top-level block of `node` from the body and the rows after it."""
     fragment = stored_fragment(node)
     return [block_text(block) for block in fragment.children]
 
@@ -294,14 +303,17 @@ def stored_fragment(node: str) -> pycrdt.XmlFragment:
     if stored is None:
         raise frappe.DoesNotExistError(f"{node} has no collab log")
 
-    checkpoints = [stored.checkpoint] if stored.checkpoint else []
-    rows = stored.payloads()
-    parts = checkpoints + rows
+    parts: list[bytes] = []
+    if stored.checkpoint:
+        parts.append(stored.checkpoint)
+
+    parts.extend(stored.payloads())
     loaded_doc = compaction.load_doc(parts)
     return loaded_doc.get("default", type=pycrdt.XmlFragment)
 
 
-def block_text(node) -> str:
+def block_text(node: pycrdt.XmlText | pycrdt.XmlElement) -> str:
+    """Join the text below `node`."""
     if isinstance(node, pycrdt.XmlText):
         return "".join(chunk for chunk, _attributes in node.diff())
 

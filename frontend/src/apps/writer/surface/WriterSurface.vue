@@ -75,6 +75,7 @@ import { createWriterDocument, editorFileOf, isLocked, type EditorFile } from '.
 import WriterDocumentMenu from './WriterDocumentMenu.vue'
 import { createWriteGate, type DocumentWrite } from './writes'
 
+const READ = 10
 const COMMENT = 20
 
 /** What `TextEditor` and `NonCollabEditor` expose. */
@@ -286,7 +287,9 @@ const documentResource = writes.guard(
   ['saveDoc', 'saveHtml', 'newVersion'],
 )
 
-const readable = computed(() => props.session.state.value !== 'Refused' && writes.role.value >= 10)
+const readable = computed(
+  () => props.session.state.value !== 'Refused' && writes.role.value >= READ,
+)
 
 const canComment = computed(
   () => props.session.state.value === 'Active' && writes.role.value >= COMMENT,
@@ -332,6 +335,20 @@ const showEditingPaused = computed(
   () => !editable.value && editingPaused.value && writes.writable.value,
 )
 
+const headerSaveState = computed(() => {
+  if (savingPaused.value) {
+    return null
+  }
+
+  return saveState.value
+})
+
+const isViewOnly = computed(() => !editable.value && !showEditingPaused.value)
+
+const hasLostReadAccess = computed(() => !readable.value)
+const hasFailedToOpen = computed(() => collabMode.value === 'failed')
+const isLoading = computed(() => !documentResource.doc || collabMode.value === 'opening')
+
 // Bumped by a restore so the editor mounts again on the restored body
 const bodyRevision = ref(0)
 
@@ -348,7 +365,9 @@ const threadPlaces = computed(() => editorSurface.value?.places ?? null)
 function dirtyModel() {
   return {
     dirty: dirty.value,
-    'onUpdate:dirty': (value: boolean) => (dirty.value = value),
+    'onUpdate:dirty': (isDirty: boolean) => {
+      dirty.value = isDirty
+    },
   }
 }
 
@@ -605,7 +624,13 @@ useDocumentLeaveGuard({ state: () => saveState.value, flush, retainRecovery })
 
 function warnBeforeUnload(event: Event) {
   const unloadGuard: Pick<LeaveGuardOptions, 'state' | 'retainRecovery'> = {
-    state: () => (collabLive.value ? saveState.value : 'clean'),
+    state: () => {
+      if (collabLive.value) {
+        return saveState.value
+      }
+
+      return 'clean'
+    },
     retainRecovery,
   }
   resolveDocumentUnload(unloadGuard, event)
@@ -649,8 +674,8 @@ onBeforeUnmount(() => {
       v-model:panel="panel"
       :session="session"
       title-label="Document title"
-      :save-state="savingPaused ? null : saveState"
-      :view-only="!editable && !showEditingPaused"
+      :save-state="headerSaveState"
+      :view-only="isViewOnly"
       :panels="['comments', 'versions']"
     >
       <template #status>
@@ -664,7 +689,7 @@ onBeforeUnmount(() => {
       </template>
       <template #actions>
         <span
-          v-if="savingPaused || roomUnsent"
+          v-if="saveNote"
           class="mr-1 whitespace-nowrap text-sm text-ink-gray-5"
           aria-live="polite"
         >
@@ -711,20 +736,17 @@ onBeforeUnmount(() => {
     </DocumentStrip>
 
     <div class="relative flex min-h-0 flex-1 flex-col">
-      <div v-if="!readable" class="m-auto text-center">
+      <div v-if="hasLostReadAccess" class="m-auto text-center">
         <span class="lucide-lock-keyhole mx-auto block size-6 text-ink-gray-5" aria-hidden="true" />
         <p class="mt-2 text-p-sm text-ink-gray-6">
           You no longer have permission to read this document.
         </p>
       </div>
-      <div v-else-if="collabMode === 'failed'" class="m-auto text-center">
+      <div v-else-if="hasFailedToOpen" class="m-auto text-center">
         <p class="text-p-sm text-ink-gray-6">{{ openFailure }}</p>
         <Button class="mt-3" label="Try again" @click="openCollab" />
       </div>
-      <div
-        v-else-if="!documentResource.doc || collabMode === 'opening'"
-        class="mx-auto w-full max-w-[770px] space-y-3 px-5 pt-10"
-      >
+      <div v-else-if="isLoading" class="mx-auto w-full max-w-[770px] space-y-3 px-5 pt-10">
         <Skeleton
           v-for="width in ['70%', '92%', '84%', '60%', '88%']"
           :key="width"

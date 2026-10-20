@@ -3,7 +3,13 @@ import { computed, readonly, ref, type Ref } from 'vue'
 import { api, client } from '@/api'
 import type { ImperativeClient } from '@/platform/server-state/types'
 import { getCookieSessionUser } from '@/platform/session'
-import { TransportError, type RequestContext, type RequestScope } from '@/platform/transport'
+import {
+  isTransientStatus,
+  MIN_SERVER_ERROR_STATUS,
+  TransportError,
+  type RequestContext,
+  type RequestScope,
+} from '@/platform/transport'
 
 import { onAccessChange } from './accessChanges'
 import type {
@@ -17,6 +23,7 @@ import { DRIVE_ROLES, type DriveAccess, type DriveNode } from './types'
 
 export const ACCESS_REFRESH_MS = 5 * 60_000
 export const MEDIA_REFRESH_MS = 10 * 60_000
+const MIN_CLIENT_ERROR_STATUS = 400
 export type SessionState = 'Active' | 'Trashed' | 'Refused'
 export type MediaStatus = 'loading' | 'ready' | 'refused'
 export interface MediaHandle {
@@ -191,10 +198,13 @@ export async function openDriveDocumentSession(
       state.value = toSessionState(fresh)
       access.value = fresh.access ?? {}
     } catch (error) {
-      const status = error instanceof TransportError ? error.status : 0
-      const isRefusal = status >= 400 && status < 500
-      const isTransient = status === 408 || status === 429
-      if (!isRefusal || isTransient) return
+      let status = 0
+      if (error instanceof TransportError) {
+        status = error.status
+      }
+
+      const isRefusal = status >= MIN_CLIENT_ERROR_STATUS && status < MIN_SERVER_ERROR_STATUS
+      if (!isRefusal || isTransientStatus(status)) return
 
       // A guest is refused everything; that says nothing about this person's access
       if (!signedIn()) return

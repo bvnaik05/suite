@@ -13,10 +13,12 @@ CHECK_RENDER = "suite.content.jobs.check_render"
 
 
 def delete_purged(app: str, doc_id: str) -> None:
+    """Delete a purged document's log, as its queued job."""
     log.delete_purged(app, doc_id)
 
 
 def compact(app: str, doc_id: str) -> None:
+    """Compact the document's log, as its queued job."""
     spec = spec_of(app)
     checkpoints.run(app, doc_id, spec.part_map, JUDGE)
 
@@ -41,6 +43,7 @@ def trim_logs() -> None:
 
 
 def judge(app: str, doc_id: str) -> None:
+    """Judge a suspect document, and ask for a compaction once it is settled."""
     spec = spec_of(app)
     verdict = suspect.judge(app, doc_id, spec.part_map, spec.checker_build)
     if verdict in {"clean", "quarantined"}:
@@ -58,6 +61,7 @@ def request_render_check(app: str, doc_id: str) -> None:
 
 
 def sweep() -> None:
+    """Sweep every app's logs for due compactions, touches and staged renders to check."""
     for app, spec in editors().items():
         scheduling.sweep(app, COMPACT, purge_method=DELETE_PURGED, judge_method=JUDGE)
         touches.sweep(app)

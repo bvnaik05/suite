@@ -1,7 +1,14 @@
 import { getSchema } from '@tiptap/core'
 import { prosemirrorJSONToYDoc, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
 import { describe, expect, it, vi } from 'vitest'
-import * as Y from 'yjs'
+import {
+  createAbsolutePositionFromRelativePosition,
+  createRelativePositionFromTypeIndex,
+  Doc,
+  encodeStateAsUpdate,
+  type XmlElement,
+  type XmlText,
+} from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab'
 import { encodeAnchor, readAnchor } from '@/apps/writer/collab/anchors'
@@ -15,7 +22,7 @@ const schema = getSchema(writerSchema())
 // A room that runs the restore's edit and answers `result`
 function fakeRoom(result: RestoreResult) {
   return {
-    doc: new Y.Doc(),
+    doc: new Doc(),
     lineage: 'one',
     flush: vi.fn(() => Promise.resolve()),
     isCommitted: () => true,
@@ -30,7 +37,7 @@ function html(value: string) {
   return new TextEncoder().encode(value)
 }
 
-function shown(doc: Y.Doc) {
+function shown(doc: Doc) {
   const json = yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(BODY_FIELD))
   return schema.nodeFromJSON(json).textContent
 }
@@ -41,20 +48,20 @@ function documentWithThread() {
   const doc = prosemirrorJSONToYDoc(schema, { type: 'doc', content: [paragraph] }, BODY_FIELD)
   const text = textOf(doc)
   const anchor = encodeAnchor(
-    Y.createRelativePositionFromTypeIndex(text, 6, 0),
-    Y.createRelativePositionFromTypeIndex(text, 11, -1),
+    createRelativePositionFromTypeIndex(text, 6, 0),
+    createRelativePositionFromTypeIndex(text, 11, -1),
     'world',
   )
   return { doc, threads: [{ name: 't1', anchor }] }
 }
 
-function textOf(doc: Y.Doc) {
-  const paragraph = doc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement
-  return paragraph.get(0) as Y.XmlText
+function textOf(doc: Doc) {
+  const paragraph = doc.getXmlFragment(BODY_FIELD).get(0) as XmlElement
+  return paragraph.get(0) as XmlText
 }
 
-async function yjsVersion(doc: Y.Doc) {
-  const raw = new Response(new Uint8Array(Y.encodeStateAsUpdate(doc))).body!
+async function yjsVersion(doc: Doc) {
+  const raw = new Response(new Uint8Array(encodeStateAsUpdate(doc))).body!
   const zipped = new Uint8Array(
     await new Response(raw.pipeThrough(new CompressionStream('gzip'))).arrayBuffer(),
   )
@@ -67,15 +74,15 @@ function encode(value: object) {
 }
 
 // The words an anchor covers in the document now
-function covered(doc: Y.Doc, anchor: string) {
+function covered(doc: Doc, anchor: string) {
   const read = readAnchor(anchor)
   if (read.kind !== 'text') {
     return null
   }
 
-  const from = Y.createAbsolutePositionFromRelativePosition(read.start, doc)!
-  const to = Y.createAbsolutePositionFromRelativePosition(read.end, doc)!
-  return (from.type as Y.XmlText).toString().slice(from.index, to.index)
+  const from = createAbsolutePositionFromRelativePosition(read.start, doc)!
+  const to = createAbsolutePositionFromRelativePosition(read.end, doc)!
+  return (from.type as XmlText).toString().slice(from.index, to.index)
 }
 
 // A restore after "world" was deleted, in a room whose server holds what it is told to

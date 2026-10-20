@@ -12,16 +12,24 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, type Transaction } from '@tiptap/pm/state'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { JoinAdjacentLists } from './join-adjacent-lists'
 import { ListJoin } from './list-join'
 import { ReceivedContentGuard } from './received-content-guard'
 
 const editors: Editor[] = []
-afterEach(() => editors.splice(0).forEach((editor) => editor.destroy()))
+function destroyEditors() {
+  for (const editor of editors.splice(0)) {
+    editor.destroy()
+  }
+}
 
-const waitForUpdates = () => new Promise((resolve) => setTimeout(resolve, 20))
+afterEach(destroyEditors)
+
+function waitForUpdates() {
+  return new Promise((resolve) => setTimeout(resolve, 20))
+}
 
 const extensions = [
   Document,
@@ -38,37 +46,48 @@ const extensions = [
 ]
 
 const schema = new Editor({ extensions }).schema
-const paragraph = (text: string) => ({
-  type: 'paragraph',
-  content: [{ type: 'text', text }],
-})
-const heading = (text: string) => ({
-  type: 'heading',
-  attrs: { level: 2 },
-  content: [{ type: 'text', text }],
-})
-const bulletList = (text: string) => ({
-  type: 'bulletList',
-  content: [{ type: 'listItem', content: [paragraph(text)] }],
-})
+
+function paragraph(text: string) {
+  return {
+    type: 'paragraph',
+    content: [{ type: 'text', text }],
+  }
+}
+
+function heading(text: string) {
+  return {
+    type: 'heading',
+    attrs: { level: 2 },
+    content: [{ type: 'text', text }],
+  }
+}
+
+function bulletList(text: string) {
+  return {
+    type: 'bulletList',
+    content: [{ type: 'listItem', content: [paragraph(text)] }],
+  }
+}
+
 function storedState(...content: object[]) {
   const json = {
     type: 'doc',
     content,
   }
   const ydoc = prosemirrorJSONToYDoc(schema, json, 'default')
-  return Y.encodeStateAsUpdate(ydoc)
+  return yjs.encodeStateAsUpdate(ydoc)
 }
 
 function openViewer(state: Uint8Array, more: AnyExtension[] = []) {
-  const ydoc = new Y.Doc()
-  Y.applyUpdate(ydoc, state, 'server')
+  const ydoc = new yjs.Doc()
+  yjs.applyUpdate(ydoc, state, 'server')
   let writes = 0
-  const countWrite = (_update: Uint8Array, origin: unknown) => {
+  function countWrite(_update: Uint8Array, origin: unknown) {
     if (origin !== 'server' && origin !== 'remote') {
       writes++
     }
   }
+
   ydoc.on('update', countWrite)
 
   const element = document.createElement('div')
@@ -121,7 +140,9 @@ function followUp(fixUp: (tr: Transaction, far: number) => void) {
   })
 }
 
-const blockTypes = (editor: Editor) => editor.getJSON().content!.map((node) => node.type)
+function blockTypes(editor: Editor) {
+  return editor.getJSON().content!.map((node) => node.type)
+}
 
 describe('received content guard', () => {
   it('opening a document that ends in a heading writes nothing', async () => {
@@ -174,11 +195,12 @@ describe('received content guard', () => {
 
     const { doc } = viewer.editor.state
     let gapStart = 0
-    const findGap = (node: ProseMirrorNode, offset: number) => {
+    function findGap(node: ProseMirrorNode, offset: number) {
       if (node.textContent === 'gap') {
         gapStart = offset
       }
     }
+
     doc.forEach(findGap)
     const gapRange = {
       from: gapStart,
@@ -203,14 +225,15 @@ describe('received content guard', () => {
 
     viewerA.editor.commands.insertContentAt(viewerA.editor.state.doc.content.size - 1, '1')
     viewerB.editor.commands.insertContentAt(viewerB.editor.state.doc.content.size - 1, '2')
-    const fromB = Y.encodeStateAsUpdate(viewerB.ydoc)
-    Y.applyUpdate(viewerA.ydoc, fromB, 'remote')
-    const fromA = Y.encodeStateAsUpdate(viewerA.ydoc)
-    Y.applyUpdate(viewerB.ydoc, fromA, 'remote')
+    const fromB = yjs.encodeStateAsUpdate(viewerB.ydoc)
+    yjs.applyUpdate(viewerA.ydoc, fromB, 'remote')
+    const fromA = yjs.encodeStateAsUpdate(viewerA.ydoc)
+    yjs.applyUpdate(viewerB.ydoc, fromA, 'remote')
 
     for (const { editor } of [viewerA, viewerB]) {
       expect(editor.state.doc.textContent.match(/abc|def/g)).toEqual(['abc', 'def'])
     }
+
     expect(viewerA.editor.getJSON()).toEqual(viewerB.editor.getJSON())
   })
 

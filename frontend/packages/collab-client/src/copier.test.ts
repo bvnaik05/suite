@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type * as Y from 'yjs'
+import type * as yjs from 'yjs'
 
 import { fakeServer, fakeTime, idle, join } from './test-support'
 
@@ -8,7 +8,10 @@ const rendering = {
   app: 'test',
   schemaVersion: 1,
   toPeerPosition: (raw: unknown) => raw as object,
-  toHtml: (doc: Y.Doc) => `<p>${doc.getText('t')}</p>`,
+  toHtml: (doc: yjs.Doc) => {
+    const content = doc.getText('t').toString()
+    return `<p>${content}</p>`
+  },
 }
 
 describe('readable copy', () => {
@@ -46,7 +49,10 @@ describe('readable copy', () => {
     const push = endpoints.push
     const room = await join(endpoints, { adapter: rendering })
     endpoints.push = async (body, options) => {
-      if (server.rows.length === 0) room.doc.getText('t').insert(3, ' two')
+      if (server.rows.length === 0) {
+        room.doc.getText('t').insert(3, ' two')
+      }
+
       return push(body, options)
     }
 
@@ -70,10 +76,7 @@ describe('readable copy', () => {
     writer.doc.getText('t').insert(0, 'theirs ')
     await writer.flush()
     const pull = endpoints.pull
-    let release = () => {}
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
     endpoints.pull = async (since, epoch) => {
       await held
       return pull(since, epoch)
@@ -108,14 +111,12 @@ describe('readable copy', () => {
         dropNextAnswer = false
         throw new TypeError('connection reset')
       }
+
       return answer
     }
 
     const pull = endpoints.pull
-    let release = () => {}
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
     endpoints.pull = async (since, epoch) => {
       await held
       return pull(since, epoch)

@@ -18,11 +18,15 @@ const STORE = 'presentations'
 let db = null
 let dbOwner = null
 
-const draftsOwner = () => getSessionUser() || 'Guest'
+function draftsOwner() {
+  return getSessionUser() || 'Guest'
+}
 
-const openDB = async () => {
+async function openDB() {
   const user = draftsOwner()
-  if (db && dbOwner === user) return db
+  if (db && dbOwner === user) {
+    return db
+  }
 
   db?.close()
   db = await openDraftsDb(draftsDbName(user))
@@ -32,6 +36,7 @@ const openDB = async () => {
     db.close()
     db = null
   }
+
   return db
 }
 
@@ -116,7 +121,9 @@ const getPresentationFromLocalDB = async (id) => {
       reject(req.error)
     }
   })
-  if (record || viewOnly.value) return record ?? null
+  if (record || viewOnly.value) {
+    return record ?? null
+  }
 
   return takeUnownedDraft(id, draftsOwner()).catch(() => null)
 }

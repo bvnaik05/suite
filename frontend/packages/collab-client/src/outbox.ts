@@ -1,10 +1,10 @@
 import { digest } from 'lib0/hash/sha256'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { hex } from './bytes'
 import type { StoredEntry } from './store'
 
-// Each sha adds 67 bytes to the push header, which the server caps at 4 KiB
+// Each sha adds 67 bytes to the push header, which the server's stage.HEADER_MAX caps at 4 KiB
 const MAX_ENTRIES = 48
 export const MAX_HEADER_BYTES = 4 * 1024
 export const MAX_PUSH_BYTES = 256 * 1024
@@ -37,8 +37,12 @@ export class Outbox {
     stored: StoredEntry[] = [],
   ) {
     this.pending = stored.map(({ seq, bytes, sha, seenRev }) => ({ seq, bytes, sha, seenRev }))
-    this.nextSeq = stored.length ? stored[stored.length - 1].seq + 1 : 1
-    this.acked = stored.length ? stored[0].seq - 1 : 0
+    this.nextSeq = 1
+    this.acked = 0
+    if (stored.length) {
+      this.nextSeq = stored[stored.length - 1].seq + 1
+      this.acked = stored[0].seq - 1
+    }
   }
 
   // The next seq's entry, not yet queued
@@ -67,13 +71,13 @@ export class Outbox {
     }
 
     this.pending = this.pending.filter((entry) => entry.seq > this.acked)
-    return Y.mergeUpdates(committed.map((entry) => entry.bytes))
+    return yjs.mergeUpdates(committed.map((entry) => entry.bytes))
   }
 
   // Whether an unsent entry made the item `id`
-  holds(id: Y.ID) {
+  holds(id: yjs.ID) {
     return this.pending.some((entry) => {
-      const { from, to } = Y.parseUpdateMeta(entry.bytes)
+      const { from, to } = yjs.parseUpdateMeta(entry.bytes)
       const first = from.get(id.client) ?? Infinity
       const end = to.get(id.client) ?? 0
       return first <= id.clock && id.clock < end
@@ -107,9 +111,11 @@ export class Outbox {
       if (batch.length && (tooMany || tooBig || otherKind)) {
         break
       }
+
       batch.push(entry)
       size += entry.bytes.byteLength
     }
+
     return batch
   }
 

@@ -28,7 +28,9 @@ import {
 } from "../../helpers/writer";
 
 /** What Drive answers to a copy. */
-type CopyReply = { data: { name: string } };
+interface CopyReply {
+	data: { name: string };
+}
 
 test.describe("Writer collaboration", () => {
 	let node = "";
@@ -58,10 +60,11 @@ test.describe("Writer collaboration", () => {
 
 		await page.goto("/drive");
 		const menu = await openRowMenu(page, title);
-		const isCopyAnswer = (response: Response) => {
+		function isCopyAnswer(response: Response) {
 			const isPost = response.request().method() === "POST";
 			return isPost && response.url().includes(`/nodes/${node}/copy`);
-		};
+		}
+
 		const copying = page.waitForResponse(isCopyAnswer);
 		await menu.getByRole("menuitem", { name: "Make a copy", exact: true }).click();
 		await page
@@ -144,8 +147,10 @@ test.describe("Writer collaboration", () => {
 	});
 
 	test("Drive exports the copy a tab rendered and refuses once it is behind", async ({ owner, testApi }) => {
-		const exportDocument = () =>
-			owner.context.request.get(`${DRIVE}/nodes/${node}/content?download=1`);
+		function exportDocument() {
+			return owner.context.request.get(`${DRIVE}/nodes/${node}/content?download=1`);
+		}
+
 		await owner.page.clock.install();
 		await openWriterDocument(owner.page, node);
 		await typeParagraph(owner.page, "Export me");

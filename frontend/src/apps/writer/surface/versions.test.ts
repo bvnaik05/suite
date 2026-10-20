@@ -1,7 +1,7 @@
 import { getSchema } from '@tiptap/core'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
@@ -12,8 +12,11 @@ import { readVersion, storedVersionHTML } from './versions'
 const schema = getSchema(writerSchema())
 
 function encode(value: string | object) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
-  return new TextEncoder().encode(text)
+  if (typeof value === 'string') {
+    return new TextEncoder().encode(value)
+  }
+
+  return new TextEncoder().encode(JSON.stringify(value))
 }
 
 const document = {
@@ -48,8 +51,8 @@ async function collabVersion(firstTabLabel?: string) {
   return stateVersion(ydoc)
 }
 
-async function stateVersion(ydoc: Y.Doc) {
-  const update = Y.encodeStateAsUpdate(ydoc)
+async function stateVersion(ydoc: Doc) {
+  const update = encodeStateAsUpdate(ydoc)
   const state = await gzipBase64(update)
   return {
     schema: 'writer-document/2',
@@ -162,10 +165,10 @@ async function tabbedVersion() {
 
 // A version holding elements of the given names, in the order given
 function elementsVersion(...names: string[]) {
-  const ydoc = new Y.Doc()
+  const ydoc = new Doc()
   const elements = names.map((name) => {
-    const element = new Y.XmlElement(name)
-    element.insert(0, [new Y.XmlText(name)])
+    const element = new XmlElement(name)
+    element.insert(0, [new XmlText(name)])
     return element
   })
   ydoc.getXmlFragment(BODY_FIELD).insert(0, elements)
@@ -174,8 +177,8 @@ function elementsVersion(...names: string[]) {
 
 // A version the old editor saved, holding an image of the kind only it had
 function oldImageVersion() {
-  const ydoc = new Y.Doc()
-  const image = new Y.XmlElement('resizableMedia')
+  const ydoc = new Doc()
+  const image = new XmlElement('resizableMedia')
   image.setAttribute('src', '/files/chart.png')
   image.setAttribute('media-type', 'img')
   ydoc.getXmlFragment(BODY_FIELD).insert(0, [image])

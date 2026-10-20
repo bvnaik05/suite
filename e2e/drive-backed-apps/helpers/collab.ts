@@ -19,16 +19,26 @@ export interface CollabState {
 }
 
 /** What Drive answers to a new version. */
-type VersionReply = { data: { seq: string } };
+interface VersionReply {
+	data: { seq: string };
+}
 
 /** A paragraph's change as `e2e_api.paragraph_change` makes it. */
-type ParagraphChange = { change: string; lineage: string; head_rev: number };
+interface ParagraphChange {
+	change: string;
+	lineage: string;
+	head_rev: number;
+}
 
 /** A run of text and the formatting keys it carries, as `e2e_api.block_runs` reads it. */
 type TextRun = [string, Record<string, unknown>];
 
 /** What `pushInPieces` saw: how many pieces it staged, the push's status, and its refusal if any. */
-type PushOutcome = { pieces: number; status: number; collab?: string };
+interface PushOutcome {
+	pieces: number;
+	status: number;
+	collab?: string;
+}
 
 async function callTestHook<T>(testApi: APIRequestContext, name: string, node: string): Promise<T> {
 	const response = await testApi.post(`/api/method/suite.writer.content.e2e_api.${name}`, {
@@ -38,8 +48,9 @@ async function callTestHook<T>(testApi: APIRequestContext, name: string, node: s
 }
 
 /** Turn collaboration on for the site and give `node` a collab log. Call before the document opens. */
-const enableCollab = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "enable_collab", node);
+function enableCollab(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "enable_collab", node);
+}
 
 /** Give `node` a collab log and share it with `collaborator` for editing. */
 export async function openForCollab(
@@ -53,8 +64,9 @@ export async function openForCollab(
 }
 
 /** Turn Writer's collaboration off; the next test's `enableCollab` turns it on again. */
-export const disableCollab = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "disable_collab", node);
+export function disableCollab(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "disable_collab", node);
+}
 
 /** Open `node` in the old, non-collaborative editor from now on. */
 export function makeLegacy(testApi: APIRequestContext, node: string) {
@@ -66,30 +78,37 @@ export function dropLog(testApi: APIRequestContext, node: string) {
 	return callTestHook<number>(testApi, "drop_log", node);
 }
 
-export const compactNow = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "compact_now", node);
+export function compactNow(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "compact_now", node);
+}
 
-export const collabState = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "state", node);
+export function collabState(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "state", node);
+}
 
 /** How big a document's compacted state is counted. */
-export const stateBytes = (testApi: APIRequestContext, node: string) =>
-	callTestHook<number>(testApi, "state_bytes", node);
+export function stateBytes(testApi: APIRequestContext, node: string) {
+	return callTestHook<number>(testApi, "state_bytes", node);
+}
 
-export const logId = (testApi: APIRequestContext, node: string) =>
-	callTestHook<string>(testApi, "log_id", node);
+export function logId(testApi: APIRequestContext, node: string) {
+	return callTestHook<string>(testApi, "log_id", node);
+}
 
 /** Age a document's edit rows past the evidence window and queue its trimming. */
-export const trimNow = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "trim_now", node);
+export function trimNow(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "trim_now", node);
+}
 
 /** Make a document's readable copy a minute old, so the next push asks for a render; its rev, 0 for none. */
-export const ageCopy = (testApi: APIRequestContext, node: string) =>
-	callTestHook<number>(testApi, "age_copy", node);
+export function ageCopy(testApi: APIRequestContext, node: string) {
+	return callTestHook<number>(testApi, "age_copy", node);
+}
 
 /** The rev through which a document's edit rows may be gone. */
-export const trimmedRev = (testApi: APIRequestContext, node: string) =>
-	callTestHook<number>(testApi, "trimmed_rev", node);
+export function trimmedRev(testApi: APIRequestContext, node: string) {
+	return callTestHook<number>(testApi, "trimmed_rev", node);
+}
 
 /** Hold a document for an admin; `why` is the judge's cause, and `bad_checkpoint` puts the whole document in question. */
 export async function holdDocument(
@@ -104,8 +123,9 @@ export async function holdDocument(
 }
 
 /** Clear a held document, as an admin does. */
-export const releaseDocument = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "release", node);
+export function releaseDocument(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "release", node);
+}
 
 /** Quarantine a document's last row, as a judge that finds it bad does. */
 export async function quarantineLast(
@@ -120,16 +140,19 @@ export async function quarantineLast(
 }
 
 /** Count a document's state as big as its tail leaves room for, so its next adding push waits for a compaction. */
-export const leaveNoRoom = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "leave_no_room", node);
+export function leaveNoRoom(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "leave_no_room", node);
+}
 
 /** Count a document as big as one may be, so the server takes no more adding changes. */
-export const fillDocument = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "fill_up", node);
+export function fillDocument(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "fill_up", node);
+}
 
 /** Mark a document as written from here on by a Writer one schema newer than this site's. */
-export const writeNewerSchema = (testApi: APIRequestContext, node: string) =>
-	callTestHook<CollabState>(testApi, "write_newer_schema", node);
+export function writeNewerSchema(testApi: APIRequestContext, node: string) {
+	return callTestHook<CollabState>(testApi, "write_newer_schema", node);
+}
 
 /** How many rows each collab table holds for a log, keyed by table kind. */
 export async function logRowCounts(
@@ -153,8 +176,9 @@ export function blockRuns(testApi: APIRequestContext, node: string): Promise<Tex
 }
 
 /** The text of each top-level block, as the server would serve it. */
-export const serverBlocks = (testApi: APIRequestContext, node: string) =>
-	callTestHook<string[]>(testApi, "server_text", node);
+export function serverBlocks(testApi: APIRequestContext, node: string) {
+	return callTestHook<string[]>(testApi, "server_text", node);
+}
 
 /** The text of each top-level block in the editor, without other people's carets. */
 export function editorBlocks(page: Page): Promise<string[]> {
@@ -163,11 +187,14 @@ export function editorBlocks(page: Page): Promise<string[]> {
 
 // Runs in the page, so it reads nothing from this module
 function blockTexts(editor: Element): string[] {
-	const textWithoutCarets = (block: Element) => {
+	function textWithoutCarets(block: Element) {
 		const copy = block.cloneNode(true) as Element;
-		copy.querySelectorAll(".collaboration-carets__caret").forEach((caret) => caret.remove());
+		for (const caret of copy.querySelectorAll(".collaboration-carets__caret")) {
+			caret.remove();
+		}
+
 		return copy.textContent ?? "";
-	};
+	}
 
 	return [...editor.children].map(textWithoutCarets);
 }
@@ -193,7 +220,7 @@ export async function expectConverged(
 	timeout?: number,
 ): Promise<string[]> {
 	let lastStoredBlocks: string[] = [];
-	const compareWithServer = async () => {
+	async function compareWithServer() {
 		const storedBlocks = await serverBlocks(testApi, node);
 		const shownBlocks = await Promise.all(pages.map(editorBlocks));
 		lastStoredBlocks = storedBlocks;
@@ -202,7 +229,7 @@ export async function expectConverged(
 		);
 		const missing = texts.filter((text) => !storedBlocks.join("\n").includes(text));
 		return { matchesServer, missing };
-	};
+	}
 
 	await expect.poll(compareWithServer, { timeout }).toEqual({ matchesServer: true, missing: [] });
 	return lastStoredBlocks;
@@ -218,12 +245,10 @@ export async function saveNamedVersion(
 		kind: "named",
 		label,
 	};
-	const response = await request.post(
-		`/api/suite/drive/nodes/${encodeURIComponent(node)}/versions`,
-		{
-			data: version,
-		},
-	);
+	const encodedNode = encodeURIComponent(node);
+	const response = await request.post(`/api/suite/drive/nodes/${encodedNode}/versions`, {
+		data: version,
+	});
 	expect(response.ok(), await response.text()).toBe(true);
 
 	const reply = (await response.json()) as VersionReply;
@@ -310,7 +335,8 @@ export async function pushInPieces(
 	length: number,
 	sendWhole = false,
 ): Promise<PushOutcome> {
-	const contentUrl = `/api/suite/content/${encodeURIComponent(node)}`;
+	const encodedNode = encodeURIComponent(node);
+	const contentUrl = `/api/suite/content/${encodedNode}`;
 	const headers = {
 		"X-Expected-User": user,
 		"Content-Type": "application/octet-stream",
@@ -343,7 +369,11 @@ export async function pushInPieces(
 	const changeSha = createHash("sha256").update(changeBytes).digest("hex");
 	const stageId = randomUUID().replaceAll("-", "");
 	const pieceSize = 256 * 1024;
-	const pieces = sendWhole ? 0 : Math.ceil(changeBytes.length / pieceSize);
+	let pieces = 0;
+	if (!sendWhole) {
+		pieces = Math.ceil(changeBytes.length / pieceSize);
+	}
+
 	for (let pieceIndex = pieces - 1; pieceIndex >= 0; pieceIndex--) {
 		const pieceHeader = {
 			lineage: paragraphChange.lineage,
@@ -362,7 +392,7 @@ export async function pushInPieces(
 		expect(stageResponse.status(), await stageResponse.text()).toBe(200);
 	}
 
-	const pushHeader = {
+	const pushHeader: Record<string, unknown> = {
 		lineage: paragraphChange.lineage,
 		expected_user: user,
 		sid: sessionId,
@@ -372,9 +402,14 @@ export async function pushInPieces(
 		seen_rev: paragraphChange.head_rev,
 		schema: 1,
 		shas: [changeSha],
-		...(sendWhole ? {} : { stage_id: stageId }),
 	};
-	const pushBody = sendWhole ? changeBytes : Buffer.alloc(0);
+	let pushBody = Buffer.alloc(0);
+	if (sendWhole) {
+		pushBody = changeBytes;
+	} else {
+		pushHeader.stage_id = stageId;
+	}
+
 	const pushResponse = await userRequest.post(`${contentUrl}/updates`, {
 		headers,
 		data: buildFrame(pushHeader, pushBody),
@@ -401,7 +436,7 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 		refused: 0,
 	};
 
-	const refuse = (outgoing: ServerResponse) => {
+	function refuse(outgoing: ServerResponse) {
 		bodyStats.refused++;
 		if (bareRefusal) {
 			outgoing.writeHead(413).end();
@@ -410,11 +445,11 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 				.writeHead(413, { "content-type": "text/html" })
 				.end("<h1>413 Request Entity Too Large</h1>");
 		}
-	};
+	}
 
-	const relay = (incoming: IncomingMessage, outgoing: ServerResponse) => {
+	function relay(incoming: IncomingMessage, outgoing: ServerResponse) {
 		const chunks: Buffer[] = [];
-		const forwardBody = () => {
+		function forwardBody() {
 			const body = Buffer.concat(chunks);
 			bodyStats.largest = Math.max(bodyStats.largest, body.length);
 			if (body.length > limit) {
@@ -429,31 +464,37 @@ export async function bodyLimitProxy(target: string, limit = 2 ** 20, bareRefusa
 				path: incoming.url,
 				headers: incoming.headers,
 			};
-			const passBack = (upstreamResponse: IncomingMessage) => {
+			function passBack(upstreamResponse: IncomingMessage) {
 				outgoing.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
 				upstreamResponse.pipe(outgoing);
-			};
+			}
+
 			const upstreamRequest = forward(upstreamOptions, passBack);
 			upstreamRequest.on("error", () => outgoing.writeHead(502).end());
 			upstreamRequest.end(body);
-		};
+		}
 
 		incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
 		incoming.on("end", forwardBody);
-	};
+	}
 
 	const server = createServer(relay);
 	await new Promise<void>((listening) => server.listen(0, listening));
 	const { port } = server.address() as AddressInfo;
 
-	const liftLimit = () => {
+	function liftLimit() {
 		limit = Infinity;
-	};
-	const shutDown = (closed: () => void) => {
+	}
+
+	function shutDown(closed: () => void) {
 		server.close(() => closed());
 		server.closeAllConnections();
-	};
-	const close = () => new Promise<void>(shutDown);
+	}
+
+	function close() {
+		return new Promise<void>(shutDown);
+	}
+
 	const origin = `${upstream.protocol}//${upstream.hostname}:${port}`;
 	return { origin, bodyStats, liftLimit, close };
 }

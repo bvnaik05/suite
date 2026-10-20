@@ -43,6 +43,7 @@ class TestEditorDeclarations(UnitTestCase):
     def refusal(self, *paths: str) -> str:
         with registered(*paths), self.assertRaises(ValueError) as refused:
             editors.editors()
+
         return str(refused.exception)
 
     def test_an_app_that_declares_everything_is_registered(self):

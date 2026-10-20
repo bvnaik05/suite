@@ -361,19 +361,23 @@ test.describe("Writer collaboration", () => {
 			.getByLabel("Document editor")
 			.locator("p", { hasText: "Centred text" });
 		let lastX = -1;
-		await expect
-			.poll(async () => lastX === (lastX = (await centredLine.boundingBox())!.x), {
-				intervals: [400],
-			})
-			.toBe(true);
+
+		async function hasSettled() {
+			const currentX = (await centredLine.boundingBox())!.x;
+			const isSame = lastX === currentX;
+			lastX = currentX;
+			return isSame;
+		}
+
+		await expect.poll(hasSettled, { intervals: [400] }).toBe(true);
 		const restingBox = await centredLine.boundingBox();
 		const column = await page.locator("#editor-scroll-container").boundingBox();
-		const sampleFrames = () => {
+		function sampleFrames() {
 			const line = document.querySelector('[aria-label="Document editor"] p')!;
 			const frames: number[][] = [];
 			const start = performance.now();
-			const sampleUntilDone = (resolve: (frames: number[][]) => void) => {
-				const tick = () => {
+			function sampleUntilDone(resolve: (frames: number[][]) => void) {
+				function tick() {
 					const asideWidth = document.querySelector("aside")?.getBoundingClientRect().width ?? 0;
 					frames.push([line.getBoundingClientRect().x, asideWidth]);
 					if (performance.now() - start < 600) {
@@ -381,20 +385,25 @@ test.describe("Writer collaboration", () => {
 					} else {
 						resolve(frames);
 					}
-				};
+				}
+
 				requestAnimationFrame(tick);
-			};
+			}
 
 			return new Promise<number[][]>(sampleUntilDone);
-		};
-		const sampleMotion = () => page.evaluate(sampleFrames);
-		const expectInStep = (frames: number[][]) => {
+		}
+
+		function sampleMotion() {
+			return page.evaluate(sampleFrames);
+		}
+
+		function expectInStep(frames: number[][]) {
 			expect(frames.some(([, width]) => width > 10 && width < 310)).toBe(true);
 			const drift = Math.max(
-				...frames.map(([x, width]) => Math.abs(restingBox!.x - x - width / 2)),
+				...frames.map(([lineX, width]) => Math.abs(restingBox!.x - lineX - width / 2)),
 			);
 			expect(drift).toBeLessThanOrEqual(1);
-		};
+		}
 
 		const opening = sampleMotion();
 		await page
@@ -472,22 +481,28 @@ test.describe("Writer collaboration", () => {
 		await expect.poll(async () => (await panel.boundingBox())?.width).toBe(321);
 		const editorText = page.getByLabel("Document editor");
 		const previewText = page.locator('[aria-label="Version preview"] .ProseMirror');
-		const linePlacement = async (text: typeof editorText) => {
+		async function linePlacement(text: typeof editorText) {
 			const line = text.locator("p", { hasText: "First version" });
 			const { x, y, width } = (await line.boundingBox())!;
 			const { y: top } = (await text.boundingBox())!;
 			return { x, width, top, y };
-		};
+		}
+
 		const editorPlacement = await linePlacement(editorText);
-		const readLook = (element: Element) => {
+
+		function readLook(element: Element) {
 			const style = getComputedStyle(element);
 			return [
 				style.backgroundColor,
 				style.borderBottomColor,
 				element.getBoundingClientRect().height,
 			];
-		};
-		const barLook = (bar: ReturnType<typeof page.locator>) => bar.evaluate(readLook);
+		}
+
+		function barLook(bar: ReturnType<typeof page.locator>) {
+			return bar.evaluate(readLook);
+		}
+
 		const themes = ["light", "dark"] as const;
 		const toolbar = page
 			.getByRole("button", { name: "Bold" })
@@ -495,7 +510,7 @@ test.describe("Writer collaboration", () => {
 		const toolbarLooks = [];
 		for (const theme of themes) {
 			await page.evaluate(
-				(theme) => document.documentElement.setAttribute("data-theme", theme),
+				(themeName) => document.documentElement.setAttribute("data-theme", themeName),
 				theme,
 			);
 			toolbarLooks.push(await barLook(toolbar));
@@ -506,7 +521,7 @@ test.describe("Writer collaboration", () => {
 		const bar = page.getByRole("status").filter({ hasText: "Viewing One" });
 		for (const [i, theme] of themes.entries()) {
 			await page.evaluate(
-				(theme) => document.documentElement.setAttribute("data-theme", theme),
+				(themeName) => document.documentElement.setAttribute("data-theme", themeName),
 				theme,
 			);
 			expect(await barLook(bar)).toEqual(toolbarLooks[i]);
@@ -516,7 +531,8 @@ test.describe("Writer collaboration", () => {
 					.evaluate((button) => getComputedStyle(button).backgroundColor),
 			).toBe("rgba(0, 0, 0, 0)");
 		}
-		// frappe-ui gives an empty read-only line a fixed height, so lines below one may sit a few px off.
+
+		// frappe-ui gives an empty read-only line a fixed height, so lines below one may sit a few px off
 		expect(await linePlacement(previewText)).toMatchObject({
 			x: editorPlacement.x,
 			width: editorPlacement.width,

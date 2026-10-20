@@ -9,10 +9,10 @@ frappe.ui.form.on("Suite Collab Settings", {
 				"orange"
 			);
 		}
-		frm.add_custom_button(__("Run collaboration self-test"), () =>
-			frappe
-				.xcall("suite.content.selftest.run_self_test")
-				.then(() => frappe.show_alert(__("Self-test queued; reload to see its result")))
-		);
+
+		frm.add_custom_button(__("Run collaboration self-test"), async () => {
+			await frappe.xcall("suite.content.selftest.run_self_test");
+			frappe.show_alert(__("Self-test queued; reload to see its result"));
+		});
 	},
 });

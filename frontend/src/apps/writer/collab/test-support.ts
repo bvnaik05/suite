@@ -4,7 +4,7 @@ import Collaboration from '@tiptap/extension-collaboration'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { afterEach } from 'vitest'
 import { ref } from 'vue'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { writerEditorExtensions } from '@/apps/writer/editor-extensions'
 import { writerSchema } from '@/apps/writer/schema'
@@ -15,7 +15,7 @@ import { watchRemovals, type Removal } from './removals'
 
 /** One open tab: its editor, the edits it hasn't sent yet, and what it reported. */
 export interface Tab {
-  ydoc: Y.Doc
+  ydoc: yjs.Doc
   editor: Editor
   outbox: Uint8Array[]
   reported: Removal[]
@@ -24,7 +24,7 @@ export interface Tab {
 
 /** The parts of a collab room watchRemovals reads, with the listeners it registers. */
 export interface TabRoom {
-  doc: Y.Doc
+  doc: yjs.Doc
   ownClients: Set<number>
   status: { canWrite: boolean }
   listeners: Set<() => void>
@@ -45,7 +45,7 @@ export function settle() {
 export function stored(...content: JSONContent[]) {
   const schema = getSchema(writerSchema())
   const ydoc = prosemirrorJSONToYDoc(schema, { type: 'doc', content }, BODY_FIELD)
-  return Y.encodeStateAsUpdate(ydoc)
+  return yjs.encodeStateAsUpdate(ydoc)
 }
 
 export async function openTabs(state: Uint8Array, count: number) {
@@ -55,11 +55,11 @@ export async function openTabs(state: Uint8Array, count: number) {
 }
 
 function openTab(state: Uint8Array, clientID: number): Tab {
-  const ydoc = new Y.Doc()
+  const ydoc = new yjs.Doc()
   ydoc.clientID = clientID
-  Y.applyUpdate(ydoc, state, REMOTE)
+  yjs.applyUpdate(ydoc, state, REMOTE)
   const extensions = writerEditorExtensions({
-    collaborative: true,
+    isCollaborative: true,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},
@@ -103,14 +103,14 @@ export function sendRow(tab: Tab) {
     return null
   }
 
-  return Y.mergeUpdates(tab.outbox.splice(0))
+  return yjs.mergeUpdates(tab.outbox.splice(0))
 }
 
 /** Applies a row the way the puller does, or `origin`'s applier, then tells the room's listeners. */
 export function receiveRow(tab: Tab, row: Uint8Array, origin: unknown = REMOTE) {
   tab.ydoc.transact((transaction) => {
     transaction.meta.set(APPLIED_UPDATE, [row])
-    Y.applyUpdate(tab.ydoc, row, origin)
+    yjs.applyUpdate(tab.ydoc, row, origin)
   }, origin)
   for (const listener of tab.room.listeners) {
     listener()

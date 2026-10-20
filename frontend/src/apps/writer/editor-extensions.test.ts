@@ -1,7 +1,7 @@
 import { Editor } from '@tiptap/core'
 import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { bubbleMenuOptions } from './components/core-editor/bubble-menu'
 import { writerEditorExtensions, type WriterEditorOptions } from './editor-extensions'
@@ -10,9 +10,9 @@ vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
 
 function writerEditor(content: string, changes: Partial<WriterEditorOptions> = {}) {
-  const ydoc = new Y.Doc()
+  const ydoc = new yjs.Doc()
   const options: WriterEditorOptions = {
-    collaborative: false,
+    isCollaborative: false,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},
@@ -48,7 +48,7 @@ describe('writer editor', () => {
 describe('collab editor without a comments map', () => {
   it('runs without the comment extension and still shows the bubble menu over a selection', () => {
     const editor = writerEditor('<p>plain text</p>', {
-      collaborative: true,
+      isCollaborative: true,
       comments: undefined,
       ydoc: undefined,
     })
@@ -69,7 +69,7 @@ describe('bubble menu', () => {
     editor.commands.setTextSelection({ from: 1, to: 6 })
     const { state } = editor
     const { from, to } = state.selection
-    const comments = new Y.Doc().getMap('comments')
+    const comments = new yjs.Doc().getMap('comments')
     comments.set('old', { id: 'old' })
     comments.set('draft', { id: 'draft', new: true })
 
@@ -89,7 +89,7 @@ describe('bubble menu', () => {
     editor.commands.setTextSelection({ from: 1, to: 6 })
     const { state } = editor
     const { from, to } = state.selection
-    const comments = new Y.Doc().getMap('comments')
+    const comments = new yjs.Doc().getMap('comments')
     for (const [index, entry] of entries.entries()) {
       comments.set(`comment-${index}`, entry)
     }

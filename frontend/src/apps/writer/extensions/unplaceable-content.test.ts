@@ -12,7 +12,7 @@ import {
 } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { writerFault } from '../collab/fault'
 import { BODY_FIELD } from '../collab/field'
@@ -26,7 +26,7 @@ vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
 const REMOTE = 'remote'
 
 interface Tab {
-  ydoc: Y.Doc
+  ydoc: yjs.Doc
   editor: Editor
   freezes: [UnplaceableReason, unknown][]
 }
@@ -38,27 +38,27 @@ afterEach(() => {
   }
 })
 
-function element(name: string, ...children: (Y.XmlElement | Y.XmlText)[]) {
-  const node = new Y.XmlElement(name)
+function element(name: string, ...children: (yjs.XmlElement | yjs.XmlText)[]) {
+  const node = new yjs.XmlElement(name)
   node.insert(0, children)
   return node
 }
 
 function paragraph(text: string) {
-  return element('paragraph', new Y.XmlText(text))
+  return element('paragraph', new yjs.XmlText(text))
 }
 
-function stored(...blocks: Y.XmlElement[]) {
-  const doc = new Y.Doc()
+function stored(...blocks: yjs.XmlElement[]) {
+  const doc = new yjs.Doc()
   doc.getXmlFragment(BODY_FIELD).insert(0, blocks)
-  return Y.encodeStateAsUpdate(doc)
+  return yjs.encodeStateAsUpdate(doc)
 }
 
 function open(state: Uint8Array): Tab {
-  const ydoc = new Y.Doc()
-  Y.applyUpdate(ydoc, state, REMOTE)
+  const ydoc = new yjs.Doc()
+  yjs.applyUpdate(ydoc, state, REMOTE)
   const extensions = writerEditorExtensions({
-    collaborative: true,
+    isCollaborative: true,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},
@@ -75,7 +75,7 @@ function open(state: Uint8Array): Tab {
   })
   const freezes: Tab['freezes'] = []
   const ySyncOptions = {
-    onUnplaceable: (reason: UnplaceableReason, transaction: Y.Transaction | null) =>
+    onUnplaceable: (reason: UnplaceableReason, transaction: yjs.Transaction | null) =>
       freezes.push([reason, transaction?.origin ?? null]),
   }
   const collaboration = Collaboration.configure({ document: ydoc, field: BODY_FIELD, ySyncOptions })
@@ -87,8 +87,8 @@ function open(state: Uint8Array): Tab {
 }
 
 function storedBody(state: Uint8Array) {
-  const doc = new Y.Doc()
-  Y.applyUpdate(doc, state)
+  const doc = new yjs.Doc()
+  yjs.applyUpdate(doc, state)
   return doc.getXmlFragment(BODY_FIELD).toString()
 }
 
@@ -125,13 +125,13 @@ describe('content the editor cannot hold', () => {
   })
 
   it('freezes on the row that brings a table cell and names its transaction', () => {
-    const source = new Y.Doc()
-    Y.applyUpdate(source, stored(paragraph('hello')))
-    const tab = open(Y.encodeStateAsUpdate(source))
-    const vector = Y.encodeStateVector(source)
+    const source = new yjs.Doc()
+    yjs.applyUpdate(source, stored(paragraph('hello')))
+    const tab = open(yjs.encodeStateAsUpdate(source))
+    const vector = yjs.encodeStateVector(source)
     source.getXmlFragment(BODY_FIELD).insert(1, [cellInBody()])
 
-    Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(source, vector), REMOTE)
+    yjs.applyUpdate(tab.ydoc, yjs.encodeStateAsUpdate(source, vector), REMOTE)
     type(tab, 'X')
 
     expect(tab.freezes).toEqual([['row', REMOTE]])
@@ -148,7 +148,7 @@ describe('content the editor cannot hold', () => {
   })
 
   it('keeps text with a mark the editor lacks', () => {
-    const text = new Y.XmlText()
+    const text = new yjs.XmlText()
     text.insert(0, 'marked', { oldMark: {} })
     const tab = open(stored(paragraph('hello'), element('paragraph', text)))
 
@@ -166,7 +166,7 @@ describe('content the editor cannot hold', () => {
   })
 
   it('opens text that two people made bold and code at once without freezing', () => {
-    const text = new Y.XmlText()
+    const text = new yjs.XmlText()
     text.insert(0, 'both', { bold: {}, code: {} })
     const tab = open(stored(paragraph('hello'), element('paragraph', text)))
 
@@ -177,21 +177,21 @@ describe('content the editor cannot hold', () => {
   })
 
   it('keeps edits made before a later row froze the tab', () => {
-    const source = new Y.Doc()
-    Y.applyUpdate(source, stored(paragraph('hello')))
-    const tab = open(Y.encodeStateAsUpdate(source))
+    const source = new yjs.Doc()
+    yjs.applyUpdate(source, stored(paragraph('hello')))
+    const tab = open(yjs.encodeStateAsUpdate(source))
     type(tab, 'mine ')
-    const vector = Y.encodeStateVector(source)
+    const vector = yjs.encodeStateVector(source)
     source.getXmlFragment(BODY_FIELD).insert(1, [cellInBody()])
 
-    Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(source, vector), REMOTE)
+    yjs.applyUpdate(tab.ydoc, yjs.encodeStateAsUpdate(source, vector), REMOTE)
 
     expect(tab.freezes).toHaveLength(1)
     expect(body(tab)).toContain('mine hello')
   })
 
   it('opens an empty body without freezing and writes the first edit', () => {
-    const tab = open(Y.encodeStateAsUpdate(new Y.Doc()))
+    const tab = open(yjs.encodeStateAsUpdate(new yjs.Doc()))
 
     type(tab, 'first')
 
@@ -205,7 +205,7 @@ describe('content the editor cannot hold', () => {
       element('tableRow', cell('tableHeader'), cell('tableHeader')),
       element('tableRow', cell('tableCell'), cell('tableCell')),
     )
-    const heading = element('heading', new Y.XmlText('title'))
+    const heading = element('heading', new yjs.XmlText('title'))
     heading.setAttribute('level', 2)
     const tab = open(
       stored(
@@ -214,7 +214,7 @@ describe('content the editor cannot hold', () => {
         list('bulletList', 'listItem'),
         list('taskList', 'taskItem'),
         element('blockquote', paragraph('quote')),
-        element('codeBlock', new Y.XmlText('code')),
+        element('codeBlock', new yjs.XmlText('code')),
         table,
         element('horizontalRule'),
       ),
@@ -231,8 +231,8 @@ describe('content the editor cannot hold', () => {
 function exchange(...tabs: Tab[]) {
   for (const target of tabs) {
     for (const source of tabs) {
-      const missing = Y.encodeStateAsUpdate(source.ydoc, Y.encodeStateVector(target.ydoc))
-      Y.applyUpdate(target.ydoc, missing, REMOTE)
+      const missing = yjs.encodeStateAsUpdate(source.ydoc, yjs.encodeStateVector(target.ydoc))
+      yjs.applyUpdate(target.ydoc, missing, REMOTE)
     }
   }
 }
@@ -241,7 +241,7 @@ function syncState(tab: Tab) {
   return ySyncPluginKey.getState(tab.editor.state)
 }
 
-function undoManager(tab: Tab): Y.UndoManager {
+function undoManager(tab: Tab): yjs.UndoManager {
   return yUndoPluginKey.getState(tab.editor.state).undoManager
 }
 
@@ -270,24 +270,24 @@ function blockTexts(tab: Tab) {
 }
 
 // Whether every given Yjs type is still in the document, under the same parent, untouched
-function isKept(kept: Y.XmlElement[], strings: string[]) {
+function isKept(kept: yjs.XmlElement[], strings: string[]) {
   return kept.every((one, i) => !one._item!.deleted && one.toString() === strings[i])
 }
 
-function keep(...kept: Y.XmlElement[]) {
+function keep(...kept: yjs.XmlElement[]) {
   const strings = kept.map((one) => one.toString())
   return () => isKept(kept, strings)
 }
 
 // The body's element names, `-` for a hidden one
-function shape(tab: Tab, parent: Y.XmlFragment = tab.ydoc.getXmlFragment(BODY_FIELD)) {
+function shape(tab: Tab, parent: yjs.XmlFragment = tab.ydoc.getXmlFragment(BODY_FIELD)) {
   const { hidden } = syncState(tab).binding
-  function nameOf(child: Y.XmlElement | Y.XmlText) {
+  function nameOf(child: yjs.XmlElement | yjs.XmlText) {
     if (hidden.has(child)) {
       return '-'
     }
 
-    return (child as Y.XmlElement).nodeName
+    return (child as yjs.XmlElement).nodeName
   }
 
   return parent.toArray().map(nameOf)
@@ -308,7 +308,7 @@ describe('leftovers that hold nothing', () => {
 
   it('leaves a hidden leftover as it is when an edit deletes across it', () => {
     const tab = open(stored(paragraph('before'), leftover(), paragraph('after')))
-    const isLeftoverKept = keep(tab.ydoc.getXmlFragment(BODY_FIELD).get(1) as Y.XmlElement)
+    const isLeftoverKept = keep(tab.ydoc.getXmlFragment(BODY_FIELD).get(1) as yjs.XmlElement)
 
     tab.editor.commands.deleteRange({ from: 3, to: 11 })
 
@@ -321,9 +321,9 @@ describe('leftovers that hold nothing', () => {
     const items = element('bulletList', element('listItem', paragraph('item')))
     const tab = open(stored(paragraph('a'), leftover(), items))
     const fragment = tab.ydoc.getXmlFragment(BODY_FIELD)
-    const sameKind = fragment.get(2) as Y.XmlElement
+    const sameKind = fragment.get(2) as yjs.XmlElement
     const item = sameKind.get(0)
-    const isLeftoverKept = keep(fragment.get(1) as Y.XmlElement)
+    const isLeftoverKept = keep(fragment.get(1) as yjs.XmlElement)
 
     tab.editor.chain().setTextSelection(10).insertContent('X').splitListItem('listItem').run()
 
@@ -348,9 +348,9 @@ describe('leftovers that hold nothing', () => {
       ['-', 'paragraph', 'paragraph', 'paragraph'],
     ],
   ])('puts a new block %s next to its visible neighbour', (_, blocks, at, expected) => {
-    const tab = open(stored(...(blocks as Y.XmlElement[])))
+    const tab = open(stored(...(blocks as yjs.XmlElement[])))
     const fragment = tab.ydoc.getXmlFragment(BODY_FIELD)
-    const isEveryBlockKept = keep(...(fragment.toArray() as Y.XmlElement[]))
+    const isEveryBlockKept = keep(...(fragment.toArray() as yjs.XmlElement[]))
     let newAt = 0
     if (at !== 0) {
       newAt = expected.indexOf('paragraph') + 1
@@ -369,8 +369,10 @@ describe('leftovers that hold nothing', () => {
     const tab = open(
       stored(element('bulletList', element('listItem', paragraph('one'), leftover()))),
     )
-    const item = (tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement).get(0) as Y.XmlElement
-    const isLeftoverKept = keep(item.get(1) as Y.XmlElement)
+    const item = (tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as yjs.XmlElement).get(
+      0,
+    ) as yjs.XmlElement
+    const isLeftoverKept = keep(item.get(1) as yjs.XmlElement)
 
     tab.editor.commands.insertContentAt(7, paragraphNode('new'))
 
@@ -382,7 +384,7 @@ describe('leftovers that hold nothing', () => {
 
   it('turns a block after a leftover into a heading and keeps the leftover', () => {
     const tab = open(stored(leftover(), paragraph('one'), paragraph('two')))
-    const isLeftoverKept = keep(tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement)
+    const isLeftoverKept = keep(tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as yjs.XmlElement)
 
     tab.editor.chain().setTextSelection(2).setNode('heading', { level: 2 }).run()
 
@@ -395,7 +397,10 @@ describe('leftovers that hold nothing', () => {
       stored(paragraph('one'), leftover(), paragraph('two'), leftover(), paragraph('three')),
     )
     const fragment = tab.ydoc.getXmlFragment(BODY_FIELD)
-    const isLeftoverKept = keep(fragment.get(1) as Y.XmlElement, fragment.get(3) as Y.XmlElement)
+    const isLeftoverKept = keep(
+      fragment.get(1) as yjs.XmlElement,
+      fragment.get(3) as yjs.XmlElement,
+    )
 
     tab.editor.commands.deleteRange({ from: 2, to: tab.editor.state.doc.content.size - 2 })
 
@@ -466,7 +471,7 @@ function addItem(tab: Tab, text: string) {
   tab.editor.view.dispatch(tr.insert(doc.child(0).nodeSize - 1, item))
 }
 
-function withAttributes(node: Y.XmlElement, attributes: Record<string, unknown>) {
+function withAttributes(node: yjs.XmlElement, attributes: Record<string, unknown>) {
   for (const [key, value] of Object.entries(attributes)) {
     node.setAttribute(key, value as string)
   }
@@ -505,7 +510,7 @@ describe('leftovers that hold something', () => {
     ],
     [
       'a list holding an empty paragraph',
-      () => element('bulletList', element('paragraph', new Y.XmlText())),
+      () => element('bulletList', element('paragraph', new yjs.XmlText())),
     ],
   ])('hides %s', (_, leftoverBlock) => {
     const tab = open(stored(paragraph('hello'), leftoverBlock()))
@@ -539,7 +544,7 @@ describe('positions around hidden leftovers', () => {
     return positions
   }
 
-  function resolve(tab: Tab, relative: Y.RelativePosition) {
+  function resolve(tab: Tab, relative: yjs.RelativePosition) {
     const { type: root, binding } = syncState(tab)
     return relativePositionToAbsolutePosition(
       tab.ydoc,
@@ -576,10 +581,10 @@ describe('positions around hidden leftovers', () => {
     const tab = open(stored(paragraph('ab'), leftover(), paragraph('cd')))
     const fragment = tab.ydoc.getXmlFragment(BODY_FIELD)
     const [ab, cd] = [0, 2].map(
-      (index) => (fragment.get(index) as Y.XmlElement).get(0) as Y.XmlText,
+      (index) => (fragment.get(index) as yjs.XmlElement).get(0) as yjs.XmlText,
     )
-    function at(parent: Y.AbstractType<unknown>, index: number, assoc: number) {
-      return resolve(tab, Y.createRelativePositionFromTypeIndex(parent, index, assoc))
+    function at(parent: yjs.AbstractType<unknown>, index: number, assoc: number) {
+      return resolve(tab, yjs.createRelativePositionFromTypeIndex(parent, index, assoc))
     }
 
     expect([at(ab, 2, 0), at(ab, 2, -1)]).toEqual([3, 3])
@@ -594,32 +599,36 @@ describe('positions around hidden leftovers', () => {
 
   it('places a caret in text that follows a leftover at the start', () => {
     const tab = open(stored(leftover(), paragraph('after')))
-    const text = (tab.ydoc.getXmlFragment(BODY_FIELD).get(1) as Y.XmlElement).get(0) as Y.XmlText
+    const text = (tab.ydoc.getXmlFragment(BODY_FIELD).get(1) as yjs.XmlElement).get(
+      0,
+    ) as yjs.XmlText
 
     const ends = [0, 5].map((index) =>
-      resolve(tab, Y.createRelativePositionFromTypeIndex(text, index)),
+      resolve(tab, yjs.createRelativePositionFromTypeIndex(text, index)),
     )
 
     expect(ends).toEqual([1, 6])
   })
 
   it('gives no place to a position inside a hidden leftover', () => {
-    const empty = new Y.XmlText()
+    const empty = new yjs.XmlText()
     const quote = element('blockquote', element('paragraph', empty))
     const tab = open(stored(paragraph('ab'), element('bulletList', element('listItem', quote))))
 
     expect(shape(tab)).toEqual(['paragraph', '-'])
-    expect(resolve(tab, Y.createRelativePositionFromTypeIndex(empty, 0))).toBeNull()
-    expect(resolve(tab, Y.createRelativePositionFromTypeIndex(quote, 0))).toBeNull()
+    expect(resolve(tab, yjs.createRelativePositionFromTypeIndex(empty, 0))).toBeNull()
+    expect(resolve(tab, yjs.createRelativePositionFromTypeIndex(quote, 0))).toBeNull()
   })
 })
 
 describe('a comment after a hidden leftover', () => {
   it('highlights the text it was made on, and places its card there', () => {
     const tab = open(stored(paragraph('ab'), leftover(), paragraph('cdef')))
-    const text = (tab.ydoc.getXmlFragment(BODY_FIELD).get(2) as Y.XmlElement).get(0) as Y.XmlText
+    const text = (tab.ydoc.getXmlFragment(BODY_FIELD).get(2) as yjs.XmlElement).get(
+      0,
+    ) as yjs.XmlText
     const [from, to] = [1, 3].map((index) =>
-      Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, index)),
+      yjs.encodeRelativePosition(yjs.createRelativePositionFromTypeIndex(text, index)),
     )
 
     tab.ydoc.getMap('comments').set('c1', { id: 'c1', anchor: { from, to }, resolved: false })
@@ -632,17 +641,17 @@ describe('a comment after a hidden leftover', () => {
 
 describe('a frozen tab', () => {
   it('drops its undo history and takes no undo or redo', () => {
-    const source = new Y.Doc()
-    Y.applyUpdate(source, stored(paragraph('hello')))
-    const tab = open(Y.encodeStateAsUpdate(source))
+    const source = new yjs.Doc()
+    yjs.applyUpdate(source, stored(paragraph('hello')))
+    const tab = open(yjs.encodeStateAsUpdate(source))
     type(tab, 'mine ')
     undoManager(tab).stopCapturing()
     type(tab, 'more ')
     tab.editor.commands.undo()
-    const vector = Y.encodeStateVector(source)
+    const vector = yjs.encodeStateVector(source)
     source.getXmlFragment(BODY_FIELD).insert(1, [cellInBody()])
 
-    Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(source, vector), REMOTE)
+    yjs.applyUpdate(tab.ydoc, yjs.encodeStateAsUpdate(source, vector), REMOTE)
     const before = body(tab)
 
     expect([undoManager(tab).undoStack.length, undoManager(tab).redoStack.length]).toEqual([0, 0])
@@ -652,13 +661,13 @@ describe('a frozen tab', () => {
   })
 
   it('still shows what other tabs write, and takes no edit of its own', () => {
-    const source = new Y.Doc()
-    Y.applyUpdate(source, stored(paragraph('hello'), cellInBody()))
-    const tab = open(Y.encodeStateAsUpdate(source))
-    const vector = Y.encodeStateVector(source)
+    const source = new yjs.Doc()
+    yjs.applyUpdate(source, stored(paragraph('hello'), cellInBody()))
+    const tab = open(yjs.encodeStateAsUpdate(source))
+    const vector = yjs.encodeStateVector(source)
     source.getXmlFragment(BODY_FIELD).insert(0, [paragraph('later')])
 
-    Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(source, vector), REMOTE)
+    yjs.applyUpdate(tab.ydoc, yjs.encodeStateAsUpdate(source, vector), REMOTE)
     tab.editor.view.dispatch(tab.editor.state.tr.insertText('X', 1))
     tab.editor.commands.setTextSelection(3)
 
@@ -671,9 +680,9 @@ describe('a frozen tab', () => {
     const base = stored(element('bulletList', element('listItem', paragraph('a'), inner)))
     const [mine, other] = [open(base), open(base)]
     mine.editor.commands.insertContentAt(2, paragraphNode('new'))
-    const otherItem = (other.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement).get(
+    const otherItem = (other.ydoc.getXmlFragment(BODY_FIELD).get(0) as yjs.XmlElement).get(
       0,
-    ) as Y.XmlElement
+    ) as yjs.XmlElement
     otherItem.delete(0, 1)
     exchange(mine, other)
 
@@ -688,11 +697,11 @@ describe('a frozen tab', () => {
 
 describe('building a document from Yjs', () => {
   it('writes nothing to Yjs, even over two texts this client made side by side', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     doc
       .getXmlFragment(BODY_FIELD)
-      .insert(0, [element('paragraph', new Y.XmlText('a'), new Y.XmlText('b'))])
-    const before = Y.encodeStateAsUpdate(doc)
+      .insert(0, [element('paragraph', new yjs.XmlText('a'), new yjs.XmlText('b'))])
+    const before = yjs.encodeStateAsUpdate(doc)
 
     const { node, hidden, lost } = placeFragment(
       doc.getXmlFragment(BODY_FIELD),
@@ -700,11 +709,11 @@ describe('building a document from Yjs', () => {
     )
 
     expect([node.textContent, hidden.size, lost]).toEqual(['ab', 0, []])
-    expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+    expect(yjs.encodeStateAsUpdate(doc)).toEqual(before)
   })
 
   it('names what it hid and what it lost, by the same rule as the editor', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const [empty, misplaced] = [leftover(), cellInBody()]
     doc.getXmlFragment(BODY_FIELD).insert(0, [paragraph('a'), empty, misplaced])
 
@@ -718,9 +727,9 @@ describe('building a document from Yjs', () => {
 
   it('keeps a text this tab makes beside another apart from it, as the live editor', () => {
     const tab = open(stored(paragraph('hello')))
-    const block = tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement
+    const block = tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as yjs.XmlElement
 
-    block.insert(1, [new Y.XmlText(' there')])
+    block.insert(1, [new yjs.XmlText(' there')])
 
     expect([block.length, block.toString()]).toEqual([2, '<paragraph>hello there</paragraph>'])
     expect(tab.editor.state.doc.textContent).toBe('hello there')
@@ -739,11 +748,11 @@ describe('two texts side by side in one block', () => {
   }
 
   function texts(tab: Tab) {
-    return (tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement).length
+    return (tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as yjs.XmlElement).length
   }
 
   function ownClocks(...tabs: Tab[]) {
-    return tabs.map((tab) => Y.getState(tab.ydoc.store, tab.ydoc.clientID))
+    return tabs.map((tab) => yjs.getState(tab.ydoc.store, tab.ydoc.clientID))
   }
 
   it('keeps them apart once the tabs sync, writes nothing for it, and later typing at once is not doubled', () => {
@@ -779,11 +788,11 @@ describe('two texts side by side in one block', () => {
 
   it('leaves them apart in frozen tabs, and writes nothing', () => {
     const [mine, other] = typeAtOnce()
-    const source = new Y.Doc()
-    Y.applyUpdate(source, base)
+    const source = new yjs.Doc()
+    yjs.applyUpdate(source, base)
     source.getXmlFragment(BODY_FIELD).insert(1, [cellInBody()])
     for (const tab of [mine, other]) {
-      Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(source), REMOTE)
+      yjs.applyUpdate(tab.ydoc, yjs.encodeStateAsUpdate(source), REMOTE)
     }
 
     const clocks = ownClocks(mine, other)
@@ -815,20 +824,20 @@ describe('typing next to many hidden leftovers', () => {
   // Another tab types into the middle paragraph; this one renders each keystroke from Yjs
   function remoteTypingTime(state: Uint8Array) {
     const tab = open(state)
-    const source = new Y.Doc()
-    Y.applyUpdate(source, state)
+    const source = new yjs.Doc()
+    yjs.applyUpdate(source, state)
     const shown = source
       .getXmlFragment(BODY_FIELD)
       .toArray()
-      .filter((block) => (block as Y.XmlElement).nodeName === 'paragraph')
-    const text = (shown[1000] as Y.XmlElement).get(0) as Y.XmlText
+      .filter((block) => (block as yjs.XmlElement).nodeName === 'paragraph')
+    const text = (shown[1000] as yjs.XmlElement).get(0) as yjs.XmlText
     const times = []
     for (let i = 0; i < 15; i++) {
-      const before = Y.encodeStateVector(source)
+      const before = yjs.encodeStateVector(source)
       text.insert(0, 'x')
-      const keystroke = Y.encodeStateAsUpdate(source, before)
+      const keystroke = yjs.encodeStateAsUpdate(source, before)
       const started = performance.now()
-      Y.applyUpdate(tab.ydoc, keystroke, REMOTE)
+      yjs.applyUpdate(tab.ydoc, keystroke, REMOTE)
       times.push(performance.now() - started)
     }
 
@@ -876,7 +885,7 @@ describe('typing next to many hidden leftovers', () => {
 })
 
 function markedText(text: string, marks: Record<string, object>) {
-  const node = new Y.XmlText()
+  const node = new yjs.XmlText()
   node.insert(0, text, marks)
   return node
 }
@@ -952,8 +961,8 @@ const judgedBodies = [
 describe('the judge and the editor', () => {
   it.each(judgedBodies)('agree on $name', ({ blocks, isLost }) => {
     const state = stored(...blocks())
-    const judged = new Y.Doc()
-    Y.applyUpdate(judged, state)
+    const judged = new yjs.Doc()
+    yjs.applyUpdate(judged, state)
 
     const tab = open(state)
 

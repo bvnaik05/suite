@@ -1,23 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
-import { judge, type Fault } from './judge'
+import { judge } from './judge'
 
 const garbage = new Uint8Array([255, 255, 255])
 
 function typing(...words: string[]) {
-  const doc = new Y.Doc()
+  const doc = new yjs.Doc()
   const rows: Uint8Array[] = []
   doc.on('update', (bytes: Uint8Array) => rows.push(bytes))
   const text = doc.getText('t')
   for (const word of words) {
     text.insert(text.length, word)
   }
+
   return rows
 }
 
-const rejectsBad: Fault = (doc) => (doc.getText('t').toString().includes('bad') ? 'has bad' : null)
-const neverFaults: Fault = () => null
+function rejectsBad(doc: yjs.Doc) {
+  return doc.getText('t').toString().includes('bad') ? 'has bad' : null
+}
+
+function neverFaults() {
+  return null
+}
 
 describe('judge', () => {
   it('passes rows that apply and satisfy the fault check', () => {

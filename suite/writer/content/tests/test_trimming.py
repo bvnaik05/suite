@@ -51,8 +51,8 @@ class TestWriterTrimming(CheckpointCase):
         frappe.db.commit()
 
     def opened_text(self, node: str) -> str:
-        _header, checkpoint, rows = read_open(call_route(routes.document_get, node).get_data())
-        parts = [part for part in [checkpoint, *(payload for _rev, payload in rows)] if part]
+        frame = read_open(call_route(routes.document_get, node).get_data())
+        parts = [part for part in [frame.checkpoint, *(payload for _rev, payload in frame.rows)] if part]
         return self.text_of(compaction.load_doc(parts).get_update())
 
     def compacted_document(self, words: list[str]) -> str:

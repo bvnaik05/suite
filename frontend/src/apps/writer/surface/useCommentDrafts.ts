@@ -2,7 +2,7 @@ import { useEventListener } from '@vueuse/core'
 import { toast } from 'frappe-ui'
 import { v4 } from 'uuid'
 import { ref, type Ref } from 'vue'
-import * as Y from 'yjs'
+import { getState, type Doc, type ID } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { anchorEnds } from '@/apps/writer/collab/anchors'
@@ -30,35 +30,44 @@ interface DraftOptions {
   refreshThreads: () => Promise<void>
 }
 
+function newDraft(anchor: string): ShownDraft {
+  return {
+    clientId: v4(),
+    anchor,
+    text: '',
+    isSent: false,
+    isPosting: false,
+  }
+}
+
+function keepShownDraft(
+  user: string,
+  node: string,
+  { clientId, anchor, text, isSent }: ShownDraft,
+) {
+  keepDraft(user, node, { clientId, anchor, text, isSent })
+}
+
 // The drafts on screen, each change kept on the device as it is made
 function deviceDrafts(user: string, node: string) {
   const kept = readDrafts(user, node).map((draft) => ({ ...draft, isPosting: false }))
   const drafts = ref<ShownDraft[]>(kept)
   followOtherTabs(user, node, drafts)
-  function keep({ clientId, anchor, text, isSent }: ShownDraft) {
-    keepDraft(user, node, { clientId, anchor, text, isSent })
-  }
 
   return {
     drafts,
     start(anchor: string) {
-      const draft: ShownDraft = {
-        clientId: v4(),
-        anchor,
-        text: '',
-        isSent: false,
-        isPosting: false,
-      }
-      keep(draft)
+      const draft = newDraft(anchor)
+      keepShownDraft(user, node, draft)
       drafts.value = [...drafts.value, draft]
     },
     write(draft: ShownDraft, text: string) {
       draft.text = text
-      keep(draft)
+      keepShownDraft(user, node, draft)
     },
     send(draft: ShownDraft) {
       draft.isSent = true
-      keep(draft)
+      keepShownDraft(user, node, draft)
     },
     discard(draft: ShownDraft) {
       dropDraft(user, node, draft.clientId)
@@ -73,6 +82,29 @@ function followOtherTabs(user: string, node: string, drafts: Ref<ShownDraft[]>) 
     const removed = removedElsewhere(user, node, event)
     drafts.value = drafts.value.filter((draft) => !removed.has(draft.clientId))
   })
+}
+
+// Whether the server holds the commented text, telling the person when it doesn't
+async function hasSavedText(current: CollabRoom | null, anchor: string) {
+  const items = anchorEnds(anchor)
+  if (current && !isInCopy(current.doc, items)) {
+    toast.error("The text this comment is on wasn't saved, so it wasn't posted.")
+    return false
+  }
+
+  const isSaved = await whenSaved(current, items)
+  if (!isSaved) {
+    toast.error("The text wasn't saved, so the comment wasn't posted. It's kept on this device.")
+    return false
+  }
+
+  return true
+}
+
+// Read from the device now, as another tab's discard may not have reached this one yet
+function isDraftKept(shown: ShownDraft[], user: string, node: string, draft: ShownDraft) {
+  const isShown = shown.some((kept) => kept.clientId === draft.clientId)
+  return isShown && !isDiscarded(user, node, draft.clientId)
 }
 
 /** Comments from being written to being posted, kept on this device until Drive takes them. */
@@ -93,21 +125,12 @@ export function useCommentDrafts({ session, user, room, refreshThreads }: DraftO
   }
 
   async function postOnceSaved(draft: ShownDraft, authorName?: string) {
-    const current = room()
-    const items = anchorEnds(draft.anchor)
-    if (current && !isInCopy(current.doc, items)) {
-      toast.error("The text this comment is on wasn't saved, so it wasn't posted.")
+    const isSaved = await hasSavedText(room(), draft.anchor)
+    if (!isSaved) {
       return null
     }
 
-    if (!(await whenSaved(current, items))) {
-      toast.error("The text wasn't saved, so the comment wasn't posted. It's kept on this device.")
-      return null
-    }
-
-    // Read from the device now, as another tab's discard may not have reached this one yet
-    const isShown = list.drafts.value.some((shown) => shown.clientId === draft.clientId)
-    if (!isShown || isDiscarded(user, session.nodeId, draft.clientId)) {
+    if (!isDraftKept(list.drafts.value, user, session.nodeId, draft)) {
       return null
     }
 
@@ -139,12 +162,12 @@ async function sendDraft(session: DraftOptions['session'], draft: ShownDraft, au
 }
 
 // Whether this copy holds the commented text, saved or still waiting to be sent
-function isInCopy(doc: Y.Doc, items: Y.ID[]) {
-  return items.every((id) => Y.getState(doc.store, id.client) > id.clock)
+function isInCopy(doc: Doc, items: ID[]) {
+  return items.every((id) => getState(doc.store, id.client) > id.clock)
 }
 
 // Whether the server came to hold the commented text; false once this tab can't save it
-function whenSaved(room: CollabRoom | null, items: Y.ID[]) {
+function whenSaved(room: CollabRoom | null, items: ID[]) {
   return new Promise<boolean>((resolve) => {
     // With no room, only a comment on no text is saved
     if (!room) {

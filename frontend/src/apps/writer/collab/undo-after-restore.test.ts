@@ -4,7 +4,7 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Awareness } from 'y-protocols/awareness'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import type { CollabRoom } from '@/platform/collab'
 
@@ -21,9 +21,13 @@ afterEach(() => {
 // A room whose restore rev the test moves, telling its listeners as a room does
 function fakeRoom() {
   const listeners = new Set<() => void>()
-  const presence = { awareness: new Awareness(new Y.Doc()), peers: [], onChange: () => () => true }
+  const presence = {
+    awareness: new Awareness(new yjs.Doc()),
+    peers: [],
+    onChange: () => () => true,
+  }
   const room = {
-    doc: new Y.Doc(),
+    doc: new yjs.Doc(),
     presence,
     status: { restoreRev: 0 },
     onChange(listener: () => void) {

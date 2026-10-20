@@ -13,7 +13,7 @@
  * in flight; those changes still wait for the next save.
  */
 import type { Ref } from 'vue'
-import type * as Y from 'yjs'
+import type * as yjs from 'yjs'
 
 /** The origin `useYjs` applies the server's stored body with. */
 export const SERVER_ORIGIN = 'server'
@@ -27,7 +27,7 @@ export interface UnsavedTracking {
 }
 
 export function trackUnsaved(
-  doc: Y.Doc,
+  doc: yjs.Doc,
   unsaved: Ref<boolean>,
   onChange: () => void,
 ): UnsavedTracking {

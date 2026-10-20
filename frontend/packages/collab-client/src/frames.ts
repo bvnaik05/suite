@@ -1,5 +1,8 @@
 import type { Held } from './types'
 
+const UINT32_BYTES = 4
+const UINT64_BYTES = 8
+
 // `disabled`: collaboration is off on this site. `unconverted`: the document is not collaborative
 export type OpenState = 'live' | 'disabled' | 'unconverted'
 
@@ -34,14 +37,20 @@ interface DocumentHeader {
   restoring_ms?: number
 }
 
-export interface OpenHeader extends DocumentHeader {
-  state: OpenState
-  lineage?: string
+export interface LiveOpenHeader extends DocumentHeader {
+  state: 'live'
+  lineage: string
   can_write?: boolean
   pace_ms?: number
   // The rev the checkpoint covers; rows follow it
   base?: number
 }
+
+interface UnavailableOpenHeader extends DocumentHeader {
+  state: Exclude<OpenState, 'live'>
+}
+
+export type OpenHeader = LiveOpenHeader | UnavailableOpenHeader
 
 export interface PullHeader extends DocumentHeader {
   // `rebuild`: the tab may hold a change quarantined since
@@ -97,48 +106,60 @@ export interface Row {
   bytes: Uint8Array
 }
 
+class FrameReader {
+  private readonly view: DataView
+  private offset = 0
+
+  constructor(private readonly bytes: Uint8Array) {
+    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  }
+
+  private requireBytes(length: number) {
+    if (this.offset + length > this.bytes.byteLength) {
+      throw new RangeError('Truncated collab frame')
+    }
+  }
+
+  readUint32() {
+    this.requireBytes(UINT32_BYTES)
+    this.offset += UINT32_BYTES
+    return this.view.getUint32(this.offset - UINT32_BYTES)
+  }
+
+  readUint64() {
+    this.requireBytes(UINT64_BYTES)
+    const value = Number(this.view.getBigUint64(this.offset))
+    this.offset += UINT64_BYTES
+    return value
+  }
+
+  readBytes(length: number) {
+    this.requireBytes(length)
+    this.offset += length
+    return this.bytes.slice(this.offset - length, this.offset)
+  }
+}
+
 // `u32 hlen | header JSON | u32 checkpoint len | checkpoint | u32 n | (u64 rev | u32 len | bytes)*`
 export function decodeFrame<Header>(bytes: Uint8Array): {
   header: Header
   checkpoint: Uint8Array | null
   rows: Row[]
 } {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  let offset = 0
-
-  const requireBytes = (length: number) => {
-    if (offset + length > bytes.byteLength) {
-      throw new RangeError('Truncated collab frame')
-    }
-  }
-
-  const readUint32 = () => {
-    requireBytes(4)
-    offset += 4
-    return view.getUint32(offset - 4)
-  }
-
-  const readBytes = (length: number) => {
-    requireBytes(length)
-    offset += length
-    return bytes.slice(offset - length, offset)
-  }
-
-  const headerBytes = readBytes(readUint32())
+  const reader = new FrameReader(bytes)
+  const headerBytes = reader.readBytes(reader.readUint32())
   const headerText = new TextDecoder().decode(headerBytes)
   // Trusted as the collab server's own reply, not checked field by field
   const header = JSON.parse(headerText) as Header
 
-  const checkpoint = readBytes(readUint32())
+  const checkpoint = reader.readBytes(reader.readUint32())
 
   const rows: Row[] = []
-  for (let count = readUint32(); count > 0; count--) {
-    requireBytes(8)
-    const rev = Number(view.getBigUint64(offset))
-    offset += 8
+  for (let count = reader.readUint32(); count > 0; count--) {
+    const rev = reader.readUint64()
     rows.push({
       rev,
-      bytes: readBytes(readUint32()),
+      bytes: reader.readBytes(reader.readUint32()),
     })
   }
 
@@ -154,9 +175,9 @@ export function encodePush(
   update: Uint8Array,
 ): Uint8Array<ArrayBuffer> {
   const headerBytes = new TextEncoder().encode(JSON.stringify(header))
-  const body = new Uint8Array(4 + headerBytes.byteLength + update.byteLength)
+  const body = new Uint8Array(UINT32_BYTES + headerBytes.byteLength + update.byteLength)
   new DataView(body.buffer).setUint32(0, headerBytes.byteLength)
-  body.set(headerBytes, 4)
-  body.set(update, 4 + headerBytes.byteLength)
+  body.set(headerBytes, UINT32_BYTES)
+  body.set(update, UINT32_BYTES + headerBytes.byteLength)
   return body
 }

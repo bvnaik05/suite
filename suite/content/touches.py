@@ -28,6 +28,7 @@ class Follower:
 
 
 def touch_body(node: str) -> None:
+    """Tell Drive the document behind `node` changed."""
     doctype = frappe.db.get_value("Drive Node", node, "content_doctype")
     document_name = frappe.db.get_value(doctype, {drive.node_field(doctype): node})
     drive.touch(doctype, document_name)
@@ -53,9 +54,7 @@ VERSION = Follower(
 
 
 def follow(app: str, doc_id: str, follower: Follower) -> None:
-    """Do what `follower` does after edits, once per TOUCH_EVERY at most; after a push commits, and from the
-    sweep, which retries a failure. The sweep only follows a push, so a document nobody has edited since keeps
-    its date."""
+    """Do what `follower` does after edits, once per TOUCH_EVERY at most, after a push or from the sweep."""
     claim = claimed(app, doc_id, follower)
     if claim is None:
         return
@@ -70,9 +69,10 @@ def follow(app: str, doc_id: str, follower: Follower) -> None:
             give_back(app, doc_id, follower, claim)
 
         with suppress(Exception):
+            traceback = frappe.get_traceback()
             frappe.log_error(
                 title=follower.failure,
-                message=f"{app} document {doc_id}\n{frappe.get_traceback()}",
+                message=f"{app} document {doc_id}\n{traceback}",
                 reference_doctype="Suite Collab Settings",
             )
 

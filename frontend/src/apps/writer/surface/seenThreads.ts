@@ -146,6 +146,18 @@ function followOtherTabs(key: string, follow: (marks: SeenMarks) => void) {
   })
 }
 
+function isUnreadIn(
+  marks: SeenMarks | null,
+  openThread: () => string | null,
+  thread: DocumentThread,
+) {
+  if (!marks || thread.name === openThread()) {
+    return false
+  }
+
+  return marks[thread.name]?.mark !== threadMark(thread)
+}
+
 /** The threads changed since last opened here; the open thread stays seen as it changes. */
 export function useSeenThreads({ user, node, threads, readAt, openThread }: SeenOptions) {
   const marks = ref<SeenMarks | null>(null)
@@ -159,8 +171,7 @@ export function useSeenThreads({ user, node, threads, readAt, openThread }: Seen
     }
 
     // Read again, since another tab may have marked threads since
-    const kept = merged(marks.value, readSeen(user, node) ?? {})
-    marks.value = withSeen(kept, threads(), name, at)
+    marks.value = withSeen(merged(marks.value, readSeen(user, node) ?? {}), threads(), name, at)
     keepSeen(user, node, marks.value)
   }
 
@@ -177,11 +188,7 @@ export function useSeenThreads({ user, node, threads, readAt, openThread }: Seen
 
   // The thread open here stays seen, though a tab with later threads saw it as changed
   function isUnread(thread: DocumentThread) {
-    if (!marks.value || thread.name === openThread()) {
-      return false
-    }
-
-    return marks.value[thread.name]?.mark !== threadMark(thread)
+    return isUnreadIn(marks.value, openThread, thread)
   }
 
   return { isUnread, markSeen }

@@ -5,9 +5,9 @@ import { createDocument, grantAccess, revokeAccess, ROLE, type DriveNode } from 
 const WRITER_DOCTYPE = "Writer Document";
 
 /** The part of the editor `placeCaretIn` reads. */
-type CaretEditor = {
+interface CaretEditor {
 	state: { selection: { $from: { parent: { textContent: string } } } };
-};
+}
 
 export function uniqueWriterTitle(runId: string, scenario: string): string {
 	return `E2E Writer ${scenario} ${runId} ${Date.now().toString(36)}`;

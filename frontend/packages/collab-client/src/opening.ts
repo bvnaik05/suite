@@ -1,9 +1,9 @@
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import type { Limits, RoomKeys, Row } from './frames'
 
 export interface RoomInit {
-  doc: Y.Doc
+  doc: yjs.Doc
   lineage: string
   // The last quarantine this copy was built after
   epoch: number

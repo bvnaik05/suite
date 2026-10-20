@@ -61,6 +61,7 @@ class WriterDocument(drive.DriveContent, Document):
     @frappe.whitelist(methods=["POST"])
     def update_settings(self, data: str):
         self.drive_check(drive.EDIT)
+        # settings only; save() would rewrite the logged body
         self.db_set("settings", data)
 
     @frappe.whitelist(methods=["POST"], allow_guest=True)
@@ -71,18 +72,19 @@ class WriterDocument(drive.DriveContent, Document):
         frappe.db.set_value("Writer Document", self.name, "html", html, update_modified=False)
         self.drive_touch()
 
-    def validate(self):
+    def validate(self) -> None:
+        """Refuse a generic save that changes a logged field of a logged document."""
         if not self.is_new() and any(self.has_value_changed(field) for field in LOGGED_FIELDS):
             self.refuse_if_logged()
 
-    def apply_fieldlevel_read_permissions(self):
-        """A document with a log is read through it; its row's body may be behind the edits after it."""
+    def apply_fieldlevel_read_permissions(self) -> None:
+        """Hide the row's body of a logged document, which may be behind the edits after it."""
         super().apply_fieldlevel_read_permissions()
         if content.find(APP, self.node):
             self.content = None
 
-    def refuse_if_logged(self):
-        """A document with a log saves through it, so an old tab cannot write an older body over the row."""
+    def refuse_if_logged(self) -> None:
+        """Refuse a row write to a logged document, so an old tab cannot write an older body over the row."""
         if content.find(APP, self.node):
             raise LoggedDocumentConflict(
                 frappe._("This document saves as you edit; reload it to keep editing")

@@ -6,6 +6,7 @@ import dataclasses
 import gzip
 import io
 import json
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import IO, cast
 
@@ -63,7 +64,7 @@ def version_record(app: str, snapshot: Snapshot, state: bytes) -> dict:
 
 
 def record_prefix(app: str) -> bytes:
-    """The bytes every version `version` answers for `app` starts with."""
+    """Return the bytes every version `version` answers for `app` starts with."""
     schema_only = json.dumps({"schema": f"{app}-document/2"})
     return schema_only[:-1].encode("utf-8")
 
@@ -97,7 +98,7 @@ def copy(app: str, source_node: str, node: str) -> None:
 
 
 def html(app: str, node: str) -> str | None:
-    """The readable copy of `node`'s log, or None when it has none; `NotReady` while no copy covers its head."""
+    """Return `node`'s readable copy, or None without a log; `NotReady` while no copy covers its head."""
     doc = log.find(app, node)
     if not doc:
         return None
@@ -130,7 +131,7 @@ def version(app: str, node: str) -> bytes | None:
 
 
 def media_ids(app: str, node: str) -> set[str]:
-    """The pictures `node`'s log names now; a log that can't be read raises, and Drive's sweep skips it."""
+    """Load the pictures `node`'s log names; an unreadable log raises, and Drive's sweep skips it."""
     media = spec_of(app).media
     if media is None:
         return set()
@@ -176,8 +177,7 @@ def remap(app: str, node: str, mapping: dict[str, str]) -> bool:
 
 
 def purge(app: str, node: str) -> None:
-    """Mark `node`'s log purged in Drive's transaction, before the app deletes its row; a job deletes the
-    log's rows once that commits."""
+    """Mark `node`'s log purged in Drive's transaction, for a job to delete its rows once that commits."""
     doc_id = log.mark_purged(app, node)
     if doc_id:
         scheduling.enqueue(
@@ -197,30 +197,31 @@ def threads_changed(app: str, node: str) -> None:
 
 
 def live_state(app: str, node: str) -> pycrdt.Doc | None:
-    """The document as its log stands now, read in the caller's transaction; None when the node has no log.
-
-    Read whether collaboration is on or not, so the media sweep keeps what a log names.
-    """
+    """Load the log as the caller's transaction sees it, on or off, so the media sweep keeps its pictures."""
     doc = log.find(app, node)
-    log_read = read(app, doc.id, own_snapshot=False) if doc else None
+    if not doc:
+        return None
+
+    log_read = read(app, doc.id, own_snapshot=False)
     if log_read is None:
         return None
 
-    checkpoint_part = [log_read.checkpoint] if log_read.checkpoint else []
+    checkpoint_part: list[bytes] = []
+    if log_read.checkpoint:
+        checkpoint_part = [log_read.checkpoint]
+
     row_parts = log_read.payloads()
     parts = checkpoint_part + row_parts
     return compaction.load_doc(parts)
 
 
 def live_checkpoint(app: str, node: str) -> tuple[Snapshot, bytes] | None:
-    """The document's read and its state now, or None when the node has no log.
-
-    Read whether collaboration is on or not. The state is compacted with pycrdt in
-    the request from the body, never a fallback, and only an integrated result is
-    answered. A state or tail larger than a compaction job would take is refused.
-    """
+    """Compact the log's state now, on or off, refusing a fallback and what a compaction job wouldn't take."""
     doc = log.find(app, node)
-    log_read = read(app, doc.id, integrated=True, own_snapshot=False) if doc else None
+    if not doc:
+        return None
+
+    log_read = read(app, doc.id, integrated=True, own_snapshot=False)
     if log_read is None:
         return None
 
@@ -243,12 +244,8 @@ def live_checkpoint(app: str, node: str) -> tuple[Snapshot, bytes] | None:
     return log_read, compacted.state
 
 
-def remap_log(app: str, node: str, rewrite) -> None:
-    """Rewrite the values a copied log starts from, in place: no struct, row or session is added.
-
-    The result must hold the same structs, read as the copy with `rewrite` applied to every
-    attribute, mark and embed value, and give nothing more to rewrite.
-    """
+def remap_log(app: str, node: str, rewrite: Callable[[str], str]) -> None:
+    """Rewrite the values a copied log starts from, refusing a result that isn't the rewritten copy."""
     doc = log.find(app, node)
     if not doc:
         return
@@ -280,14 +277,8 @@ def remap_log(app: str, node: str, rewrite) -> None:
 
 
 @contextmanager
-def readable_state():
-    """Raise anything the app's media functions raise as `UnreadableBody`.
-
-    pycrdt is a Rust extension, and a state it cannot read raises
-    `pyo3_runtime.PanicException`. That derives from `BaseException`, so left
-    alone it passes every `except Exception` up to the request, including the
-    rollback that closes Drive's savepoint.
-    """
+def readable_state() -> Iterator[None]:
+    """Raise what the app's media functions raise as `UnreadableBody`, as pycrdt's panics pass `Exception`."""
     try:
         yield
     except (KeyboardInterrupt, SystemExit, UnreadableBody):
@@ -296,127 +287,149 @@ def readable_state():
         raise UnreadableBody(_("This document body cannot be read")) from unreadable
 
 
-def with_content(spec: drive.ContentTypeSpec) -> drive.ContentTypeSpec:
-    """`spec` with the content layer's branch for a document in a log around each row-only callback."""
-    base_export = declared(spec.export, "export")
-    base_version_bytes = declared(spec.version_bytes, "version_bytes")
-    base_restore_version = declared(spec.restore_version, "restore_version")
-    base_on_purge = declared(spec.on_purge, "on_purge")
-    base_used_nodes = declared(spec.used_nodes, "used_nodes")
-    base_remap_media = declared(spec.remap_media, "remap_media")
+class ContentCallbacks:
+    """A spec's row-only callbacks, each with the content layer's branch for a document in a log around it."""
 
-    def app() -> str:
-        found = for_type(spec.doctype)
+    def __init__(self, spec: drive.ContentTypeSpec) -> None:
+        self.spec = spec
+        self.base_export = declared(spec.export, "export")
+        self.base_version_bytes = declared(spec.version_bytes, "version_bytes")
+        self.base_restore_version = declared(spec.restore_version, "restore_version")
+        self.base_on_purge = declared(spec.on_purge, "on_purge")
+        self.base_used_nodes = declared(spec.used_nodes, "used_nodes")
+        self.base_remap_media = declared(spec.remap_media, "remap_media")
+
+    def app(self) -> str:
+        """Return the app whose editor keeps the spec's doctype."""
+        found = for_type(self.spec.doctype)
         if found is None:
-            raise frappe.DoesNotExistError(f"No editor for the content type {spec.doctype}")
+            raise frappe.DoesNotExistError(f"No editor for the content type {self.spec.doctype}")
 
         return found.app
 
-    def node_of(docname: str) -> str | None:
-        return frappe.db.get_value(spec.doctype, docname, spec.node_field)
+    def node_of(self, docname: str) -> str | None:
+        """Load the node the app's row `docname` belongs to."""
+        return frappe.db.get_value(self.spec.doctype, docname, self.spec.node_field)
 
-    def create_empty(node: str) -> str:
-        docname = spec.create_empty(node)
-        start(app(), node)
+    def create_empty(self, node: str) -> str:
+        """Create the app's row, and the document's log while collaboration is on."""
+        docname = self.spec.create_empty(node)
+        start(self.app(), node)
         return docname
 
-    def duplicate(source_docname: str, node: str) -> str:
-        docname = spec.duplicate(source_docname, node)
-        source_node = node_of(source_docname)
+    def duplicate(self, source_docname: str, node: str) -> str:
+        """Copy the app's row, and the source's log when it has one."""
+        docname = self.spec.duplicate(source_docname, node)
+        source_node = self.node_of(source_docname)
         try:
             if source_node:
-                copy(app(), source_node, node)
+                copy(self.app(), source_node, node)
         except NotReady as unready:
             raise drive.DriveConflict(_("This document cannot be copied right now")) from unready
+
         return docname
 
-    def export(docname: str, format: str) -> tuple[IO[bytes], str]:
-        node = node_of(docname)
-        if format != HTML_FORMAT or not node:
-            return base_export(docname, format)
+    def export(self, docname: str, file_format: str) -> tuple[IO[bytes], str]:
+        """Export the document, as its log's readable copy when it is HTML from a log."""
+        node = self.node_of(docname)
+        if file_format != HTML_FORMAT or not node:
+            return self.base_export(docname, file_format)
 
         try:
-            exported = html(app(), node)
+            exported = html(self.app(), node)
         except NotReady as stale:
             raise drive.DriveConflict(_("Open the document to refresh its export")) from stale
+
         if exported is None:
-            return base_export(docname, format)
+            return self.base_export(docname, file_format)
 
         return io.BytesIO(exported.encode("utf-8")), HTML_MIME
 
-    def version_bytes(docname: str) -> tuple[IO[bytes], str]:
-        node = node_of(docname)
+    def version_bytes(self, docname: str) -> tuple[IO[bytes], str]:
+        """Answer the document as a version, from its log when it has one."""
+        node = self.node_of(docname)
         try:
             if node:
-                record = version(app(), node)
+                record = version(self.app(), node)
             else:
                 record = None
         except NotReady as unready:
             raise drive.DriveConflict(
                 _("Version history is not available for this document right now")
             ) from unready
+
         if record is None:
-            return base_version_bytes(docname)
+            return self.base_version_bytes(docname)
 
         return io.BytesIO(record), VERSION_MIME
 
-    def restore_version(docname: str, stream) -> None:
-        node = node_of(docname)
-        if node and log.find(app(), node):
+    def restore_version(self, docname: str, stream: IO[bytes]) -> None:
+        """Restore a version into the app's row, refusing a document in a log and a log's version."""
+        node = self.node_of(docname)
+        if node and log.find(self.app(), node):
             raise drive.DriveConflict(_("Open the document to restore this version"))
 
-        prefix = record_prefix(app())
+        prefix = record_prefix(self.app())
         head = read_head(stream, len(prefix))
         if head == prefix:
             raise drive.DriveConflict(_("This version can be restored only while collaboration is on"))
 
-        base_restore_version(docname, cast(IO[bytes], ReplayedStream(head, stream)))
+        self.base_restore_version(docname, cast(IO[bytes], ReplayedStream(head, stream)))
 
-    def on_purge(docname: str) -> None:
-        node = node_of(docname)
+    def on_purge(self, docname: str) -> None:
+        """Mark the document's log purged, then purge the app's row."""
+        node = self.node_of(docname)
         if node:
-            purge(app(), node)
+            purge(self.app(), node)
 
-        base_on_purge(docname)
+        self.base_on_purge(docname)
 
-    def used_nodes(docname: str) -> set[str]:
-        row_ids = base_used_nodes(docname)
-        node = node_of(docname)
+    def used_nodes(self, docname: str) -> set[str]:
+        """Return the nodes the app's row uses, with the pictures its log names."""
+        row_ids = self.base_used_nodes(docname)
+        node = self.node_of(docname)
         if not node:
             return row_ids
 
-        return row_ids | media_ids(app(), node)
+        return row_ids | media_ids(self.app(), node)
 
-    def remap_media(docname: str, mapping: dict[str, str]) -> None:
+    def remap_media(self, docname: str, mapping: dict[str, str]) -> None:
+        """Point the document at Drive's new pictures, in its log or else in the app's row."""
         if not mapping:
             return
 
-        node = node_of(docname)
+        node = self.node_of(docname)
         try:
             if node:
-                remapped = remap(app(), node, mapping)
+                remapped = remap(self.app(), node, mapping)
             else:
                 remapped = False
         except NotReady as refused:
             raise drive.DriveConflict(_("The copy's pictures could not be moved to it")) from refused
+
         if not remapped:
-            base_remap_media(docname, mapping)
+            self.base_remap_media(docname, mapping)
 
-    def on_threads_changed(node: str) -> None:
-        threads_changed(app(), node)
+    def on_threads_changed(self, node: str) -> None:
+        """Tell the document's open tabs its comment threads changed."""
+        threads_changed(self.app(), node)
 
+
+def with_content(spec: drive.ContentTypeSpec) -> drive.ContentTypeSpec:
+    """`spec` with the content layer's branch for a document in a log around each row-only callback."""
+    callbacks = ContentCallbacks(spec)
     wrapped.add(spec.doctype)
     return dataclasses.replace(
         spec,
-        create_empty=create_empty,
-        duplicate=duplicate,
-        export=export,
-        version_bytes=version_bytes,
-        restore_version=restore_version,
-        on_purge=on_purge,
-        used_nodes=used_nodes,
-        remap_media=remap_media,
-        threads_changed=on_threads_changed,
+        create_empty=callbacks.create_empty,
+        duplicate=callbacks.duplicate,
+        export=callbacks.export,
+        version_bytes=callbacks.version_bytes,
+        restore_version=callbacks.restore_version,
+        on_purge=callbacks.on_purge,
+        used_nodes=callbacks.used_nodes,
+        remap_media=callbacks.remap_media,
+        threads_changed=callbacks.on_threads_changed,
     )
 
 
@@ -448,6 +461,7 @@ class ReplayedStream:
         self.stream = stream
 
     def read(self, size: int = -1) -> bytes:
+        """Read up to `size` bytes, the head first; all that is left when `size` is negative."""
         if size is None or size < 0:
             data = self.head + self.stream.read()
             self.head = b""

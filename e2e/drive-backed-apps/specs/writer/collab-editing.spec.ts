@@ -160,18 +160,21 @@ test.describe("Writer collaboration", () => {
 		collaborator,
 	}) => {
 		const frames: string[] = [];
-		const recordFrames = (socket: WebSocket) => {
+		function recordFrames(socket: WebSocket) {
 			socket.on("framereceived", ({ payload }) => frames.push(String(payload)));
-		};
+		}
+
 		collaborator.page.on("websocket", recordFrames);
 
 		const polls: string[] = [];
-		const recordPoll = (request: Request) => {
+		function recordPoll(request: Request) {
 			if (/\/api\/suite\/content\/[^/]+\/updates/.test(request.url())) {
 				polls.push(request.url());
 			}
-		};
+		}
+
 		collaborator.page.on("request", recordPoll);
+
 		await openWriterDocument(owner.page, node);
 		await openWriterDocument(collaborator.page, node);
 		await expect.poll(() => frames.some((frame) => frame.includes('"roster"'))).toBe(true);
@@ -184,7 +187,7 @@ test.describe("Writer collaboration", () => {
 		await expect(writerEditor(collaborator.page)).toContainText("Heard live", { timeout: 3000 });
 		// Longer than one poll tick
 		await collaborator.page.waitForTimeout(6000);
-		expect(frames.some((frame) => frame.includes("suite_collab_row"))).toBe(true);
+		await expect.poll(() => frames.some((frame) => frame.includes("suite_collab_row"))).toBe(true);
 		expect(polls).toEqual([]);
 	});
 
@@ -193,24 +196,33 @@ test.describe("Writer collaboration", () => {
 		collaborator,
 		run,
 	}) => {
-		const nameOf = (user: { user: string }) =>
-			`Drive Writer E2E ${run.users.findIndex((each) => each.user === user.user) + 1}`;
+		function nameOf(user: { user: string }) {
+			const userNumber = run.users.findIndex((each) => each.user === user.user) + 1;
+			return `Drive Writer E2E ${userNumber}`;
+		}
+
 		function firstNameOf(user: { user: string }) {
 			const [firstName] = nameOf(user).split(" ");
 			return firstName;
 		}
-		const caretLabels = (page: Page) => page.locator(".collaboration-carets__label");
+
+		function caretLabels(page: Page) {
+			return page.locator(".collaboration-carets__label");
+		}
+
 		await openWriterDocument(owner.page, node);
 		await openWriterDocument(collaborator.page, node);
 
 		await typeParagraph(owner.page, "Owner's caret");
 		await typeParagraph(collaborator.page, "Collaborator's caret");
 
+		const collaboratorName = nameOf(collaborator.user);
+		const ownerName = nameOf(owner.user);
 		await expect(
-			owner.page.getByRole("button", { name: `${nameOf(collaborator.user)} is here` }),
+			owner.page.getByRole("button", { name: `${collaboratorName} is here` }),
 		).toBeVisible();
 		await expect(
-			collaborator.page.getByRole("button", { name: `${nameOf(owner.user)} is here` }),
+			collaborator.page.getByRole("button", { name: `${ownerName} is here` }),
 		).toBeVisible();
 		await expect(caretLabels(owner.page)).toHaveText([firstNameOf(collaborator.user)]);
 		await expect(caretLabels(collaborator.page)).toHaveText([firstNameOf(owner.user)]);
@@ -328,14 +340,15 @@ test.describe("Writer collaboration", () => {
 		// Closing with the edit still unsent sends it as the tab's final push, which asks for a compaction
 		await owner.page.close();
 
-		const compactionStatus = async () => {
+		async function compactionStatus() {
 			const state = await collabState(testApi, node);
 			const compacted = state.head_rev > 0 && state.body_rev === state.head_rev;
 			return {
 				compacted,
 				tail_rows: state.tail_rows,
 			};
-		};
+		}
+
 		await expect
 			.poll(compactionStatus, { timeout: 30_000 })
 			.toEqual({ compacted: true, tail_rows: 0 });

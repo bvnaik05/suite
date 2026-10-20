@@ -8,7 +8,7 @@ from http import HTTPStatus
 import frappe
 from frappe import _
 
-from suite.content import copies, jobs, live, log, restores, scheduling, sessions, suspect, touches
+from suite.content import copies, jobs, live, log, restores, scheduling, sessions, stage, suspect, touches
 from suite.content.pushes import push, put_piece
 from suite.content.snapshot import read, rows_after, with_tombstones
 from suite.content.wire import (
@@ -22,6 +22,7 @@ from suite.content.wire import (
 
 
 def open_document(app: str, node: str, *, can_write: bool) -> bytes:
+    """Open the document as one frame: its base and every row after it, or the state it is in."""
     if not log.enabled(app):
         return state_frame("disabled")
 
@@ -34,6 +35,7 @@ def open_document(app: str, node: str, *, can_write: bool) -> bytes:
     except log.ChainBroken:
         frappe.log_error(title="Collab open: chain_break", message=f"{app} document {doc.id}")
         raise log.Refusal(503, "chain_break") from None
+
     if snapshot is None:
         return state_frame("unconverted")
 
@@ -42,25 +44,21 @@ def open_document(app: str, node: str, *, can_write: bool) -> bytes:
     return encode_frame(header, with_tombstones(snapshot), snapshot.checkpoint)
 
 
-def pull_rows(app: str, node: str, since_rev: str | None, q_epoch: str | None) -> bytes:
-    # The epoch is read before the rows, so a quarantine between them shows on the next pull
-    doc = logged_doc(app, node)
+def parsed_cursor(since_rev: str | None, q_epoch: str | None) -> tuple[int, int | None]:
+    """Parse a pull's rev and quarantine epoch, refusing either when it is not a number."""
+    seen_epoch = None
     try:
         after_rev = int(since_rev or 0)
-        seen_epoch = int(q_epoch) if q_epoch is not None else None
+        if q_epoch is not None:
+            seen_epoch = int(q_epoch)
     except ValueError:
         raise log.Refusal(400, "malformed") from None
-    epoch = int(doc.q_epoch)
-    if seen_epoch is not None and seen_epoch < epoch:
-        # The tab may hold a row now quarantined
-        return state_frame("rebuild", q_epoch=epoch)
 
-    if after_rev < int(doc.trimmed_rev):
-        # Rows the tab still needs are gone; the body holds them
-        return state_frame("rebuild", q_epoch=epoch)
+    return after_rev, seen_epoch
 
-    rows = rows_after(app, doc.id, max(after_rev, 0))
-    scheduling.request_if_due(app, doc.id, jobs.COMPACT)
+
+def pull_header(app: str, doc: frappe._dict, epoch: int) -> dict:
+    """Build a pull frame's header from the document's epoch, judgement, schema and live fields."""
     schema_steps = json.loads(doc.schema_steps)
     header = {
         "state": "live",
@@ -72,10 +70,31 @@ def pull_rows(app: str, node: str, since_rev: str | None, q_epoch: str | None) -
     }
     if doc.verdict:
         header["verdict"] = doc.verdict
+
     if doc.suspect_held:
         # Readers learn only whether one change or the document is in question; the cause is for admins
         header["held"] = "bad_checkpoint" if doc.suspect_held == "bad_checkpoint" else "change"
-    return encode_frame(header, rows)
+
+    return header
+
+
+def pull_rows(app: str, node: str, since_rev: str | None, q_epoch: str | None) -> bytes:
+    """Answer the rows after `since_rev`, or a rebuild frame when the tab's copy can't continue."""
+    # The epoch is read before the rows, so a quarantine between them shows on the next pull
+    doc = logged_doc(app, node)
+    after_rev, seen_epoch = parsed_cursor(since_rev, q_epoch)
+    epoch = int(doc.q_epoch)
+    if seen_epoch is not None and seen_epoch < epoch:
+        # The tab may hold a row now quarantined
+        return state_frame("rebuild", q_epoch=epoch)
+
+    if after_rev < int(doc.trimmed_rev):
+        # Rows the tab still needs are gone; the body holds them
+        return state_frame("rebuild", q_epoch=epoch)
+
+    rows = rows_after(app, doc.id, max(after_rev, 0))
+    scheduling.request_if_due(app, doc.id, jobs.COMPACT)
+    return encode_frame(pull_header(app, doc, epoch), rows)
 
 
 def push_rows(node: str, body: bytes, authorize: Callable[[object], str]) -> tuple[int, dict]:
@@ -88,24 +107,30 @@ def push_rows(node: str, body: bytes, authorize: Callable[[object], str]) -> tup
     except log.Refusal as refusal:
         if refusal.body["collab"] == "compacting":
             scheduling.request_if_due(app, doc.id, jobs.COMPACT, refused=True)
+
         raise
+
     touches.follow(app, doc.id, touches.TOUCH)
     touches.follow(app, doc.id, touches.VERSION)
     answer["copy"] = copies.wanted(app, doc.id)
-    final_from = header.sid if header.is_final else None
+    final_from = None
+    if header.is_final:
+        final_from = header.sid
+
     scheduling.request_if_due(app, doc.id, jobs.COMPACT, final_from=final_from)
     return 200, answer
 
 
 def stage_piece(app: str, node: str, stage_id: str, piece_index: str, body: bytes) -> tuple[int, dict]:
+    """Stage one piece of a change too big for one push."""
     log.require_enabled(app)
-    header, index, piece = parse_piece(app, body, stage_id, piece_index)
+    piece = parse_piece(app, body, stage_id, piece_index)
     doc = require_log(app, node)
-    return 200, put_piece(app, doc.id, stage_id, header, index, piece, frappe.session.user)
+    return 200, put_piece(app, doc.id, stage_id, piece, frappe.session.user)
 
 
 def report_suspect(app: str, node: str, body: dict) -> tuple[int, dict]:
-    """A tab's row threw when it applied it; anyone who can read the document may say so."""
+    """Record that a tab's row threw when it applied it; anyone who can read the document may say so."""
     doc = logged_doc(app, node)
     rev = body.get("rev")
     if type(rev) is not int:
@@ -164,10 +189,11 @@ def cancel_restore(app: str, node: str, body: dict) -> tuple[int, dict]:
 
 
 def start_session(app: str, node: str, body: dict) -> tuple[int, dict]:
+    """Issue the tab a session for its `sid`, or answer its `claim` on one."""
     doc = logged_doc(app, node)
     sid = body.get("sid")
     claim = body.get("claim")
-    if not isinstance(sid, str) or len(sid) != 32 or not sid.isalnum():
+    if not isinstance(sid, str) or len(sid) != stage.ID_LENGTH or not sid.isalnum():
         raise log.Refusal(400, "malformed")
 
     if claim is not None:
@@ -179,7 +205,7 @@ def start_session(app: str, node: str, body: dict) -> tuple[int, dict]:
 
 
 def live_fields(app: str, doc: frappe._dict) -> dict:
-    """What an open and a pull both tell the tab about the document now."""
+    """Answer what an open and a pull both tell the tab about the document now."""
     return {
         "limits": limits(app, doc),
         "rooms": live.rooms(app, doc.id, doc.lineage),
@@ -188,6 +214,7 @@ def live_fields(app: str, doc: frappe._dict) -> dict:
 
 
 def require_log(app: str, node: str) -> frappe._dict:
+    """Load the node's log, refused as unconverted when it has none."""
     doc = log.find(app, node)
     if doc is None:
         raise log.Refusal(409, "unconverted")
@@ -196,11 +223,11 @@ def require_log(app: str, node: str) -> frappe._dict:
 
 
 def logged_doc(app: str, node: str) -> frappe._dict:
-    """The node's log, refused in order: collaboration off, no log."""
+    """Load the node's log, refused in order: collaboration off, no log."""
     log.require_enabled(app)
     return require_log(app, node)
 
 
 def state_frame(state: str, **extra: int) -> bytes:
-    """A frame with no rows that tells the tab what state the document is in."""
+    """Build a frame with no rows that tells the tab what state the document is in."""
     return encode_frame({"state": state, "proto": PROTOCOL_VERSION, **extra})

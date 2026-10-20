@@ -1,7 +1,7 @@
 import { XmlElement, XmlFragment, XmlText, type XmlHook } from 'yjs'
 
 // The binding's name for a copy of a mark that can overlap another of its kind
-const OVERLAP_SUFFIX = /--[a-zA-Z0-9+/=]{8}$/
+export const OVERLAP_SUFFIX = /--[a-zA-Z0-9+/=]{8}$/
 
 // A stored attribute or mark under its own name, whichever copy of it holds it
 type Entry = [string, unknown]
@@ -199,7 +199,7 @@ export function domInventory(root: ParentNode, atomName: AtomName) {
   return found
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 

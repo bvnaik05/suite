@@ -18,18 +18,20 @@ from pathlib import Path
 
 import frappe
 from frappe.utils.background_jobs import get_redis_conn
+from redis import Redis
 
 from suite import drive
 from suite.content import admission, checker, compaction, db, live, quarantine
 from suite.content.log import Refusal
 from suite.content.pushes import SUSPECT_RETRY_MS
 from suite.content.scheduling import enqueue
-from suite.content.snapshot import read
+from suite.content.snapshot import Snapshot, read
 from suite.content.tables import table
 
 # The compaction failures that come from the CRDT library itself, not from the rows' shape or the host
 REASONS = frozenset({"unreadable", "content_mismatch", "reencode_mismatch", "not_contained", "fallback"})
 REPORT_EVERY_S = 60
+NO_NODE_DETAIL = "Node 24 or the product's checker is missing on this host"
 
 
 @dataclass(frozen=True)
@@ -43,8 +45,10 @@ class Judging:
 
 
 def mark_suspect(app: str, doc_id: str, reason: str, method: str) -> None:
+    """Mark the document suspect, and when it wasn't already, alert and ask a job to judge it."""
+    doc_table = table(app, "doc")
     is_newly_marked = db.claim(
-        f"UPDATE `{table(app, 'doc')}` SET `suspect` = %s WHERE `id` = %s AND `suspect` IS NULL",
+        f"UPDATE `{doc_table}` SET `suspect` = %s WHERE `id` = %s AND `suspect` IS NULL",
         (reason, doc_id),
     )
     if is_newly_marked:
@@ -53,17 +57,14 @@ def mark_suspect(app: str, doc_id: str, reason: str, method: str) -> None:
 
 
 def report_row(app: str, doc_id: str, rev: int, method: str) -> tuple[int, dict]:
-    """A tab's report that row `rev` threw when it applied it; answers the status and body to send.
-
-    Rows the body holds already passed the compaction's checks, so the throw was the tab's own
-    and the answer is `clean` at once. Otherwise the document is marked suspect and a job judges it;
-    the tab reads the verdict on a pull once `judged` passes the number in the answer.
-    """
-    control_row = frappe.db.sql(
-        f"SELECT `head_rev`, `body_rev`, `suspect_held`, `judged` FROM `{table(app, 'doc')}` WHERE `id` = %s",
+    """Answer a tab's report that row `rev` threw when it applied it with the status and body to send."""
+    doc_table = table(app, "doc")
+    control_rows = frappe.db.sql(
+        f"SELECT `head_rev`, `body_rev`, `suspect_held`, `judged` FROM `{doc_table}` WHERE `id` = %s",
         doc_id,
         as_dict=True,
-    )[0]
+    )
+    control_row = control_rows[0]
     if not 0 < rev <= int(control_row.head_rev):
         raise Refusal(400, "malformed")
 
@@ -74,7 +75,7 @@ def report_row(app: str, doc_id: str, rev: int, method: str) -> tuple[int, dict]
         raise Refusal(423, "paused", reason="suspect", retry_ms=SUSPECT_RETRY_MS)
 
     is_report_heard = db.claim(
-        f"""UPDATE `{table(app, "doc")}` SET `suspect_reported_at` = NOW(6) WHERE `id` = %s
+        f"""UPDATE `{doc_table}` SET `suspect_reported_at` = NOW(6) WHERE `id` = %s
         AND (`suspect_reported_at` IS NULL OR `suspect_reported_at` <= NOW(6) - INTERVAL %s SECOND)""",
         (doc_id, REPORT_EVERY_S),
     )
@@ -86,15 +87,28 @@ def report_row(app: str, doc_id: str, rev: int, method: str) -> tuple[int, dict]
 
 
 def request_judge(app: str, doc_id: str, method: str) -> None:
+    """Queue a judge job for the document, one per document at a time."""
     enqueue(method, f"suite-collab-judge-{app}-{doc_id}", app=app, doc_id=doc_id)
 
 
-def judge(app: str, doc_id: str, part_map: Mapping[str, type], bundle: Path) -> str | None:
-    """Judge a suspect document; answers `quarantined`, `clean`, `held` or `unjudged`, or None when it isn't suspect.
+def judge_until_settled(
+    judging: Judging, suspect_reason: str, redis: Redis, rejudge_redis_key: str
+) -> str | None:
+    """Judge the document, and again for each re-judge an admin asked while the last one ran."""
+    redis.delete(rejudge_redis_key)
+    verdict = verdict_of(judging, suspect_reason)
+    while redis.delete(rejudge_redis_key):
+        next_reason = suspect_of(judging.app, judging.doc_id)
+        if not next_reason:
+            break
 
-    A judge takes one of the bench's compaction places; with none free it answers `busy` and the sweep asks again.
-    An admin's re-judge asked while it runs finds its job queued already, so the judge judges again before it ends.
-    """
+        verdict = verdict_of(judging, next_reason)
+
+    return verdict
+
+
+def judge(app: str, doc_id: str, part_map: Mapping[str, type], bundle: Path) -> str | None:
+    """Judge a suspect document in a compaction place, `busy` without one, or None when it isn't suspect."""
     suspect_reason = suspect_of(app, doc_id)
     if not suspect_reason:
         return None
@@ -107,19 +121,17 @@ def judge(app: str, doc_id: str, part_map: Mapping[str, type], bundle: Path) -> 
 
     judging = Judging(app, doc_id, part_map, bundle)
     try:
-        redis.delete(rejudge_redis_key)
-        verdict = verdict_of(judging, suspect_reason)
-        while redis.delete(rejudge_redis_key) and (suspect_reason := suspect_of(app, doc_id)):
-            verdict = verdict_of(judging, suspect_reason)
-        return verdict
+        return judge_until_settled(judging, suspect_reason, redis, rejudge_redis_key)
     finally:
         admission.free_place(place)
 
 
 def verdict_of(judging: Judging, suspect_reason: str) -> str | None:
+    """Judge the rows, settling the document as `judge_failed` when the judge itself throws."""
     try:
         return judge_rows(judging, suspect_reason)
-    except BaseException as error:  # pycrdt panics derive from BaseException
+    # pycrdt panics derive from BaseException
+    except BaseException as error:
         if isinstance(error, KeyboardInterrupt | SystemExit):
             raise
 
@@ -128,58 +140,34 @@ def verdict_of(judging: Judging, suspect_reason: str) -> str | None:
 
 
 def rejudge_key(app: str, doc_id: str) -> str:
+    """Build the Redis key an admin's re-judge sets while a judge runs."""
     return f"suite:collab:rejudge:{frappe.local.site}:{app}:{doc_id}"
 
 
-def judge_rows(judging: Judging, suspect_reason: str) -> str | None:
+def still_refused(judging: Judging) -> bool:
+    """Whether pycrdt still refuses the document's rows after a quarantine."""
+    reread = read(judging.app, judging.doc_id, integrated=True)
+    if not reread:
+        return False
+
+    after_rows = reread.payloads()
+    return pycrdt_refuses(reread.checkpoint, after_rows, judging.part_map)
+
+
+def settle_document(judging: Judging, suspect_reason: str, rev: int | None, reason: str) -> str | None:
+    """Quarantine row `rev` when there is one, then clear the document, or hold it where that fails."""
     app = judging.app
     doc_id = judging.doc_id
-    part_map = judging.part_map
-    snapshot = read(app, doc_id, integrated=True)
-    if snapshot is None:
-        return None
-
-    checkpoint = snapshot.checkpoint
-    revs = [rev for rev, _payload in snapshot.rows]
-    rows = snapshot.payloads()
-    try:
-        verdict = checker.judge(judging.bundle, checkpoint, rows)
-    except checker.CheckerFailed as error:
-        return unsettled(app, doc_id, suspect_reason, "checker_failed", repr(error))
-
-    if verdict is None:
-        return unsettled(
-            app,
-            doc_id,
-            suspect_reason,
-            "no_node",
-            "Node 24 or the product's checker is missing on this host",
-        )
-
-    index = verdict.index
-    reason = "editor_schema" if verdict.reason.startswith("schema") else "yjs_refused"
-    if index is None:
-        index = first_refused(checkpoint, rows, part_map)
-        reason = "pycrdt_refused"
-
-    if index == -1:
-        return hold_document(app, doc_id, "bad_checkpoint", verdict.reason or "pycrdt refuses the checkpoint")
-
-    if index is not None:
+    if rev is not None:
         try:
-            quarantine.quarantine(app, doc_id, {revs[index]}, reason)
+            quarantine.quarantine(app, doc_id, {rev}, reason)
         except drive.DriveNotFound as error:
             return hold_document(app, doc_id, "unowned_row", repr(error))
 
-        reread = read(app, doc_id, integrated=True)
-        if reread:
-            after_rows = reread.payloads()
-            if pycrdt_refuses(reread.checkpoint, after_rows, part_map):
-                return hold_document(
-                    app, doc_id, "still_refused", f"rev {revs[index]} quarantined, pycrdt still refuses"
-                )
+        if still_refused(judging):
+            return hold_document(app, doc_id, "still_refused", f"rev {rev} quarantined, pycrdt still refuses")
 
-    nothing_refused = index is None
+    nothing_refused = rev is None
     library_failure = suspect_reason in REASONS
     if nothing_refused and library_failure and judged_clean(app, doc_id):
         return hold_document(
@@ -192,12 +180,55 @@ def judge_rows(judging: Judging, suspect_reason: str) -> str | None:
     return outcome
 
 
+def settle_verdict(
+    judging: Judging, suspect_reason: str, snapshot: Snapshot, rows: list[bytes], verdict: checker.Verdict
+) -> str | None:
+    """Find the row the checker or else pycrdt refuses, and settle the document on it."""
+    revs = [rev for rev, _payload in snapshot.rows]
+    index = verdict.index
+    reason = "editor_schema" if verdict.reason.startswith("schema") else "yjs_refused"
+    if index is None:
+        index = first_refused(snapshot.checkpoint, rows, judging.part_map)
+        reason = "pycrdt_refused"
+
+    if index == -1:
+        checkpoint_detail = verdict.reason or "pycrdt refuses the checkpoint"
+        return hold_document(judging.app, judging.doc_id, "bad_checkpoint", checkpoint_detail)
+
+    rev: int | None = None
+    if index is not None:
+        rev = revs[index]
+
+    return settle_document(judging, suspect_reason, rev, reason)
+
+
+def judge_rows(judging: Judging, suspect_reason: str) -> str | None:
+    """Run the product's checker on the document's rows and settle the document on its verdict."""
+    app = judging.app
+    doc_id = judging.doc_id
+    snapshot = read(app, doc_id, integrated=True)
+    if snapshot is None:
+        return None
+
+    rows = snapshot.payloads()
+    try:
+        verdict = checker.judge(judging.bundle, snapshot.checkpoint, rows)
+    except checker.CheckerFailed as error:
+        return unsettled(app, doc_id, suspect_reason, "checker_failed", repr(error))
+
+    if verdict is None:
+        return unsettled(app, doc_id, suspect_reason, "no_node", NO_NODE_DETAIL)
+
+    return settle_verdict(judging, suspect_reason, snapshot, rows, verdict)
+
+
 def rejudge(app: str, doc_id: str, method: str) -> bool:
-    """An admin asks for a new verdict; a held document is unheld so the judge and the sweep take it again."""
+    """Ask for a new verdict for an admin, unholding the document so the judge and the sweep take it."""
     if not suspect_of(app, doc_id):
         return False
 
-    frappe.db.sql(f"UPDATE `{table(app, 'doc')}` SET `suspect_held` = NULL WHERE `id` = %s", doc_id)
+    doc_table = table(app, "doc")
+    frappe.db.sql(f"UPDATE `{doc_table}` SET `suspect_held` = NULL WHERE `id` = %s", doc_id)
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     live.publish_change(app, doc_id, "released")
     redis = get_redis_conn()
@@ -208,7 +239,7 @@ def rejudge(app: str, doc_id: str, method: str) -> bool:
 
 
 def release(app: str, doc_id: str) -> bool:
-    """An admin clears a suspect document as `unjudged`: saving and compactions go on and its rows stay."""
+    """Clear a suspect document as `unjudged` for an admin: saving and compactions go on, its rows stay."""
     if not suspect_of(app, doc_id):
         return False
 
@@ -219,7 +250,7 @@ def release(app: str, doc_id: str) -> bool:
 
 
 def first_refused(checkpoint: bytes | None, rows: list[bytes], part_map: Mapping[str, type]) -> int | None:
-    """The index of the first row a compaction refuses, -1 for the checkpoint, None when it takes them all."""
+    """Find the first row a compaction refuses: its index, -1 for the checkpoint, None for neither."""
     if not pycrdt_refuses(checkpoint, rows, part_map):
         return None
 
@@ -227,13 +258,15 @@ def first_refused(checkpoint: bytes | None, rows: list[bytes], part_map: Mapping
         return -1
 
     # Every prefix up to `good` rows compacts and the prefix of `bad` rows does not
-    good, bad = 0, len(rows)
+    good = 0
+    bad = len(rows)
     while bad - good > 1:
         middle = (good + bad) // 2
         if pycrdt_refuses(checkpoint, rows[:middle], part_map):
             bad = middle
         else:
             good = middle
+
     return bad - 1
 
 
@@ -251,16 +284,16 @@ def pycrdt_refuses(checkpoint: bytes | None, rows: list[bytes], part_map: Mappin
 
 def judged_clean(app: str, doc_id: str) -> bool:
     """Whether a judge found a compaction's suspect clean since the last checkpoint install."""
-    judged_row = frappe.db.sql(
-        f"SELECT `suspect_judged_clean` FROM `{table(app, 'doc')}` WHERE `id` = %s", doc_id
-    )
+    doc_table = table(app, "doc")
+    judged_row = frappe.db.sql(f"SELECT `suspect_judged_clean` FROM `{doc_table}` WHERE `id` = %s", doc_id)
     return bool(judged_row[0][0])
 
 
 def fallback_judged_lately(app: str, doc_id: str) -> bool:
     """Whether a judge found a fallback clean in the last day, so another fallback needs no judge."""
+    doc_table = table(app, "doc")
     found = frappe.db.sql(
-        f"""SELECT 1 FROM `{table(app, "doc")}` WHERE `id` = %s
+        f"""SELECT 1 FROM `{doc_table}` WHERE `id` = %s
         AND `fallback_judged_clean_at` > NOW(6) - INTERVAL 1 DAY""",
         doc_id,
     )
@@ -268,14 +301,20 @@ def fallback_judged_lately(app: str, doc_id: str) -> bool:
 
 
 def suspect_of(app: str, doc_id: str) -> str | None:
-    found = frappe.db.sql(f"SELECT `suspect` FROM `{table(app, 'doc')}` WHERE `id` = %s", doc_id)
-    return found[0][0] if found else None
+    """Load the reason the document is suspect, or None when it isn't."""
+    doc_table = table(app, "doc")
+    found = frappe.db.sql(f"SELECT `suspect` FROM `{doc_table}` WHERE `id` = %s", doc_id)
+    if not found:
+        return None
+
+    return found[0][0]
 
 
 def hold_document(app: str, doc_id: str, hold_reason: str, detail: str) -> str | None:
     """Answers None when an admin cleared the document while it was judged."""
+    doc_table = table(app, "doc")
     is_held = db.claim(
-        f"""UPDATE `{table(app, "doc")}` SET `suspect_held` = %s, `verdict` = 'held', `judged` = `judged` + 1
+        f"""UPDATE `{doc_table}` SET `suspect_held` = %s, `verdict` = 'held', `judged` = `judged` + 1
         WHERE `id` = %s AND `suspect` IS NOT NULL""",
         (hold_reason, doc_id),
     )
@@ -293,7 +332,7 @@ def hold_document(app: str, doc_id: str, hold_reason: str, detail: str) -> str |
 
 
 def unsettled(app: str, doc_id: str, suspect_reason: str, hold_reason: str, detail: str) -> str | None:
-    """A judge that can't settle a document holds it only when a compaction marked it; a tab's report alone never pauses saving."""
+    """Hold a document a judge can't settle only when a compaction marked it, never on a tab's report."""
     if suspect_reason != "client":
         return hold_document(app, doc_id, hold_reason, detail)
 
@@ -308,12 +347,10 @@ def unsettled(app: str, doc_id: str, suspect_reason: str, hold_reason: str, deta
 
 
 def clear_suspect(app: str, doc_id: str, verdict: str, *, clean_mark: str | None = None) -> None:
-    """`clean_mark` is the compaction's reason when a judge found its suspect clean.
-
-    A verdict ends the failed compaction's backoff, so the document compacts at once.
-    """
+    """Record the verdict and end the compaction's backoff; `clean_mark` is a reason a judge found clean."""
+    doc_table = table(app, "doc")
     frappe.db.sql(
-        f"""UPDATE `{table(app, "doc")}` SET `suspect` = NULL, `suspect_held` = NULL, `verdict` = %s,
+        f"""UPDATE `{doc_table}` SET `suspect` = NULL, `suspect_held` = NULL, `verdict` = %s,
         `judged` = `judged` + 1, `suspect_judged_clean` = `suspect_judged_clean` OR %s,
         `fallback_judged_clean_at` = IF(%s, NOW(6), `fallback_judged_clean_at`),
         `next_compaction_at` = IF(%s, NULL, `next_compaction_at`) WHERE `id` = %s""",
@@ -329,4 +366,5 @@ def clear_suspect(app: str, doc_id: str, verdict: str, *, clean_mark: str | None
 
 
 def alert(app: str, doc_id: str, title: str, message: str) -> None:
+    """Log an admin alert about a collab document."""
     db.alert(f"Collab document {title}", f"{message}\n{app} document {doc_id}")

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import {
   device,
@@ -15,13 +15,13 @@ import type { CollabRoom } from './types'
 
 // The update another tab's restore sends: the document as the server holds it, made `version`
 function restoreTo(server: FakeServer, version: string) {
-  const doc = new Y.Doc()
-  Y.applyUpdate(doc, Y.mergeUpdates(server.rows.map((row) => row.bytes)))
-  const before = Y.encodeStateVector(doc)
+  const doc = new yjs.Doc()
+  yjs.applyUpdate(doc, yjs.mergeUpdates(server.rows.map((row) => row.bytes)))
+  const before = yjs.encodeStateVector(doc)
   const body = doc.getText('t')
   body.delete(0, body.length)
   body.insert(0, version)
-  return Y.encodeStateAsUpdate(doc, before)
+  return yjs.encodeStateAsUpdate(doc, before)
 }
 
 function type(room: CollabRoom, word: string) {

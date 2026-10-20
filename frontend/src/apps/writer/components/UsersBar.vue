@@ -4,12 +4,10 @@
       <button
         type="button"
         class="flex h-7 min-w-7 items-center justify-center gap-0.5 rounded-4 px-1 cursor-pointer"
-        :aria-label="
-          users.length === 1 ? `${users[0].name} is here` : `${users.length} other people here`
-        "
+        :aria-label="buttonLabel"
       >
         <div
-          v-for="user in users.slice(0, 3)"
+          v-for="user in shownUsers"
           :key="user.name"
           class="peer-slot flex items-center rounded-full"
           :class="{ 'peer-idle': isIdle(user) }"
@@ -31,12 +29,12 @@
             </span>
           </Tooltip>
         </div>
-        <Tooltip v-if="users.length > 3" :text="`${users.length - 3} more users`">
+        <Tooltip v-if="hasHiddenUsers" :text="moreUsersLabel">
           <div
             :style="{ fontSize: '10px' }"
             class="relative inline-block shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-surface-gray-2 text-ink-gray-5 text-xs cursor-pointer border-[1.5px] border-gray-300"
           >
-            +{{ users.length - 3 }}
+            +{{ hiddenCount }}
           </div>
         </Tooltip>
       </button>
@@ -79,16 +77,17 @@
 </template>
 <script setup>
 import { Avatar, Dropdown, Tooltip } from 'frappe-ui'
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 
 import { colourStyle } from '@/apps/writer/collab/colours'
 
-defineProps({
+const props = defineProps({
   users: Array,
 })
 
 const MINUTE_MS = 60_000
 const TICK_MS = 30_000
+const SHOWN_USERS = 3
 // An idle person's tooltip counts the minutes, so it is redrawn as they pass
 const now = ref(Date.now())
 function tick() {
@@ -97,6 +96,26 @@ function tick() {
 
 const ticker = setInterval(tick, TICK_MS)
 onBeforeUnmount(() => clearInterval(ticker))
+
+const buttonLabel = computed(() => {
+  if (props.users.length === 1) {
+    return __('{0} is here', [props.users[0].name])
+  }
+
+  return __('{0} other people here', [props.users.length])
+})
+
+const shownUsers = computed(() => props.users.slice(0, SHOWN_USERS))
+const hiddenCount = computed(() => props.users.length - SHOWN_USERS)
+const hasHiddenUsers = computed(() => hiddenCount.value > 0)
+
+const moreUsersLabel = computed(() => {
+  if (hiddenCount.value === 1) {
+    return __('1 more user')
+  }
+
+  return __('{0} more users', [hiddenCount.value])
+})
 
 function isIdle(user) {
   return user.idleSince != null
@@ -108,7 +127,7 @@ function tooltipOf(user) {
   }
 
   const minutes = Math.max(1, Math.floor((now.value - user.idleSince) / MINUTE_MS))
-  return `${user.name} · Idle for ${minutes} min`
+  return __('{0} · Idle for {1} min', [user.name, minutes])
 }
 
 // A collaborative document's person has a colour with a dark-mode variant; the older editor's has one colour,

@@ -3,6 +3,7 @@ import hashlib
 import json
 import struct
 import uuid
+from collections.abc import Callable
 from unittest.mock import patch
 
 import frappe
@@ -39,29 +40,24 @@ def text_of(state: bytes) -> str:
     return str(doc.get("text", type=pycrdt.Text))
 
 
+def hooks_with_note(real_get_hooks: Callable) -> Callable:
+    added = {"suite_content_editors": NOTE_HOOK, "drive_content_types": DRIVE_HOOK}
+
+    def get_hooks(hook=None, *args, **kwargs):
+        found = real_get_hooks(hook, *args, **kwargs)
+        if hook in added:
+            return [*found, added[hook]]
+
+        return found
+
+    return get_hooks
+
+
 class TestNoteEditor(IntegrationTestCase):
     """An app with no product code keeps its documents in the layer, under its own declarations and switch."""
 
     @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        real = frappe.get_hooks
-        added = {"suite_content_editors": NOTE_HOOK, "drive_content_types": DRIVE_HOOK}
-
-        def get_hooks(hook=None, *args, **kwargs):
-            found = real(hook, *args, **kwargs)
-            if hook in added:
-                return [*found, added[hook]]
-
-            return found
-
-        # The apps the site ships, each switched back as it was
-        cls.others = {name: log.mode(name) for name in editors()}
-        cls.addClassCleanup(clear_registry_cache)
-        cls.hooks = patch.object(frappe, "get_hooks", get_hooks)
-        cls.hooks.start()
-        cls.addClassCleanup(cls.hooks.stop)
-        clear_registry_cache()
+    def create_note_tables(cls) -> None:
         # Cleanup drops these, so a site that already has any of them is refused before anything is made
         taken = frappe.db.sql(
             "SELECT `table_name` FROM information_schema.tables WHERE `table_schema` = DATABASE() AND `table_name` IN %s",
@@ -78,12 +74,26 @@ class TestNoteEditor(IntegrationTestCase):
         ensure_tables(note.EDITOR.app)
 
     @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        get_hooks = hooks_with_note(frappe.get_hooks)
+        # The apps the site ships, each switched back as it was
+        cls.others = {name: log.mode(name) for name in editors()}
+        cls.addClassCleanup(clear_registry_cache)
+        cls.hooks = patch.object(frappe, "get_hooks", get_hooks)
+        cls.hooks.start()
+        cls.addClassCleanup(cls.hooks.stop)
+        clear_registry_cache()
+        cls.create_note_tables()
+
+    @classmethod
     def tearDownClass(cls):
         settings = frappe.get_single("Suite Collab Settings")
         settings.apps = [row for row in settings.apps if row.app != note.EDITOR.app]
         settings.save(ignore_permissions=True)
         for name, mode in cls.others.items():
             log.set_mode(name, mode)
+
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
         super().tearDownClass()
 
@@ -121,6 +131,7 @@ class TestNoteEditor(IntegrationTestCase):
         doc = pycrdt.Doc()
         for _rev, payload in rows:
             doc.apply_update(payload)
+
         self.assertEqual(str(doc.get("text", type=pycrdt.Text)), "hello")
 
     def test_compaction_writes_a_note_body_into_the_apps_own_row(self):
@@ -128,7 +139,7 @@ class TestNoteEditor(IntegrationTestCase):
 
         jobs.compact(note.EDITOR.app, self.doc_id)
 
-        body = frappe.db.sql(f"SELECT `body` FROM `{APP_TABLE}` WHERE `name` = %s", self.node)[0][0]
+        [[body]] = frappe.db.sql(f"SELECT `body` FROM `{APP_TABLE}` WHERE `name` = %s", self.node)
         self.assertEqual(text_of(base64.b64decode(body)), "kept")
 
     def test_a_change_over_the_layers_cap_is_malformed(self):
@@ -148,4 +159,5 @@ class TestNoteEditor(IntegrationTestCase):
         for name in self.others:
             with self.subTest(app=name), self.assertRaises(content.Refusal) as refused:
                 content.require_enabled(name)
+
             self.assertEqual(refused.exception.body, {"collab": "disabled"})

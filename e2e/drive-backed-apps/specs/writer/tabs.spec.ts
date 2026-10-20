@@ -55,7 +55,7 @@ test("a document without tabs lists its headings, not a tab", async ({ owner, ru
 
 // Regression for the mobile tab bar (ToCMobile):
 //   1. a tab added while the bar is already mounted must appear in it, and
-//   2. tapping a tab on mobile must actually switch the visible tab.
+//   2. tapping a tab on mobile must actually switch the visible tab
 test("mobile tab bar reflects added tabs and switches the active tab", async ({
 	owner,
 	run,
@@ -74,7 +74,7 @@ test("mobile tab bar reflects added tabs and switches the active tab", async ({
 	await page.keyboard.type("first");
 
 	// The bar (ToCMobile, CSS-hidden on desktop) mounts once there are two
-	// tabs; adding the third afterwards is the live-update case.
+	// tabs; adding the third afterwards is the live-update case
 	await addTab(page, "second");
 	await addTab(page, "third");
 	const editor = writerEditor(page);
@@ -84,15 +84,15 @@ test("mobile tab bar reflects added tabs and switches the active tab", async ({
 	// frappe-ui TabButtons (data-slot="tab-button"), so these are its buttons.
 	await page.setViewportSize({ width: 390, height: 844 });
 
-	// Bug 1: the third tab (added after the bar mounted) shows up in the bar.
+	// Bug 1: the third tab (added after the bar mounted) shows up in the bar
 	const barButtons = page.locator('[data-slot="tab-button"]');
 	await expect(barButtons).toHaveText(["Untitled", "second", "third"]);
 
-	// Only the active tab is shown; the freshly-added one stays active.
+	// Only the active tab is shown; the freshly-added one stays active
 	await expect(editor).toContainText("third", { useInnerText: true });
 	await expect(editor).not.toContainText("first", { useInnerText: true });
 
-	// Bug 2: tapping the first tab in the bar switches the visible tab.
+	// Bug 2: tapping the first tab in the bar switches the visible tab
 	await barButtons.first().click();
 	await expect(editor).toContainText("first", { useInnerText: true });
 	await expect(editor).not.toContainText("third", { useInnerText: true });
@@ -160,7 +160,7 @@ test("reordering tabs preserves every tab's content", async ({ owner, run }) => 
 	await expect(tocTabs(page)).toHaveText(["Untitled", "alpha", "bravo", "charlie"]);
 
 	// The first tab is the document itself and stays first; drop above the
-	// midpoint of alpha so charlie lands right after it.
+	// midpoint of alpha so charlie lands right after it
 	await tocTabs(page)
 		.nth(3)
 		.dragTo(tocTabs(page).nth(1), { targetPosition: { x: 10, y: 2 } });

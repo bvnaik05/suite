@@ -94,7 +94,7 @@ const commonSiteConfig = fs.existsSync(commonSiteConfigPath)
   ? JSON.parse(fs.readFileSync(commonSiteConfigPath, 'utf-8'))
   : {}
 const defaultSite = commonSiteConfig.default_site || 'localhost'
-// Ordered, so a product can name the oldest build that may still edit it
+// Ordered while one host builds every release, so a product can name its oldest editing build
 const suiteBuild = String(Date.now())
 
 // https://vite.dev/config/
@@ -246,7 +246,7 @@ export default defineConfig(({ mode }) => ({
       '@tiptap/pm/view',
       // Linked to packages/collab-prosemirror. The optimized collaboration
       // extensions bundle their own copy otherwise, and a sync-plugin key
-      // from one copy reads no state from the other, so no caret is sent.
+      // from one copy reads no state from the other, so no caret is sent
       '@tiptap/y-tiptap',
       // The same for CodeMirror, which frappe-ui's code editor imports. Vite
       // never discovers a dep from an importer inside node_modules, so without

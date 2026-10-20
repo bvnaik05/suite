@@ -8,7 +8,7 @@ import {
 } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { BODY_FIELD } from '../collab/field'
 import { writerEditorExtensions } from '../editor-extensions'
@@ -20,7 +20,7 @@ vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
 const REMOTE = 'remote'
 
 interface Tab {
-  ydoc: Y.Doc
+  ydoc: yjs.Doc
   editor: Editor
 }
 
@@ -31,27 +31,27 @@ afterEach(() => {
   }
 })
 
-function element(name: string, ...children: (Y.XmlElement | Y.XmlText)[]) {
-  const node = new Y.XmlElement(name)
+function element(name: string, ...children: (yjs.XmlElement | yjs.XmlText)[]) {
+  const node = new yjs.XmlElement(name)
   node.insert(0, children)
   return node
 }
 
 function texts(...strings: string[]) {
-  return element('paragraph', ...strings.map((text) => new Y.XmlText(text)))
+  return element('paragraph', ...strings.map((text) => new yjs.XmlText(text)))
 }
 
-function stored(...blocks: Y.XmlElement[]) {
-  const doc = new Y.Doc()
+function stored(...blocks: yjs.XmlElement[]) {
+  const doc = new yjs.Doc()
   doc.getXmlFragment(BODY_FIELD).insert(0, blocks)
-  return Y.encodeStateAsUpdate(doc)
+  return yjs.encodeStateAsUpdate(doc)
 }
 
 function open(state: Uint8Array): Tab {
-  const ydoc = new Y.Doc()
-  Y.applyUpdate(ydoc, state, REMOTE)
+  const ydoc = new yjs.Doc()
+  yjs.applyUpdate(ydoc, state, REMOTE)
   const extensions = writerEditorExtensions({
-    collaborative: true,
+    isCollaborative: true,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},
@@ -77,25 +77,25 @@ function open(state: Uint8Array): Tab {
 function exchange(...tabs: Tab[]) {
   for (const target of tabs) {
     for (const source of tabs) {
-      const missing = Y.encodeStateAsUpdate(source.ydoc, Y.encodeStateVector(target.ydoc))
-      Y.applyUpdate(target.ydoc, missing, REMOTE)
+      const missing = yjs.encodeStateAsUpdate(source.ydoc, yjs.encodeStateVector(target.ydoc))
+      yjs.applyUpdate(target.ydoc, missing, REMOTE)
     }
   }
 }
 
 function block(tab: Tab, index = 0) {
-  return tab.ydoc.getXmlFragment(BODY_FIELD).get(index) as Y.XmlElement
+  return tab.ydoc.getXmlFragment(BODY_FIELD).get(index) as yjs.XmlElement
 }
 
 // What each Yjs text in the block holds
 function pieces(tab: Tab, index = 0) {
   return block(tab, index)
     .toArray()
-    .map((text) => (text as Y.XmlText).toString())
+    .map((text) => (text as yjs.XmlText).toString())
 }
 
 function ownClock(tab: Tab) {
-  return Y.getState(tab.ydoc.store, tab.ydoc.clientID)
+  return yjs.getState(tab.ydoc.store, tab.ydoc.clientID)
 }
 
 function type(tab: Tab, text: string, at: number) {
@@ -138,11 +138,15 @@ describe('neighbouring texts in one block', () => {
   it('write nothing when a render meets empty texts among them', () => {
     const tab = open(stored(texts('a', '', 'b'), texts('', ''), texts('c')))
     const before = tab.ydoc.getXmlFragment(BODY_FIELD).toString()
-    const remote = new Y.Doc()
-    Y.applyUpdate(remote, Y.encodeStateAsUpdate(tab.ydoc))
+    const remote = new yjs.Doc()
+    yjs.applyUpdate(remote, yjs.encodeStateAsUpdate(tab.ydoc))
     remote.getXmlFragment(BODY_FIELD).insert(3, [texts('d')])
 
-    Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(remote, Y.encodeStateVector(tab.ydoc)), REMOTE)
+    yjs.applyUpdate(
+      tab.ydoc,
+      yjs.encodeStateAsUpdate(remote, yjs.encodeStateVector(tab.ydoc)),
+      REMOTE,
+    )
 
     expect(ownClock(tab)).toBe(0)
     expect(tab.ydoc.getXmlFragment(BODY_FIELD).toString()).toBe(`${before}<paragraph>d</paragraph>`)
@@ -164,29 +168,29 @@ describe('neighbouring texts in one block', () => {
 
 describe('marks across neighbouring texts', () => {
   it('stay on the text that holds them when the text beside it is typed into', () => {
-    const doc = new Y.Doc()
-    const [plain, kept] = [new Y.XmlText('ab'), new Y.XmlText('cd')]
+    const doc = new yjs.Doc()
+    const [plain, kept] = [new yjs.XmlText('ab'), new yjs.XmlText('cd')]
     doc.getXmlFragment(BODY_FIELD).insert(0, [element('paragraph', plain, kept)])
     kept.format(0, 2, { mystery: { tone: 'warm' } })
-    const tab = open(Y.encodeStateAsUpdate(doc))
+    const tab = open(yjs.encodeStateAsUpdate(doc))
 
     type(tab, 'X', 2)
 
-    const [left, right] = block(tab).toArray() as Y.XmlText[]
+    const [left, right] = block(tab).toArray() as yjs.XmlText[]
     expect(left.toDelta()).toEqual([{ insert: 'aXb' }])
     expect(right.toDelta()).toEqual([{ insert: 'cd', attributes: { mystery: { tone: 'warm' } } }])
   })
 
   it('go onto every text a mark is set across, each keeping its own', () => {
-    const doc = new Y.Doc()
-    const [plain, kept] = [new Y.XmlText('ab'), new Y.XmlText('cd')]
+    const doc = new yjs.Doc()
+    const [plain, kept] = [new yjs.XmlText('ab'), new yjs.XmlText('cd')]
     doc.getXmlFragment(BODY_FIELD).insert(0, [element('paragraph', plain, kept)])
     kept.format(0, 2, { mystery: { tone: 'warm' } })
-    const tab = open(Y.encodeStateAsUpdate(doc))
+    const tab = open(yjs.encodeStateAsUpdate(doc))
 
     tab.editor.chain().setTextSelection({ from: 2, to: 4 }).setBold().run()
 
-    const [left, right] = block(tab).toArray() as Y.XmlText[]
+    const [left, right] = block(tab).toArray() as yjs.XmlText[]
     expect(left.toDelta()).toEqual([{ insert: 'a' }, { insert: 'b', attributes: { bold: {} } }])
     expect(right.toDelta()).toEqual([
       { insert: 'c', attributes: { bold: {}, mystery: { tone: 'warm' } } },
@@ -268,7 +272,7 @@ describe('undo over neighbouring texts', () => {
 })
 
 describe('positions in neighbouring texts', () => {
-  function resolve(tab: Tab, relative: Y.RelativePosition) {
+  function resolve(tab: Tab, relative: yjs.RelativePosition) {
     const { type: root, binding } = ySyncPluginKey.getState(tab.editor.state)
     return relativePositionToAbsolutePosition(
       tab.ydoc,
@@ -304,10 +308,10 @@ describe('positions in neighbouring texts', () => {
 
   it('place a caret in the second and third texts, and follow an edit before it', () => {
     const tab = open(stored(texts('ab', 'cd', 'ef')))
-    const [, second, third] = block(tab).toArray() as Y.XmlText[]
+    const [, second, third] = block(tab).toArray() as yjs.XmlText[]
     const carets = [
-      Y.createRelativePositionFromTypeIndex(second, 1),
-      Y.createRelativePositionFromTypeIndex(third, 1),
+      yjs.createRelativePositionFromTypeIndex(second, 1),
+      yjs.createRelativePositionFromTypeIndex(third, 1),
     ]
 
     const before = carets.map((caret) => resolve(tab, caret))
@@ -322,11 +326,11 @@ describe('positions in neighbouring texts', () => {
 
   it('highlight a comment made across the second and third texts', () => {
     const tab = open(stored(texts('ab', 'cd', 'ef')))
-    const [, second, third] = block(tab).toArray() as Y.XmlText[]
+    const [, second, third] = block(tab).toArray() as yjs.XmlText[]
     const [from, to] = [
-      Y.createRelativePositionFromTypeIndex(second, 1),
-      Y.createRelativePositionFromTypeIndex(third, 1),
-    ].map((position) => Y.encodeRelativePosition(position))
+      yjs.createRelativePositionFromTypeIndex(second, 1),
+      yjs.createRelativePositionFromTypeIndex(third, 1),
+    ].map((position) => yjs.encodeRelativePosition(position))
 
     tab.ydoc.getMap('comments').set('c1', { id: 'c1', anchor: { from, to }, resolved: false })
 
@@ -405,8 +409,8 @@ function fuzz(tabCount: number, isThroughServer: boolean, seed: number) {
   const random = generator(seed)
   const isSplit = seed % 2 === 1
   const base = fuzzBase(isSplit)
-  const server = new Y.Doc()
-  Y.applyUpdate(server, base)
+  const server = new yjs.Doc()
+  yjs.applyUpdate(server, base)
   const tabs = Array.from({ length: tabCount }, () => open(base))
   const typed: string[] = []
   const deleted = new Set<string>()
@@ -428,8 +432,16 @@ function fuzz(tabCount: number, isThroughServer: boolean, seed: number) {
   }
 
   function sendThroughServer(tab: Tab) {
-    Y.applyUpdate(server, Y.encodeStateAsUpdate(tab.ydoc, Y.encodeStateVector(server)), REMOTE)
-    Y.applyUpdate(tab.ydoc, Y.encodeStateAsUpdate(server, Y.encodeStateVector(tab.ydoc)), REMOTE)
+    yjs.applyUpdate(
+      server,
+      yjs.encodeStateAsUpdate(tab.ydoc, yjs.encodeStateVector(server)),
+      REMOTE,
+    )
+    yjs.applyUpdate(
+      tab.ydoc,
+      yjs.encodeStateAsUpdate(server, yjs.encodeStateVector(tab.ydoc)),
+      REMOTE,
+    )
   }
 
   function syncSome() {

@@ -438,17 +438,19 @@ describe('importDocx into a document with a size limit', () => {
 
   it('refuses a document too large for one save, keeps what was there and takes its images back', async () => {
     uploadMock.mockResolvedValue({ file_url: '/api/method/suite.writer.api.embed.get?id=embed-1' })
-    const convertWithImage = async (_input, options) => {
+    async function convertWithImage(_input, options) {
       const image = {
         readAsArrayBuffer: async () => new ArrayBuffer(1),
         contentType: 'image/png',
       }
       await options.convertImage(image)
+      const text = 'x'.repeat(3000)
       return {
-        value: `<p>${'x'.repeat(3000)}</p>`,
+        value: `<p>${text}</p>`,
         messages: [],
       }
     }
+
     convertToHtmlMock.mockImplementation(convertWithImage)
     const { editor, tooLarge } = guardedEditor('<p>Original text</p>')
 
@@ -478,7 +480,8 @@ describe('importDocx into a document with a size limit', () => {
   })
 
   it('imports a document that fits in one save', async () => {
-    convertToHtmlMock.mockResolvedValue({ value: `<p>${'y'.repeat(1500)}</p>`, messages: [] })
+    const text = 'y'.repeat(1500)
+    convertToHtmlMock.mockResolvedValue({ value: `<p>${text}</p>`, messages: [] })
     const { editor, tooLarge } = guardedEditor('')
 
     await importDocx(fakeFile('fits.docx'), { editor: { value: editor }, currentFileId: 'file-1' })

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pycrdt
 from frappe.tests import UnitTestCase
 
@@ -22,9 +24,10 @@ class TestParse(UnitTestCase):
 
         update = parse(doc.get_update())
 
-        ends = {}
+        ends: dict[int, int] = {}
         for struct in update.structs:
             ends[struct.client] = max(ends.get(struct.client, 0), struct.clock + struct.length)
+
         self.assertEqual(ends, state_vector(doc.get_state()))
         self.assertEqual(update.deletes, {5: [(2, 2)]})
 
@@ -82,23 +85,35 @@ class TestParse(UnitTestCase):
                 "format": one_struct_holding(6, encoded_string("bold") + encoded_string(text)),
             }
 
-        # Only containers count: what the innermost one holds does not change its level
-        for inner in ("", "1"):
-            at_limit = by_content_kind(nested(100, inner))
-            for kind, payload in at_limit.items():
+        def assert_each_parses_as_one_struct(payloads: dict[str, bytes], inner: str) -> None:
+            for kind, payload in payloads.items():
                 with self.subTest(kind, inner=inner):
                     self.assertEqual(parse(payload).structs[0].length, 1)
 
+        def assert_each_refused(payloads: dict[str, bytes], inner: str, depth: int) -> None:
+            for kind, payload in payloads.items():
+                with self.subTest(kind, inner=inner, depth=depth), self.assertRaises(ValueError):
+                    parse(payload)
+
+        # Only containers count: what the innermost one holds does not change its level
+        for inner in ("", "1"):
+            at_limit = by_content_kind(nested(100, inner))
+            assert_each_parses_as_one_struct(at_limit, inner)
             for depth in (101, 200_000):
                 past_limit = by_content_kind(nested(depth, inner))
-                for kind, payload in past_limit.items():
-                    with self.subTest(kind, inner=inner, depth=depth), self.assertRaises(ValueError):
-                        parse(payload)
+                assert_each_refused(past_limit, inner, depth)
 
     def test_any_values_nested_deeper_than_a_hundred_levels_are_refused(self):
         def nested(depth: int, inner: bytes) -> bytes:
             value = bytes([117, 1]) * (depth - 1) + inner
             return bytes([1, 1, 5, 0, 8, 1]) + encoded_string("t") + bytes([1]) + value + bytes([0])
+
+        def assert_refused_past_a_hundred(inner: bytes) -> None:
+            at_limit = nested(100, inner)
+            past_limit = nested(101, inner)
+            self.assertEqual(parse(at_limit).structs[0].length, 1)
+            with self.assertRaises(ValueError):
+                parse(past_limit)
 
         # Arrays, then an innermost array that is empty, holds a number, or an object holding a number
         for inner in (
@@ -106,12 +121,8 @@ class TestParse(UnitTestCase):
             bytes([117, 1, 125, 1]),
             bytes([118, 1]) + encoded_string("k") + bytes([125, 1]),
         ):
-            at_limit = nested(100, inner)
-            past_limit = nested(101, inner)
             with self.subTest(inner=inner):
-                self.assertEqual(parse(at_limit).structs[0].length, 1)
-                with self.assertRaises(ValueError):
-                    parse(past_limit)
+                assert_refused_past_a_hundred(inner)
 
     def test_integers_past_what_yjs_holds_exactly_are_refused(self):
         def written(client=5, clock=0, origin=None) -> bytes:
@@ -119,6 +130,7 @@ class TestParse(UnitTestCase):
                 content = bytes([0x84]) + encoded_uint(origin[0]) + encoded_uint(origin[1])
             else:
                 content = bytes([4, 1]) + encoded_string("t")
+
             return (
                 bytes([1, 1])
                 + encoded_uint(client)
@@ -148,12 +160,16 @@ class TestParse(UnitTestCase):
             "delete length": lambda value: deleted(length=value),
             "number": any_integer,
         }
+
+        def assert_holds_only_safe_integers(build: Callable[[int], bytes]) -> None:
+            parse(build(max_safe))
+            for past in (max_safe + 1, 2**64):
+                with self.assertRaises(ValueError):
+                    parse(build(past))
+
         for case, build in cases.items():
             with self.subTest(case):
-                parse(build(max_safe))
-                for past in (max_safe + 1, 2**64):
-                    with self.assertRaises(ValueError):
-                        parse(build(past))
+                assert_holds_only_safe_integers(build)
 
     def test_malformed_updates_are_refused(self):
         good = typed("abc").get_update()
@@ -167,7 +183,6 @@ def swap(value: str) -> str:
 
 
 def pictured(client_id: int = 5) -> pycrdt.Doc:
-    """Every kind of value a remap must reach, and text that names the same id."""
     doc = pycrdt.Doc(client_id=client_id)
     body = doc.get("default", type=pycrdt.XmlFragment)
     image_attributes = {

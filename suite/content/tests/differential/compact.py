@@ -23,31 +23,46 @@ def roots_of(parts: list[bytes]) -> dict:
     try:
         return SLIDES_ROOTS if "slides" in load_doc(parts).keys() else WRITER_ROOTS
     except Exception:
-        return WRITER_ROOTS  # the compaction reports what it cannot read
+        # the compaction reports what it cannot read
+        return WRITER_ROOTS
+
+
+def decoded_checkpoint(job: dict) -> bytes | None:
+    if job.get("cp"):
+        return base64.b64decode(job["cp"])
+
+    return None
 
 
 def compact_job(job: dict) -> dict:
-    checkpoint = base64.b64decode(job["cp"]) if job.get("cp") else None
+    checkpoint = decoded_checkpoint(job)
     rows = [base64.b64decode(row) for row in job["rows"]]
-    arrivals = [[], [base64.b64decode(job["heal"])]] if job.get("heal") else [[]]
-    parts = ([checkpoint] if checkpoint else []) + rows
+    arrivals: list[list[bytes]] = [[]]
+    if job.get("heal"):
+        arrivals.append([base64.b64decode(job["heal"])])
+
+    parts = list(rows)
+    if checkpoint:
+        parts.insert(0, checkpoint)
+
     roots = roots_of(parts)
-    outcomes = []
+    outcomes: list[str] = []
     for arriving in arrivals:
         rows += arriving
         try:
             compacted = compact(checkpoint, rows, roots)
-            checkpoint, rows = compacted.state, []
+            checkpoint = compacted.state
+            rows = []
             outcomes.append("compacted")
         except CompactionFailed as error:
             outcomes.append(error.reason)
 
     fully_compacted = checkpoint and not rows
-    return {
-        "id": job["id"],
-        "outcomes": outcomes,
-        "cp": base64.b64encode(checkpoint).decode() if fully_compacted else None,
-    }
+    encoded_checkpoint = None
+    if fully_compacted:
+        encoded_checkpoint = base64.b64encode(checkpoint).decode()
+
+    return {"id": job["id"], "outcomes": outcomes, "cp": encoded_checkpoint}
 
 
 if __name__ == "__main__":

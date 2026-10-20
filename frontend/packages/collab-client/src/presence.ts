@@ -1,6 +1,6 @@
 import * as encoding from 'lib0/encoding'
 import { applyAwarenessUpdate, Awareness, removeAwarenessStates } from 'y-protocols/awareness'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import {
   parseCaret,
@@ -69,7 +69,7 @@ export class Presence {
     private readonly socket: LiveSocket,
     private readonly hooks: PresenceHooks,
   ) {
-    const scratch = new Y.Doc()
+    const scratch = new yjs.Doc()
     scratch.clientID = 0
     this.awareness = new Awareness(scratch)
     this.awareness.on('update', this.onLocalUpdate)
@@ -128,6 +128,7 @@ export class Presence {
     for (const entry of answer.roster) {
       this.addMember(entry)
     }
+
     const departed = [...previousPids].filter((pid) => !this.members.has(pid))
     this.removeCarets(departed)
 
@@ -173,14 +174,16 @@ export class Presence {
     const batch = parseCaretBatch(heard)
     if (!batch || !this.hooks.isOwnRoom(batch.room)) return
 
-    const inRoom = (state: object) => ({
-      ...state,
-      room: batch.room,
-    })
+    const room = batch.room
+    function inRoom(state: object) {
+      return { ...state, room }
+    }
+
     const states = batch.states.map(inRoom)
     for (const state of states) {
       this.addMember(state)
     }
+
     this.applyCarets(states)
     this.notifyListeners()
   }
@@ -228,33 +231,43 @@ export class Presence {
     return true
   }
 
+  private acceptCaret(caret: HeardCaret, now: number): Clocked | null {
+    const { pid, clock, cursor, typed, at, idleFor, hiddenFor } = caret
+    const member = this.members.get(pid)
+    if (!member) {
+      return null
+    }
+
+    if (at !== null) {
+      this.hooks.peerAhead(at)
+    }
+
+    member.idleSince = startOf(idleFor, now)
+    member.hiddenSince = startOf(hiddenFor, now)
+    if (caretLapsed(member, now)) {
+      this.removeCarets([pid])
+      return null
+    }
+
+    const user = { id: member.user }
+    const shown = {
+      user,
+      cursor: this.hooks.position(cursor),
+      typed,
+    }
+    return [pid, clock, shown]
+  }
+
   // One awareness update for the whole batch, clocked by the service's count
   private applyCarets(states: object[]) {
     const accepted: Clocked[] = []
     const carets = states.map(parseCaret).filter((caret): caret is HeardCaret => !!caret)
     const now = Date.now()
-    for (const { pid, clock, cursor, typed, at, idleFor, hiddenFor } of carets) {
-      const member = this.members.get(pid)
-      if (!member) continue
-
-      if (at !== null) {
-        this.hooks.peerAhead(at)
+    for (const caret of carets) {
+      const clocked = this.acceptCaret(caret, now)
+      if (clocked) {
+        accepted.push(clocked)
       }
-
-      member.idleSince = startOf(idleFor, now)
-      member.hiddenSince = startOf(hiddenFor, now)
-      if (caretLapsed(member, now)) {
-        this.removeCarets([pid])
-        continue
-      }
-
-      const user = { id: member.user }
-      const shown = {
-        user,
-        cursor: this.hooks.position(cursor),
-        typed,
-      }
-      accepted.push([pid, clock, shown])
     }
 
     this.wakeWhenHiddenTurnsIdle()
@@ -307,6 +320,7 @@ export class Presence {
       this.sendTimer = null
       this.sendCaret()
     }
+
     const wait = Math.max(0, this.lastSentAt + SEND_MS - Date.now())
     this.sendTimer = setTimeout(sendNow, wait)
   }
@@ -446,5 +460,6 @@ function encodeStates(accepted: Clocked[]) {
     encoding.writeVarUint(encoder, clock)
     encoding.writeVarString(encoder, JSON.stringify(state))
   }
+
   return encoding.toUint8Array(encoder)
 }

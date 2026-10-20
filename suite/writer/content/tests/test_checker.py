@@ -20,10 +20,9 @@ def paragraph(text: str) -> pycrdt.XmlElement:
 
 
 def typed_rows(*edits) -> list[bytes]:
-    """One row per edit to the body, as a tab pushes them."""
     doc = pycrdt.Doc()
     body = doc.get("default", type=pycrdt.XmlFragment)
-    rows = []
+    rows: list[bytes] = []
     doc.observe(lambda event: rows.append(event.update))
     for edit in edits:
         edit(body)
@@ -74,7 +73,8 @@ class TestChecker(UnitTestCase):
         self.assertEqual(checker.judge(BUNDLE, checkpoint, rows).index, -1)
 
     def test_names_a_row_yjs_cannot_read(self):
-        rows = [*typed_rows(append_node(paragraph("abc"))), b"\xff\xff\xff"]
+        readable_rows = typed_rows(append_node(paragraph("abc")))
+        rows = [*readable_rows, b"\xff\xff\xff"]
         verdict = checker.judge(BUNDLE, None, rows)
         self.assertEqual(verdict.index, 1)
         self.assertTrue(verdict.reason.startswith("throws: "), verdict.reason)
@@ -127,31 +127,33 @@ class TestChecker(UnitTestCase):
             bundle.write_text(probe)
             with patch.dict(os.environ, {"SUITE_CHECKER_SECRET": "x"}):
                 reason = checker.judge(bundle, None, [b"x"]).reason
+
         self.assertEqual(reason, "env 0, read denied, write denied, spawn denied")
 
     def test_a_reason_keeps_no_document_text(self):
-        with tempfile.TemporaryDirectory() as folder:
-            for name, reason, expected in (
-                ("quoted", 'throws: Error: unexpected "secret words" here', "throws: Error: unexpected"),
-                (
-                    "node",
-                    "schema: RangeError: Invalid content for node doc: <paragraph(secret)>",
-                    "schema: RangeError: Invalid content for node doc:",
-                ),
-                ("long", "x" * 200, "x" * 80),
-            ):
-                bundle = Path(folder) / f"{name}.cjs"
-                quoted_reason = json.dumps(reason)
-                source = f"process.stdout.write(JSON.stringify({{ verdict: 'bad', index: 0, reason: {quoted_reason} }}))"
-                bundle.write_text(source)
-                with self.subTest(name):
-                    self.assertEqual(checker.judge(bundle, None, [b"x"]).reason, expected)
+        folder = self.enterContext(tempfile.TemporaryDirectory())
+        for name, reason, expected in (
+            ("quoted", 'throws: Error: unexpected "secret words" here', "throws: Error: unexpected"),
+            (
+                "node",
+                "schema: RangeError: Invalid content for node doc: <paragraph(secret)>",
+                "schema: RangeError: Invalid content for node doc:",
+            ),
+            ("long", "x" * 200, "x" * 80),
+        ):
+            bundle = Path(folder) / f"{name}.cjs"
+            quoted_reason = json.dumps(reason)
+            source = f"process.stdout.write(JSON.stringify({{ verdict: 'bad', index: 0, reason: {quoted_reason} }}))"
+            bundle.write_text(source)
+            with self.subTest(name):
+                self.assertEqual(checker.judge(bundle, None, [b"x"]).reason, expected)
 
-            bundle = Path(folder) / "loud.cjs"
-            bundle.write_text("process.stderr.write('Error: <p>secret words</p>\\n'); process.exit(3)")
-            with self.assertRaises(checker.CheckerFailed) as failed:
-                checker.judge(bundle, None, [])
-            self.assertEqual(str(failed.exception), "exit 3: Error:")
+        bundle = Path(folder) / "loud.cjs"
+        bundle.write_text("process.stderr.write('Error: <p>secret words</p>\\n'); process.exit(3)")
+        with self.assertRaises(checker.CheckerFailed) as failed:
+            checker.judge(bundle, None, [])
+
+        self.assertEqual(str(failed.exception), "exit 3: Error:")
 
     def test_the_bundle_needs_only_crypto_and_drops_the_network_globals(self):
         bundle_source = BUNDLE.read_text()
@@ -161,8 +163,9 @@ class TestChecker(UnitTestCase):
         self.assertEqual(node_imports, {"node:crypto"})
 
         bundle = BUNDLE.resolve()
+        quoted_bundle = json.dumps(str(bundle))
         probe = f"""
-        require({json.dumps(str(bundle))})
+        require({quoted_bundle})
         const names = ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']
         process.stdout.write(JSON.stringify(names.filter((name) => name in globalThis)) + '\\n')
         """
@@ -193,10 +196,13 @@ class TestChecker(UnitTestCase):
         self.assertEqual({bundled_yjs}, locked)
 
     def test_a_child_that_hangs_or_crashes_fails_loudly(self):
-        with tempfile.TemporaryDirectory() as folder:
-            for name, source in (("hang", "setInterval(() => {}, 1000)"), ("crash", "process.exit(3)")):
-                bundle = Path(folder) / f"{name}.cjs"
-                bundle.write_text(source)
-                with self.subTest(name), patch.object(checker, "TIMEOUT_S", 2):
-                    with self.assertRaises(checker.CheckerFailed):
-                        checker.judge(bundle, None, [])
+        folder = self.enterContext(tempfile.TemporaryDirectory())
+        for name, source in (("hang", "setInterval(() => {}, 1000)"), ("crash", "process.exit(3)")):
+            bundle = Path(folder) / f"{name}.cjs"
+            bundle.write_text(source)
+            with (
+                self.subTest(name),
+                patch.object(checker, "TIMEOUT_S", 2),
+                self.assertRaises(checker.CheckerFailed),
+            ):
+                checker.judge(bundle, None, [])

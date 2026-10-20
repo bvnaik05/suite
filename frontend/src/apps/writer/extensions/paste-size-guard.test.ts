@@ -4,7 +4,7 @@ import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import type { Limits } from '@/platform/collab'
 
@@ -21,15 +21,17 @@ const emptyDocLimits: Limits = {
 
 let editor: Editor | undefined
 // jsdom has no ClipboardEvent, which ProseMirror makes when it is given none
-const paste = (view: Editor['view'], text: string) =>
-  view.pasteText(text, new Event('paste') as ClipboardEvent)
+function paste(view: Editor['view'], text: string) {
+  return view.pasteText(text, new Event('paste') as ClipboardEvent)
+}
+
 afterEach(() => editor?.destroy())
 
-function guardedEditor(limits: Limits | null, atLimit = false) {
+function guardedEditor(limits: Limits | null, isAtLimit = false) {
   const notices: string[] = []
   const guardOptions = {
     limits: () => limits,
-    atLimit: () => atLimit,
+    atLimit: () => isAtLimit,
     onTooLarge: () => notices.push('too large'),
     onNearFull: () => notices.push('nearly full'),
   }
@@ -92,7 +94,7 @@ describe('paste size guard', () => {
 
 // A document at its limit, in an editor bound to Yjs, and whether any update it wrote adds content
 function editorAtLimit() {
-  const ydoc = new Y.Doc()
+  const ydoc = new yjs.Doc()
   const full = { now: false }
   const element = document.createElement('div')
   document.body.append(element)
@@ -115,13 +117,17 @@ function editorAtLimit() {
   full.now = true
 
   const added: number[] = []
-  const countStructs = (update: Uint8Array) => {
-    const { structs } = Y.decodeUpdate(update)
+  function countStructs(update: Uint8Array) {
+    const { structs } = yjs.decodeUpdate(update)
     added.push(structs.length)
   }
+
   ydoc.on('update', countStructs)
 
-  const blocks = () => editor!.getJSON().content!.map((block) => block.content?.[0]?.text ?? '')
+  function blocks() {
+    return editor!.getJSON().content!.map((block) => block.content?.[0]?.text ?? '')
+  }
+
   return {
     ydoc,
     full,
@@ -133,7 +139,7 @@ function editorAtLimit() {
 
 describe('a document at its size limit', () => {
   it('a tab opened on a full document shows its text', () => {
-    const writtenDoc = new Y.Doc()
+    const writtenDoc = new yjs.Doc()
     const sourceOptions = {
       extensions: [Document, Paragraph, Text, Collaboration.configure({ document: writtenDoc })],
     }
@@ -141,9 +147,9 @@ describe('a document at its size limit', () => {
     sourceEditor.commands.setContent('<p>alpha one</p><p>beta two</p>')
     sourceEditor.destroy()
 
-    const ydoc = new Y.Doc()
-    const writtenState = Y.encodeStateAsUpdate(writtenDoc)
-    Y.applyUpdate(ydoc, writtenState)
+    const ydoc = new yjs.Doc()
+    const writtenState = yjs.encodeStateAsUpdate(writtenDoc)
+    yjs.applyUpdate(ydoc, writtenState)
     const element = document.createElement('div')
     document.body.append(element)
     const guardOptions = {
@@ -170,7 +176,8 @@ describe('a document at its size limit', () => {
 
     chain().setTextSelection({ from: 2, to: 5 }).deleteSelection().run()
 
-    expect([blocks()[0], added.every((structs) => structs === 0)]).toEqual(['aa one', true])
+    const [firstText] = blocks()
+    expect([firstText, added.every((structs) => structs === 0)]).toEqual(['aa one', true])
   })
 
   it('deleting from a paragraph through the end of the next goes in and writes nothing new', () => {
@@ -215,17 +222,18 @@ describe('a document at its size limit', () => {
 
   it("another writer's change still shows", () => {
     const { ydoc, blocks } = editorAtLimit()
-    const otherDoc = new Y.Doc()
-    const fullState = Y.encodeStateAsUpdate(ydoc)
-    Y.applyUpdate(otherDoc, fullState)
-    const before = Y.encodeStateVector(otherDoc)
-    const firstBlock = otherDoc.getXmlFragment('default').get(0) as Y.XmlElement
-    ;(firstBlock.get(0) as Y.XmlText).insert(0, 'new ')
+    const otherDoc = new yjs.Doc()
+    const fullState = yjs.encodeStateAsUpdate(ydoc)
+    yjs.applyUpdate(otherDoc, fullState)
+    const before = yjs.encodeStateVector(otherDoc)
+    const firstBlock = otherDoc.getXmlFragment('default').get(0) as yjs.XmlElement
+    ;(firstBlock.get(0) as yjs.XmlText).insert(0, 'new ')
 
-    const otherChange = Y.encodeStateAsUpdate(otherDoc, before)
-    Y.applyUpdate(ydoc, otherChange, 'remote')
+    const otherChange = yjs.encodeStateAsUpdate(otherDoc, before)
+    yjs.applyUpdate(ydoc, otherChange, 'remote')
 
-    expect(blocks()[0]).toBe('new alpha one')
+    const [firstText] = blocks()
+    expect(firstText).toBe('new alpha one')
   })
 
   it('typing goes in again once there is room', () => {
@@ -234,6 +242,7 @@ describe('a document at its size limit', () => {
     full.now = false
     chain().setTextSelection(1).insertContent('x').run()
 
-    expect(blocks()[0]).toBe('xalpha one')
+    const [firstText] = blocks()
+    expect(firstText).toBe('xalpha one')
   })
 })

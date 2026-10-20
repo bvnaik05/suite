@@ -13,7 +13,8 @@ from suite.content import ingest, updates
 FUZZ_SCRIPT = Path(__file__).parent / "differential" / "fuzz.cjs"
 YJS = Path(__file__).parents[3] / "node_modules" / "yjs"
 # About 26,000 generated and mutated pushes, about a second
-SEED, SESSIONS = 1, 1000
+SEED = 1
+SESSIONS = 1000
 MAX_FAILURES = 5
 
 # Kept in step with the reasons the QA harness accepts for a row Yjs can read
@@ -33,23 +34,31 @@ EXPECTED = {
 
 
 def id_list(ref: tuple[int, int] | None) -> list[int] | None:
-    return list(ref) if ref else None
+    if not ref:
+        return None
+
+    return list(ref)
 
 
 def gate_reading(update: updates.Update) -> dict:
-    """What the gate read from an update, in the shape fuzz.cjs reports Yjs's reading."""
-    return {
-        "structs": [
+    structs: list[list] = []
+    for struct in update.structs:
+        structs.append(
             [
                 *(struct.client, struct.clock, struct.length, struct.kind),
                 *(id_list(struct.origin), id_list(struct.right_origin), id_list(struct.parent)),
                 *(struct.type, struct.node, struct.format_key, struct.names),
             ]
-            for struct in update.structs
-        ],
-        "deletes": sorted(
-            [client, [list(span) for span in ranges]] for client, ranges in update.deletes.items() if ranges
-        ),
+        )
+
+    deletes: list[list] = []
+    for client, ranges in update.deletes.items():
+        if ranges:
+            deletes.append([client, [list(span) for span in ranges]])
+
+    return {
+        "structs": structs,
+        "deletes": sorted(deletes),
     }
 
 
@@ -83,41 +92,49 @@ class TestGateAgainstYjs(UnitTestCase):
         self.assertGreater(len(lines), 20000)
 
         # The run stops at the first few failures, so a broken gate fails fast in bounded memory
-        failures = []
+        failures: list[str] = []
         for line in lines:
             generated_push = json.loads(line)
             problem = gate_problem(generated_push)
-            if problem:
-                failures.append(
-                    f"{generated_push['case']} cid={generated_push['cid']} {generated_push['update']}: {problem}"
-                )
-                if len(failures) == MAX_FAILURES:
-                    break
+            if not problem:
+                continue
+
+            failures.append(
+                f"{generated_push['case']} cid={generated_push['cid']} {generated_push['update']}: {problem}"
+            )
+            if len(failures) == MAX_FAILURES:
+                break
 
         self.assertFalse(failures, "\n".join(failures))
 
 
+def refusal_problem(
+    refusal: ValueError, *, case: str, expected: str | None, yjs_reading: dict | None
+) -> str | None:
+    if case in {"own", "merged"}:
+        return f"a tab's own update was refused: {refusal}"
+
+    if expected and str(refusal) != expected:
+        return f"refused for {refusal}, not {expected}"
+
+    if not expected and yjs_reading and not LISTED_REASONS.search(str(refusal)):
+        return f"refused for an unlisted reason: {refusal}"
+
+    return None
+
+
 def gate_problem(generated_push: dict) -> str | None:
-    """What is wrong with the gate's answer to one generated push, or None."""
     yjs_reading = generated_push["yjs"]
     if yjs_reading:
         yjs_reading["deletes"] = sorted(yjs_reading["deletes"])
 
-    expected = EXPECTED.get(generated_push["case"])
+    case = generated_push["case"]
+    expected = EXPECTED.get(case)
     try:
         pushed = base64.b64decode(generated_push["update"])
         row = ingest.check_row(pushed, generated_push["cid"])
     except ValueError as refusal:
-        if generated_push["case"] in ("own", "merged"):
-            return f"a tab's own update was refused: {refusal}"
-
-        if expected and str(refusal) != expected:
-            return f"refused for {refusal}, not {expected}"
-
-        if not expected and yjs_reading and not LISTED_REASONS.search(str(refusal)):
-            return f"refused for an unlisted reason: {refusal}"
-
-        return None
+        return refusal_problem(refusal, case=case, expected=expected, yjs_reading=yjs_reading)
 
     if expected:
         return "a row the gate must refuse passed"

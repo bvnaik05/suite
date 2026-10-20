@@ -295,7 +295,7 @@ class TestWriterDeclaration(UnitTestCase):
         # rewritten attribute names only its new id. A raw scan of the update
         # bytes would instead match every id-shaped run of text in them.
         content = body_with("keep", "drop")
-        document, fragment = writer._loaded_body(base64.b64decode(content))
+        document, fragment = files.load(base64.b64decode(content))
         with document.transaction():
             paragraph = fragment.children[0]
             del paragraph.children[1]
@@ -342,7 +342,7 @@ class TestWriterDeclaration(UnitTestCase):
     def test_a_body_that_applies_and_then_panics_still_refuses_as_a_validation_error(self):
         # A body whose root was written as a `Text` or an `Array` applies
         # cleanly. pycrdt 0.12 panicked on the first child read, and 0.14 reads
-        # it as a fragment with no children; either way it is no Writer body.
+        # it as a fragment with no children; either way it is no Writer body
         for value in (pycrdt.Text("hello"), pycrdt.Array([1, 2])):
             with self.subTest(root=type(value).__name__):
                 body = rooted_body(value)

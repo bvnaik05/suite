@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core'
-import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state'
+import { Plugin, PluginKey, type EditorState, type StateField } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 
 import type { DocumentThread } from '@/apps/drive'
@@ -19,13 +19,13 @@ interface Highlights {
 interface HighlightOptions {
   threads: () => readonly DocumentThread[]
   // Told each time the threads are placed again
-  placed: (places: ThreadPlaces) => void
+  onPlaced: (places: ThreadPlaces) => void
   // The thread open in the panel, whose text shows darker
   open: () => string | null
   // The thread whose row is pointed at, whose text shows a little darker
   lit: () => string | null
   // Told the thread whose highlighted text was clicked
-  opened: (name: string) => void
+  onOpened: (name: string) => void
 }
 
 interface Shown {
@@ -35,6 +35,42 @@ interface Shown {
 
 const highlightsKey = new PluginKey<Highlights>('threadHighlights')
 
+function highlightsState(
+  threads: () => readonly DocumentThread[],
+  shown: () => Shown,
+): StateField<Highlights> {
+  return {
+    init: (_, state) => highlights(state, threads(), shown()),
+    apply: (transaction, previous, _, state) => {
+      if (transaction.getMeta(highlightsKey)) {
+        return highlights(state, threads(), shown())
+      }
+
+      if (!transaction.docChanged) {
+        return previous
+      }
+
+      const decorations = previous.decorations.map(transaction.mapping, transaction.doc)
+      return { ...previous, decorations, isStale: true }
+    },
+  }
+}
+
+function placingView(view: EditorView, placed: (state: EditorState) => void) {
+  placed(view.state)
+  return {
+    // The sync plugin's view writes an edit to Yjs before this one runs
+    update: (updated: EditorView, previous: EditorState) => {
+      const current = highlightsKey.getState(updated.state)!
+      if (current.isStale) {
+        redrawThreads(updated)
+      } else if (current !== highlightsKey.getState(previous)) {
+        placed(updated.state)
+      }
+    },
+  }
+}
+
 /** Marks the text each open thread is on, found again after every change to the document. */
 export const ThreadHighlights = Extension.create<HighlightOptions>({
   name: 'threadHighlights',
@@ -42,37 +78,23 @@ export const ThreadHighlights = Extension.create<HighlightOptions>({
   addOptions() {
     return {
       threads: () => [],
-      placed: () => {},
+      onPlaced: () => {},
       open: () => null,
       lit: () => null,
-      opened: () => {},
+      onOpened: () => {},
     }
   },
 
   addProseMirrorPlugins() {
     const threads = () => this.options.threads()
     const shown = () => ({ open: this.options.open(), lit: this.options.lit() })
-    const opened = (name: string) => this.options.opened(name)
+    const opened = (name: string) => this.options.onOpened(name)
     const placed = (state: EditorState) =>
-      this.options.placed(highlightsKey.getState(state)!.places)
+      this.options.onPlaced(highlightsKey.getState(state)!.places)
     return [
       new Plugin({
         key: highlightsKey,
-        state: {
-          init: (_, state) => highlights(state, threads(), shown()),
-          apply: (transaction, previous, _, state) => {
-            if (transaction.getMeta(highlightsKey)) {
-              return highlights(state, threads(), shown())
-            }
-
-            if (!transaction.docChanged) {
-              return previous
-            }
-
-            const decorations = previous.decorations.map(transaction.mapping, transaction.doc)
-            return { ...previous, decorations, isStale: true }
-          },
-        },
+        state: highlightsState(threads, shown),
         props: {
           decorations: (state) => highlightsKey.getState(state)?.decorations,
           // The cursor still goes where the text was clicked
@@ -85,21 +107,7 @@ export const ThreadHighlights = Extension.create<HighlightOptions>({
             return false
           },
         },
-        view: (view) => {
-          placed(view.state)
-          return {
-            // The sync plugin's view writes an edit to Yjs before this one runs
-            update: (updated, previous) => {
-              if (highlightsKey.getState(updated.state)!.isStale) {
-                redrawThreads(updated)
-              } else if (
-                highlightsKey.getState(updated.state) !== highlightsKey.getState(previous)
-              ) {
-                placed(updated.state)
-              }
-            },
-          }
-        },
+        view: (view) => placingView(view, placed),
       }),
     ]
   },

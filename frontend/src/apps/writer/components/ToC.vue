@@ -77,7 +77,7 @@
                 ]"
                 :label="tab.label"
                 :draggable="editor.isEditable"
-                @click="tab.id !== activeTabId && editor.commands.changeTab(tab.id)"
+                @click="handleTabClick(tab.id)"
                 @dragstart="onDragStart($event, tab, index)"
                 @dragend.prevent="onDragEnd"
               >
@@ -412,9 +412,33 @@ const activeAnchorId = computed(() => {
   return activeId
 })
 
+function handleTabClick(tabId) {
+  if (tabId !== activeTabId.value) {
+    props.editor.commands.changeTab(tabId)
+  }
+}
+
+function copyTabLink() {
+  const [pageUrl] = window.location.href.split('#')
+  return navigator.clipboard.writeText(pageUrl + '#' + activeTabId.value)
+}
+
+const deleteTabGroup = {
+  group: '',
+  hideLabel: true,
+  options: [
+    {
+      label: 'Delete',
+      icon: LucideTrash,
+      theme: 'red',
+      onClick: () => props.editor.commands.deleteTab(activeTabId.value),
+    },
+  ],
+}
+
 const tabActions = computed(() => {
   const canRename = props.editor.can().renameTab(activeTabId.value, '')
-  const onlyFirstTab = activeTabId.value === FIRST_TAB_ID && tabs.value.length === 1
+  const isOnlyFirstTab = activeTabId.value === FIRST_TAB_ID && tabs.value.length === 1
   const actions = [
     canRename && {
       label: 'Rename',
@@ -424,21 +448,9 @@ const tabActions = computed(() => {
     {
       label: 'Copy link',
       icon: LucideLink,
-      onClick: () =>
-        navigator.clipboard.writeText(window.location.href.split('#')[0] + '#' + activeTabId.value),
+      onClick: copyTabLink,
     },
-    !onlyFirstTab && {
-      group: '',
-      hideLabel: true,
-      options: [
-        {
-          label: 'Delete',
-          icon: LucideTrash,
-          theme: 'red',
-          onClick: () => props.editor.commands.deleteTab(activeTabId.value),
-        },
-      ],
-    },
+    !isOnlyFirstTab && deleteTabGroup,
   ]
   return actions.filter(Boolean)
 })

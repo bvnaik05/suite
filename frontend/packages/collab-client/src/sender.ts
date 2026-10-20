@@ -1,7 +1,14 @@
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { classifyRefusal, type AccessRoom } from './access'
-import { readReply, type Reply } from './answers'
+import {
+  HTTP_CONFLICT,
+  HTTP_LOCKED,
+  HTTP_OK,
+  HTTP_TOO_LARGE,
+  readReply,
+  type Reply,
+} from './answers'
 import { backoffMs } from './backoff'
 import type { Copier } from './copier'
 import { encodePush, type PushHeader } from './frames'
@@ -47,13 +54,19 @@ export interface SenderRoom extends AccessRoom {
 const DEFAULT_PACE_MS = 500
 const MAX_PACE_MS = 10_000
 // The server is busy or holds the document; the push is asked again
-const LOCKED = 423
-const BUSY_RETRY_MS = 1000
+export const BUSY_RETRY_MS = 1000
+const KEEPALIVE_PAIR_SIZE = 2
 
 // The seqs of one session a push carries, through `to`
-type PushRange = { box: Outbox; to: number }
+interface PushRange {
+  box: Outbox
+  to: number
+}
 // A keepalive push ready to send, with the seqs it carries
-type KeepalivePush = { header: { from: number; to: number }; body: Uint8Array<ArrayBuffer> }
+interface KeepalivePush {
+  header: { from: number; to: number }
+  body: Uint8Array<ArrayBuffer>
+}
 // A push ready to send; a large one goes as staged pieces first
 interface PreparedPush {
   box: Outbox
@@ -78,7 +91,7 @@ function restoreIn(box: Outbox, header: PushHeader) {
     return null
   }
 
-  return Y.mergeUpdates(landed.map((entry) => entry.bytes))
+  return yjs.mergeUpdates(landed.map((entry) => entry.bytes))
 }
 
 // Pushes the room's unsent work one push at a time, at the server's pace, and settles each answer
@@ -119,6 +132,7 @@ export class Sender {
       this.sendTimer = null
       void this.send()
     }
+
     this.sendTimer = setTimeout(sendQueued, wait)
   }
 
@@ -209,7 +223,7 @@ export class Sender {
       return
     }
 
-    const tail = this.keepalivePush(this.inFlightRange, KEEPALIVE_QUOTA / 2)
+    const tail = this.keepalivePush(this.inFlightRange, KEEPALIVE_QUOTA / KEEPALIVE_PAIR_SIZE)
     const overlap = this.keepalivePush(null, KEEPALIVE_QUOTA - (tail?.body.byteLength ?? 0))
     if (tail && overlap) {
       this.sendKeepalive(tail.body)
@@ -256,6 +270,7 @@ export class Sender {
     if (this.sendTimer) {
       clearTimeout(this.sendTimer)
     }
+
     this.sendTimer = null
   }
 
@@ -270,7 +285,7 @@ export class Sender {
     }
 
     const header = this.pushHeader(batch.box, batch.entries, !!keepalive)
-    const update = Y.mergeUpdates(batch.entries.map((entry) => entry.bytes))
+    const update = yjs.mergeUpdates(batch.entries.map((entry) => entry.bytes))
     if (update.byteLength <= PIECE_BYTES) {
       return { box: batch.box, header, body: encodePush(header, update) }
     }
@@ -331,25 +346,26 @@ export class Sender {
       this.setPace(reply.pace_ms)
     }
 
-    if (reply.status !== LOCKED) {
+    if (reply.status !== HTTP_LOCKED) {
       this.room.setPaused(null)
     }
 
-    if (reply.status === 200) {
+    if (reply.status === HTTP_OK) {
       return this.onCommitted(reply, box, header)
     }
 
-    if (reply.status === 409 && reply.collab === 'seq' && typeof reply.acked === 'number') {
+    const isSeqConflict = reply.status === HTTP_CONFLICT && reply.collab === 'seq'
+    if (isSeqConflict && typeof reply.acked === 'number') {
       return this.onSeqConflict(box, reply.acked)
     }
 
     // Pieces the server dropped or never got are staged again; a stage it refused is replaced
     const stageFailed = reply.collab === 'stage_conflict' || reply.collab === 'stage_incomplete'
-    if (reply.status === 409 && stageFailed) {
+    if (reply.status === HTTP_CONFLICT && stageFailed) {
       return this.restage(reply.collab === 'stage_conflict')
     }
 
-    if (reply.status === LOCKED) {
+    if (reply.status === HTTP_LOCKED) {
       return this.onBusy(reply)
     }
 
@@ -407,9 +423,10 @@ export class Sender {
 
     if (!reply.collab) {
       // Only a proxy refuses a body without a reason; the change stays here until uploads get through
-      if (reply.status === 413) {
+      if (reply.status === HTTP_TOO_LARGE) {
         room.setPaused('upload_refused')
       }
+
       return this.retryAfter(backoffMs())
     }
 
@@ -447,6 +464,7 @@ export class Sender {
     } else if (rowsAhead) {
       void room.pull()
     }
+
     if (room.unsent) {
       this.scheduleSend()
     }
@@ -476,6 +494,7 @@ export class Sender {
         if (this.retryTimer) {
           clearTimeout(this.retryTimer)
         }
+
         this.retryTimer = null
         this.retrying = null
         this.endRetry = null
@@ -484,6 +503,7 @@ export class Sender {
 
       this.retryTimer = setTimeout(() => this.retryNow(), delayMs)
     }
+
     this.retrying = new Promise<void>(waitForRetry)
   }
 }

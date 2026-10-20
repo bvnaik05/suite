@@ -34,10 +34,16 @@ const testApiServer =
 		: undefined;
 
 const SITE_SWITCH = /collab-site-switch\.spec\.ts/;
-const browser = {
-	...devices["Desktop Chrome"],
-	...(chromeExecutable ? { launchOptions: { executablePath: chromeExecutable } } : { channel: "chrome" }),
-};
+
+function chromeChoice() {
+	if (chromeExecutable) {
+		return { launchOptions: { executablePath: chromeExecutable } };
+	}
+
+	return { channel: "chrome" };
+}
+
+const browser = { ...devices["Desktop Chrome"], ...chromeChoice() };
 
 export default defineConfig({
 	testDir: "./specs",

@@ -1,6 +1,6 @@
 <template>
   <div
-    v-if="editor && tabs.length > 1 && activeTabId"
+    v-if="isBarShown"
     ref="bar"
     class="md:hidden fixed bottom-0 w-screen z-10 border-t border-outline-gray-2 bg-surface-base"
   >
@@ -15,7 +15,7 @@
 </template>
 <script setup>
 import { TabButtons } from 'frappe-ui'
-import { onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
 
 import { listTabs } from '@/apps/writer/extensions/tabs'
 
@@ -47,6 +47,8 @@ const updateTabs = () => {
 }
 
 const activeTabId = ref(props.editor.storage.tab?.activeTabId ?? null)
+
+const isBarShown = computed(() => !!props.editor && tabs.value.length > 1 && !!activeTabId.value)
 
 const handleTabChange = (e) => {
   activeTabId.value = e.detail.tabId

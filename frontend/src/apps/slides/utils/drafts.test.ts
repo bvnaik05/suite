@@ -4,26 +4,35 @@ import { openDraftsDb } from './drafts'
 
 vi.stubGlobal('caches', { delete: async () => true })
 
-const draft = (id: string, user?: string) => ({
-  id,
-  user,
-  content: [],
-  updatedAt: 1,
-  dirty: true,
-})
+function draft(id: string, user?: string) {
+  return {
+    id,
+    user,
+    content: [],
+    updatedAt: 1,
+    dirty: true,
+  }
+}
 
 async function putDrafts(name: string, records: object[]) {
   const db = await openDraftsDb(name)
   const tx = db.transaction('presentations', 'readwrite')
-  records.forEach((record) => tx.objectStore('presentations').put(record))
-  await new Promise((resolve) => (tx.oncomplete = resolve))
+  for (const record of records) {
+    tx.objectStore('presentations').put(record)
+  }
+
+  await new Promise((resolve) => {
+    tx.oncomplete = resolve
+  })
   db.close()
 }
 
 async function draftIds(name: string) {
   const db = await openDraftsDb(name)
   const request = db.transaction('presentations').objectStore('presentations').getAllKeys()
-  const keys = await new Promise((resolve) => (request.onsuccess = () => resolve(request.result)))
+  const keys = await new Promise((resolve) => {
+    request.onsuccess = () => resolve(request.result)
+  })
   db.close()
   return keys
 }

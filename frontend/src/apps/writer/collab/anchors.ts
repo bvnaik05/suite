@@ -1,4 +1,4 @@
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 /** Drive's anchor column, counted in code points as Drive and MariaDB count it. */
 export const ANCHOR_LIMIT = 255
@@ -12,7 +12,7 @@ export const DOCUMENT_ANCHOR = 'document'
  */
 export type ThreadAnchor =
   | { kind: 'document' }
-  | { kind: 'text'; start: Y.RelativePosition; end: Y.RelativePosition; quote: string }
+  | { kind: 'text'; start: yjs.RelativePosition; end: yjs.RelativePosition; quote: string }
   | { kind: 'deleted'; quote: string }
   | { kind: 'unplaced' }
 
@@ -25,14 +25,14 @@ interface StoredAnchor {
 
 /** The anchor Drive stores for a range: both ends, and as much of the quote as fits. */
 export function encodeAnchor(
-  start: Y.RelativePosition,
-  end: Y.RelativePosition,
+  start: yjs.RelativePosition,
+  end: yjs.RelativePosition,
   quote: string,
 ): string {
   const stored: StoredAnchor = {
     v: 1,
-    s: toBase64(Y.encodeRelativePosition(start)),
-    e: toBase64(Y.encodeRelativePosition(end)),
+    s: toBase64(yjs.encodeRelativePosition(start)),
+    e: toBase64(yjs.encodeRelativePosition(end)),
     q: '',
   }
   const characters = [...quote].slice(0, QUOTE_LIMIT)
@@ -59,7 +59,10 @@ export function readAnchor(anchor: string): ThreadAnchor {
     return { kind: 'unplaced' }
   }
 
-  const stored = value as Partial<StoredAnchor> | null
+  return readStoredAnchor(value as Partial<StoredAnchor> | null)
+}
+
+function readStoredAnchor(stored: Partial<StoredAnchor> | null): ThreadAnchor {
   if (stored?.v !== 1 || typeof stored.q !== 'string') {
     return { kind: 'unplaced' }
   }
@@ -73,8 +76,8 @@ export function readAnchor(anchor: string): ThreadAnchor {
   }
 
   try {
-    const start = Y.decodeRelativePosition(fromBase64(stored.s))
-    const end = Y.decodeRelativePosition(fromBase64(stored.e))
+    const start = yjs.decodeRelativePosition(fromBase64(stored.s))
+    const end = yjs.decodeRelativePosition(fromBase64(stored.e))
     return { kind: 'text', start, end, quote: stored.q }
   } catch {
     return { kind: 'unplaced' }
@@ -92,21 +95,26 @@ export function anchorQuote(anchor: string) {
 }
 
 /** The Yjs items a text anchor's ends hold on to; none for any other anchor. */
-export function anchorEnds(anchor: string): Y.ID[] {
+export function anchorEnds(anchor: string): yjs.ID[] {
   const read = readAnchor(anchor)
   if (read.kind !== 'text') {
     return []
   }
 
-  const ends: Y.ID[] = []
+  const ends: yjs.ID[] = []
   for (const position of [read.start, read.end]) {
-    const id = position.item ?? position.type
+    const id = heldId(position)
     if (id) {
       ends.push(id)
     }
   }
 
   return ends
+}
+
+/** A stored position keeps only the character it holds, or its block when it holds none. */
+export function heldId(position: yjs.RelativePosition) {
+  return position.item ?? position.type
 }
 
 function toBase64(bytes: Uint8Array): string {

@@ -1,11 +1,21 @@
 import type { Node } from '@tiptap/pm/model'
-import { Plugin, PluginKey, type PluginSpec, type Transaction } from '@tiptap/pm/state'
+import {
+  Plugin,
+  PluginKey,
+  type EditorState,
+  type PluginSpec,
+  type Transaction,
+} from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 import { Image as StockImage, Video as StockVideo } from 'frappe-ui/editor'
 
 import { isReceived } from './received-content-guard'
 import { stockPlugin } from './stock-plugin'
 
-type Size = { width: number; height: number }
+interface Size {
+  width: number
+  height: number
+}
 
 const HEAL_META = 'heal'
 
@@ -13,7 +23,7 @@ type Resolve = (size: Size) => void
 type Reject = (error: unknown) => void
 
 function measureImage(src: string) {
-  const loadImage = (resolve: Resolve, reject: Reject) => {
+  function loadImage(resolve: Resolve, reject: Reject) {
     const image = new globalThis.Image()
     image.onload = () => {
       const size: Size = {
@@ -22,6 +32,7 @@ function measureImage(src: string) {
       }
       resolve(size)
     }
+
     image.onerror = reject
     image.src = src
   }
@@ -29,16 +40,16 @@ function measureImage(src: string) {
   return new Promise<Size>(loadImage)
 }
 
+function releaseVideo(video: HTMLVideoElement) {
+  video.onloadedmetadata = null
+  video.onerror = null
+  video.removeAttribute('src')
+  video.load()
+}
+
 function measureVideo(src: string) {
-  const loadMetadata = (resolve: Resolve, reject: Reject) => {
+  function loadMetadata(resolve: Resolve, reject: Reject) {
     const video = document.createElement('video')
-
-    const releaseVideo = () => {
-      video.onloadedmetadata = video.onerror = null
-      video.removeAttribute('src')
-      video.load()
-    }
-
     video.preload = 'metadata'
     video.onloadedmetadata = () => {
       const size: Size = {
@@ -46,12 +57,14 @@ function measureVideo(src: string) {
         height: video.videoHeight,
       }
       resolve(size)
-      releaseVideo()
+      releaseVideo(video)
     }
+
     video.onerror = (error) => {
       reject(error)
-      releaseVideo()
+      releaseVideo(video)
     }
+
     video.src = src
   }
 
@@ -61,7 +74,9 @@ function measureVideo(src: string) {
 // Undo, redo, a collaborator's change and content loaded without an update
 // event are not the person's edits, nor is anything appended to them
 function isOwnEdit(tr: Transaction) {
-  if (!tr.docChanged) return false
+  if (!tr.docChanged) {
+    return false
+  }
 
   const rootTransaction: Transaction = tr.getMeta('appendedTransaction') ?? tr
   const loaded = rootTransaction.getMeta('preventUpdate')
@@ -70,115 +85,155 @@ function isOwnEdit(tr: Transaction) {
   return !loaded && !undoneOrRedone && !healed && !isReceived(rootTransaction)
 }
 
+interface Sizing {
+  nodeName: string
+  measure: (src: string) => Promise<Size>
+  measuredSizes: Map<string, Size>
+  measuringSources: Set<string>
+  owedSources: Set<string>
+  scheduleFill: () => void
+}
+
+function isUnsized(node: Node, nodeName: string) {
+  return (
+    node.type.name === nodeName &&
+    !!node.attrs.src &&
+    !node.attrs.loading &&
+    (node.attrs.width == null || node.attrs.height == null)
+  )
+}
+
+function unsizedSources(doc: Node, nodeName: string) {
+  const sources = new Set<string>()
+  function collectSource(node: Node) {
+    if (isUnsized(node, nodeName)) {
+      sources.add(node.attrs.src)
+    }
+  }
+
+  doc.descendants(collectSource)
+
+  return sources
+}
+
+async function measureSource(sizing: Sizing, src: string) {
+  try {
+    const size = await sizing.measure(src)
+    sizing.measuredSizes.set(src, size)
+    if (sizing.owedSources.has(src)) {
+      sizing.scheduleFill()
+    }
+  } finally {
+    sizing.measuringSources.delete(src)
+  }
+}
+
+function measureAll(sizing: Sizing, doc: Node) {
+  for (const src of unsizedSources(doc, sizing.nodeName)) {
+    if (sizing.measuredSizes.has(src) || sizing.measuringSources.has(src)) continue
+
+    sizing.measuringSources.add(src)
+    void measureSource(sizing, src).catch(() => {})
+  }
+}
+
+function fillOwedSizes(sizing: Sizing, view: EditorView) {
+  if (view.isDestroyed) return
+
+  const { tr } = view.state
+  function fillSize(node: Node, pos: number) {
+    const src = node.attrs.src
+    const size =
+      isUnsized(node, sizing.nodeName) &&
+      sizing.owedSources.has(src) &&
+      sizing.measuredSizes.get(src)
+    if (!size) return
+
+    if (node.attrs.width == null) {
+      tr.setNodeAttribute(pos, 'width', size.width)
+    }
+
+    if (node.attrs.height == null) {
+      tr.setNodeAttribute(pos, 'height', size.height)
+    }
+  }
+
+  tr.doc.descendants(fillSize)
+
+  for (const src of sizing.measuredSizes.keys()) {
+    sizing.owedSources.delete(src)
+  }
+
+  if (tr.docChanged) {
+    tr.setMeta(HEAL_META, true)
+    tr.setMeta('addToHistory', false)
+    view.dispatch(tr)
+  }
+}
+
+// After every plugin view has seen the edit, so Yjs sends the edit and the sizes apart
+function fillScheduler(sizing: Sizing, view: EditorView) {
+  let isFillScheduled = false
+  function fill() {
+    isFillScheduled = false
+    fillOwedSizes(sizing, view)
+  }
+
+  return function scheduleFill() {
+    if (isFillScheduled) return
+
+    isFillScheduled = true
+    queueMicrotask(fill)
+  }
+}
+
+function sizesView(sizing: Sizing, key: PluginKey<number>, view: EditorView) {
+  sizing.scheduleFill = fillScheduler(sizing, view)
+  measureAll(sizing, view.state.doc)
+  return {
+    update(_view: EditorView, previousState: EditorState) {
+      if (view.state.doc.eq(previousState.doc)) return
+
+      if (key.getState(view.state) !== key.getState(previousState)) {
+        for (const src of unsizedSources(view.state.doc, sizing.nodeName)) {
+          sizing.owedSources.add(src)
+        }
+
+        sizing.scheduleFill()
+      }
+
+      measureAll(sizing, view.state.doc)
+    },
+  }
+}
+
 // Sizes unsized media right after the person's own edit, in a transaction of
 // its own: both undo histories decide per transaction, so only that keeps the
 // sizes out of them. Opening or receiving a document writes nothing
 export function healSizes(nodeName: string, measure: (src: string) => Promise<Size>) {
   const key = new PluginKey<number>(`${nodeName}Sizes`)
-  const isUnsized = (node: Node) =>
-    node.type.name === nodeName &&
-    !!node.attrs.src &&
-    !node.attrs.loading &&
-    (node.attrs.width == null || node.attrs.height == null)
-
-  const unsizedSources = (doc: Node) => {
-    const sources = new Set<string>()
-    const collectSource = (node: Node) => {
-      if (isUnsized(node)) {
-        sources.add(node.attrs.src)
-      }
-    }
-    doc.descendants(collectSource)
-
-    return sources
-  }
-
   // Outside the view: registering a plugin rebuilds every plugin view
-  const measuredSizes = new Map<string, Size>()
-  const measuringSources = new Set<string>()
-  const owedSources = new Set<string>()
-  let scheduleFill = () => {}
-
-  const measureAll = (doc: Node) => {
-    for (const src of unsizedSources(doc)) {
-      if (measuredSizes.has(src) || measuringSources.has(src)) continue
-
-      const rememberSize = (size: Size) => {
-        measuredSizes.set(src, size)
-        if (owedSources.has(src)) {
-          scheduleFill()
-        }
-      }
-
-      measuringSources.add(src)
-      measure(src)
-        .then(rememberSize)
-        .catch(() => {})
-        .finally(() => measuringSources.delete(src))
-    }
+  const sizing: Sizing = {
+    nodeName,
+    measure,
+    measuredSizes: new Map(),
+    measuringSources: new Set(),
+    owedSources: new Set(),
+    scheduleFill: () => {},
   }
-
   const spec: PluginSpec<number> = {
     key,
     state: {
       init: () => 0,
-      apply: (tr, ownEditCount) => (isOwnEdit(tr) ? ownEditCount + 1 : ownEditCount),
+      apply: (tr, ownEditCount) => {
+        if (!isOwnEdit(tr)) {
+          return ownEditCount
+        }
+
+        return ownEditCount + 1
+      },
     },
-    view(view) {
-      let isFillScheduled = false
-
-      const fillOwedSizes = () => {
-        isFillScheduled = false
-        if (view.isDestroyed) return
-
-        const { tr } = view.state
-        const fillSize = (node: Node, pos: number) => {
-          const size =
-            isUnsized(node) && owedSources.has(node.attrs.src) && measuredSizes.get(node.attrs.src)
-          if (!size) return
-
-          if (node.attrs.width == null) {
-            tr.setNodeAttribute(pos, 'width', size.width)
-          }
-          if (node.attrs.height == null) {
-            tr.setNodeAttribute(pos, 'height', size.height)
-          }
-        }
-        tr.doc.descendants(fillSize)
-
-        for (const src of measuredSizes.keys()) {
-          owedSources.delete(src)
-        }
-        if (tr.docChanged) {
-          tr.setMeta(HEAL_META, true)
-          tr.setMeta('addToHistory', false)
-          view.dispatch(tr)
-        }
-      }
-
-      // After every plugin view has seen the edit, so Yjs sends the edit and the sizes apart
-      scheduleFill = () => {
-        if (isFillScheduled) return
-
-        isFillScheduled = true
-        queueMicrotask(fillOwedSizes)
-      }
-
-      measureAll(view.state.doc)
-      return {
-        update(_view, previousState) {
-          if (view.state.doc.eq(previousState.doc)) return
-
-          if (key.getState(view.state) !== key.getState(previousState)) {
-            for (const src of unsizedSources(view.state.doc)) {
-              owedSources.add(src)
-            }
-            scheduleFill()
-          }
-          measureAll(view.state.doc)
-        },
-      }
-    },
+    view: (view) => sizesView(sizing, key, view),
   }
 
   return new Plugin(spec)

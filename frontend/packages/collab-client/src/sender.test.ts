@@ -39,8 +39,10 @@ describe('collab room', () => {
         dropNextAnswer = false
         throw new TypeError('connection reset')
       }
+
       return answer
     }
+
     const room = await join(endpoints)
 
     room.doc.getText('t').insert(0, 'once')
@@ -60,11 +62,16 @@ describe('collab room', () => {
       const answer = await push(body, options)
       if (dropNextAnswer) {
         dropNextAnswer = false
-        for (const session of server.sessions.values()) session.shas[1] = 'f'.repeat(64)
+        for (const session of server.sessions.values()) {
+          session.shas[1] = 'f'.repeat(64)
+        }
+
         throw new TypeError('connection reset')
       }
+
       return answer
     }
+
     const room = await join(endpoints)
 
     room.doc.getText('t').insert(0, 'once')
@@ -97,11 +104,20 @@ describe('collab room', () => {
     const endpoints = server.endpoints()
     const push = endpoints.push
     let busyAnswersLeft = 5
-    endpoints.push = async (body, options) =>
-      busyAnswersLeft-- > 0 ? reply(423, { collab: 'busy', retry_ms: 1000 }) : push(body, options)
+    endpoints.push = async (body, options) => {
+      if (busyAnswersLeft-- > 0) {
+        return reply(423, { collab: 'busy', retry_ms: 1000 })
+      }
+
+      return push(body, options)
+    }
+
     const room = await join(endpoints)
 
-    for (let at = 0; at < 130; at++) room.doc.getText('t').insert(at, 'x')
+    for (let at = 0; at < 130; at++) {
+      room.doc.getText('t').insert(at, 'x')
+    }
+
     await vi.advanceTimersByTimeAsync(20_000)
 
     expect([
@@ -119,13 +135,20 @@ describe('collab room', () => {
     let calls = 0
     endpoints.push = async (body, options) => {
       calls++
-      for (const session of server.sessions.values()) session.acked = 0
+      for (const session of server.sessions.values()) {
+        session.acked = 0
+      }
+
       return push(body, options)
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'one')
     await vi.advanceTimersByTimeAsync(0)
-    for (const session of server.sessions.values()) session.acked = 1
+    for (const session of server.sessions.values()) {
+      session.acked = 1
+    }
+
     room.doc.getText('t').insert(3, 'two')
     await vi.advanceTimersByTimeAsync(1000)
 
@@ -136,13 +159,13 @@ describe('collab room', () => {
     const server = fakeServer()
     const endpoints = server.endpoints()
     const push = endpoints.push
-    let release!: () => void
-    const held = new Promise<void>((resolve) => (release = resolve))
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
     endpoints.push = async (body, options) => {
       const answer = await push(body, options)
       await held
       return answer
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'kept')
     const flushed = room.flush()
@@ -186,9 +209,13 @@ describe('collab room', () => {
     let calls = 0
     endpoints.push = async (body, options) => {
       calls++
-      if (busyAnswersLeft-- > 0) return reply(423, { collab: 'busy', retry_ms: 1000 })
+      if (busyAnswersLeft-- > 0) {
+        return reply(423, { collab: 'busy', retry_ms: 1000 })
+      }
+
       return push(body, options)
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'later')
 
@@ -230,10 +257,16 @@ describe('collab room', () => {
     const push = endpoints.push
     let loseStagedPiece = true
     endpoints.push = async (body, options) => {
-      if (loseStagedPiece) server.stages.forEach((staged) => staged.delete(1))
+      if (loseStagedPiece) {
+        for (const staged of server.stages.values()) {
+          staged.delete(1)
+        }
+      }
+
       loseStagedPiece = false
       return push(body, options)
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, BIG)
 
@@ -252,9 +285,13 @@ describe('collab room', () => {
     const ids: string[] = []
     endpoints.stage = async (id, idx, body) => {
       ids.push(id)
-      if (ids.length > 1) return stage(id, idx, body)
+      if (ids.length > 1) {
+        return stage(id, idx, body)
+      }
+
       return reply(409, { collab: 'stage_conflict' })
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, BIG)
 
@@ -272,10 +309,14 @@ describe('collab room', () => {
     const stage = endpoints.stage
     let stageFull = true
     endpoints.stage = async (id, idx, body) => {
-      if (!stageFull) return stage(id, idx, body)
+      if (!stageFull) {
+        return stage(id, idx, body)
+      }
+
       stageFull = false
       return reply(423, { collab: 'stage_full', retry_ms: 60_000 })
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, BIG)
 
@@ -312,13 +353,17 @@ describe('collab room', () => {
     const endpoints = server.endpoints()
     const stage = endpoints.stage
     let proxyRefuses = true
-    endpoints.stage = async (id, idx, body) =>
-      proxyRefuses
-        ? {
-            status: 413,
-            bytes: new TextEncoder().encode('<html>413 Request Entity Too Large</html>'),
-          }
-        : stage(id, idx, body)
+    endpoints.stage = async (id, idx, body) => {
+      if (proxyRefuses) {
+        return {
+          status: 413,
+          bytes: new TextEncoder().encode('<html>413 Request Entity Too Large</html>'),
+        }
+      }
+
+      return stage(id, idx, body)
+    }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, BIG)
 
@@ -352,8 +397,10 @@ describe('collab room', () => {
         dropNextAnswer = false
         throw new TypeError('connection reset')
       }
+
       return answer
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, BIG)
 
@@ -377,6 +424,7 @@ describe('collab room', () => {
       sent.push(options?.keepalive)
       return push(body, options)
     }
+
     room.doc.getText('t').insert(0, BIG)
 
     window.dispatchEvent(new Event('pagehide'))
@@ -397,8 +445,10 @@ describe('collab room', () => {
         dropNextAnswer = false
         throw new TypeError('connection reset')
       }
+
       return answer
     }
+
     const room = await join(endpoints)
 
     room.doc.getText('t').insert(0, 'one ')
@@ -418,16 +468,17 @@ describe('collab room', () => {
     const server = fakeServer()
     const endpoints = server.endpoints()
     const push = endpoints.push
-    let release!: () => void
-    const held = new Promise<void>((resolve) => (release = resolve))
+    const { promise: held, resolve: release } = Promise.withResolvers<void>()
     let holdFirstPush = true
     endpoints.push = async (body, options) => {
       if (holdFirstPush) {
         holdFirstPush = false
         await held
       }
+
       return push(body, options)
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'first ')
     const sending = room.flush()
@@ -450,6 +501,7 @@ describe('collab room', () => {
       sent.push(options?.keepalive)
       return push(body, options)
     }
+
     room.doc.getText('t').insert(0, 'typed before hiding')
 
     document.dispatchEvent(new Event('visibilitychange'))
@@ -478,6 +530,7 @@ describe('collab room', () => {
       sent.push(options?.keepalive)
       return push(body, options)
     }
+
     room.doc.getText('t').insert(0, 'typed before leaving')
 
     window.dispatchEvent(new Event('pagehide'))
@@ -494,8 +547,13 @@ describe('collab room', () => {
     const push = endpoints.push
     endpoints.push = (body, options) => {
       sent.push(options?.keepalive)
-      return sent.length === 1 ? Promise.resolve(reply(500, {})) : push(body, options)
+      if (sent.length === 1) {
+        return Promise.resolve(reply(500, {}))
+      }
+
+      return push(body, options)
     }
+
     vi.spyOn(Math, 'random').mockReturnValue(1)
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'typed before a failed save')
@@ -513,21 +571,26 @@ describe('collab room', () => {
     const endpoints = server.endpoints()
     const sent: (boolean | undefined)[] = []
     const push = endpoints.push
-    let failFirstPush = () => {}
+    let failFirstPush: (() => void) | null = null
+
     endpoints.push = (body, options) => {
       sent.push(options?.keepalive)
-      if (sent.length > 1) return push(body, options)
-      return new Promise(
-        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
-      )
+      if (sent.length > 1) {
+        return push(body, options)
+      }
+
+      return new Promise((_, reject) => {
+        failFirstPush = () => reject(new TypeError('Failed to fetch'))
+      })
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'typed during a slow save')
     await vi.waitFor(() => expect(sent).toEqual([undefined]))
 
     window.dispatchEvent(new Event('pagehide'))
     await vi.waitFor(() => expect(sent).toEqual([undefined, true]))
-    failFirstPush()
+    failFirstPush!()
 
     expect(text(await join(server.endpoints()))).toBe('typed during a slow save')
   })
@@ -537,8 +600,7 @@ describe('collab room', () => {
     const endpoints = server.endpoints()
     const push = endpoints.push
     let keepalive: ReturnType<typeof push> | null = null
-    let readAnswer!: () => void
-    const answerRead = new Promise<void>((resolve) => (readAnswer = resolve))
+    const { promise: answerRead, resolve: readAnswer } = Promise.withResolvers<void>()
     endpoints.push = async (body, options) => {
       if (options?.keepalive) {
         keepalive = push(body, options)
@@ -550,6 +612,7 @@ describe('collab room', () => {
       await answerRead
       return answer
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'first ')
     await vi.waitFor(() => expect(server.rows).toHaveLength(1))
@@ -577,10 +640,11 @@ describe('collab room', () => {
         return answer
       }
 
-      return new Promise(
-        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
-      )
+      return new Promise((_, reject) => {
+        failFirstPush = () => reject(new TypeError('Failed to fetch'))
+      })
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'first ')
     await vi.waitFor(() => expect(failFirstPush).not.toBeNull())
@@ -609,10 +673,11 @@ describe('collab room', () => {
         return answer
       }
 
-      return new Promise(
-        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
-      )
+      return new Promise((_, reject) => {
+        failFirstPush = () => reject(new TypeError('Failed to fetch'))
+      })
     }
+
     const room = await join(endpoints)
     room.doc.getText('t').insert(0, 'first ')
     await vi.waitFor(() => expect(failFirstPush).not.toBeNull())
@@ -643,10 +708,11 @@ describe('collab room', () => {
         return answer
       }
 
-      return new Promise(
-        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
-      )
+      return new Promise((_, reject) => {
+        failFirstPush = () => reject(new TypeError('Failed to fetch'))
+      })
     }
+
     const room = await join(endpoints)
     const paste = 'p'.repeat(40_000)
     room.doc.getText('t').insert(0, paste)
@@ -674,10 +740,11 @@ describe('collab room', () => {
         return answer
       }
 
-      return new Promise(
-        (_, reject) => (failFirstPush = () => reject(new TypeError('Failed to fetch'))),
-      )
+      return new Promise((_, reject) => {
+        failFirstPush = () => reject(new TypeError('Failed to fetch'))
+      })
     }
+
     const room = await join(endpoints)
     const saved = 's'.repeat(30_000)
     const typedAfter = 't'.repeat(20_000)
@@ -698,8 +765,7 @@ describe('collab room', () => {
     const endpoints = server.endpoints()
     const push = endpoints.push
     const keepalives: ReturnType<typeof push>[] = []
-    let readAnswer!: () => void
-    const answerRead = new Promise<void>((resolve) => (readAnswer = resolve))
+    const { promise: answerRead, resolve: readAnswer } = Promise.withResolvers<void>()
     endpoints.push = async (body, options) => {
       if (options?.keepalive) {
         const answer = push(body, options)
@@ -711,6 +777,7 @@ describe('collab room', () => {
       await answerRead
       return answer
     }
+
     const room = await join(endpoints)
     const saved = 's'.repeat(30_000)
     const typedAfter = 't'.repeat(20_000)
@@ -757,6 +824,7 @@ describe('collab room', () => {
       room.doc.getText('t').insert(key, 'x')
       await vi.advanceTimersByTimeAsync(100)
     }
+
     await room.flush()
 
     expect(pushedAt).toEqual([0, 500, 1000, 1500, 2000])

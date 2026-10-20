@@ -1,5 +1,5 @@
 import type { Awareness } from 'y-protocols/awareness'
-import type * as Y from 'yjs'
+import type * as yjs from 'yjs'
 
 import type { Limits, OpenState } from './frames'
 import type { DeviceStore } from './store'
@@ -45,7 +45,7 @@ export interface CollabAdapter {
   // A peer's position, kept to what the app draws, or null when it is not one
   toPeerPosition(raw: unknown): object | null
   // The readable copy search, export, preview and publishing use; without it the room sends none
-  toHtml?(doc: Y.Doc): string
+  toHtml?(doc: yjs.Doc): string
 }
 
 // A device store and the name this document has in it
@@ -106,7 +106,7 @@ export interface RoomPresence {
 
 export type SaveState = 'clean' | 'saving' | 'unsaved' | 'failed'
 
-// Why the server stopped hearing this tab. `offline` is only for a tab with no device store to keep work in.
+// Why the server stopped hearing this tab. `offline` is only for a tab with no device store to keep work in
 // Only `signed_out`, `locked` and `offline` clear, once the server hears it again
 export type Blocked =
   'signed_out' | 'locked' | 'offline' | 'stale_session' | 'other_user' | 'lost_edit' | 'lost_read'
@@ -128,8 +128,9 @@ export interface RestoreResult {
   retryS?: number
 }
 
-export const isRecoverable = (blocked: Blocked) =>
-  blocked === 'signed_out' || blocked === 'locked' || blocked === 'offline'
+export function isRecoverable(blocked: Blocked) {
+  return blocked === 'signed_out' || blocked === 'locked' || blocked === 'offline'
+}
 
 // What a room shows now. A new object replaces it on each change, so a reader can compare by identity
 export interface RoomStatus {
@@ -168,7 +169,7 @@ export interface RoomStatus {
 }
 
 export interface CollabRoom {
-  readonly doc: Y.Doc
+  readonly doc: yjs.Doc
   readonly lineage: string
   readonly presence: RoomPresence | null
   readonly status: RoomStatus
@@ -185,7 +186,7 @@ export interface CollabRoom {
   // The app opened the tab again: one shut with nothing kept takes edits once `mayEdit` still holds after the bound
   regainAccess(mayEdit: () => boolean): Promise<void>
   // Whether the server holds each of these items, as committed text does, so a comment on them can post
-  isCommitted(items: readonly Y.ID[]): boolean
+  isCommitted(items: readonly yjs.ID[]): boolean
 }
 
 export type Opened = { state: 'live'; room: CollabRoom } | { state: Exclude<OpenState, 'live'> }

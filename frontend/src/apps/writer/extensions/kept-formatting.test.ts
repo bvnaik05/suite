@@ -9,7 +9,7 @@ import {
 } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { BODY_FIELD } from '../collab/field'
 import { writerEditorExtensions } from '../editor-extensions'
@@ -19,7 +19,7 @@ vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
 
 interface Tab {
-  ydoc: Y.Doc
+  ydoc: yjs.Doc
   editor: Editor
   freezes: UnplaceableReason[]
 }
@@ -36,28 +36,28 @@ afterEach(() => {
 const MYSTERY = { mystery: { shade: 'teal' } }
 
 function text(...runs: [string, Attributes?][]) {
-  const node = new Y.XmlText()
+  const node = new yjs.XmlText()
   node.applyDelta(runs.map(([insert, attributes]) => ({ insert, attributes })))
   return node
 }
 
 function block(name: string, ...runs: [string, Attributes?][]) {
-  const node = new Y.XmlElement(name)
+  const node = new yjs.XmlElement(name)
   node.insert(0, [text(...runs)])
   return node
 }
 
-function stored(node: Y.XmlElement) {
-  const doc = new Y.Doc()
+function stored(node: yjs.XmlElement) {
+  const doc = new yjs.Doc()
   doc.getXmlFragment(BODY_FIELD).insert(0, [node])
-  return Y.encodeStateAsUpdate(doc)
+  return yjs.encodeStateAsUpdate(doc)
 }
 
 function open(state: Uint8Array): Tab {
-  const ydoc = new Y.Doc()
-  Y.applyUpdate(ydoc, state, 'remote')
+  const ydoc = new yjs.Doc()
+  yjs.applyUpdate(ydoc, state, 'remote')
   const extensions = writerEditorExtensions({
-    collaborative: true,
+    isCollaborative: true,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},
@@ -84,8 +84,8 @@ function open(state: Uint8Array): Tab {
 
 // A block's text runs as Yjs holds them, the first block's by default
 function storedRuns(tab: Tab, index = 0) {
-  const found = tab.ydoc.getXmlFragment(BODY_FIELD).get(index) as Y.XmlElement
-  return (found.get(0) as Y.XmlText).toDelta()
+  const found = tab.ydoc.getXmlFragment(BODY_FIELD).get(index) as yjs.XmlElement
+  return (found.get(0) as yjs.XmlText).toDelta()
 }
 
 // A mark by its name, or kept formatting by its keys
@@ -109,12 +109,12 @@ function shownMarks(tab: Tab, word: string) {
 }
 
 function exchange(left: Tab, right: Tab) {
-  const leftState = Y.encodeStateVector(left.ydoc)
-  Y.applyUpdate(left.ydoc, Y.encodeStateAsUpdate(right.ydoc, leftState), 'remote')
-  Y.applyUpdate(right.ydoc, Y.encodeStateAsUpdate(left.ydoc), 'remote')
+  const leftState = yjs.encodeStateVector(left.ydoc)
+  yjs.applyUpdate(left.ydoc, yjs.encodeStateAsUpdate(right.ydoc, leftState), 'remote')
+  yjs.applyUpdate(right.ydoc, yjs.encodeStateAsUpdate(left.ydoc), 'remote')
 }
 
-function undoManager(tab: Tab): Y.UndoManager {
+function undoManager(tab: Tab): yjs.UndoManager {
   return yUndoPluginKey.getState(tab.editor.state).undoManager
 }
 
@@ -169,25 +169,25 @@ describe('formatting the editor cannot show where it sits', () => {
 
     typeAtEnd(tab, 'Z')
 
-    const written = updates.flatMap((update) => Y.decodeUpdate(update).structs as Y.Item[])
-    const strings = written.filter((item) => item.content instanceof Y.ContentString)
-    const formats = written.filter((item) => item.content instanceof Y.ContentFormat)
-    expect(strings.map((item) => (item.content as Y.ContentString).str)).toEqual(['Z'])
-    expect(formats.map((item) => (item.content as Y.ContentFormat).value)).toEqual([null])
+    const written = updates.flatMap((update) => yjs.decodeUpdate(update).structs as yjs.Item[])
+    const strings = written.filter((item) => item.content instanceof yjs.ContentString)
+    const formats = written.filter((item) => item.content instanceof yjs.ContentFormat)
+    expect(strings.map((item) => (item.content as yjs.ContentString).str)).toEqual(['Z'])
+    expect(formats.map((item) => (item.content as yjs.ContentFormat).value)).toEqual([null])
     expect(storedRuns(tab)).toEqual([{ insert: 'abc', attributes: MYSTERY }, { insert: 'Z' }])
   })
 
   it('writes nothing to a kept run when the block before it is deleted', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const body = doc.getXmlFragment(BODY_FIELD)
     body.insert(0, [block('paragraph', ['x']), block('paragraph', ['abc', MYSTERY])])
-    const tab = open(Y.encodeStateAsUpdate(doc))
+    const tab = open(yjs.encodeStateAsUpdate(doc))
     const updates: Uint8Array[] = []
     tab.ydoc.on('update', (update: Uint8Array) => updates.push(update))
 
     tab.editor.view.dispatch(tab.editor.state.tr.delete(0, 3))
 
-    expect(updates.flatMap((update) => Y.decodeUpdate(update).structs)).toEqual([])
+    expect(updates.flatMap((update) => yjs.decodeUpdate(update).structs)).toEqual([])
     expect(storedRuns(tab)).toEqual([{ insert: 'abc', attributes: MYSTERY }])
   })
 
@@ -215,8 +215,8 @@ describe('two marks that exclude each other', () => {
   })
 
   it('shows the same mark when built outside the editor, as the server judge does', () => {
-    const doc = new Y.Doc()
-    Y.applyUpdate(doc, stored(block('paragraph', ['abc', { code: {}, bold: {} }])))
+    const doc = new yjs.Doc()
+    yjs.applyUpdate(doc, stored(block('paragraph', ['abc', { code: {}, bold: {} }])))
 
     const root = yXmlFragmentToProseMirrorRootNode(
       doc.getXmlFragment(BODY_FIELD),
@@ -233,11 +233,11 @@ describe('kept formatting that can show where its text now sits', () => {
   const boldCode = stored(block('codeBlock', ['abc', BOLD]))
 
   const codeThenParagraph = (() => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     doc
       .getXmlFragment(BODY_FIELD)
       .insert(0, [block('codeBlock', ['abc', BOLD]), block('paragraph', ['de'])])
-    return Y.encodeStateAsUpdate(doc)
+    return yjs.encodeStateAsUpdate(doc)
   })()
 
   // Moves the code block's text to the end of the paragraph after it, as dragging it does
@@ -398,12 +398,12 @@ describe('the code mark', () => {
 
 // A paragraph holding 'a', an inline `name` with `attributes`, then 'b'
 function aroundAtom(name: string, attributes: Attributes) {
-  const atom = new Y.XmlElement<Record<string, string | object>>(name)
+  const atom = new yjs.XmlElement<Record<string, string | object>>(name)
   for (const [key, value] of Object.entries(attributes)) {
     atom.setAttribute(key, value as string | object)
   }
 
-  const node = new Y.XmlElement('paragraph')
+  const node = new yjs.XmlElement('paragraph')
   node.insert(0, [text(['a']), atom, text(['b'])])
   return stored(node)
 }
@@ -420,7 +420,7 @@ function atomMarks(tab: Tab, name: string) {
 }
 
 function reload(tab: Tab) {
-  return open(Y.encodeStateAsUpdate(tab.ydoc))
+  return open(yjs.encodeStateAsUpdate(tab.ydoc))
 }
 
 describe('marks on an inline atom', () => {
@@ -481,15 +481,15 @@ describe('marks on an inline atom', () => {
 
     tab.editor.chain().setTextSelection({ from: 1, to: 4 }).setBold().run()
 
-    const paragraph = tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement
-    const written = (paragraph.get(1) as Y.XmlElement).getAttributes()
+    const paragraph = tab.ydoc.getXmlFragment(BODY_FIELD).get(0) as yjs.XmlElement
+    const written = (paragraph.get(1) as yjs.XmlElement).getAttributes()
     expect(written).toEqual({ id: 'ann', bold: {}, ...MYSTERY })
     expect(atomMarks(reload(tab), 'mention')).toEqual(['bold', MYSTERY])
   })
 
   it.each(ATOMS)('bold on the atom shows in a past state (%s)', async (name, attrs) => {
     const tab = open(aroundAtom(name, { ...attrs, bold: {} }))
-    const past = Y.encodeStateAsUpdateV2(tab.ydoc)
+    const past = yjs.encodeStateAsUpdateV2(tab.ydoc)
     tab.editor.chain().setTextSelection({ from: 1, to: 4 }).unsetBold().run()
     expect(atomMarks(tab, name)).toEqual([])
 

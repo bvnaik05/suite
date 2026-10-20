@@ -50,7 +50,7 @@ test.describe("Writer collaboration", () => {
 		await typeParagraph(owner.page, "Before the cap");
 		await expectSaved(owner.page);
 		const waitReasons: string[] = [];
-		const recordWait = async (response: Response) => {
+		async function recordWait(response: Response) {
 			const isPush =
 				response.request().method() === "POST" &&
 				/\/api\/suite\/content\/[^/]+\/updates/.test(response.url());
@@ -58,7 +58,8 @@ test.describe("Writer collaboration", () => {
 				const refusal = (await response.json()) as { collab: string };
 				waitReasons.push(refusal.collab);
 			}
-		};
+		}
+
 		owner.page.on("response", recordWait);
 
 		await leaveNoRoom(testApi, node);
@@ -197,13 +198,14 @@ test.describe("Writer collaboration", () => {
 
 	test("a big paste is saved in pieces and reads back whole", async ({ owner, testApi }) => {
 		const pieces: string[] = [];
-		const recordPiece = (request: Request) => {
+		function recordPiece(request: Request) {
 			const stagesPiece =
 				request.method() === "PUT" && /\/api\/suite\/content\/[^/]+\/stage\//.test(request.url());
 			if (stagesPiece) {
 				pieces.push(request.url());
 			}
-		};
+		}
+
 		owner.page.on("request", recordPiece);
 		await openWriterDocument(owner.page, node);
 		const bigPaste = "y".repeat(700_000);
@@ -251,10 +253,11 @@ test.describe("Writer collaboration", () => {
 		await expectSaved(owner.page);
 
 		// One paragraph of 4.5 MiB of text, which zips to a few kilobytes
-		const chooseImport = async () => {
+		async function chooseImport() {
 			await documentMenuButton(owner.page).click();
 			await owner.page.getByRole("menuitem", { name: "Import DOCX" }).click();
-		};
+		}
+
 		const [chooser] = await Promise.all([owner.page.waitForEvent("filechooser"), chooseImport()]);
 		await chooser.setFiles(resolve(__dirname, "fixtures/import-too-large.docx"));
 
@@ -279,15 +282,19 @@ test.describe("Writer collaboration", () => {
 
 		// Held pulls keep the tab from learning the document is full before the paste reaches the server
 		let letPullsThrough = () => {};
-		const pullsHeld = new Promise<void>((resolve) => {
-			letPullsThrough = resolve;
+
+		const pullsHeld = new Promise<void>((release) => {
+			letPullsThrough = release;
 		});
-		const holdPulls = async (route: Route) => {
+
+		async function holdPulls(route: Route) {
 			if (route.request().method() === "GET") {
 				await pullsHeld;
 			}
+
 			await route.fallback();
-		};
+		}
+
 		await owner.page.route("**/api/suite/content/*/updates**", holdPulls);
 		await fillDocument(testApi, node);
 		await pasteText(owner.page, "Pasted after it filled");
@@ -304,6 +311,7 @@ test.describe("Writer collaboration", () => {
 		for (let i = 0; i < 3; i++) {
 			await owner.page.keyboard.press("Backspace");
 		}
+
 		await expect(writerEditor(owner.page)).not.toContainText("Delete me");
 		await expect
 			.poll(async () => (await serverBlocks(testApi, node)).join(""))
@@ -344,6 +352,7 @@ test.describe("Writer collaboration", () => {
 		for (let i = 0; i < 3; i++) {
 			await tab.keyboard.press("Backspace");
 		}
+
 		await expect
 			.poll(async () => (await serverBlocks(testApi, node)).join(""))
 			.not.toContain("Delete me");

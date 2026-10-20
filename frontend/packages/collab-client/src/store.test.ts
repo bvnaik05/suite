@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { openDeviceStore, type DeviceStore } from './store'
 
 const stores: DeviceStore[] = []
-afterEach(() => stores.splice(0).forEach((store) => store.close()))
+afterEach(() => {
+  for (const store of stores.splice(0)) {
+    store.close()
+  }
+})
 
 let storeCount = 0
 async function freshStore() {
@@ -13,45 +17,55 @@ async function freshStore() {
   return store
 }
 
-function typed(text: string, at = 0, base?: Y.Doc) {
-  const doc = base ?? new Y.Doc()
+function typed(text: string, at = 0, base?: yjs.Doc) {
+  const doc = base ?? new yjs.Doc()
   let update: Uint8Array = new Uint8Array()
-  doc.on('update', (bytes: Uint8Array) => (update = bytes))
+  doc.on('update', (bytes: Uint8Array) => {
+    update = bytes
+  })
   doc.getText('t').insert(at, text)
   return { doc, update }
 }
 
 function textOf(bytes: Uint8Array) {
-  const doc = new Y.Doc()
-  Y.applyUpdate(doc, bytes)
+  const doc = new yjs.Doc()
+  yjs.applyUpdate(doc, bytes)
   return doc.getText('t').toString()
 }
 
-const session = (sid: string) => ({
-  doc: 'D',
-  sid,
-  lineage: 'L',
-  cid: 5,
-  bound: true,
-})
-const entry = (sid: string, seq: number, bytes: Uint8Array) => ({
-  doc: 'D',
-  sid,
-  seq,
-  bytes,
-  sha: String(seq),
-  seenRev: 0,
-})
+function session(sid: string) {
+  return {
+    doc: 'D',
+    sid,
+    lineage: 'L',
+    cid: 5,
+    bound: true,
+  }
+}
+
+function entry(sid: string, seq: number, bytes: Uint8Array) {
+  return {
+    doc: 'D',
+    sid,
+    seq,
+    bytes,
+    sha: String(seq),
+    seenRev: 0,
+  }
+}
 
 describe('device store', () => {
   it('a quarantine replaces the copy, and a copy from before it is not written over the new one', async () => {
     const store = await freshStore()
-    const copy = (rev: number, epoch: number) => ({
-      lineage: 'L',
-      rev,
-      canWrite: true,
-      epoch,
-    })
+    function copy(rev: number, epoch: number) {
+      return {
+        lineage: 'L',
+        rev,
+        canWrite: true,
+        epoch,
+      }
+    }
+
     await store.commit('D', copy(2, 0), typed('quarantined').update)
     await store.commit('D', copy(1, 1), typed('rebuilt').update)
     await store.commit('D', copy(3, 0), typed('late').update)
@@ -128,7 +142,7 @@ describe('device store', () => {
 
   it('a long-lived device copy is merged into fewer pieces without losing text', async () => {
     const store = await freshStore()
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     for (let at = 0; at < 100; at++) {
       const copy = {
         lineage: 'L',

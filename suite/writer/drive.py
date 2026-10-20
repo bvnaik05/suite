@@ -81,8 +81,15 @@ from frappe import _
 
 from suite import drive
 from suite.content import with_content
-from suite.writer import content as writer_content
-from suite.writer.content.files import BODY_FRAGMENT, elements, ids_in, load, remap_text, remapped_attribute
+from suite.writer.content.files import (
+    BODY_FRAGMENT,
+    elements,
+    ids_in,
+    load,
+    node_ids,
+    remap_text,
+    remapped_attribute,
+)
 
 DOCTYPE = "Writer Document"
 MIME = "frappe/writer"
@@ -328,7 +335,7 @@ def _body_ids(content: str | None) -> set[str]:
         if raw is None:
             return set()
         with _readable_body():
-            found = writer_content.EDITOR.media.node_ids(raw)
+            found = node_ids(raw)
     except UnreadableBody:
         # An unreadable body must never cost somebody a picture, so fall back
         # to a raw scan. It over-reports, which only keeps media alive.
@@ -351,8 +358,8 @@ def _remap_body(content: str | None, mapping: dict[str, str]) -> str | None:
     raw = _decoded_body(content)
     if raw is None:
         return None
-    document, fragment = _loaded_body(raw)
     with _readable_body():
+        document, fragment = load(raw)
         changed = False
         with document.transaction():
             for element in elements(fragment):
@@ -418,8 +425,3 @@ def _readable_body():
         raise
     except BaseException as unreadable:
         raise UnreadableBody(_("This Writer document body cannot be read")) from unreadable
-
-
-def _loaded_body(raw: bytes):
-    with _readable_body():
-        return load(raw)

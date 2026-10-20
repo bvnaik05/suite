@@ -1,7 +1,7 @@
 import { getSchema } from '@tiptap/core'
 import { prosemirrorJSONToYDoc, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
 import { describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab'
 import { restoreEdit } from '@/apps/writer/collab/restore'
@@ -31,7 +31,7 @@ function page(...content: object[]) {
 }
 
 // What a reader sees: equal-mark runs Yjs may keep apart read as one
-function shown(doc: Y.Doc) {
+function shown(doc: yjs.Doc) {
   return schema.nodeFromJSON(yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(BODY_FIELD))).toJSON()
 }
 
@@ -39,41 +39,44 @@ function documentOf(content: object) {
   return prosemirrorJSONToYDoc(schema, content, BODY_FIELD)
 }
 
-function copyOf(doc: Y.Doc) {
-  const copy = new Y.Doc()
-  Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc))
+function copyOf(doc: yjs.Doc) {
+  const copy = new yjs.Doc()
+  yjs.applyUpdate(copy, yjs.encodeStateAsUpdate(doc))
   return copy
 }
 
-function textAt(doc: Y.Doc, ...path: number[]) {
-  let node: Y.XmlFragment | Y.XmlElement | Y.XmlText = doc.getXmlFragment(BODY_FIELD)
+function textAt(doc: yjs.Doc, ...path: number[]) {
+  let node: yjs.XmlFragment | yjs.XmlElement | yjs.XmlText = doc.getXmlFragment(BODY_FIELD)
   for (const index of path) {
-    node = (node as Y.XmlElement).get(index) as Y.XmlElement | Y.XmlText
+    node = (node as yjs.XmlElement).get(index) as yjs.XmlElement | yjs.XmlText
   }
 
-  return node as Y.XmlText
+  return node as yjs.XmlText
 }
 
 // The text an anchor covers now: empty once its characters are gone, null once split across blocks
-function quoted(doc: Y.Doc, anchor: { from: Y.RelativePosition; to: Y.RelativePosition }) {
-  const from = Y.createAbsolutePositionFromRelativePosition(anchor.from, doc)
-  const to = Y.createAbsolutePositionFromRelativePosition(anchor.to, doc)
+function quoted(doc: yjs.Doc, anchor: { from: yjs.RelativePosition; to: yjs.RelativePosition }) {
+  const from = yjs.createAbsolutePositionFromRelativePosition(anchor.from, doc)
+  const to = yjs.createAbsolutePositionFromRelativePosition(anchor.to, doc)
   if (!from || !to || from.type !== to.type) {
     return null
   }
 
-  return (from.type as Y.XmlText).toString().slice(from.index, to.index)
+  return (from.type as yjs.XmlText).toString().slice(from.index, to.index)
 }
 
-function anchorOn(node: Y.XmlText, from: number, to: number) {
+function anchorOn(node: yjs.XmlText, from: number, to: number) {
   return {
-    from: Y.createRelativePositionFromTypeIndex(node, from),
-    to: Y.createRelativePositionFromTypeIndex(node, to),
+    from: yjs.createRelativePositionFromTypeIndex(node, from),
+    to: yjs.createRelativePositionFromTypeIndex(node, to),
   }
 }
 
-function restore(current: Y.Doc, lineage: string, version: Y.Doc, versionLineage = lineage) {
-  restoreEdit(current, lineage, { lineage: versionLineage, state: Y.encodeStateAsUpdate(version) })
+function restore(current: yjs.Doc, lineage: string, version: yjs.Doc, versionLineage = lineage) {
+  restoreEdit(current, lineage, {
+    lineage: versionLineage,
+    state: yjs.encodeStateAsUpdate(version),
+  })
 }
 
 describe('restoreEdit', () => {
@@ -83,7 +86,7 @@ describe('restoreEdit', () => {
     textAt(current, 1, 0).insert(0, 'Now ')
     textAt(current, 1, 0).format(4, 4, { bold: {} })
     textAt(current, 0, 0).delete(0, 2)
-    current.getXmlFragment(BODY_FIELD).insert(1, [new Y.XmlElement('paragraph')])
+    current.getXmlFragment(BODY_FIELD).insert(1, [new yjs.XmlElement('paragraph')])
 
     restore(current, 'one', version)
 
@@ -123,7 +126,7 @@ describe('restoreEdit', () => {
     )
     const version = copyOf(current)
     textAt(current, 0, 0).format(0, 10, { bold: null, italic: {} })
-    ;(current.getXmlFragment(BODY_FIELD).get(1) as Y.XmlElement).setAttribute('level', 3 as never)
+    ;(current.getXmlFragment(BODY_FIELD).get(1) as yjs.XmlElement).setAttribute('level', 3 as never)
 
     restore(current, 'one', version)
 
@@ -158,8 +161,8 @@ describe('restoreEdit', () => {
     { name: 'another lineage', versionLineage: 'other' },
     { name: 'its own lineage', versionLineage: 'own' },
   ])('brings back an old image of a version of $name as an image', ({ versionLineage }) => {
-    const version = new Y.Doc()
-    const old = new Y.XmlElement('resizableMedia')
+    const version = new yjs.Doc()
+    const old = new yjs.XmlElement('resizableMedia')
     old.setAttribute('src', '/private/files/chart.png')
     old.setAttribute('media-type', 'img')
     version.getXmlFragment(BODY_FIELD).insert(0, [old])
@@ -206,9 +209,9 @@ describe('restoreEdit', () => {
     current.on('update', (update: Uint8Array) => updates.push(update))
 
     restore(current, 'one', version)
-    Y.applyUpdate(other, updates[0])
+    yjs.applyUpdate(other, updates[0])
 
-    const writers = Y.parseUpdateMeta(updates[0]).to
+    const writers = yjs.parseUpdateMeta(updates[0]).to
     expect([updates.length, [...writers.keys()], current.clientID]).toEqual([1, [tab], tab])
     expect(shown(other)).toEqual(shown(current))
   })

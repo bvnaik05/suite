@@ -1,4 +1,4 @@
-import { shallowRef } from 'vue'
+import { shallowRef, type ShallowRef } from 'vue'
 
 import { searchUsers, type WriterUser } from '@/apps/writer/drive'
 import { useSession } from '@/platform/session'
@@ -64,49 +64,70 @@ function createNames(search: Search, directory: ReturnType<typeof createDirector
   return { lookUp, fullName }
 }
 
-// The people the `@` menu offers, from the latest answer the server gave
-function createMenu(search: Search, remember: (people: WriterUser[]) => void) {
-  const users = shallowRef<WriterUser[]>([])
+interface MenuState {
+  users: ShallowRef<WriterUser[]>
   /** The query `users` answers; null before the first answer. */
-  const answeredQuery = shallowRef<string | null>(null)
+  answeredQuery: ShallowRef<string | null>
   /** The answer to the empty query, shown the moment `@` is typed. */
-  let firstPage: WriterUser[] = []
-  let latest = 0
+  firstPage: WriterUser[]
+  latest: number
+}
 
-  /** False when the search failed. */
-  async function run(query: string) {
-    const id = ++latest
-    const found = await search(query).catch(() => null)
-    const isFound = found !== null
-    // An answer older than the latest leaves the menu as it was
-    if (id !== latest) {
-      return isFound
-    }
-
-    // A failed search answers with no one, so the menu stops waiting on it
-    users.value = found ?? []
-    answeredQuery.value = query
-    if (found) {
-      remember(found)
-      firstPage = query.trim() ? firstPage : found
-    }
-
+/** False when the search failed. */
+async function runMenuSearch(
+  menu: MenuState,
+  search: Search,
+  remember: (people: WriterUser[]) => void,
+  query: string,
+) {
+  const id = ++menu.latest
+  const found = await search(query).catch(() => null)
+  const isFound = found !== null
+  // An answer older than the latest leaves the menu as it was
+  if (id !== menu.latest) {
     return isFound
   }
 
-  /** Shows the first page again without asking, once it has loaded. */
-  function showFirstPage() {
-    if (!firstPage.length) {
-      return false
+  // A failed search answers with no one, so the menu stops waiting on it
+  menu.users.value = found ?? []
+  menu.answeredQuery.value = query
+  if (found) {
+    remember(found)
+    if (!query.trim()) {
+      menu.firstPage = found
     }
-
-    latest++
-    users.value = firstPage
-    answeredQuery.value = ''
-    return true
   }
 
-  return { users, answeredQuery, run, showFirstPage }
+  return isFound
+}
+
+/** Shows the first page again without asking, once it has loaded. */
+function showMenuFirstPage(menu: MenuState) {
+  if (!menu.firstPage.length) {
+    return false
+  }
+
+  menu.latest++
+  menu.users.value = menu.firstPage
+  menu.answeredQuery.value = ''
+  return true
+}
+
+// The people the `@` menu offers, from the latest answer the server gave
+function createMenu(search: Search, remember: (people: WriterUser[]) => void) {
+  const menu: MenuState = {
+    users: shallowRef<WriterUser[]>([]),
+    answeredQuery: shallowRef<string | null>(null),
+    firstPage: [],
+    latest: 0,
+  }
+
+  return {
+    users: menu.users,
+    answeredQuery: menu.answeredQuery,
+    run: (query: string) => runMenuSearch(menu, search, remember, query),
+    showFirstPage: () => showMenuFirstPage(menu),
+  }
 }
 
 // Narrows the menu as the user types after `@`, once the typing pauses

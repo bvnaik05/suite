@@ -17,6 +17,10 @@ const HOLE_MS = 1000
 // A peer's caret can ask for a pull this often at most
 const CARET_PULL_MS = 10_000
 const HEARD_MAX = 256
+const MS_PER_S = 1000
+const REFRESH_SHARE_OF_EPOCH = 0.8
+const MAX_REPAIR_SPREAD_MS = 30_000
+const REPAIR_MS_PER_MEMBER = 50
 
 export interface LiveHooks {
   // Rows heard over the socket, with the schema of the editor that wrote them
@@ -47,6 +51,7 @@ class TimerSlot {
       this.timer = null
       callback()
     }
+
     this.timer = setTimeout(run, ms)
   }
 
@@ -120,18 +125,19 @@ export class Live implements HubMember {
   setRoomKeys(keys: RoomKeys) {
     if (this.closed) return
 
-    this.clockOffset = keys.server_time - Date.now() / 1000
+    this.clockOffset = keys.server_time - Date.now() / MS_PER_S
     if (this.keys?.keys.join() === keys.keys.join()) return
 
     this.keys = keys
 
     const nextEpochStart = (keys.epoch + 1) * keys.epoch_seconds
-    const refreshAt = nextEpochStart + Math.random() * 0.8 * keys.epoch_seconds
+    const refreshAt = nextEpochStart + Math.random() * REFRESH_SHARE_OF_EPOCH * keys.epoch_seconds
     const pullIfVisible = () => {
       if (document.visibilityState === 'visible') {
         this.hooks.pull()
       }
     }
+
     this.refreshTimer.set(pullIfVisible, this.msUntilServerTime(refreshAt))
 
     // Each key leaves the set when its epoch ends
@@ -139,6 +145,7 @@ export class Live implements HubMember {
       this.hub.sendRoomSet()
       this.updateState()
     }
+
     for (const epochEnd of [nextEpochStart, nextEpochStart + keys.epoch_seconds]) {
       this.runAfter(this.msUntilServerTime(epochEnd + GRACE_S), dropEndedKey)
     }
@@ -152,7 +159,7 @@ export class Live implements HubMember {
       return []
     }
 
-    const now = Date.now() / 1000 + this.clockOffset
+    const now = Date.now() / MS_PER_S + this.clockOffset
     const { epoch, epoch_seconds: epochSeconds, keys } = this.keys
     return keys.filter((_, epochOffset) => now < (epoch + epochOffset + 1) * epochSeconds + GRACE_S)
   }
@@ -171,6 +178,7 @@ export class Live implements HubMember {
       this.missedOwnRows++
       this.updateState()
     }
+
     const timer = setTimeout(missed, OWN_ROW_MS)
     this.awaitedRevs.set(rev, timer)
   }
@@ -184,6 +192,7 @@ export class Live implements HubMember {
         this.repair()
       }
     }
+
     this.holeTimer.set(repairIfStillMissing, HOLE_MS)
   }
 
@@ -191,7 +200,7 @@ export class Live implements HubMember {
   repair() {
     if (this.repairTimer.isSet || this.closed) return
 
-    const spread = Math.min(30_000, 50 * this.memberCount)
+    const spread = Math.min(MAX_REPAIR_SPREAD_MS, REPAIR_MS_PER_MEMBER * this.memberCount)
     this.repairTimer.set(() => this.hooks.pull(), Math.random() * spread)
   }
 
@@ -209,6 +218,7 @@ export class Live implements HubMember {
     } else {
       this.presence.clear()
     }
+
     this.updateState()
   }
 
@@ -243,6 +253,7 @@ export class Live implements HubMember {
     for (const timer of [...this.timers, ...this.awaitedRevs.values()]) {
       clearTimeout(timer)
     }
+
     for (const slot of [this.refreshTimer, this.repairTimer, this.holeTimer]) {
       slot.clear()
     }
@@ -339,7 +350,7 @@ export class Live implements HubMember {
   }
 
   private msUntilServerTime(serverSeconds: number) {
-    return Math.max(0, (serverSeconds - this.clockOffset) * 1000 - Date.now())
+    return Math.max(0, (serverSeconds - this.clockOffset) * MS_PER_S - Date.now())
   }
 
   private runAfter(ms: number, callback: () => void) {
@@ -347,6 +358,7 @@ export class Live implements HubMember {
       this.timers.delete(timer)
       callback()
     }
+
     const timer = setTimeout(runOnce, ms)
     this.timers.add(timer)
   }

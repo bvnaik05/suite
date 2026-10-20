@@ -1,7 +1,7 @@
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { classifyRefusal, type AccessRoom } from './access'
-import { readReply } from './answers'
+import { HTTP_OK, readReply } from './answers'
 import type { Device } from './device'
 import { holdLock } from './locks'
 import { ADOPT, APPLIED_UPDATE, MERGED_UPDATE } from './origins'
@@ -11,7 +11,7 @@ import type { Answer, Claim } from './types'
 
 /** What claiming an ID and adopting other tabs' work use of the room. */
 export interface LeftoverRoom extends AccessRoom {
-  readonly doc: Y.Doc
+  readonly doc: yjs.Doc
   readonly device: Device | null
   readonly lineage: string
   readonly bound: boolean
@@ -27,7 +27,9 @@ export interface LeftoverRoom extends AccessRoom {
   onUnsentChanged(): void
 }
 
-export const lostReason = (verdict: string) => (verdict === 'clash' ? 'id_clash' : verdict)
+export function lostReason(verdict: string) {
+  return verdict === 'clash' ? 'id_clash' : verdict
+}
 
 // Asks the server for a clientID chosen offline. `null` when the claim got no verdict this time; a refusal with a reason is final
 export async function claimClientId(room: LeftoverRoom, box: Outbox): Promise<string | null> {
@@ -41,10 +43,11 @@ export async function claimClientId(room: LeftoverRoom, box: Outbox): Promise<st
   }
 
   const reply = readReply(answer)
-  if (reply.status === 200 && typeof reply.claim === 'string') {
+  if (reply.status === HTTP_OK && typeof reply.claim === 'string') {
     if (reply.claim === 'ok') {
       await bindOnDevice(room, box)
     }
+
     return reply.claim
   }
 
@@ -70,10 +73,10 @@ async function readableState(device: Device, lineage: string, entries: StoredEnt
   const copy = await device.copy()
   const updates = entries.map((entry) => entry.bytes)
   if (copy?.lineage !== lineage) {
-    return Y.mergeUpdates(updates)
+    return yjs.mergeUpdates(updates)
   }
 
-  return Y.mergeUpdates([copy.bytes, ...updates])
+  return yjs.mergeUpdates([copy.bytes, ...updates])
 }
 
 // Unsent work other tabs of this document left on the device, once no live tab holds it
@@ -126,6 +129,18 @@ async function adoptSession(room: LeftoverRoom, device: Device, session: StoredS
   return takeOver(room, device, session, release, entries)
 }
 
+function adoptBox(room: LeftoverRoom, box: Outbox) {
+  const pending = box.pending.map((entry) => entry.bytes)
+  const merged = yjs.mergeUpdates(pending)
+  room.ownClients.add(box.cid)
+  room.doc.transact((transaction) => {
+    transaction.meta.set(APPLIED_UPDATE, pending)
+    transaction.meta.set(MERGED_UPDATE, merged)
+    yjs.applyUpdate(room.doc, merged, ADOPT)
+  }, ADOPT)
+  room.outboxes.splice(-1, 0, box)
+}
+
 // The work joins this tab's outboxes, or is kept aside when its claim is refused
 async function takeOver(
   room: LeftoverRoom,
@@ -147,15 +162,7 @@ async function takeOver(
     return true
   }
 
-  const pending = box.pending.map((entry) => entry.bytes)
-  const merged = Y.mergeUpdates(pending)
-  room.ownClients.add(box.cid)
-  room.doc.transact((transaction) => {
-    transaction.meta.set(APPLIED_UPDATE, pending)
-    transaction.meta.set(MERGED_UPDATE, merged)
-    Y.applyUpdate(room.doc, merged, ADOPT)
-  }, ADOPT)
-  room.outboxes.splice(-1, 0, box)
+  adoptBox(room, box)
   return true
 }
 

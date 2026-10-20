@@ -411,7 +411,9 @@ describe('drafts', () => {
       dirty: true,
     }
     tx.objectStore('presentations').put(unowned)
-    await new Promise((resolve) => (tx.oncomplete = resolve))
+    await new Promise((resolve) => {
+      tx.oncomplete = resolve
+    })
     legacyDb.close()
 
     viewOnly.value = true

@@ -3,7 +3,10 @@ const send_reply = require("./acknowledge");
 const suite_handlers = (socket) => {
 	// guest specific rooms
 	socket.on("guest_subscribe", async (payload, untrustedAcknowledge) => {
-		const acknowledge = (reply) => send_reply(untrustedAcknowledge, reply);
+		function acknowledge(reply) {
+			send_reply(untrustedAcknowledge, reply);
+		}
+
 		try {
 			const validation = await validate_guest(socket, payload);
 			if (!validation.ok) {
@@ -24,7 +27,10 @@ const suite_handlers = (socket) => {
 	});
 
 	socket.on("guest_unsubscribe", async (payload, untrustedAcknowledge) => {
-		const acknowledge = (reply) => send_reply(untrustedAcknowledge, reply);
+		function acknowledge(reply) {
+			send_reply(untrustedAcknowledge, reply);
+		}
+
 		try {
 			const validation = await validate_guest(socket, payload);
 			if (!validation.ok && !validation.status) {
@@ -44,7 +50,9 @@ const suite_handlers = (socket) => {
 	// A fault in collab must not keep Meet's handlers from loading
 	try {
 		require("./collab")(socket);
-	} catch {}
+	} catch (error) {
+		console.error("collab handlers failed", error);
+	}
 };
 
 const GUEST_STATUSES = new Set([

@@ -62,9 +62,10 @@ describe('closing the tab', () => {
 
   it("still asks when the recovery copy can't be written", () => {
     const event = new Event('beforeunload', { cancelable: true })
-    const retainRecovery = () => {
+    function retainRecovery() {
       throw new DOMException('full', 'QuotaExceededError')
     }
+
     const guard = {
       state: () => 'unsaved' as const,
       retainRecovery,

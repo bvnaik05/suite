@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { openRoom } from './open'
-import { adapterAt, fakeServer, heldPushes, idle, join, offlinePushes, text } from './test-support'
+import {
+  adapterAt,
+  device,
+  fakeServer,
+  heldPushes,
+  idle,
+  join,
+  offlinePushes,
+  text,
+} from './test-support'
 
 describe('collab room', () => {
   it('a tab stops following a document a newer editor wrote to, and goes read-only', async () => {
@@ -103,14 +112,36 @@ describe('collab room', () => {
       })
     }
   })
+
+  it('when the device store fails at start, the lock name keeps the doc id', async () => {
+    const requested: string[] = []
+    async function request(
+      name: string,
+      _options: LockOptions,
+      callback: (lock: Lock | null) => unknown,
+    ) {
+      requested.push(name)
+      return callback({ name, mode: 'exclusive' })
+    }
+
+    vi.stubGlobal('navigator', { ...navigator, locks: { request } })
+    const kept = await device()
+    const failingStore = Object.create(kept.store)
+    failingStore.saveSession = () => Promise.reject(new DOMException('full', 'QuotaExceededError'))
+
+    await join(fakeServer().endpoints(), { device: { store: failingStore, doc: 'D' } })
+    vi.unstubAllGlobals()
+
+    expect(requested).toEqual([expect.stringMatching(/^suite-collab:D:[0-9a-f]+$/)])
+  })
 })
 
 // The items a comment on `word` would hang from: its first and its last character
-function endsOf(doc: Y.Doc, word: string) {
+function endsOf(doc: yjs.Doc, word: string) {
   const typed = doc.getText('t')
   const at = typed.toString().indexOf(word)
-  const first = Y.createRelativePositionFromTypeIndex(typed, at, 0)
-  const last = Y.createRelativePositionFromTypeIndex(typed, at + word.length, -1)
+  const first = yjs.createRelativePositionFromTypeIndex(typed, at, 0)
+  const last = yjs.createRelativePositionFromTypeIndex(typed, at + word.length, -1)
   return [first.item!, last.item!]
 }
 

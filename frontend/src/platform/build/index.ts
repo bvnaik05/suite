@@ -8,10 +8,25 @@ const PAGE_BUILD = Number(__SUITE_BUILD__)
 const minBuilds = ref<Record<string, string>>({})
 
 /** A product turns read-only in tabs older than its minimum build. */
-export const belowMinBuild = (product: string) => PAGE_BUILD < Number(minBuilds.value[product] ?? 0)
+export function belowMinBuild(product: string) {
+  return PAGE_BUILD < Number(minBuilds.value[product] ?? 0)
+}
 
 // The products the shown banner names; null until it shows
 let namedProducts: ReadonlySet<string> | null = null
+
+function productLabel(product: string) {
+  const labelMap: Record<string, string> = {
+    calendar: translate('Calendar'),
+    drive: translate('Drive'),
+    mail: translate('Mail'),
+    meet: translate('Meet'),
+    sheets: translate('Sheets'),
+    slides: translate('Slides'),
+    writer: translate('Writer'),
+  }
+  return labelMap[product] ?? product[0].toUpperCase() + product.slice(1)
+}
 
 // Reload stays the person's choice, so a page still served stale can't loop;
 // the banner shows again only to name a product it didn't name yet
@@ -20,10 +35,12 @@ function showBanner(pausedProducts: string[] = []) {
   if (namedProducts && !hasNewProduct) return
 
   namedProducts = new Set(pausedProducts)
-  const productLabels = pausedProducts.map((product) => product[0].toUpperCase() + product.slice(1))
-  const description = productLabels.length
-    ? translate('Reload to keep editing in {0}.', [productLabels.join(', ')])
-    : undefined
+  const productLabels = pausedProducts.map(productLabel)
+  let description: string | undefined
+  if (productLabels.length) {
+    description = translate('Reload to keep editing in {0}.', [productLabels.join(', ')])
+  }
+
   const reloadAction = {
     label: translate('Reload'),
     onClick: () => window.location.reload(),
@@ -60,6 +77,19 @@ function parseMinBuilds(header: string): Record<string, string> | null {
   return builds
 }
 
+function toUrl(input: RequestInfo | URL) {
+  if (input instanceof Request) {
+    return new URL(input.url)
+  }
+
+  return new URL(input, window.location.href)
+}
+
+function isSameOrigin(input: RequestInfo | URL) {
+  const url = toUrl(input)
+  return url.origin === window.location.origin
+}
+
 function readHeaders(headers: Headers) {
   const minBuildsHeader = headers.get('X-Suite-Min-Builds')
   const parsedMinBuilds = minBuildsHeader && parseMinBuilds(minBuildsHeader)
@@ -81,16 +111,20 @@ export function watchBuild() {
   const originalFetch = window.fetch
   async function fetchReadingBuild(...args: Parameters<typeof fetch>) {
     const response = await originalFetch(...args)
-    readHeaders(response.headers)
+    if (isSameOrigin(args[0])) {
+      readHeaders(response.headers)
+    }
+
     return response
   }
 
   window.fetch = fetchReadingBuild
 
   // A chunk of an older build is gone from the server
-  const offerReload = (event: Event) => {
+  function offerReload(event: Event) {
     event.preventDefault()
     showBanner()
   }
+
   window.addEventListener('vite:preloadError', offerReload)
 }

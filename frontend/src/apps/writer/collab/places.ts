@@ -5,9 +5,9 @@ import {
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
 } from '@tiptap/y-tiptap'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
-import { encodeAnchor, readAnchor } from './anchors'
+import { encodeAnchor, heldId, readAnchor } from './anchors'
 
 /** Where a thread shows in this tab. */
 export type ThreadPlace =
@@ -75,14 +75,14 @@ function atomText(node: PMNode): string {
 }
 
 // The same place, held by the character after it (0) or before it (-1)
-function positionAt(doc: Y.Doc, position: Y.RelativePosition, assoc: number) {
-  const absolute = Y.createAbsolutePositionFromRelativePosition(position, doc)!
-  return Y.createRelativePositionFromTypeIndex(absolute.type, absolute.index, assoc)
+function positionAt(doc: yjs.Doc, position: yjs.RelativePosition, assoc: number) {
+  const absolute = yjs.createAbsolutePositionFromRelativePosition(position, doc)!
+  return yjs.createRelativePositionFromTypeIndex(absolute.type, absolute.index, assoc)
 }
 
 // A tab whose undo history keeps a deleted block would otherwise place the end where the block was
-function isInDeletedBlock(doc: Y.Doc, position: Y.RelativePosition) {
-  return Y.createAbsolutePositionFromRelativePosition(position, doc)?.type._item?.deleted ?? false
+function isInDeletedBlock(doc: yjs.Doc, position: yjs.RelativePosition) {
+  return yjs.createAbsolutePositionFromRelativePosition(position, doc)?.type._item?.deleted ?? false
 }
 
 // A range across blocks with no words left may still cover an atom or a block such as a rule
@@ -96,7 +96,7 @@ function holdsLeaf(doc: PMNode, from: number, to: number) {
 }
 
 // Yjs can't tell text not received yet from text deleted for good, so this asks first
-function isInDoc(doc: Y.Doc, position: Y.RelativePosition) {
-  const id = position.item ?? position.type
-  return !id || Y.getState(doc.store, id.client) > id.clock
+function isInDoc(doc: yjs.Doc, position: yjs.RelativePosition) {
+  const id = heldId(position)
+  return !id || yjs.getState(doc.store, id.client) > id.clock
 }

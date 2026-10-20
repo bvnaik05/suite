@@ -10,7 +10,12 @@ import {
 
 import { getRealtimeSocket } from '@/platform/realtime'
 import { getCookieSessionUser } from '@/platform/session'
-import { createTransport, type HttpMethod, type Operation } from '@/platform/transport'
+import {
+  createTransport,
+  type BytesTransport,
+  type HttpMethod,
+  type Operation,
+} from '@/platform/transport'
 
 export {
   ADOPT,
@@ -41,14 +46,16 @@ export interface CollabSession {
   title: { readonly value: string }
 }
 
-const contentOperation = (id: string, method: HttpMethod, path: string): Operation => ({
-  id,
-  owner: 'content',
-  method,
-  path,
-  pathParams: ['node'],
-  nodeParams: ['node'],
-})
+function contentOperation(id: string, method: HttpMethod, path: string): Operation {
+  return {
+    id,
+    owner: 'content',
+    method,
+    path,
+    pathParams: ['node'],
+    nodeParams: ['node'],
+  }
+}
 
 const OPEN = contentOperation('document_get', 'GET', '{node}/document')
 const PULL = contentOperation('updates_get', 'GET', '{node}/updates')
@@ -63,15 +70,15 @@ const STAGE: Operation = {
   pathParams: ['node', 'stage_id', 'piece_index'],
 }
 
-const jsonBody = (value: object) => new TextEncoder().encode(JSON.stringify(value))
+function jsonBody(value: object) {
+  return new TextEncoder().encode(JSON.stringify(value))
+}
 
-// Every request names who the tab expects to be, so the server can tell a lapsed sign-in from lost access
-function contentEndpoints(session: CollabSession, expectedUser: string): CollabEndpoints {
-  const transport = createTransport({
-    fetch: (url, init) => session.credentials.fetch(String(url), init),
-  })
-  const node = session.nodeId
-  const headers = { 'X-Expected-User': expectedUser }
+function syncEndpoints(
+  transport: BytesTransport,
+  node: string,
+  headers: Record<string, string>,
+): Pick<CollabEndpoints, 'open' | 'pull' | 'push'> {
   return {
     open: () => transport.requestBytes(OPEN, { node }, { headers }),
     pull: (sinceRev, epoch) => {
@@ -90,6 +97,15 @@ function contentEndpoints(session: CollabSession, expectedUser: string): CollabE
       }
       return transport.requestBytes(PUSH, { node }, bytesOptions)
     },
+  }
+}
+
+function stagingEndpoints(
+  transport: BytesTransport,
+  node: string,
+  headers: Record<string, string>,
+): Pick<CollabEndpoints, 'stage' | 'render'> {
+  return {
     stage: (stageId, pieceIndex, body) => {
       const input = {
         node,
@@ -98,8 +114,25 @@ function contentEndpoints(session: CollabSession, expectedUser: string): CollabE
       }
       return transport.requestBytes(STAGE, input, { body, headers })
     },
+    render: (stageId) => {
+      const body = jsonBody({ stage_id: stageId })
+      return transport.requestBytes(RENDER, { node }, { body, headers })
+    },
+  }
+}
+
+function sessionEndpoints(
+  transport: BytesTransport,
+  node: string,
+  headers: Record<string, string>,
+): Pick<CollabEndpoints, 'session' | 'suspect'> {
+  return {
     session: (sessionId, claim) => {
-      const sessionClaim = claim ? { sid: sessionId, claim } : { sid: sessionId }
+      const sessionClaim: Record<string, unknown> = { sid: sessionId }
+      if (claim) {
+        sessionClaim.claim = claim
+      }
+
       const body = jsonBody(sessionClaim)
       return transport.requestBytes(SESSION, { node }, { body, headers })
     },
@@ -107,10 +140,15 @@ function contentEndpoints(session: CollabSession, expectedUser: string): CollabE
       const body = jsonBody({ rev })
       return transport.requestBytes(SUSPECT, { node }, { body, headers })
     },
-    render: (stageId) => {
-      const body = jsonBody({ stage_id: stageId })
-      return transport.requestBytes(RENDER, { node }, { body, headers })
-    },
+  }
+}
+
+function restoreEndpoints(
+  transport: BytesTransport,
+  node: string,
+  headers: Record<string, string>,
+): Pick<CollabEndpoints, 'beginRestore' | 'cancelRestore'> {
+  return {
     beginRestore: (seenRev, version) => {
       const body = jsonBody({ seen_rev: seenRev, version })
       return transport.requestBytes(RESTORE, { node }, { body, headers })
@@ -122,7 +160,24 @@ function contentEndpoints(session: CollabSession, expectedUser: string): CollabE
   }
 }
 
-const signedIn = () => getCookieSessionUser() ?? 'Guest'
+// Every request names who the tab expects to be, so the server can tell a lapsed sign-in from lost access
+function contentEndpoints(session: CollabSession, expectedUser: string): CollabEndpoints {
+  const transport = createTransport({
+    fetch: (url, init) => session.credentials.fetch(String(url), init),
+  })
+  const node = session.nodeId
+  const headers = { 'X-Expected-User': expectedUser }
+  return {
+    ...syncEndpoints(transport, node, headers),
+    ...stagingEndpoints(transport, node, headers),
+    ...sessionEndpoints(transport, node, headers),
+    ...restoreEndpoints(transport, node, headers),
+  }
+}
+
+function signedIn() {
+  return getCookieSessionUser() ?? 'Guest'
+}
 
 // One store per app and person on this site; another person's stays untouched on the device
 const deviceStores = new Map<string, Promise<DeviceStore | null>>()
@@ -144,6 +199,17 @@ export function openSignedInDeviceStore(app: string) {
   return deviceStore(app, signedIn())
 }
 
+async function roomDevice(session: CollabSession, app: string, user: string) {
+  const store = await deviceStore(app, user)
+  return (
+    store && {
+      store,
+      doc: session.nodeId,
+      title: () => session.title.value,
+    }
+  )
+}
+
 // `onThreadsChanged` is told when the document's comment threads may have changed;
 // `watch` gets the room before it applies anything
 export async function openCollabRoom({
@@ -158,12 +224,7 @@ export async function openCollabRoom({
   watch?: (room: CollabRoom) => void
 }): Promise<Opened> {
   const expectedUser = signedIn()
-  const store = await deviceStore(adapter.app, expectedUser)
-  const device = store && {
-    store,
-    doc: session.nodeId,
-    title: () => session.title.value,
-  }
+  const device = await roomDevice(session, adapter.app, expectedUser)
   return openRoom({
     endpoints: contentEndpoints(session, expectedUser),
     expectedUser,

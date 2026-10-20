@@ -39,30 +39,44 @@ const FIRST_TAB_HTML_ID = 'first-tab'
 const FIRST_TAB_LABEL = 'firstTabLabel'
 
 /** The first tab's label a document's Yjs state keeps, if it was renamed. */
-export const storedFirstTabLabel = (ydoc: Doc): string | null =>
-  (ydoc.getMap('meta').get(FIRST_TAB_LABEL) as string | undefined) ?? null
+export function storedFirstTabLabel(ydoc: Doc): string | null {
+  return (ydoc.getMap('meta').get(FIRST_TAB_LABEL) as string | undefined) ?? null
+}
 
-const firstTabBlocks = (doc: PMNode): TabMatch[] => {
+function firstTabBlocks(doc: PMNode): TabMatch[] {
   const blocks: TabMatch[] = []
-  const collectBlock = (node: PMNode, pos: number) => {
+  function collectBlock(node: PMNode, pos: number) {
     if (node.type.name !== 'tab') {
       blocks.push({ node, pos })
     }
   }
+
   doc.forEach(collectBlock)
 
   return blocks
 }
 
-const metaMap = (state: EditorState) => ySyncPluginKey.getState(state)?.doc?.getMap('meta')
+function metaMap(state: EditorState) {
+  return ySyncPluginKey.getState(state)?.doc?.getMap('meta')
+}
 
-const firstTabLabel = (state: EditorState): string | null =>
-  metaMap(state)?.get(FIRST_TAB_LABEL) ?? null
+function firstTabLabel(state: EditorState): string | null {
+  const ydoc = ySyncPluginKey.getState(state)?.doc
+  if (!ydoc) {
+    return null
+  }
 
-export const tabIdAt = (doc: PMNode, pos: number): string => {
+  return storedFirstTabLabel(ydoc)
+}
+
+export function tabIdAt(doc: PMNode, pos: number): string {
   const $pos = doc.resolve(pos)
-  const block = $pos.depth ? $pos.node(1) : null
-  if (block?.type.name !== 'tab') {
+  if (!$pos.depth) {
+    return FIRST_TAB_ID
+  }
+
+  const block = $pos.node(1)
+  if (block.type.name !== 'tab') {
     return FIRST_TAB_ID
   }
 
@@ -80,16 +94,16 @@ export const orderedTabs = (doc: PMNode): TabMatch[] =>
 // Document order is no longer tab order, so serialise the tab slots in display
 // order. The first tab is written as a tab of its own whenever its label or
 // other tabs would otherwise be lost from the HTML
-export const orderedHTML = (doc: PMNode, firstTabLabel: string | null): string => {
+export function orderedHTML(doc: PMNode, firstLabel: string | null): string {
   const ordered = orderedTabs(doc)
   const blocks = firstTabBlocks(doc).map(({ node }) => node)
   let children: PMNode[] = ordered.map(({ node }) => node)
   const hasFirstTab = blocks.length > 0
-  const needsOwnTab = ordered.length > 0 || !!firstTabLabel
-  if (hasFirstTab && needsOwnTab) {
+  const isOwnTabNeeded = ordered.length > 0 || !!firstLabel
+  if (hasFirstTab && isOwnTabNeeded) {
     const firstTabAttrs = {
       id: FIRST_TAB_HTML_ID,
-      label: firstTabLabel ?? 'Untitled',
+      label: firstLabel ?? 'Untitled',
     }
     const firstTab = doc.type.schema.nodes.tab.create(firstTabAttrs, blocks)
     children.unshift(firstTab)
@@ -118,8 +132,14 @@ export const currentTabHTML = (editor: Editor): string => {
     return wrapper.innerHTML
   }
 
-  const tab = activeTabId ? findTab(state.doc, activeTabId) : null
-  if (!tab) return editor.getHTML()
+  if (!activeTabId) {
+    return editor.getHTML()
+  }
+
+  const tab = findTab(state.doc, activeTabId)
+  if (!tab) {
+    return editor.getHTML()
+  }
 
   wrapper.appendChild(serializer.serializeNode(tab.node))
   return wrapper.innerHTML
@@ -150,12 +170,16 @@ export const TabsExtension = TabNode.extend({
   addProseMirrorPlugins() {
     const storage = this.storage
 
-    const hideFirstTab = (state: EditorState) => {
+    function hideFirstTab(state: EditorState) {
       const activeTabId = storage.activeTabId
-      if (!activeTabId || activeTabId === FIRST_TAB_ID) return null
+      if (!activeTabId || activeTabId === FIRST_TAB_ID) {
+        return null
+      }
 
-      const hiddenDecoration = ({ node, pos }: TabMatch) =>
-        Decoration.node(pos, pos + node.nodeSize, { style: 'display: none' })
+      function hiddenDecoration({ node, pos }: TabMatch) {
+        return Decoration.node(pos, pos + node.nodeSize, { style: 'display: none' })
+      }
+
       const hiddenDecorations = firstTabBlocks(state.doc).map(hiddenDecoration)
       return DecorationSet.create(state.doc, hiddenDecorations)
     }
@@ -257,16 +281,25 @@ export const TabsExtension = TabNode.extend({
         (tabId: string, newIndex: number) =>
         ({ tr, dispatch, state }) => {
           const tabs = orderedTabs(state.doc)
-          if (firstTabBlocks(state.doc).length) {
-            newIndex--
-          }
+          const hasFirstTab = firstTabBlocks(state.doc).length > 0
+          const firstTabSlot = hasFirstTab ? 1 : 0
+          const tabSlot = newIndex - firstTabSlot
           const tabIndex = tabs.findIndex((t) => t.node.attrs.id === tabId)
 
-          if (tabIndex === -1 || tabIndex === newIndex) return false
-          if (newIndex < 0 || newIndex >= tabs.length) return false
-          if (!dispatch) return true
+          if (tabIndex === -1 || tabIndex === tabSlot) {
+            return false
+          }
 
-          tabs.splice(newIndex, 0, tabs.splice(tabIndex, 1)[0])
+          if (tabSlot < 0 || tabSlot >= tabs.length) {
+            return false
+          }
+
+          if (!dispatch) {
+            return true
+          }
+
+          const [moved] = tabs.splice(tabIndex, 1)
+          tabs.splice(tabSlot, 0, moved)
           tabs.forEach(({ node, pos }, index) => {
             if (node.attrs.order !== index) {
               tr.setNodeMarkup(pos, undefined, { ...node.attrs, order: index })
@@ -279,7 +312,12 @@ export const TabsExtension = TabNode.extend({
       focusTab: (tabId: string) => () => {
         setTimeout(() => {
           const { doc } = this.editor.state
-          const tab = tabId === FIRST_TAB_ID ? firstTabBlocks(doc)[0] : findTab(doc, tabId)
+          let tab: TabMatch | null = findTab(doc, tabId)
+          if (tabId === FIRST_TAB_ID) {
+            const [firstBlock] = firstTabBlocks(doc)
+            tab = firstBlock
+          }
+
           if (tab) this.editor.commands.focus(tab.pos + 1)
         }, 0)
         return true
@@ -289,21 +327,28 @@ export const TabsExtension = TabNode.extend({
         ({ tr, dispatch, state }) => {
           if (tabId === FIRST_TAB_ID) {
             const meta = metaMap(state)
-            if (!meta) return false
+            if (!meta) {
+              return false
+            }
 
-            if (!dispatch) return true
+            if (!dispatch) {
+              return true
+            }
 
             meta.doc!.transact(() => meta.set(FIRST_TAB_LABEL, newLabel), this.name)
             if (refocus) {
               this.editor.commands.focusTab(tabId)
             }
+
             return true
           }
 
           const tab = findTab(state.doc, tabId)
           if (!tab) return false
 
-          if (!dispatch) return true
+          if (!dispatch) {
+            return true
+          }
 
           tr.setNodeMarkup(tab.pos, undefined, {
             ...tab.node.attrs,
@@ -319,22 +364,32 @@ export const TabsExtension = TabNode.extend({
           if (!dispatch) return false
 
           if (tabId === FIRST_TAB_ID) {
-            if (!tabsIn(state.doc).length) return false
+            if (!tabsIn(state.doc).length) {
+              return false
+            }
 
-            firstTabBlocks(state.doc)
-              .reverse()
-              .forEach(({ node, pos }) => tr.delete(pos, pos + node.nodeSize))
+            const blocks = firstTabBlocks(state.doc).reverse()
+            for (const { node, pos } of blocks) {
+              tr.delete(pos, pos + node.nodeSize)
+            }
           } else {
             const tab = findTab(state.doc, tabId)
-            if (!tab) return false
+            if (!tab) {
+              return false
+            }
 
             tr.delete(tab.pos, tab.pos + tab.node.nodeSize)
           }
           dispatch(tr)
 
           if (this.storage.activeTabId === tabId) {
-            const next = listTabs(this.editor)[0]
-            this.editor.commands.changeTab(next ? next.id : null)
+            const [nextTab] = listTabs(this.editor)
+            let nextTabId: string | null = null
+            if (nextTab) {
+              nextTabId = nextTab.id
+            }
+
+            this.editor.commands.changeTab(nextTabId)
           }
           return true
         },
@@ -367,7 +422,9 @@ export const TabsExtension = TabNode.extend({
         const { state, view } = this.editor
         if (activeTabId === FIRST_TAB_ID) {
           const blocks = firstTabBlocks(state.doc)
-          if (!tabsIn(state.doc).length || !blocks.length) return false
+          if (!tabsIn(state.doc).length || !blocks.length) {
+            return false
+          }
 
           const lastBlock = blocks[blocks.length - 1]
           const from = state.doc.resolve(blocks[0].pos)
@@ -433,14 +490,19 @@ export const TabsExtension = TabNode.extend({
   },
 })
 
-export const listTabs = (editor: Editor): { id: string; label: string }[] => {
+export function listTabs(editor: Editor): { id: string; label: string }[] {
   const { doc } = editor.state
-  const tabEntry = ({ node }: TabMatch) => ({
-    id: node.attrs.id,
-    label: node.attrs.label,
-  })
+  function tabEntry({ node }: TabMatch) {
+    return {
+      id: node.attrs.id,
+      label: node.attrs.label,
+    }
+  }
+
   const tabs = orderedTabs(doc).map(tabEntry)
-  if (!firstTabBlocks(doc).length) return tabs
+  if (!firstTabBlocks(doc).length) {
+    return tabs
+  }
 
   const firstTab = {
     id: FIRST_TAB_ID,

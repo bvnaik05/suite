@@ -33,8 +33,9 @@ import {
 } from '@/apps/drive'
 import { documentTypes } from '@/composition/documentRegistry'
 import { GUEST_FRAME_KEY } from '@/platform/contracts'
+import { describeFailure } from '@/platform/open-failure'
 import { openingTitle as historyOpeningTitle, usePageTitle } from '@/platform/page-meta'
-import { describeFailure, TransportError } from '@/platform/transport'
+import { TransportError } from '@/platform/transport'
 
 const route = useRoute()
 const router = useRouter()
@@ -123,6 +124,7 @@ watch(
         guestFrame.requireSignIn()
         return
       }
+
       error.value = failureMessage(reason)
     } finally {
       if (request === opening) loading.value = false
@@ -175,11 +177,22 @@ function present(next: DocumentSession | null, nextSurface: Component | null) {
 }
 
 function failureMessage(reason: unknown) {
-  const status = reason instanceof TransportError ? reason.status : null
-  const statusMessage = describeFailure(status)
-  const fallbackMessage =
-    reason instanceof Error ? reason.message : 'This document could not be opened.'
-  return statusMessage ?? fallbackMessage
+  if (reason instanceof TransportError) {
+    const statusMessage = describeFailure(reason.status)
+    if (statusMessage) {
+      return statusMessage
+    }
+  }
+
+  if (reason instanceof Error) {
+    return reason.message
+  }
+
+  return 'This document could not be opened.'
+}
+
+function handleRetry() {
+  reopen.value += 1
 }
 
 async function replaceDecorativeSlug(opened: DocumentSession) {
@@ -205,7 +218,7 @@ onBeforeUnmount(() => {
       <span class="lucide-circle-alert mx-auto block size-6 text-ink-gray-5" aria-hidden="true" />
       <h1 class="mt-3 text-lg-semibold">Could not open this document</h1>
       <p class="mt-1 text-p-sm text-ink-gray-6">{{ error }}</p>
-      <Button v-if="nodeId" class="mt-4" label="Try again" @click="reopen += 1" />
+      <Button v-if="nodeId" class="mt-4" label="Try again" @click="handleRetry" />
     </div>
 
     <div v-else-if="refused" class="m-auto max-w-md px-6 text-center">

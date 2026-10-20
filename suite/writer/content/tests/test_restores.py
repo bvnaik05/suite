@@ -252,17 +252,17 @@ class TestRestoreFence(CheckpointCase):
     def open_tab(self) -> frappe._dict:
         sid = uuid.uuid4().hex
         session = call_route(routes.sessions_post, self.node, body=json.dumps({"sid": sid}).encode())
-        header, checkpoint, rows = read_open(call_route(routes.document_get, self.node).get_data())
+        frame = read_open(call_route(routes.document_get, self.node).get_data())
         doc = pycrdt.Doc(client_id=answer(session)["client_id"])
-        for payload in [checkpoint, *(payload for _rev, payload in rows)]:
+        for payload in [frame.checkpoint, *(payload for _rev, payload in frame.rows)]:
             if payload:
                 doc.apply_update(payload)
 
         seen_rev = 0
-        if rows:
-            seen_rev = rows[-1][0]
+        if frame.rows:
+            seen_rev = frame.rows[-1][0]
 
-        return frappe._dict(sid=sid, doc=doc, header=header, seen_rev=seen_rev, seq=0)
+        return frappe._dict(sid=sid, doc=doc, header=frame.header, seen_rev=seen_rev, seq=0)
 
     # The tab types `word` at the start and sends it
     def push_word(self, tab: frappe._dict, word: str, *, restore: str | None = None) -> tuple[int, dict]:

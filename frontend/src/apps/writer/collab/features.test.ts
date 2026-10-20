@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { writerSchema } from '@/apps/writer/schema'
 
-type Features = {
+interface Features {
   schema: number
   features: Record<string, number>
   nodes: string[]
@@ -21,7 +21,7 @@ const declared = JSON.parse(featuresText) as Features
 // The binding writes kept formatting back as the keys it was read from
 const KEPT_FORMATTING = 'keptFormatting'
 
-const editorNames = () => {
+function editorNames() {
   const schema = getSchema(writerSchema())
   const names = new Set<string>()
   const marks = Object.values(schema.marks).filter((mark) => mark.name !== KEPT_FORMATTING)
@@ -32,6 +32,7 @@ const editorNames = () => {
       names.add(attribute)
     }
   }
+
   return names
 }
 

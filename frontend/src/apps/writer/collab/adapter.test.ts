@@ -5,7 +5,7 @@ import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { Awareness } from 'y-protocols/awareness'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import type { CollabRoom } from '@/platform/collab'
 
@@ -25,14 +25,14 @@ afterEach(() => {
 })
 
 function element(name: string, text: string) {
-  const node = new Y.XmlElement(name)
-  node.insert(0, [new Y.XmlText(text)])
+  const node = new yjs.XmlElement(name)
+  node.insert(0, [new yjs.XmlText(text)])
   return node
 }
 
 // A room whose body holds `blocks`
-function roomWith(...blocks: Y.XmlElement[]) {
-  const doc = new Y.Doc()
+function roomWith(...blocks: yjs.XmlElement[]) {
+  const doc = new yjs.Doc()
   doc.getXmlFragment(BODY_FIELD).insert(0, blocks)
   const presence = { awareness: new Awareness(doc), peers: [], onChange: () => () => true }
   return {
@@ -57,7 +57,7 @@ function openWriter(room: CollabRoom, onFrozen: () => void) {
   const host = document.createElement('div')
   document.body.append(host)
   const writerExtensions = writerEditorExtensions({
-    collaborative: true,
+    isCollaborative: true,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},

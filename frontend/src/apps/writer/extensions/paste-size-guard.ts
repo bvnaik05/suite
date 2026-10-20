@@ -1,10 +1,11 @@
 import { Extension } from '@tiptap/core'
-import { isChangeOrigin } from '@tiptap/extension-collaboration'
 import type { Fragment, Node, Slice } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type PluginSpec, type Transaction } from '@tiptap/pm/state'
 import { ReplaceStep, type Step } from '@tiptap/pm/transform'
 
 import { sizeCheck, type Limits } from '@/platform/collab'
+
+import { isReceived } from './received-content-guard'
 
 export interface PasteSizeGuardOptions {
   limits: () => Limits | null
@@ -22,24 +23,29 @@ function contentBytes(content: Fragment) {
 
 // Removes content and writes none: text kept after the range would join another block, which Yjs writes anew
 function removesOnly(step: Step, doc: Node) {
-  if (!(step instanceof ReplaceStep) || step.from >= step.to) return false
-
-  let writesInline = false
-  const noteInline = (node: Node) => {
-    writesInline ||= node.isInline
+  if (!(step instanceof ReplaceStep) || step.from >= step.to) {
+    return false
   }
+
+  let hasInline = false
+  function noteInline(node: Node) {
+    hasInline ||= node.isInline
+  }
+
   step.slice.content.descendants(noteInline)
 
   const $from = doc.resolve(step.from)
   const $to = doc.resolve(step.to)
-  const endsInText = $to.parent.isTextblock
-  const crossesBlocks = !$to.sameParent($from)
-  const keepsTextAfter = $to.parentOffset < $to.parent.content.size
-  const joinsBlocks = endsInText && crossesBlocks && keepsTextAfter
-  return !writesInline && !joinsBlocks
+  const isEndInText = $to.parent.isTextblock
+  const isAcrossBlocks = !$to.sameParent($from)
+  const hasTextAfter = $to.parentOffset < $to.parent.content.size
+  const isBlockJoin = isEndInText && isAcrossBlocks && hasTextAfter
+  return !hasInline && !isBlockJoin
 }
 
-const deletesOnly = (tr: Transaction) => tr.steps.every((step, i) => removesOnly(step, tr.docs[i]))
+function deletesOnly(tr: Transaction) {
+  return tr.steps.every((step, i) => removesOnly(step, tr.docs[i]))
+}
 
 export interface PasteSizeGuardStorage {
   refuses: (content: Fragment, reportTooLarge?: () => void) => boolean
@@ -68,10 +74,12 @@ export const PasteSizeGuard = Extension.create<PasteSizeGuardOptions, PasteSizeG
         if (sizeStatus === 'too_large') {
           reportTooLarge()
         }
+
         // At the limit the banner already says so
         if (sizeStatus === 'near_full' && !atLimit()) {
           onNearFull()
         }
+
         return sizeStatus === 'too_large'
       },
     }
@@ -84,13 +92,15 @@ export const PasteSizeGuard = Extension.create<PasteSizeGuardOptions, PasteSizeG
     const spec: PluginSpec<unknown> = {
       key: new PluginKey('pasteSizeGuard'),
       filterTransaction: (tr) => {
-        if (!tr.docChanged || !atLimit()) return true
+        if (!tr.docChanged || !atLimit()) {
+          return true
+        }
 
-        return isChangeOrigin(tr) || deletesOnly(tr)
+        return isReceived(tr) || deletesOnly(tr)
       },
       props: {
         handlePaste: (_view, _event, slice) => refusesSlice(slice),
-        handleDrop: (_view, _event, slice, moved) => !moved && refusesSlice(slice),
+        handleDrop: (_view, _event, slice, isMoved) => !isMoved && refusesSlice(slice),
       },
     }
 

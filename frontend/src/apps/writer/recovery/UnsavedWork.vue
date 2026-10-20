@@ -76,8 +76,8 @@ function savedAt(copy: RecoveryCopy) {
 
 function details(copy: RecoveryCopy) {
   const size = formatDriveBytes(copy.size)
-  const savedAt = savedAtLabel(copy)
-  return `${savedAt} · ${size}`
+  const savedLabel = savedAtLabel(copy)
+  return `${savedLabel} · ${size}`
 }
 </script>
 

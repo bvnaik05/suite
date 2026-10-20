@@ -1,11 +1,11 @@
-import { Editor, getSchema, type JSONContent } from '@tiptap/core'
+import { Editor, getSchema, type EditorOptions, type JSONContent } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
 import { prosemirrorJSONToYDoc, ySyncPluginKey } from '@tiptap/y-tiptap'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { writerEditorExtensions, type WriterEditorOptions } from '../editor-extensions'
 import { writerSchema } from '../schema'
@@ -13,7 +13,11 @@ import { writerSchema } from '../schema'
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
 
-type Size = { width: number; height: number }
+interface Size {
+  width: number
+  height: number
+}
+
 const measure = vi.fn(async (_src: string): Promise<Size> => ({ width: 100, height: 50 }))
 
 class MeasuredImage {
@@ -22,48 +26,72 @@ class MeasuredImage {
   onload: (() => void) | null = null
   onerror: ((error: unknown) => void) | null = null
   set src(src: string) {
-    const loaded = ({ width, height }: Size) => {
-      this.naturalWidth = width
-      this.naturalHeight = height
-      this.onload?.()
+    void this.load(src)
+  }
+
+  async load(src: string) {
+    let size: Size
+    try {
+      size = await measure(src)
+    } catch (error) {
+      this.onerror?.(error)
+      return
     }
-    const failed = (error: unknown) => this.onerror?.(error)
-    measure(src).then(loaded, failed)
+
+    this.naturalWidth = size.width
+    this.naturalHeight = size.height
+    this.onload?.()
   }
 }
 
 beforeEach(() => vi.stubGlobal('Image', MeasuredImage))
 const editors: Editor[] = []
 afterEach(() => {
-  editors.splice(0).forEach((editor) => editor.destroy())
+  for (const editor of editors.splice(0)) {
+    editor.destroy()
+  }
+
   measure.mockClear()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
-const waitForUpdates = () => new Promise((resolve) => setTimeout(resolve, 0))
+function waitForUpdates() {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
 
-const image = (src: string, attrs: object = {}) => ({
-  type: 'image',
-  attrs: { src, ...attrs },
-})
-const imageParagraph = (src: string, attrs: object = {}) => ({
-  type: 'paragraph',
-  content: [image(src, attrs)],
-})
-const paragraph = (text: string) => ({
-  type: 'paragraph',
-  content: [{ type: 'text', text }],
-})
-const doc = (...content: object[]): JSONContent => ({
-  type: 'doc',
-  content,
-})
+function image(src: string, attrs: object = {}) {
+  return {
+    type: 'image',
+    attrs: { src, ...attrs },
+  }
+}
 
-function editorExtensions(ydoc: Y.Doc | null) {
-  const commentsDoc = new Y.Doc()
+function imageParagraph(src: string, attrs: object = {}) {
+  return {
+    type: 'paragraph',
+    content: [image(src, attrs)],
+  }
+}
+
+function paragraph(text: string) {
+  return {
+    type: 'paragraph',
+    content: [{ type: 'text', text }],
+  }
+}
+
+function doc(...content: object[]): JSONContent {
+  return {
+    type: 'doc',
+    content,
+  }
+}
+
+function editorExtensions(ydoc: yjs.Doc | null) {
+  const commentsDoc = new yjs.Doc()
   const options: WriterEditorOptions = {
-    collaborative: !!ydoc,
+    isCollaborative: !!ydoc,
     mentionItems: () => [],
     onMentionQuery: () => {},
     onCommentActivated: () => {},
@@ -79,7 +107,9 @@ function editorExtensions(ydoc: Y.Doc | null) {
     onCommentsPainted: () => {},
   }
   const baseExtensions = writerEditorExtensions(options)
-  if (!ydoc) return baseExtensions
+  if (!ydoc) {
+    return baseExtensions
+  }
 
   const collaboration = {
     document: ydoc,
@@ -88,27 +118,29 @@ function editorExtensions(ydoc: Y.Doc | null) {
   return [...baseExtensions, Collaboration.configure(collaboration)]
 }
 
-function openEditor(content: JSONContent | Y.Doc, collaborative = true) {
-  let ydoc: Y.Doc | null = null
-  if (content instanceof Y.Doc) {
+function openEditor(content: JSONContent | yjs.Doc, isCollaborative = true) {
+  let ydoc: yjs.Doc | null = null
+  if (content instanceof yjs.Doc) {
     ydoc = content
-  } else if (collaborative) {
+  } else if (isCollaborative) {
     const schema = getSchema(writerSchema())
     ydoc = prosemirrorJSONToYDoc(schema, content, 'default')
   }
 
   let writes = 0
-  const countWrite = (_update: Uint8Array, origin: unknown) => {
+  function countWrite(_update: Uint8Array, origin: unknown) {
     if (origin !== 'remote') {
       writes++
     }
   }
+
   ydoc?.on('update', countWrite)
 
-  const editorOptions = {
-    extensions: editorExtensions(ydoc),
-    ...(!ydoc && { content: content as JSONContent }),
+  const editorOptions: Partial<EditorOptions> = { extensions: editorExtensions(ydoc) }
+  if (!ydoc) {
+    editorOptions.content = content as JSONContent
   }
+
   const editor = new Editor(editorOptions)
   editors.push(editor)
   return {
@@ -118,16 +150,18 @@ function openEditor(content: JSONContent | Y.Doc, collaborative = true) {
   }
 }
 
-const typeAtEnd = (editor: Editor, text = 'y') =>
-  editor.commands.insertContentAt(editor.state.doc.content.size - 1, text)
+function typeAtEnd(editor: Editor, text = 'y') {
+  return editor.commands.insertContentAt(editor.state.doc.content.size - 1, text)
+}
 
-const mediaSizes = (editor: Editor, name = 'image') => {
+function mediaSizes(editor: Editor, name = 'image') {
   const sizes: [unknown, unknown][] = []
-  const collectSize = (node: ProseMirrorNode) => {
+  function collectSize(node: ProseMirrorNode) {
     if (node.type.name === name) {
       sizes.push([node.attrs.width, node.attrs.height])
     }
   }
+
   editor.state.doc.descendants(collectSize)
 
   return sizes
@@ -136,11 +170,11 @@ const mediaSizes = (editor: Editor, name = 'image') => {
 describe.each([
   ['a plain', false],
   ['a collaborative', true],
-])('media sizes in %s document', (_, collaborative) => {
+])('media sizes in %s document', (_, isCollaborative) => {
   const stored = doc(imageParagraph('/files/old.png'), paragraph('x'))
 
   it('writes nothing when the document opens', async () => {
-    const { editor, writes } = openEditor(stored, collaborative)
+    const { editor, writes } = openEditor(stored, isCollaborative)
     const updated = vi.fn()
     editor.on('update', updated)
     await waitForUpdates()
@@ -151,7 +185,7 @@ describe.each([
   })
 
   it('sizes stored media right after the first edit the person makes', async () => {
-    const { editor } = openEditor(stored, collaborative)
+    const { editor } = openEditor(stored, isCollaborative)
     await waitForUpdates()
     typeAtEnd(editor)
     await Promise.resolve()
@@ -161,14 +195,15 @@ describe.each([
   })
 
   it('sends the sizes after the edit, kept out of history', async () => {
-    const { editor } = openEditor(stored, collaborative)
+    const { editor } = openEditor(stored, isCollaborative)
     await waitForUpdates()
     const sent: Transaction[] = []
-    const recordChange = ({ transaction }: { transaction: Transaction }) => {
+    function recordChange({ transaction }: { transaction: Transaction }) {
       if (transaction.docChanged) {
         sent.push(transaction)
       }
     }
+
     editor.on('transaction', recordChange)
     typeAtEnd(editor)
     await Promise.resolve()
@@ -180,7 +215,7 @@ describe.each([
   })
 
   it("undoes the person's edit, not the sizing", async () => {
-    const { editor } = openEditor(stored, collaborative)
+    const { editor } = openEditor(stored, isCollaborative)
     await waitForUpdates()
     typeAtEnd(editor)
     await waitForUpdates()
@@ -192,7 +227,7 @@ describe.each([
   })
 
   it('does not size an image that undo brings back', async () => {
-    const { editor } = openEditor(stored, collaborative)
+    const { editor } = openEditor(stored, isCollaborative)
     await waitForUpdates()
     editor.commands.deleteRange({ from: 1, to: 2 })
     await waitForUpdates()
@@ -221,8 +256,8 @@ describe('media sizes', () => {
   })
 
   it("sizes only what the person's edit owed, not a collaborator's later image", async () => {
-    let finishMeasuring = (_size: Size) => {}
-    measure.mockImplementationOnce(() => new Promise((resolve) => (finishMeasuring = resolve)))
+    const { promise: measuring, resolve: finishMeasuring } = Promise.withResolvers<Size>()
+    measure.mockImplementationOnce(() => measuring)
     const { editor } = openEditor(doc(imageParagraph('/files/old.png'), paragraph('x')))
     typeAtEnd(editor)
     const theirImage = editor.schema.nodes.image.create({ src: '/files/theirs.png' })
@@ -256,8 +291,8 @@ describe('media sizes', () => {
   })
 
   it('sizes stored media after an edit that came before it was measured', async () => {
-    let finishMeasuring = (_size: Size) => {}
-    measure.mockImplementationOnce(() => new Promise((resolve) => (finishMeasuring = resolve)))
+    const { promise: measuring, resolve: finishMeasuring } = Promise.withResolvers<Size>()
+    measure.mockImplementationOnce(() => measuring)
     const { editor } = openEditor(doc(imageParagraph('/files/old.png'), paragraph('x')))
     typeAtEnd(editor)
     await waitForUpdates()
@@ -385,6 +420,7 @@ describe('media sizes', () => {
       Object.defineProperties(this, dimensions)
       queueMicrotask(() => this.onloadedmetadata?.(new Event('loadedmetadata')))
     }
+
     vi.spyOn(HTMLVideoElement.prototype, 'src', 'set').mockImplementation(loadMetadata)
     const loadSpy = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
     const video = {
@@ -404,11 +440,14 @@ describe('media sizes', () => {
 })
 
 it('does not size an image that undo brings back with a fix-up', async () => {
-  const heading = (text: string) => ({
-    type: 'heading',
-    attrs: { level: 2 },
-    content: [{ type: 'text', text }],
-  })
+  function heading(text: string) {
+    return {
+      type: 'heading',
+      attrs: { level: 2 },
+      content: [{ type: 'text', text }],
+    }
+  }
+
   const { editor } = openEditor(doc(imageParagraph('/files/old.png'), heading('End')), false)
   await waitForUpdates()
   editor.commands.deleteRange({ from: 1, to: 2 })
@@ -426,16 +465,19 @@ describe('media sizes with collaborators', () => {
   function pair(content: JSONContent) {
     const schema = getSchema(writerSchema())
     const source = prosemirrorJSONToYDoc(schema, content, 'default')
-    const stored = Y.encodeStateAsUpdate(source)
-    const [docA, docB] = [new Y.Doc(), new Y.Doc()]
-    Y.applyUpdate(docA, stored, 'remote')
-    Y.applyUpdate(docB, stored, 'remote')
+    const stored = yjs.encodeStateAsUpdate(source)
+    const [docA, docB] = [new yjs.Doc(), new yjs.Doc()]
+    yjs.applyUpdate(docA, stored, 'remote')
+    yjs.applyUpdate(docB, stored, 'remote')
 
-    const relayTo = (target: Y.Doc) => (update: Uint8Array, origin: unknown) => {
-      if (origin !== 'remote') {
-        Y.applyUpdate(target, update, 'remote')
+    function relayTo(target: yjs.Doc) {
+      return function relay(update: Uint8Array, origin: unknown) {
+        if (origin !== 'remote') {
+          yjs.applyUpdate(target, update, 'remote')
+        }
       }
     }
+
     docA.on('update', relayTo(docB))
     docB.on('update', relayTo(docA))
     return [openEditor(docA), openEditor(docB)]

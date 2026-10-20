@@ -10,16 +10,16 @@ def typed(client_id: int, texts: list[str]) -> list[bytes]:
     seen = doc.get_state()
     fragment = doc.get("default", type=pycrdt.XmlFragment)
     text = fragment.children.append(pycrdt.XmlText())
-    pushes = []
+    pushes: list[bytes] = []
     for chunk in texts:
         text.insert(len(str(text)), chunk)
         pushes.append(doc.get_update(seen))
         seen = doc.get_state()
+
     return pushes
 
 
 def one_struct(ref: int, content: bytes, client: int = 5) -> bytes:
-    """An update with one struct of content `ref` in the root array "t", written by `client` at clock 0."""
     return (
         bytes([1, 1]) + encoded_uint(client) + bytes([0, ref, 1]) + encoded_string("t") + content + bytes([0])
     )
@@ -29,7 +29,6 @@ ANY_TRUE = one_struct(8, encoded_uint(1) + bytes([120]))
 
 
 def editor(version: int = 1, features: dict[str, int] | None = None) -> ingest.EditorSchema:
-    """An editor that writes paragraphs and bold, the way y-prosemirror stores them."""
     return ingest.EditorSchema(
         version,
         features or {},
@@ -41,7 +40,6 @@ def editor(version: int = 1, features: dict[str, int] | None = None) -> ingest.E
 
 
 def written(build) -> updates.Update:
-    """The update `build` makes in a fresh document as client 5."""
     doc = pycrdt.Doc(client_id=5)
     build(doc)
     pushed = doc.get_update()
@@ -62,7 +60,7 @@ class TestIngest(UnitTestCase):
 
     def test_a_delete_only_row_passes(self):
         doc = pycrdt.Doc(client_id=5)
-        other_typing = typed(6, ["abc"])[0]
+        [other_typing] = typed(6, ["abc"])
         doc.apply_update(other_typing)
         before = doc.get_state()
         text = doc.get("default", type=pycrdt.XmlFragment).children[0]
@@ -82,7 +80,7 @@ class TestIngest(UnitTestCase):
 
     def test_rows_no_tab_of_this_writer_could_send_are_malformed(self):
         first, _second, third = typed(5, ["a", "b", "c"])
-        other_typing = typed(6, ["a"])[0]
+        [other_typing] = typed(6, ["a"])
         cases = {
             "another client's typing": other_typing,
             "two writers": pycrdt.merge_updates(first, other_typing),
@@ -113,14 +111,15 @@ class TestIngest(UnitTestCase):
         fragment = doc.get("default", type=pycrdt.XmlFragment)
         fragment.children.append(pycrdt.XmlElement("paragraph"))
         element_row = doc.get_update()
-        rows = {}
+        rows: dict[str, bytes] = {}
         for name, shared in (("a map", pycrdt.Map()), ("a text", pycrdt.Text("x"))):
             before = doc.get_state()
             doc.get("t", type=pycrdt.Array).append(shared)
             rows[name] = doc.get_update(before)
 
         element_update = ingest.check_row(element_row, 5).update
-        typing_update = ingest.check_row(typed(5, ["a"])[0], 5).update
+        [typing_row] = typed(5, ["a"])
+        typing_update = ingest.check_row(typing_row, 5).update
 
         self.assertTrue(schema.could_write(element_update))
         self.assertTrue(schema.could_write(typing_update))

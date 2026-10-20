@@ -2,8 +2,15 @@ import type { AnyExtension } from '@tiptap/core'
 import { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 import { LineHeight } from '@tiptap/extension-text-style'
 import { CharacterCount, Selection } from '@tiptap/extensions'
-import { Heading, ImageGroup, ImageViewer, type MentionSuggestionItem } from 'frappe-ui/editor'
+import {
+  Heading,
+  ImageGroup,
+  ImageViewer,
+  type MentionSuggestionItem,
+  type StarterKitOptions,
+} from 'frappe-ui/editor'
 import type { Ref } from 'vue'
+import type * as yjs from 'yjs'
 
 import CleanStyles from '@/apps/writer/extensions/clean-styles'
 import { CommentExtension } from '@/apps/writer/extensions/comments'
@@ -37,43 +44,26 @@ declare module '@tiptap/core' {
   }
 }
 
-export type WriterEditorOptions = {
-  collaborative: boolean
+export interface WriterEditorOptions {
+  isCollaborative: boolean
   mentionItems: () => MentionSuggestionItem[]
   onMentionQuery: (query: string) => void
   onCommentActivated: (id: string) => void
   onAnchors: (anchors: unknown[]) => void
   scrollParent: () => HTMLElement | Window
   media: DocumentMedia | null
-  comments?: unknown
-  ydoc?: unknown
-  activeComment: Ref<unknown>
+  comments?: yjs.Map<unknown>
+  ydoc?: yjs.Doc | null
+  activeComment: Ref<string | null>
   showComments: Ref<boolean>
   showResolved: Ref<boolean>
-  edited: Ref<unknown>
+  edited: Ref<boolean | undefined>
   onCommentsPainted: () => void
 }
 
-export const writerEditorExtensions = (options: WriterEditorOptions): AnyExtension[] => [
-  WriterKit.configure({
-    starterKit: {
-      ...WRITER_STARTER_KIT,
-      trailingNode: { node: 'paragraph', notAfter: 'tab' },
-      gapcursor: false,
-      listJoin: false,
-      ...(options.collaborative && { undoRedo: false }),
-    },
-    heading: false,
-    image: false,
-    video: false,
-    mention: { items: options.mentionItems },
-    styleClipboard: {},
-  }),
-  Image,
-  ImageGroup,
-  ImageViewer,
-  Video,
-  MentionSearch.configure({ onQuery: options.onMentionQuery }),
+const MEDIA_EXTENSIONS: AnyExtension[] = [Image, ImageGroup, ImageViewer, Video]
+
+const EDITING_EXTENSIONS: AnyExtension[] = [
   Heading,
   ListJoin,
   ReceivedContentGuard,
@@ -97,17 +87,47 @@ export const writerEditorExtensions = (options: WriterEditorOptions): AnyExtensi
   TabTrailingNode,
   HiddenWhenEmpty,
   JoinAdjacentLists,
-  OldCommentExtension.configure({ onCommentActivated: options.onCommentActivated }),
-  KeptFormatting,
-  HeadingAnchors.configure({
-    onUpdate: options.onAnchors,
-    getIndex: getHierarchicalIndexes,
-    scrollParent: options.scrollParent,
-  }),
-  MediaDownload,
-  DriveMedia.configure({ media: options.media }),
-  ...commentExtensions(options),
 ]
+
+function writerKit(options: WriterEditorOptions) {
+  const starterKit: StarterKitOptions = {
+    ...WRITER_STARTER_KIT,
+    trailingNode: { node: 'paragraph', notAfter: 'tab' },
+    gapcursor: false,
+    listJoin: false,
+  }
+  if (options.isCollaborative) {
+    starterKit.undoRedo = false
+  }
+
+  return WriterKit.configure({
+    starterKit,
+    heading: false,
+    image: false,
+    video: false,
+    mention: { items: options.mentionItems },
+    styleClipboard: {},
+  })
+}
+
+export function writerEditorExtensions(options: WriterEditorOptions): AnyExtension[] {
+  return [
+    writerKit(options),
+    ...MEDIA_EXTENSIONS,
+    MentionSearch.configure({ onQuery: options.onMentionQuery }),
+    ...EDITING_EXTENSIONS,
+    OldCommentExtension.configure({ onCommentActivated: options.onCommentActivated }),
+    KeptFormatting,
+    HeadingAnchors.configure({
+      onUpdate: options.onAnchors,
+      getIndex: getHierarchicalIndexes,
+      scrollParent: options.scrollParent,
+    }),
+    MediaDownload,
+    DriveMedia.configure({ media: options.media }),
+    ...commentExtensions(options),
+  ]
+}
 
 function commentExtensions(options: WriterEditorOptions): AnyExtension[] {
   if (!options.comments) {

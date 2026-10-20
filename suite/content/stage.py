@@ -19,6 +19,9 @@ from suite.content.tables import table
 PIECE_MAX = 256 * 2**10
 HEADER_MAX = 4096
 DOC_MAX = 16 * 2**20
+LENGTH_PREFIX_BYTES = 4
+SHA_BYTES = 32
+ID_LENGTH = 32
 EXPIRY = timedelta(minutes=15)
 FULL_RETRY_MS = 60_000
 # The header fields that place a piece, by purpose: a save's seq range, a render's rev and quarantine epoch
@@ -63,25 +66,46 @@ class Shape:
 SHAPE_COLUMNS = ", ".join(f"`{field.name}`" for field in fields(Shape))
 
 
-def valid_id(value) -> bool:
-    return isinstance(value, str) and len(value) == 32 and value.isalnum() and value.isascii()
+@dataclass(frozen=True)
+class Piece:
+    """One piece of a staged change: the stage's shape, the piece's index and its bytes."""
+
+    shape: Shape
+    index: int
+    payload: bytes
+
+
+def valid_id(value: object) -> bool:
+    """Answer whether `value` is an id of `ID_LENGTH` ASCII letters and digits."""
+    return isinstance(value, str) and len(value) == ID_LENGTH and value.isalnum() and value.isascii()
 
 
 def piece_count(total_len: int) -> int:
+    """Count the pieces a change of `total_len` bytes is cut into."""
     return -(-total_len // PIECE_MAX)
 
 
-def parse_piece(body: bytes, index_text: str, edit_max: int) -> tuple[dict, int, bytes]:
-    """Split `u32 hlen | header JSON | piece` and check the piece's place in a change of at most `edit_max`."""
-    if len(body) < 4:
+def split_header(body: bytes) -> tuple[object, bytes]:
+    """Split `u32 hlen | header JSON | rest` into the decoded header and the rest."""
+    if len(body) < LENGTH_PREFIX_BYTES:
         raise Malformed
 
-    (length,) = struct.unpack(">I", body[:4])
-    if length > HEADER_MAX or len(body) < 4 + length:
+    (length,) = struct.unpack(">I", body[:LENGTH_PREFIX_BYTES])
+    header_end = LENGTH_PREFIX_BYTES + length
+    if length > HEADER_MAX or len(body) < header_end:
         raise Malformed
 
     try:
-        header = json.loads(body[4 : 4 + length])
+        header = json.loads(body[LENGTH_PREFIX_BYTES:header_end])
+    except ValueError:
+        raise Malformed from None
+
+    return header, body[header_end:]
+
+
+def checked_shape(header: object) -> Shape:
+    """Check a piece's header and return the shape it gives its stage."""
+    try:
         sha_total = bytes.fromhex(header["sha_total"])
     except (ValueError, TypeError, KeyError):
         raise Malformed from None
@@ -89,53 +113,54 @@ def parse_piece(body: bytes, index_text: str, edit_max: int) -> tuple[dict, int,
     if not isinstance(header, dict):
         raise Malformed
 
-    purpose = header.setdefault("purpose", "save")
+    purpose = header.get("purpose", "save")
     if purpose not in PLACES or type(header.get("total_len")) is not int:
         raise Malformed
 
     lineage_valid = isinstance(header.get("lineage"), str)
     sid_valid = valid_id(header.get("sid"))
-    sha_valid = len(sha_total) == 32
+    sha_valid = len(sha_total) == SHA_BYTES
     if not (lineage_valid and sid_valid and sha_valid):
         raise Malformed
 
-    if not placed(header) or header["total_len"] < 1:
+    if not placed(header, purpose) or header["total_len"] < 1:
         raise Malformed
 
-    if header["total_len"] > edit_max:
+    return shape_of(header, purpose, sha_total)
+
+
+def parse_piece(body: bytes, index_text: str, edit_max: int) -> Piece:
+    """Split `u32 hlen | header JSON | piece` and check its place in a change of at most `edit_max`."""
+    header, piece = split_header(body)
+    shape = checked_shape(header)
+    if shape.total_len > edit_max:
         raise TooLarge
 
-    if not index_text.isdigit() or int(index_text) >= piece_count(header["total_len"]):
+    if not index_text.isdigit() or int(index_text) >= piece_count(shape.total_len):
         raise Malformed
 
     index = int(index_text)
-    piece = body[4 + length :]
-    expected_len = min(PIECE_MAX, header["total_len"] - index * PIECE_MAX)
+    expected_len = min(PIECE_MAX, shape.total_len - index * PIECE_MAX)
     if len(piece) != expected_len:
         raise Malformed
 
-    header["sha_total"] = sha_total
-    return header, index, piece
+    return Piece(shape, index, piece)
 
 
-def placed(header: dict) -> bool:
-    """Whether a save names a seq range, or a render the rev and quarantine epoch it was made at."""
-    if not all(type(header.get(key)) is int for key in PLACES[header["purpose"]]):
+def placed(header: dict, purpose: str) -> bool:
+    """Answer whether a save names a seq range, or a render the rev and quarantine epoch it was made at."""
+    if not all(type(header.get(key)) is int for key in PLACES[purpose]):
         return False
 
-    if header["purpose"] == "render":
+    if purpose == "render":
         return header["rev"] >= 1 and header["q_epoch"] >= 0
 
     return header["from"] >= 1 and header["to"] >= header["from"]
 
 
-def store_piece(
-    app: str, doc_id: str, stage_id: str, index: int, header: dict, piece: bytes, user: str
-) -> None:
-    """Keep one piece. The same bytes again at an index change nothing but the stage's age. Each
-    user has its own `DOC_MAX`, so one editor's pieces never block another's."""
+def already_staged(app: str, doc_id: str, stage_id: str, index: int, shape: Shape, piece: bytes) -> bool:
+    """Answer whether the stage keeps these bytes at `index`; refuse a piece that disagrees with the stage."""
     stage_table = table(app, "stage")
-    stage_shape = shape_of(header)
     staged_pieces = frappe.db.sql(
         f"""SELECT `idx`, {SHAPE_COLUMNS}, `bytes` = UNHEX(%s) AS `same`
         FROM `{stage_table}` WHERE `doc_id` = %s AND `stage_id` = %s""",
@@ -143,27 +168,39 @@ def store_piece(
         as_dict=True,
     )
     for row in staged_pieces:
-        if stored_shape(row) != stage_shape:
+        if stored_shape(row) != shape:
             raise Conflict
 
-        if row.idx == index:
-            if not row.same:
-                raise Conflict
+        if row.idx != index:
+            continue
 
-            return refresh_expiry(app, doc_id, stage_id)
+        if not row.same:
+            raise Conflict
 
+        return True
+
+    return False
+
+
+def check_room(app: str, doc_id: str, user: str, piece_len: int) -> None:
+    """Refuse a piece past the user's own `DOC_MAX`, so one editor's pieces never block another's."""
+    stage_table = table(app, "stage")
+    session_table = table(app, "session")
     # Locked, so a user's puts take turns and each sees what the one before it kept
-    staged = frappe.db.sql(
+    [[staged_bytes]] = frappe.db.sql(
         f"""SELECT COALESCE(SUM(LENGTH(`stage`.`bytes`)), 0) FROM `{stage_table}` `stage`
-        JOIN `{table(app, "session")}` `session`
+        JOIN `{session_table}` `session`
             ON `session`.`doc_id` = `stage`.`doc_id` AND `session`.`sid` = `stage`.`sid`
         WHERE `stage`.`doc_id` = %s AND `session`.`user` = %s FOR UPDATE""",
         (doc_id, user),
     )
-    staged_bytes = int(staged[0][0])
-    if staged_bytes + len(piece) > DOC_MAX:
+    if int(staged_bytes) + piece_len > DOC_MAX:
         raise Full
 
+
+def insert_piece(app: str, doc_id: str, stage_id: str, index: int, shape: Shape, piece: bytes) -> None:
+    """Insert the piece at `index` with its stage's shape."""
+    stage_table = table(app, "stage")
     frappe.db.sql(
         f"""INSERT IGNORE INTO `{stage_table}`
         (`doc_id`, `stage_id`, `idx`, {SHAPE_COLUMNS}, `bytes`, `created`)
@@ -172,20 +209,28 @@ def store_piece(
             doc_id,
             stage_id,
             index,
-            *astuple(stage_shape)[:-1],
-            stage_shape.sha_total.hex(),
+            *astuple(shape)[:-1],
+            shape.sha_total.hex(),
             piece.hex(),
             frappe.utils.now_datetime(),
         ),
     )
+
+
+def store_piece(app: str, doc_id: str, stage_id: str, piece: Piece, user: str) -> None:
+    """Keep one piece; the same bytes again at its index only restart the stage's expiry."""
+    if not already_staged(app, doc_id, stage_id, piece.index, piece.shape, piece.payload):
+        check_room(app, doc_id, user, len(piece.payload))
+        insert_piece(app, doc_id, stage_id, piece.index, piece.shape, piece.payload)
+
     refresh_expiry(app, doc_id, stage_id)
 
 
-def shape_of(header: dict) -> Shape:
+def shape_of(header: dict, purpose: str, sha_total: bytes) -> Shape:
     """Return the shape a piece's header gives its stage."""
-    place = {key: header[key] for key in PLACES[header["purpose"]]}
+    place = {key: header[key] for key in PLACES[purpose]}
     return Shape(
-        header["purpose"],
+        purpose,
         header["sid"],
         place.get("from"),
         place.get("to"),
@@ -193,7 +238,7 @@ def shape_of(header: dict) -> Shape:
         header["lineage"],
         place.get("q_epoch"),
         header["total_len"],
-        header["sha_total"],
+        sha_total,
     )
 
 
@@ -205,8 +250,9 @@ def stored_shape(row: frappe._dict) -> Shape:
 
 def refresh_expiry(app: str, doc_id: str, stage_id: str) -> None:
     """Restart the expiry of every piece of the stage, so a slow upload loses none of its early pieces."""
+    stage_table = table(app, "stage")
     frappe.db.sql(
-        f"UPDATE `{table(app, 'stage')}` SET `created` = %s WHERE `doc_id` = %s AND `stage_id` = %s",
+        f"UPDATE `{stage_table}` SET `created` = %s WHERE `doc_id` = %s AND `stage_id` = %s",
         (frappe.utils.now_datetime(), doc_id, stage_id),
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -265,16 +311,15 @@ def joined(app: str, doc_id: str, stage_id: str, rows: list[frappe._dict]) -> by
 
 
 def drop_stage(app: str, doc_id: str, stage_id: str) -> None:
-    frappe.db.sql(
-        f"DELETE FROM `{table(app, 'stage')}` WHERE `doc_id` = %s AND `stage_id` = %s", (doc_id, stage_id)
-    )
+    """Delete every piece of the stage."""
+    stage_table = table(app, "stage")
+    frappe.db.sql(f"DELETE FROM `{stage_table}` WHERE `doc_id` = %s AND `stage_id` = %s", (doc_id, stage_id))
 
 
 def expire_pieces(app: str, now: datetime) -> None:
     """Delete save pieces older than `EXPIRY`; their tab still holds the change and can stage it again."""
-    frappe.db.sql(
-        f"DELETE FROM `{table(app, 'stage')}` WHERE `purpose` = 'save' AND `created` < %s", now - EXPIRY
-    )
+    stage_table = table(app, "stage")
+    frappe.db.sql(f"DELETE FROM `{stage_table}` WHERE `purpose` = 'save' AND `created` < %s", now - EXPIRY)
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 

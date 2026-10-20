@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { writerRender } from '@/apps/writer/collab/render'
 
 function linkedDoc() {
-  const doc = new Y.Doc()
-  const paragraph = new Y.XmlElement('paragraph')
-  const text = new Y.XmlText()
-  const image = new Y.XmlElement('image')
+  const doc = new yjs.Doc()
+  const paragraph = new yjs.XmlElement('paragraph')
+  const text = new yjs.XmlText()
+  const image = new yjs.XmlElement('image')
   image.setAttribute('src', '/private/files/chart.png')
   paragraph.insert(0, [text, image])
   doc.getXmlFragment(BODY_FIELD).insert(0, [paragraph])
@@ -26,10 +26,10 @@ describe('writerRender', () => {
   })
 
   it('puts each block of text on its own line', () => {
-    const doc = new Y.Doc()
+    const doc = new yjs.Doc()
     const blocks = ['First', 'Second'].map((words) => {
-      const paragraph = new Y.XmlElement('paragraph')
-      paragraph.insert(0, [new Y.XmlText(words)])
+      const paragraph = new yjs.XmlElement('paragraph')
+      paragraph.insert(0, [new yjs.XmlText(words)])
       return paragraph
     })
     doc.getXmlFragment(BODY_FIELD).insert(0, blocks)
@@ -38,36 +38,36 @@ describe('writerRender', () => {
   })
 
   it('writes nothing to the document, even over two texts it made side by side', () => {
-    const doc = new Y.Doc()
-    const block = new Y.XmlElement('paragraph')
-    block.insert(0, [new Y.XmlText('a'), new Y.XmlText('b')])
+    const doc = new yjs.Doc()
+    const block = new yjs.XmlElement('paragraph')
+    block.insert(0, [new yjs.XmlText('a'), new yjs.XmlText('b')])
     doc.getXmlFragment(BODY_FIELD).insert(0, [block])
-    const before = Y.encodeStateAsUpdate(doc)
+    const before = yjs.encodeStateAsUpdate(doc)
 
     writerRender(doc)
 
-    expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+    expect(yjs.encodeStateAsUpdate(doc)).toEqual(before)
   })
 
   it('shows an old image in the readable copy and leaves the document as it was', () => {
-    const doc = new Y.Doc()
-    const old = new Y.XmlElement('resizableMedia')
+    const doc = new yjs.Doc()
+    const old = new yjs.XmlElement('resizableMedia')
     old.setAttribute('src', '/private/files/chart.png')
     old.setAttribute('media-type', 'img')
     doc.getXmlFragment(BODY_FIELD).insert(0, [old])
-    const before = Y.encodeStateAsUpdate(doc)
+    const before = yjs.encodeStateAsUpdate(doc)
 
     const { html } = writerRender(doc)
 
     expect(html).toMatch(/<img [^>]*src="\/private\/files\/chart\.png"/)
-    expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+    expect(yjs.encodeStateAsUpdate(doc)).toEqual(before)
   })
 
   it("shows Drive's top-level image in a paragraph of its own", () => {
-    const doc = new Y.Doc()
-    const words = new Y.XmlElement('paragraph')
-    words.insert(0, [new Y.XmlText('See the plan')])
-    const image = new Y.XmlElement('image')
+    const doc = new yjs.Doc()
+    const words = new yjs.XmlElement('paragraph')
+    words.insert(0, [new yjs.XmlText('See the plan')])
+    const image = new yjs.XmlElement('image')
     image.setAttribute('src', '/private/files/chart.png')
     doc.getXmlFragment(BODY_FIELD).insert(0, [words, image])
 

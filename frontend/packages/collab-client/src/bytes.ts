@@ -1,5 +1,10 @@
+const HEX_RADIX = 16
+const HEX_DIGITS_PER_BYTE = 2
+
 export function hex(bytes: Uint8Array) {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return Array.from(bytes, (byte) =>
+    byte.toString(HEX_RADIX).padStart(HEX_DIGITS_PER_BYTE, '0'),
+  ).join('')
 }
 
 export function randomHex(byteCount: number) {
@@ -13,5 +18,6 @@ export function decodeBase64(base64: string) {
   for (let at = 0; at < binary.length; at++) {
     bytes[at] = binary.charCodeAt(at)
   }
+
   return bytes
 }

@@ -136,7 +136,7 @@ function _insertAtEnd(editor, content) {
 }
 
 // Put the imported content in a new tab; the current content stays as the
-// first tab. createTab() focuses the new tab by itself.
+// first tab. createTab() focuses the new tab by itself
 function _insertInNewTab(editor, content, label) {
   const id = uuidv4()
   editor.commands.createTab({ id, label })
@@ -171,13 +171,17 @@ export async function importDocx(file, { editor, currentFileId }) {
       nToast.error('The document appears to be empty.')
       return
     }
+
     // Parsed as the insert would, so what is measured is what goes in
     const parseOptions = {
       preserveWhitespace: 'full',
       ...ed.options.parseOptions,
     }
     const content = createNodeFromContent(html, ed.schema, { parseOptions })
-    const reportTooLarge = () => nToast.error('This file is too large to import.')
+    function reportTooLarge() {
+      nToast.error('This file is too large to import.')
+    }
+
     // Only a collaborative document has a size limit
     if (ed.storage.pasteSizeGuard?.refuses(content, reportTooLarge)) {
       await _discardUploads(uploaded)

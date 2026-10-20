@@ -7,7 +7,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { absolutePositionToRelativePosition, ySyncPluginKey } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import type { CollabRoom, Peer } from '@/platform/collab'
 
@@ -23,7 +23,10 @@ const NAME_SHOWN_MS = 3000
 const editors: Editor[] = []
 
 afterEach(() => {
-  editors.splice(0).forEach((editor) => editor.destroy())
+  for (const editor of editors.splice(0)) {
+    editor.destroy()
+  }
+
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -31,13 +34,13 @@ afterEach(() => {
 const BEA: Peer = { pid: PEER_ID, user: 'bea@x.com', arrival: 5, idleSince: null }
 
 // An editor on its own document, or on a copy of another tab's
-function openEditor(from?: Y.Doc) {
-  const doc = new Y.Doc()
+function openEditor(from?: yjs.Doc) {
+  const doc = new yjs.Doc()
   if (from) {
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(from))
+    yjs.applyUpdate(doc, yjs.encodeStateAsUpdate(from))
   }
 
-  const presenceDoc = new Y.Doc()
+  const presenceDoc = new yjs.Doc()
   presenceDoc.clientID = 0
   const awareness = new Awareness(presenceDoc)
   const listeners = new Set<() => void>()
@@ -98,23 +101,28 @@ function caretAt(editor: Editor, at: number, to = at) {
 }
 
 function remotePeer(awareness: Awareness) {
-  const doc = new Y.Doc()
+  const doc = new yjs.Doc()
   doc.clientID = PEER_ID
   const peerAwareness = new Awareness(doc)
-  const setPeerState = (state: object | null) => {
+  function setPeerState(state: object | null) {
     peerAwareness.setLocalState(state)
     const update = encodeAwarenessUpdate(peerAwareness, [PEER_ID])
     applyAwarenessUpdate(awareness, update, 'remote')
   }
+
   return setPeerState
 }
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+function tick() {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
 
 // The text in front of the drawn caret, or null when none is drawn
 function caretAfter(editor: Editor) {
   const caret = editor.view.dom.querySelector('.collaboration-carets__caret')
-  if (!caret) return null
+  if (!caret) {
+    return null
+  }
 
   const range = document.createRange()
   range.setStart(editor.view.dom, 0)
@@ -122,10 +130,11 @@ function caretAfter(editor: Editor) {
   return range.toString()
 }
 
-const shadedSelections = (editor: Editor) =>
-  [...editor.view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__selection')].map(
+function shadedSelections(editor: Editor) {
+  return [...editor.view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__selection')].map(
     (shade) => [shade.textContent, shade.style.getPropertyValue('--peer-light')],
   )
+}
 
 function caretColour(editor: Editor) {
   const caret = editor.view.dom.querySelector<HTMLElement>('.collaboration-carets__caret')
@@ -191,10 +200,11 @@ function focus(editor: Editor) {
   ownCaretAt(editor)('clear')
 }
 
-const labelTexts = (editor: Editor) =>
-  [...editor.view.dom.querySelectorAll('.collaboration-carets__label')].map(
+function labelTexts(editor: Editor) {
+  return [...editor.view.dom.querySelectorAll('.collaboration-carets__label')].map(
     (label) => label.textContent,
   )
+}
 
 describe('Writer carets', () => {
   it('flags another person’s caret with their first name, and never this tab’s own', async () => {
@@ -204,7 +214,10 @@ describe('Writer carets', () => {
     editor.commands.setTextSelection(2)
 
     let answerLookup = (_: object[]) => {}
-    const lookup = new Promise((resolve) => (answerLookup = resolve))
+
+    const lookup = new Promise((resolve) => {
+      answerLookup = resolve
+    })
     searchUsers.mockReturnValue(lookup)
     const user = { id: 'bea@x.com' }
 
@@ -225,29 +238,29 @@ describe('Writer carets', () => {
     // Their edit has this tab measure its own caret, and the test page lays nothing out
     vi.spyOn(editor.view, 'coordsAtPos').mockReturnValue(OWN_CARETS.clear)
     const setPeerState = remotePeer(awareness)
-    const peerSays = async (state: object | null) => {
+    async function peerSays(state: object | null) {
       setPeerState(state)
       await tick()
     }
 
     const user = { id: 'bea@x.com' }
-    const peerDoc = new Y.Doc()
-    const ourUpdate = Y.encodeStateAsUpdate(doc)
-    Y.applyUpdate(peerDoc, ourUpdate)
-    const peerVectorBefore = Y.encodeStateVector(peerDoc)
-    const paragraph = peerDoc.getXmlFragment('default').get(0) as Y.XmlElement
-    const paragraphText = paragraph.get(0) as Y.XmlText
+    const peerDoc = new yjs.Doc()
+    const ourUpdate = yjs.encodeStateAsUpdate(doc)
+    yjs.applyUpdate(peerDoc, ourUpdate)
+    const peerVectorBefore = yjs.encodeStateVector(peerDoc)
+    const paragraph = peerDoc.getXmlFragment('default').get(0) as yjs.XmlElement
+    const paragraphText = paragraph.get(0) as yjs.XmlText
     paragraphText.insert(5, ' world')
-    const position = Y.createRelativePositionFromTypeIndex(paragraphText, 8)
-    const aheadPosition = Y.relativePositionToJSON(position)
+    const position = yjs.createRelativePositionFromTypeIndex(paragraphText, 8)
+    const aheadPosition = yjs.relativePositionToJSON(position)
     const aheadCaret = { anchor: aheadPosition, head: aheadPosition }
 
     await peerSays({ user, cursor: caretAt(editor, 3) })
     const placed = caretAfter(editor)
     await peerSays({ user, cursor: aheadCaret })
     const waiting = caretAfter(editor)
-    const theirEdit = Y.encodeStateAsUpdate(peerDoc, peerVectorBefore)
-    Y.applyUpdate(doc, theirEdit)
+    const theirEdit = yjs.encodeStateAsUpdate(peerDoc, peerVectorBefore)
+    yjs.applyUpdate(doc, theirEdit)
     const arrived = caretAfter(editor)
     await peerSays({ user, cursor: null })
     const cleared = caretAfter(editor)
@@ -274,7 +287,7 @@ describe('Writer carets', () => {
     await remoteCaret(other.awareness, ann.awareness)
 
     ann.editor.commands.insertContent(typing)
-    Y.applyUpdate(other.doc, Y.encodeStateAsUpdate(ann.doc, Y.encodeStateVector(other.doc)))
+    yjs.applyUpdate(other.doc, yjs.encodeStateAsUpdate(ann.doc, yjs.encodeStateVector(other.doc)))
     await tick()
     return [caretAfter(other.editor), shadedSelections(other.editor)]
   }
@@ -303,11 +316,13 @@ describe('Writer carets', () => {
     focus(editor)
     editor.commands.setTextSelection(3)
 
-    const theirs = new Y.Doc()
-    Y.applyUpdate(theirs, Y.encodeStateAsUpdate(doc))
-    const theirText = (theirs.getXmlFragment('default').get(0) as Y.XmlElement).get(0) as Y.XmlText
+    const theirs = new yjs.Doc()
+    yjs.applyUpdate(theirs, yjs.encodeStateAsUpdate(doc))
+    const theirText = (theirs.getXmlFragment('default').get(0) as yjs.XmlElement).get(
+      0,
+    ) as yjs.XmlText
     theirText.insert(2, 'XY')
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(theirs, Y.encodeStateVector(doc)))
+    yjs.applyUpdate(doc, yjs.encodeStateAsUpdate(theirs, yjs.encodeStateVector(doc)))
 
     expect([editor.getText(), editor.state.selection.from]).toEqual(['heXYllo', 3])
   })
@@ -459,11 +474,13 @@ describe('Writer carets', () => {
     editor.commands.insertContent('!')
     editor.commands.insertContent('?')
     const typed = typedSoFar()
-    const theirs = new Y.Doc()
-    Y.applyUpdate(theirs, Y.encodeStateAsUpdate(doc))
-    const theirText = (theirs.getXmlFragment('default').get(0) as Y.XmlElement).get(0) as Y.XmlText
+    const theirs = new yjs.Doc()
+    yjs.applyUpdate(theirs, yjs.encodeStateAsUpdate(doc))
+    const theirText = (theirs.getXmlFragment('default').get(0) as yjs.XmlElement).get(
+      0,
+    ) as yjs.XmlText
     theirText.insert(0, 'well, ')
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(theirs, Y.encodeStateVector(doc)))
+    yjs.applyUpdate(doc, yjs.encodeStateAsUpdate(theirs, yjs.encodeStateVector(doc)))
 
     expect([before, typed, typedSoFar()]).toEqual([undefined, 2, 2])
   })

@@ -46,12 +46,21 @@ describe('collab room', () => {
   it('a server failing to answer the report is asked again, and never counts against this browser', async () => {
     vi.useFakeTimers()
     const server = fakeServer('live', 'apply-20')
-    const failing = () => ({
-      status: 502,
-      bytes: new TextEncoder().encode('<html>Bad Gateway</html>'),
-    })
-    server.judge.answer = () =>
-      server.judge.reports.length <= 3 ? failing() : reply(202, { collab: 'judging', judged: 0 })
+    function failing() {
+      return {
+        status: 502,
+        bytes: new TextEncoder().encode('<html>Bad Gateway</html>'),
+      }
+    }
+
+    server.judge.answer = () => {
+      if (server.judge.reports.length <= 3) {
+        return failing()
+      }
+
+      return reply(202, { collab: 'judging', judged: 0 })
+    }
+
     const room = await join(server.endpoints())
     breaksOn(room, 'boom')
     const writer = await join(server.endpoints())
@@ -76,10 +85,14 @@ describe('collab room', () => {
   it('a report refused for a lapsed sign-in is made again once the person signs back in', async () => {
     vi.useFakeTimers()
     const server = fakeServer('live', 'apply-21')
-    server.judge.answer = () =>
-      browser.signedIn === 'Guest'
-        ? reply(401, { collab: 'signed_out' })
-        : reply(202, { collab: 'judging', judged: 0 })
+    server.judge.answer = () => {
+      if (browser.signedIn === 'Guest') {
+        return reply(401, { collab: 'signed_out' })
+      }
+
+      return reply(202, { collab: 'judging', judged: 0 })
+    }
+
     const room = await join(server.endpoints())
     breaksOn(room, 'boom')
     const writer = await join(server.endpoints())
@@ -161,10 +174,14 @@ describe('collab room', () => {
 
   it('a report another tab made a moment ago is made again after the wait', async () => {
     const server = fakeServer('live', 'apply-6')
-    server.judge.answer = () =>
-      server.judge.reports.length < 2
-        ? reply(423, { collab: 'busy', retry_ms: 5 })
-        : reply(202, { collab: 'judging', judged: 0 })
+    server.judge.answer = () => {
+      if (server.judge.reports.length < 2) {
+        return reply(423, { collab: 'busy', retry_ms: 5 })
+      }
+
+      return reply(202, { collab: 'judging', judged: 0 })
+    }
+
     const room = await judgedOnce(server, 'clean')
     expect(server.judge.reports).toEqual([1])
     await vi.waitFor(() => expect(server.judge.reports).toEqual([1, 1]))
@@ -175,8 +192,10 @@ describe('collab room', () => {
 
   it('a third clean verdict in ten minutes stops editing in this browser', async () => {
     const server = fakeServer('live', 'apply-7')
-    for (const _ of [1, 2])
+    for (const _ of [1, 2]) {
       expect((await judgedOnce(server, 'clean')).status.isReopenNeeded).toBe(true)
+    }
+
     const third = await judgedOnce(server, 'clean')
     await vi.waitFor(() => expect(third.status.stopReason).toBe('browser'))
     expect([third.status.isReopenNeeded, third.status.canWrite]).toEqual([false, false])
@@ -251,7 +270,10 @@ describe('collab room', () => {
 
   it('a tab tells its listeners why it stopped when it stops', async () => {
     const server = fakeServer('live', 'apply-10')
-    for (const _ of [1, 2]) await judgedOnce(server, 'clean')
+    for (const _ of [1, 2]) {
+      await judgedOnce(server, 'clean')
+    }
+
     const room = await join(server.endpoints())
     breaksOn(room, 'boom')
     const seen: (string | null)[] = []

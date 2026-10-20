@@ -1,6 +1,13 @@
 import { toast } from 'frappe-ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import * as Y from 'yjs'
+import {
+  applyUpdate,
+  createRelativePositionFromTypeIndex,
+  Doc,
+  encodeStateAsUpdate,
+  XmlText,
+  type ID,
+} from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { anchorEnds, DOCUMENT_ANCHOR, encodeAnchor } from '@/apps/writer/collab/anchors'
@@ -18,13 +25,13 @@ afterEach(() => {
 })
 
 // An anchor on "hello" written into the doc, whose end characters the room below holds once saved
-function helloAnchor(doc: Y.Doc) {
-  const content = new Y.XmlText()
+function helloAnchor(doc: Doc) {
+  const content = new XmlText()
   doc.getXmlFragment('default').insert(0, [content])
   content.insert(0, 'hello')
   return encodeAnchor(
-    Y.createRelativePositionFromTypeIndex(content, 0, 0),
-    Y.createRelativePositionFromTypeIndex(content, 5, -1),
+    createRelativePositionFromTypeIndex(content, 0, 0),
+    createRelativePositionFromTypeIndex(content, 5, -1),
     'hello',
   )
 }
@@ -33,7 +40,7 @@ function refused() {
   return Promise.reject(new Error('Not allowed'))
 }
 
-function keyOf(id: Y.ID) {
+function keyOf(id: ID) {
   return `${id.client}:${id.clock}`
 }
 
@@ -43,11 +50,11 @@ function fakeRoom() {
   const saved = new Set<string>()
   const state = { stopped: null as string | null }
   const room = {
-    doc: new Y.Doc(),
+    doc: new Doc(),
     get status() {
       return { stopReason: state.stopped }
     },
-    isCommitted: (items: readonly Y.ID[]) => items.every((id) => saved.has(keyOf(id))),
+    isCommitted: (items: readonly ID[]) => items.every((id) => saved.has(keyOf(id))),
     onChange(listener: () => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -205,7 +212,7 @@ describe('posting a comment on text', () => {
     const { room } = fakeRoom()
     const { session, posts } = driveComments()
     const { drafts, start, write, post } = openDrafts(session, room)
-    start(helloAnchor(new Y.Doc()))
+    start(helloAnchor(new Doc()))
     write(drafts.value[0], 'Lost text')
 
     const thread = await post(drafts.value[0])
@@ -223,16 +230,16 @@ describe('posting a comment on text', () => {
   it('posts nothing when this copy has all of the commented text but its last letter', async () => {
     const { room } = fakeRoom()
     const { drafts, start, write, post } = openDrafts(driveComments().session, room)
-    const elsewhere = new Y.Doc()
-    const content = new Y.XmlText()
+    const elsewhere = new Doc()
+    const content = new XmlText()
     elsewhere.getXmlFragment('default').insert(0, [content])
     content.insert(0, 'hell')
-    Y.applyUpdate(room.doc, Y.encodeStateAsUpdate(elsewhere))
+    applyUpdate(room.doc, encodeStateAsUpdate(elsewhere))
     content.insert(4, 'o')
     start(
       encodeAnchor(
-        Y.createRelativePositionFromTypeIndex(content, 0, 0),
-        Y.createRelativePositionFromTypeIndex(content, 5, -1),
+        createRelativePositionFromTypeIndex(content, 0, 0),
+        createRelativePositionFromTypeIndex(content, 5, -1),
         'hello',
       ),
     )
@@ -286,7 +293,7 @@ describe('posting a comment on the whole document', () => {
   it('keeps a comment on text unsent while there is no room to save its text', async () => {
     const { session, posts } = driveComments()
     const { drafts, start, write, post } = openDrafts(session, null)
-    start(helloAnchor(new Y.Doc()))
+    start(helloAnchor(new Doc()))
     write(drafts.value[0], 'Too soon')
     const [draft] = drafts.value
 

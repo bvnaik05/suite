@@ -9,6 +9,8 @@ export type LayoutSettings = {
   paragraph_spacing_after?: number
 } | null
 
+const DEFAULT_FONT_SIZE_PX = 15
+
 export const EDITOR_TEXT_CLASS =
   'grow w-full bg-surface-base overflow-x-auto pt-10 pb-24 px-5 prose prose-sm prose-v3 prose-table:table-fixed prose-td:p-2 prose-th:p-2 prose-td:border prose-th:border prose-td:relative prose-th:relative prose-th:bg-surface-gray-2'
 
@@ -21,11 +23,14 @@ export function editorColumns(settings?: LayoutSettings) {
 }
 
 export function editorTextStyle(settings?: LayoutSettings) {
+  const fontSize = settings?.font_size || DEFAULT_FONT_SIZE_PX
+  const spacingBefore = settings?.paragraph_spacing_before || 0
+  const spacingAfter = settings?.paragraph_spacing_after || 0
   return {
     fontFamily: settings?.font_family && `var(--font-${settings.font_family})`,
-    '--editor-font-size': `${settings?.font_size || 15}px`,
+    '--editor-font-size': `${fontSize}px`,
     '--editor-line-height': cssLineHeight(settings?.line_height),
-    '--paragraph-spacing-before': `${settings?.paragraph_spacing_before || 0}px`,
-    '--paragraph-spacing-after': `${settings?.paragraph_spacing_after || 0}px`,
+    '--paragraph-spacing-before': `${spacingBefore}px`,
+    '--paragraph-spacing-after': `${spacingAfter}px`,
   }
 }

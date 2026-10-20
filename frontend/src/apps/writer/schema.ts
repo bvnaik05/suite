@@ -17,6 +17,31 @@ import { isReceived } from '@/apps/writer/extensions/received-content-guard'
 // Every node and mark a Writer document can hold, without node views or editor
 // behaviour, so code that only reads or checks documents can build the schema
 
+function renderTabId(attrs: Record<string, unknown>) {
+  if (!attrs.id) {
+    return {}
+  }
+
+  return { 'data-tab-id': attrs.id }
+}
+
+function parseTabOrder(el: HTMLElement) {
+  const order = el.getAttribute('data-tab-order')
+  if (order === null) {
+    return null
+  }
+
+  return Number(order)
+}
+
+function renderTabOrder(attrs: Record<string, unknown>) {
+  if (attrs.order === null) {
+    return {}
+  }
+
+  return { 'data-tab-order': attrs.order }
+}
+
 export const TabNode = Node.create({
   name: 'tab',
   group: 'block',
@@ -29,7 +54,7 @@ export const TabNode = Node.create({
       id: {
         default: null,
         parseHTML: (el) => el.getAttribute('data-tab-id'),
-        renderHTML: (attrs) => (attrs.id ? { 'data-tab-id': attrs.id } : {}),
+        renderHTML: renderTabId,
       },
       label: {
         default: 'Untitled',
@@ -38,11 +63,8 @@ export const TabNode = Node.create({
       },
       order: {
         default: null,
-        parseHTML: (el) => {
-          const order = el.getAttribute('data-tab-order')
-          return order === null ? null : Number(order)
-        },
-        renderHTML: (attrs) => (attrs.order === null ? {} : { 'data-tab-order': attrs.order }),
+        parseHTML: parseTabOrder,
+        renderHTML: renderTabOrder,
       },
     }
   },
@@ -243,27 +265,29 @@ export const KeptFormatting = Mark.create({
   },
 })
 
-export const writerSchema = () => [
-  WriterKit.configure({
-    // A preview shows the stored content as is, with no paragraph appended
-    starterKit: { ...WRITER_STARTER_KIT, trailingNode: false },
-    heading: false,
-    image: false,
-    video: false,
-  }),
-  Image,
-  ImageGroup,
-  Video,
-  Heading,
-  FontSize,
-  FontFamily,
-  LineHeight,
-  EmbedNode,
-  ExtendedParagraph,
-  PageBreakExtension,
-  TabNode,
-  OldComment,
-  HeadingAnchors,
-  HiddenWhenEmpty,
-  KeptFormatting,
-]
+export function writerSchema() {
+  return [
+    WriterKit.configure({
+      // A preview shows the stored content as is, with no paragraph appended
+      starterKit: { ...WRITER_STARTER_KIT, trailingNode: false },
+      heading: false,
+      image: false,
+      video: false,
+    }),
+    Image,
+    ImageGroup,
+    Video,
+    Heading,
+    FontSize,
+    FontFamily,
+    LineHeight,
+    EmbedNode,
+    ExtendedParagraph,
+    PageBreakExtension,
+    TabNode,
+    OldComment,
+    HeadingAnchors,
+    HiddenWhenEmpty,
+    KeptFormatting,
+  ]
+}

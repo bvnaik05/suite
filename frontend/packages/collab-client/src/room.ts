@@ -1,12 +1,13 @@
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { block } from './access'
-import { readReply } from './answers'
+import { HTTP_OK, readReply } from './answers'
 import { Copier } from './copier'
 import { Device } from './device'
 import { RestoreFence } from './fence'
 import type { Limits } from './frames'
 import { adoptLeftovers, claimClientId, lostReason } from './leftovers'
+import { sizeCheck } from './limits'
 import { Live, type LiveHooks } from './live'
 import { hasLocks, holdLock } from './locks'
 import type { Opening, RoomInit } from './opening'
@@ -20,6 +21,7 @@ import {
   type Blocked,
   type CollabRoom,
   type Held,
+  type LiveSocket,
   type LostAccess,
   type OpenOptions,
   type RestoreOutcome,
@@ -30,6 +32,7 @@ import {
 import { SuspectReport } from './verdict'
 
 const PERSIST_AFTER_MS = 60_000
+const POLL_MS = 5000
 // Without live updates a tab pulls every tick while others are editing or work waits, and every sixth tick otherwise
 const QUIET_TICKS = 6
 const CO_EDITING_MS = 60_000
@@ -38,7 +41,7 @@ const LOST_ACCESS_FLUSH_MS = 3000
 
 // Each collaborator below reads and changes this state through its own narrow interface
 export class Room implements CollabRoom {
-  readonly doc: Y.Doc
+  readonly doc: yjs.Doc
   blocked: Blocked | null = null
   paused: string | null = null
   held: Held | null = null
@@ -100,24 +103,22 @@ export class Room implements CollabRoom {
     this.epoch = init.epoch
     this.writable = init.canWrite
     this.bound = init.bound
-    this.device = options.device ? new Device(options.device) : null
+    this.device = null
+    if (options.device) {
+      this.device = new Device(options.device)
+    }
+
     this.ownOutbox = new Outbox(init.sid, init.doc.clientID, () => {})
     this.outboxes = [this.ownOutbox]
     this.ownClients = new Set([this.ownOutbox.cid])
   }
 
-  async start(opening: Opening) {
-    this.options.watch?.(this)
-    this.doc.on('update', this.onDocUpdate)
-    if (this.device && this.writable && this.bound) {
-      const session = this.ownSession(this.device)
-      await this.device.store.saveSession(session).catch(() => this.dropDeviceStore())
-    }
+  private saveOwnSession(device: Device) {
+    const session = this.ownSession(device)
+    return device.store.saveSession(session).catch(() => this.dropDeviceStore())
+  }
 
-    const ownLockName = this.lockName(this.ownOutbox.sid)
-    const releaseOwnLock = await holdLock(ownLockName)
-    this.ownOutbox.release = releaseOwnLock ?? (() => {})
-
+  private takeOpening(opening: Opening) {
     this.appliedThrough = opening.base
     this.sender.setPace(opening.paceMs)
     this.unheard = !!opening.offline
@@ -126,28 +127,45 @@ export class Room implements CollabRoom {
     this.restoreRev = opening.restoreRev ?? 0
     this.follow(opening.schema)
     this.puller.applyRows(opening.rows, opening)
+  }
+
+  private joinRealtime(socket: LiveSocket, opening: Opening) {
+    const liveHooks: LiveHooks = {
+      heardRows: this.puller.heardRows,
+      pull: () => void this.pull(),
+      changed: () => this.notifyListeners(),
+      appliedThrough: () => this.appliedThrough,
+      showsCaret: () => this.canWrite && this.bound && !this.closed,
+      position: this.options.adapter.toPeerPosition,
+      controlHeard: (heard) => this.controlHeard(heard),
+      reconnected: () => this.options.threadsChanged?.(),
+    }
+    this.realtime = new Live(socket, this.lineage, liveHooks)
+    if (opening.rooms) {
+      this.realtime.setRoomKeys(opening.rooms)
+    }
+  }
+
+  async start(opening: Opening) {
+    this.options.watch?.(this)
+    this.doc.on('update', this.onDocUpdate)
+    if (this.device && this.writable && this.bound) {
+      await this.saveOwnSession(this.device)
+    }
+
+    const ownLockName = this.lockName(this.ownOutbox.sid)
+    const releaseOwnLock = await holdLock(ownLockName)
+    this.ownOutbox.release = releaseOwnLock ?? (() => {})
+    this.takeOpening(opening)
     if (this.writable) {
       await adoptLeftovers(this)
     }
 
     if (this.options.socket && !this.closed) {
-      const liveHooks: LiveHooks = {
-        heardRows: this.puller.heardRows,
-        pull: () => void this.pull(),
-        changed: () => this.notifyListeners(),
-        appliedThrough: () => this.appliedThrough,
-        showsCaret: () => this.canWrite && this.bound && !this.closed,
-        position: this.options.adapter.toPeerPosition,
-        controlHeard: (heard) => this.controlHeard(heard),
-        reconnected: () => this.options.threadsChanged?.(),
-      }
-      this.realtime = new Live(this.options.socket, this.lineage, liveHooks)
-      if (opening.rooms) {
-        this.realtime.setRoomKeys(opening.rooms)
-      }
+      this.joinRealtime(this.options.socket, opening)
     }
 
-    this.pollTimer = setInterval(() => void this.tick(), this.options.pollMs ?? 5000)
+    this.pollTimer = setInterval(() => void this.tick(), this.options.pollMs ?? POLL_MS)
     document.addEventListener('visibilitychange', this.onVisibilityChange)
     window.addEventListener('pagehide', this.sender.sendNow)
     this.device?.onChanged(() => this.refreshDevice())
@@ -171,8 +189,8 @@ export class Room implements CollabRoom {
     return this.realtime?.presence ?? null
   }
 
-  get status(): RoomStatus {
-    const next: RoomStatus = {
+  private currentStatus(): RoomStatus {
+    return {
       canWrite: this.canWrite,
       saveState: this.saveState,
       liveState: this.realtime?.state ?? null,
@@ -192,6 +210,10 @@ export class Room implements CollabRoom {
       othersUnsentCount: this.othersUnsent,
       keptCopyCount: this.copiesKept,
     }
+  }
+
+  get status(): RoomStatus {
+    const next = this.currentStatus()
     const last = this.lastStatus
     if (
       !last ||
@@ -204,12 +226,7 @@ export class Room implements CollabRoom {
   }
 
   get atLimit() {
-    const limits = this.limits
-    if (!limits) {
-      return false
-    }
-
-    return limits.state_bytes + limits.tail_bound >= limits.state_max
+    return sizeCheck(this.limits, 1) === 'near_full'
   }
 
   get unsent() {
@@ -267,25 +284,14 @@ export class Room implements CollabRoom {
     }
   }
 
-  async close() {
-    if (this.closed) return
-
-    await this.losingAccess
-    await this.recovering
-    if (this.sender.inFlight) {
-      await this.sender.inFlight
-    }
-    if (this.bound && this.unsent && this.saveState !== 'failed') {
-      this.clearTimers()
-      await this.sender.send({ keepalive: true })
-    }
-
+  private detach() {
     this.closed = true
     document.removeEventListener('visibilitychange', this.onVisibilityChange)
     window.removeEventListener('pagehide', this.sender.sendNow)
     if (this.pollTimer) {
       clearInterval(this.pollTimer)
     }
+
     this.realtime?.close()
     this.fence.close()
     this.clearTimers()
@@ -294,6 +300,20 @@ export class Room implements CollabRoom {
     for (const box of this.outboxes) {
       box.release()
     }
+  }
+
+  async close() {
+    if (this.closed) return
+
+    await this.losingAccess
+    await this.recovering
+    await this.sender.inFlight
+    if (this.bound && this.unsent && this.saveState !== 'failed') {
+      this.clearTimers()
+      await this.sender.send({ keepalive: true })
+    }
+
+    this.detach()
     if (this.device && !this.ownOutbox.pending.length && !this.stopReason) {
       void this.device.release(this.ownOutbox.sid)
     }
@@ -369,7 +389,7 @@ export class Room implements CollabRoom {
   }
 
   private async keepCopy(device: Device, sids: string[], reason: string, stored: StoredEntry[]) {
-    const isKept = await device.recover(sids, reason, stored, Y.encodeStateAsUpdate(this.doc))
+    const isKept = await device.recover(sids, reason, stored, yjs.encodeStateAsUpdate(this.doc))
     this.copyFailed = !isKept
     // A tab with nothing unsent writes no copy, so none is counted
     if (isKept && stored.length) {
@@ -414,8 +434,8 @@ export class Room implements CollabRoom {
     this.notifyListeners()
   }
 
-  // An editor older than the document's rows may drop what it can't show; nothing it does from now on is sent.
-  // Work typed before still goes out, as the server takes older schemas
+  // An editor older than the document's rows may drop what it can't show; nothing it does from now on is sent
+  // but work typed before still goes out, as the server takes older schemas
   follow(schema = 0) {
     if (this.newerSchema) {
       return false
@@ -505,7 +525,7 @@ export class Room implements CollabRoom {
       reply = readReply(await endpoints.beginRestore(this.appliedThrough, version))
     }
 
-    if (reply.status !== 200 || typeof reply.token !== 'string') {
+    if (reply.status !== HTTP_OK || typeof reply.token !== 'string') {
       return { outcome: 'refused', refusal: reply.collab ?? 'failed', retryS: reply.retry_s }
     }
 
@@ -561,18 +581,19 @@ export class Room implements CollabRoom {
       this.blocked = null
       this.notifyListeners()
     }
+
     if (wasBlocked || wasUnheard) {
       this.sender.retryNow()
     }
   }
 
-  isCommitted(items: readonly Y.ID[]) {
+  isCommitted(items: readonly yjs.ID[]) {
     return items.every((id) => this.isCommittedItem(id))
   }
 
   // In this copy, and not waiting to be sent by this tab or one it adopted
-  private isCommittedItem(id: Y.ID) {
-    const isHere = Y.getState(this.doc.store, id.client) > id.clock
+  private isCommittedItem(id: yjs.ID) {
+    const isHere = yjs.getState(this.doc.store, id.client) > id.clock
     return isHere && !this.outboxes.some((box) => box.holds(id))
   }
 
@@ -588,6 +609,7 @@ export class Room implements CollabRoom {
         this.outboxes = this.outboxes.filter((other) => other !== box)
       }
     }
+
     this.onUnsentChanged()
   }
 
@@ -597,11 +619,12 @@ export class Room implements CollabRoom {
     } else if (!this.unsentSince) {
       this.unsentSince = Date.now()
     }
+
     this.notifyListeners()
   }
 
   lockName(sid: string) {
-    return `suite-collab:${this.device?.doc}:${sid}`
+    return `suite-collab:${this.options.device?.doc}:${sid}`
   }
 
   notifyListeners() {
@@ -623,6 +646,7 @@ export class Room implements CollabRoom {
     if (this.unsent && unsentForLong) {
       this.requestPersistentStorage()
     }
+
     if (this.realtime?.live) return
 
     this.realtime?.reconnect()
@@ -642,11 +666,10 @@ export class Room implements CollabRoom {
 
       if (answer !== 'ok') {
         // Other tabs' work never used this clientID, so a later tab can still send it
-        for (const box of this.outboxes) {
-          if (box.adopted) {
-            box.release()
-          }
+        for (const box of this.outboxes.filter((other) => other.adopted)) {
+          box.release()
         }
+
         this.outboxes = [this.ownOutbox]
         const reason = lostReason(answer)
         await this.stopForGood(reason)
@@ -659,16 +682,36 @@ export class Room implements CollabRoom {
       await this.flush()
       await this.puller.pullNow()
     }
+
     this.connecting ??= claimClientId(this, this.ownOutbox)
       .then(bindAfterClaim)
-      .finally(() => (this.connecting = null))
+      .finally(() => {
+        this.connecting = null
+      })
     return this.connecting
+  }
+
+  private queueOwnUpdate(update: Uint8Array) {
+    const entry = this.ownOutbox.add(update, this.appliedThrough)
+    if (this.device) {
+      const session = this.ownSession(this.device)
+      const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
+      void this.captureOnDevice(this.device, session, stored)
+    }
+
+    this.onUnsentChanged()
+    if (this.bound) {
+      this.sender.scheduleSend()
+    } else {
+      this.requestPersistentStorage()
+    }
   }
 
   private onDocUpdate = (update: Uint8Array, origin: unknown) => {
     if (origin === REMOTE) {
       this.lastRemoteAt = Date.now()
     }
+
     const fromElsewhere = origin === REMOTE || origin === ADOPT
     if (fromElsewhere || this.closed) return
 
@@ -686,18 +729,7 @@ export class Room implements CollabRoom {
       return
     }
 
-    const entry = this.ownOutbox.add(update, this.appliedThrough)
-    if (this.device) {
-      const session = this.ownSession(this.device)
-      const stored = this.ownOutbox.toStoredEntries(this.device.doc, [entry])
-      void this.captureOnDevice(this.device, session, stored)
-    }
-    this.onUnsentChanged()
-    if (this.bound) {
-      this.sender.scheduleSend()
-    } else {
-      this.requestPersistentStorage()
-    }
+    this.queueOwnUpdate(update)
   }
 
   // Late typing no device copy holds lives only in the editor, so it counts as unsent and fails the tab

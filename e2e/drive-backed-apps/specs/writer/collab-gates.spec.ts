@@ -40,14 +40,15 @@ test.describe("Writer collaboration", () => {
 		testApi,
 	}) => {
 		// Only this tab is told its build is too old; the site setting would reach every spec
-		const askForNewerBuild = async (route: Route) => {
+		async function askForNewerBuild(route: Route) {
 			const response = await route.fetch();
 			const headers = {
 				...response.headers(),
 				"x-suite-min-builds": JSON.stringify({ writer: "99999999999999" }),
 			};
 			await route.fulfill({ response, headers });
-		};
+		}
+
 		await collaborator.context.route("**/api/**", askForNewerBuild);
 		await openWriterDocument(owner.page, node);
 		await openWriterDocument(collaborator.page, node);
@@ -76,7 +77,7 @@ test.describe("Writer collaboration", () => {
 	}) => {
 		test.setTimeout(300_000);
 		// Only this browser fails to read one character, as an older browser might
-		const failOnSectionSign = () => {
+		function failOnSectionSign() {
 			const originalDecode = TextDecoder.prototype.decode;
 			TextDecoder.prototype.decode = function (
 				this: TextDecoder,
@@ -89,7 +90,8 @@ test.describe("Writer collaboration", () => {
 
 				return text;
 			};
-		};
+		}
+
 		await owner.page.addInitScript(failOnSectionSign);
 		await openWriterDocument(owner.page, node);
 		await openWriterDocument(collaborator.page, node);
@@ -162,15 +164,18 @@ test.describe("Writer collaboration", () => {
 
 		// Held pulls let the collaborator's next push be the one that learns its session was closed
 		let letPullsThrough = () => {};
+
 		const pullsHeld = new Promise<void>((resolve) => {
 			letPullsThrough = resolve;
 		});
-		const holdPulls = async (route: Route) => {
+		async function holdPulls(route: Route) {
 			if (route.request().method() === "GET") {
 				await pullsHeld;
 			}
+
 			await route.fallback();
-		};
+		}
+
 		await collaborator.page.route("**/api/suite/content/*/updates**", holdPulls);
 		await quarantineLast(testApi, node, "checker_failed");
 		await expect(writerEditor(owner.page)).not.toContainText("Bad line");

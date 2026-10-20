@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { APPLIED_UPDATE, REMOTE } from './origins'
 import { breaksOn, device, fakeServer, join, text } from './test-support'
@@ -103,7 +103,7 @@ describe('collab room', () => {
     await writer.flush()
     const reader = await join(server.endpoints())
     const transactions: [boolean, unknown][] = []
-    reader.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+    reader.doc.on('afterTransaction', (transaction: yjs.Transaction) => {
       transactions.push([transaction.origin === REMOTE, transaction.meta.get(APPLIED_UPDATE)])
     })
 
@@ -119,7 +119,7 @@ describe('collab room', () => {
     const writer = await join(server.endpoints())
     const reader = await join(server.endpoints())
     const applied: unknown[] = []
-    reader.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+    reader.doc.on('afterTransaction', (transaction: yjs.Transaction) => {
       applied.push(transaction.meta.get(APPLIED_UPDATE))
     })
 
@@ -138,7 +138,7 @@ describe('collab room', () => {
     const reader = await join(server.endpoints())
     breaksOn(reader, 'boom')
     let isApplied = false
-    reader.doc.on('afterTransaction', (transaction: Y.Transaction) => {
+    reader.doc.on('afterTransaction', (transaction: yjs.Transaction) => {
       isApplied ||= transaction.meta.has(APPLIED_UPDATE)
     })
     const canWriteWhenTold: boolean[] = []

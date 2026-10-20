@@ -26,7 +26,7 @@ class TestWriterAdmission(CheckpointCase):
 
     def setUp(self):
         super().setUp()
-        self.requested = []
+        self.requested: list[str] = []
         enqueue = patch.object(
             frappe, "enqueue", lambda method, **kwargs: self.requested.append(kwargs["doc_id"])
         )
@@ -58,12 +58,14 @@ class TestWriterAdmission(CheckpointCase):
 
     def test_each_row_adds_its_bytes_and_each_word_it_splits_to_the_tail(self):
         node = self.new_document()
-        first, second = self.open_session(node), self.open_session(node)
+        first = self.open_session(node)
+        second = self.open_session(node)
         abc, de = typed_updates(first[1], ["abc", "de"])
         inside = self.edited_update(second[1], [abc, de], lambda text: text.insert(1, "x"))
 
         for tab, seq, update in ((first, 1, abc), (first, 2, de), (second, 1, inside)):
-            self.assertEqual(self.push(node, tab, seq, update)[0], 200)
+            status, _ = self.push(node, tab, seq, update)
+            self.assertEqual(status, 200)
 
         self.assertEqual(self.doc_row(node).tail_bound, len(abc) + len(de) + len(inside) + 32)
         self.compact(node)
@@ -73,7 +75,8 @@ class TestWriterAdmission(CheckpointCase):
         node = self.new_document()
         tab = self.open_session(node)
         abc, de = typed_updates(tab[1], ["abc", "de"])
-        self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
+        status, _ = self.push(node, tab, 1, abc)
+        self.assertEqual(status, 200)
         self.set_doc(node, state_bytes=capacity.STATE_MAX - len(abc) - len(de) + 1)
         self.requested.clear()
 
@@ -82,39 +85,45 @@ class TestWriterAdmission(CheckpointCase):
         self.assertEqual(self.requested, [self.doc_row(node).id])
 
         self.set_doc(node, state_bytes=capacity.STATE_MAX - len(abc) - len(de))
-        self.assertEqual(self.push(node, tab, 2, de)[0], 200)
+        status, _ = self.push(node, tab, 2, de)
+        self.assertEqual(status, 200)
 
     def test_a_document_at_the_cap_takes_deletes_and_nothing_that_adds(self):
         node = self.new_document()
-        writing, deleting = self.open_session(node), self.open_session(node)
+        writing = self.open_session(node)
+        deleting = self.open_session(node)
         abc, de = typed_updates(writing[1], ["abc", "de"])
-        self.assertEqual(self.push(node, writing, 1, abc)[0], 200)
+        status, _ = self.push(node, writing, 1, abc)
+        self.assertEqual(status, 200)
         self.set_doc(node, state_bytes=capacity.STATE_MAX)
 
         self.assertEqual(self.push(node, writing, 2, de), (423, {"collab": "doc_full", "retry_ms": 300_000}))
         removal = self.edited_update(deleting[1], [abc], lambda text: text.__delitem__(slice(1, 2)))
-        self.assertEqual(self.push(node, deleting, 1, removal)[0], 200)
+        status, _ = self.push(node, deleting, 1, removal)
+        self.assertEqual(status, 200)
         self.assertEqual(self.row_count(node), 2)
 
     def test_a_compaction_that_frees_a_full_document_tells_its_live_room(self):
         node = self.new_document()
         tab = self.open_session(node)
         abc, de = typed_updates(tab[1], ["abc", "de"])
-        self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
+        status, _ = self.push(node, tab, 1, abc)
+        self.assertEqual(status, 200)
         doc = self.doc_row(node)
         room = live.rooms(writer_content.APP, doc.id, doc.lineage)["keys"][0]
         self.set_doc(node, state_bytes=capacity.STATE_MAX)
 
         with patch("frappe.publish_realtime") as publish:
             self.compact(node)
-            self.assertEqual(self.push(node, tab, 2, de)[0], 200)
+            status, _ = self.push(node, tab, 2, de)
+            self.assertEqual(status, 200)
             self.compact(node)
 
-        control_messages = [
-            (published.args[1]["kind"], published.kwargs["room"])
-            for published in publish.call_args_list
-            if published.args[0] == "suite_collab_ctl"
-        ]
+        control_messages: list[tuple[str, str]] = []
+        for published in publish.call_args_list:
+            if published.args[0] == "suite_collab_ctl":
+                control_messages.append((published.args[1]["kind"], published.kwargs["room"]))
+
         self.assertEqual(control_messages, [("room", room)])
 
     def test_a_stale_push_to_a_full_document_is_told_it_is_stale(self):
@@ -141,7 +150,8 @@ class TestWriterAdmission(CheckpointCase):
         node = self.new_document()
         tab = self.open_session(node)
         [abc] = typed_updates(tab[1], ["abc"])
-        self.assertEqual(self.push(node, tab, 1, abc)[0], 200)
+        status, _ = self.push(node, tab, 1, abc)
+        self.assertEqual(status, 200)
         self.set_doc(node, tail_bound=0)
 
         logged.ensure_tables()

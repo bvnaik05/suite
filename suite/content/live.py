@@ -22,7 +22,7 @@ INLINE_MAX = 32 * 1024
 
 
 def rooms(app: str, doc_id: str, lineage: str) -> dict:
-    """The rooms a tab joins now: this epoch's and the next, with the server's clock to time them by."""
+    """Return the rooms a tab joins now, this epoch's and the next, with the server's clock to time them."""
     now = time.time()
     epoch = int(now // EPOCH_SECONDS)
     this_room = room_key(app, doc_id, lineage, epoch)
@@ -36,6 +36,7 @@ def rooms(app: str, doc_id: str, lineage: str) -> dict:
 
 
 def room_key(app: str, doc_id: str, lineage: str, epoch: int) -> str:
+    """Name the document's room for `epoch`, keyed by the site's secret so no tab can derive it."""
     site_key = get_encryption_key().encode()
     rooms_key = hmac.new(site_key, b"suite-collab-rooms", hashlib.sha256).digest()
     room_label = f"suite-collab-room|1|{app}|{doc_id}|{lineage}|{epoch}".encode()
@@ -48,7 +49,10 @@ def publish_row(
     app: str, doc_id: str, lineage: str, rev: int, schema: int, payload: bytes, *, restore: bool = False
 ) -> None:
     """Send a committed row to the live tabs, marked when it is a restore."""
-    inline_payload = base64.b64encode(payload).decode() if len(payload) <= INLINE_MAX else None
+    inline_payload = None
+    if len(payload) <= INLINE_MAX:
+        inline_payload = base64.b64encode(payload).decode()
+
     message = {
         "lineage": lineage,
         "rev": rev,
@@ -61,19 +65,22 @@ def publish_row(
     publish(app, doc_id, lineage, "suite_collab_row", message)
 
 
-def publish_control(app: str, doc_id: str, lineage: str, **message) -> None:
+def publish_control(app: str, doc_id: str, lineage: str, **message: str | int) -> None:
+    """Send a control message to the live tabs."""
     control_message = {"lineage": lineage, **message}
     publish(app, doc_id, lineage, "suite_collab_ctl", control_message)
 
 
 def publish_change(app: str, doc_id: str, kind: str) -> None:
-    """A hold, a release or room freed by a compaction: live tabs pull, as a polling tab would have."""
-    lineage_rows = frappe.db.sql(f"SELECT `lineage` FROM `{table(app, 'doc')}` WHERE `id` = %s", doc_id)
+    """Tell live tabs of a hold, a release or room a compaction freed, so they pull as a polling tab would."""
+    doc_table = table(app, "doc")
+    lineage_rows = frappe.db.sql(f"SELECT `lineage` FROM `{doc_table}` WHERE `id` = %s", doc_id)
     if lineage_rows:
         publish_control(app, doc_id, lineage_rows[0][0], kind=kind)
 
 
 def publish(app: str, doc_id: str, lineage: str, event: str, message: dict) -> None:
+    """Send `message` to this epoch's room, best effort."""
     epoch = int(time.time() // EPOCH_SECONDS)
     room_name = room_key(app, doc_id, lineage, epoch)
     try:
@@ -85,8 +92,7 @@ def publish(app: str, doc_id: str, lineage: str, event: str, message: dict) -> N
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def joinable() -> bool:
-    """Whether the realtime service may let sockets into collab rooms: only while some app's collaboration
-    is on. A tab learns a room only from an app that is on."""
+    """Whether sockets may join collab rooms, only while some app's collaboration is on."""
     from suite.content.editors import editors
     from suite.content.log import enabled
 

@@ -6,7 +6,7 @@ import { changedRanges, touches } from './ranges'
 
 // Deleting a block between two lists, or lifting an item out, leaves adjacent
 // same-type list nodes that ProseMirror never merges, so the second list
-// restarts its numbering. Join them back into one node where an edit made them meet.
+// restarts its numbering. Join them back into one node where an edit made them meet
 const JOINABLE = new Set(['orderedList', 'bulletList'])
 
 export const JoinAdjacentLists = Extension.create({

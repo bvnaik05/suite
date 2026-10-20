@@ -56,6 +56,7 @@ wrapped: set[str] = set()
 
 
 def editors() -> dict[str, EditorSpec]:
+    """Load every editor the apps declare, by app, refusing two for one app."""
     found: dict[str, EditorSpec] = {}
     for path in frappe.get_hooks("suite_content_editors") or ():
         spec = load(path)
@@ -68,6 +69,7 @@ def editors() -> dict[str, EditorSpec]:
 
 
 def load(path: str) -> EditorSpec:
+    """Load and check the editor declared at a hook path, once per process."""
     try:
         spec = frappe.get_attr(path)
     except TypeError as missing:
@@ -81,8 +83,10 @@ def load(path: str) -> EditorSpec:
 
     wrong = wrong_declarations(spec)
     if wrong:
-        raise ValueError(f"The editor {path} ({spec.app}) declares {', '.join(wrong)} wrongly")
+        wrong_names = ", ".join(wrong)
+        raise ValueError(f"The editor {path} ({spec.app}) declares {wrong_names} wrongly")
 
+    # node_field imports the app's spec, which registers it in wrapped
     drive.node_field(spec.doctype)
     if spec.doctype not in wrapped:
         raise ValueError(
@@ -94,6 +98,8 @@ def load(path: str) -> EditorSpec:
 
 
 def wrong_declarations(spec: EditorSpec) -> list[str]:
+    """List the fields of an editor's declaration that are missing or of the wrong kind."""
+
     def text(value: object) -> bool:
         return isinstance(value, str) and bool(value)
 
@@ -123,6 +129,7 @@ def wrong_declarations(spec: EditorSpec) -> list[str]:
 
 
 def spec_of(app: str) -> EditorSpec:
+    """Answer the app's editor, refused as missing when no editor is for it."""
     found = editors().get(app)
     if found is None:
         raise frappe.DoesNotExistError(f"No editor for the app {app}")
@@ -131,5 +138,5 @@ def spec_of(app: str) -> EditorSpec:
 
 
 def for_type(content_type: str) -> EditorSpec | None:
-    """The app for a Drive content type, or None when no app keeps that type's documents here."""
+    """Answer the editor for a Drive content type, or None when no app keeps that type's documents here."""
     return next((spec for spec in editors().values() if spec.doctype == content_type), None)

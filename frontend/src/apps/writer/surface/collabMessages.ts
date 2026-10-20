@@ -1,5 +1,5 @@
 import type { Blocked, RoomStatus } from '@/platform/collab'
-import { describeFailure } from '@/platform/transport'
+import { describeFailure } from '@/platform/open-failure'
 
 // What the page tells the person when the room stops saving, or never opens
 export interface Banner {
@@ -27,15 +27,15 @@ export type BannerState = Pick<
   // The person may edit the document in an editor that can show it
   canEdit: boolean
   // Saving stopped with work unsent
-  failed: boolean
+  hasFailed: boolean
   // The editor's HTML was kept in this browser as a recovery copy
-  recoveryKept: boolean
+  isRecoveryKept: boolean
   // Why an earlier room of this page set its unsent work aside as a recovery copy
   setAside: string | null
   // Someone else's edit removed text typed here, and whether this device kept it as a recovery copy
   removedWork: 'kept' | 'unkept' | null
   // No live updates reach this tab, so it polls
-  polling: boolean
+  isPolling: boolean
   // The newer-schema banner showed before this tab's last reload too
   isNewerAfterReload: boolean
   // The editor met content it can't show and takes no edits
@@ -62,7 +62,7 @@ const PAUSE_MESSAGES: Record<string, string> = {
 }
 
 function recoveryNote(state: BannerState) {
-  if (state.recoveryKept) {
+  if (state.isRecoveryKept) {
     return ' Unsent changes were kept as a recovery copy.'
   }
 
@@ -76,7 +76,7 @@ export function isSafeOnDevice(status: Pick<RoomStatus, 'isKeptOnDevice' | 'hasC
 
 // The one ask for the tab to stay open, while its unsent work is kept nowhere
 function keepOpenAsk(state: BannerState) {
-  if (!isKeptNowhere(state, state.recoveryKept)) {
+  if (!isKeptNowhere(state, state.isRecoveryKept)) {
     return ''
   }
 
@@ -95,6 +95,26 @@ function messageFor(messages: Record<string, string>, reason: string | null) {
   return messages[reason]
 }
 
+function setAsideBanner(setAside: string): Banner {
+  if (setAside === 'restored') {
+    return {
+      text: 'A version of this document was restored. Your edits from before it were kept as a recovery copy.',
+    }
+  }
+
+  return { text: "Your last edits couldn't be saved here and were kept as a recovery copy." }
+}
+
+function removedWorkBanner(removedWork: 'kept' | 'unkept'): Banner {
+  if (removedWork === 'kept') {
+    return { text: "Someone else's edit removed text you typed. It was kept as a recovery copy." }
+  }
+
+  return {
+    text: "Someone else's edit removed text you typed, and it couldn't be kept on this device.",
+  }
+}
+
 // While saving goes on: a full document, a rebuilt room whose old work went to a recovery copy, or polling
 function savingBanner(state: BannerState): Banner | null {
   if (state.isAtLimit) {
@@ -104,27 +124,15 @@ function savingBanner(state: BannerState): Banner | null {
     }
   }
 
-  if (state.setAside === 'restored') {
-    return {
-      text: 'A version of this document was restored. Your edits from before it were kept as a recovery copy.',
-    }
-  }
-
   if (state.setAside) {
-    return { text: "Your last edits couldn't be saved here and were kept as a recovery copy." }
+    return setAsideBanner(state.setAside)
   }
 
-  if (state.removedWork === 'kept') {
-    return { text: "Someone else's edit removed text you typed. It was kept as a recovery copy." }
+  if (state.removedWork) {
+    return removedWorkBanner(state.removedWork)
   }
 
-  if (state.removedWork === 'unkept') {
-    return {
-      text: "Someone else's edit removed text you typed, and it couldn't be kept on this device.",
-    }
-  }
-
-  if (state.polling) {
+  if (state.isPolling) {
     return { text: "Live updates are unavailable, so others' changes show up late." }
   }
 
@@ -205,7 +213,7 @@ function offlineBanner(state: BannerState): Banner {
 
 function staleSessionBanner(state: BannerState): Banner {
   const note = recoveryNote(state)
-  if (isKeptNowhere(state, state.recoveryKept)) {
+  if (isKeptNowhere(state, state.isRecoveryKept)) {
     const keepOpen = keepOpenAsk(state)
     return { text: `You signed in again in another tab.${note}${keepOpen}` }
   }
@@ -215,7 +223,7 @@ function staleSessionBanner(state: BannerState): Banner {
 
 function otherUserBanner(state: BannerState): Banner {
   const recovery = recoveryNote(state)
-  if (isKeptNowhere(state, state.recoveryKept)) {
+  if (isKeptNowhere(state, state.isRecoveryKept)) {
     const keepOpen = keepOpenAsk(state)
     return { text: `Someone else is now signed in here.${recovery}${keepOpen}` }
   }
@@ -266,7 +274,7 @@ export function isKeptNowhere(
 function frozenStopBanner(state: BannerState, reason: string, isLasting: boolean): Banner {
   const recovery = recoveryNote(state)
   const frozenText = `${reason}${recovery} Part of this document can't be shown here, so editing stays paused.`
-  if (isKeptNowhere(state, state.recoveryKept)) {
+  if (isKeptNowhere(state, state.isRecoveryKept)) {
     const keepOpen = keepOpenAsk(state)
     return { text: `${frozenText}${keepOpen}` }
   }
@@ -286,7 +294,7 @@ function stoppedBanner(state: BannerState): Banner {
   }
 
   const recovery = recoveryNote(state)
-  if (isKeptNowhere(state, state.recoveryKept)) {
+  if (isKeptNowhere(state, state.isRecoveryKept)) {
     const keepOpen = keepOpenAsk(state)
     return { text: `${reason}${recovery}${keepOpen}` }
   }
@@ -316,24 +324,7 @@ export function refusedSaveBanner(isRecoveryKept: boolean): Banner {
   return { text: `${reason}${recovery} Reload to keep editing.` }
 }
 
-// A refusal or a stop outranks a wait, since a wait ends on its own
-export function bannerFor(state: BannerState): Banner | null {
-  if (state.blockReason) {
-    return BLOCKED_BANNERS[state.blockReason](state)
-  }
-
-  if (state.stopReason || (state.isFrozen && state.failed)) {
-    return stoppedBanner(state)
-  }
-
-  if (state.hasNewerSchema) {
-    return newerSchemaBanner(state)
-  }
-
-  if (state.isFrozen) {
-    return frozenBanner(keepOpenAsk(state))
-  }
-
+function waitingBanner(state: BannerState): Banner | null {
   if (state.holdReason) {
     return heldBanner(state)
   }
@@ -349,7 +340,33 @@ export function bannerFor(state: BannerState): Banner | null {
     return pauseBanner(pauseMessage, state)
   }
 
-  if (state.failed) {
+  return null
+}
+
+// A refusal or a stop outranks a wait, since a wait ends on its own
+export function bannerFor(state: BannerState): Banner | null {
+  if (state.blockReason) {
+    return BLOCKED_BANNERS[state.blockReason](state)
+  }
+
+  if (state.stopReason || (state.isFrozen && state.hasFailed)) {
+    return stoppedBanner(state)
+  }
+
+  if (state.hasNewerSchema) {
+    return newerSchemaBanner(state)
+  }
+
+  if (state.isFrozen) {
+    return frozenBanner(keepOpenAsk(state))
+  }
+
+  const waitBanner = waitingBanner(state)
+  if (waitBanner) {
+    return waitBanner
+  }
+
+  if (state.hasFailed) {
     return stoppedBanner(state)
   }
 
@@ -363,5 +380,8 @@ const OPEN_FAILURES: Record<string, string> = {
   user_changed: 'Someone else is now signed in here. Reload to open this document.',
 }
 
-export const openFailureFor = (reason: string | null, status: number | null = null) =>
-  OPEN_FAILURES[reason ?? ''] ?? describeFailure(status) ?? "This document couldn't be opened."
+export function openFailureFor(reason: string | null, status: number | null = null) {
+  return (
+    OPEN_FAILURES[reason ?? ''] ?? describeFailure(status) ?? "This document couldn't be opened."
+  )
+}

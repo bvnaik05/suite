@@ -10,6 +10,7 @@ import {
   openCollabRoom,
   type CollabRoom,
   type LostAccess,
+  type Opened,
   type RoomStatus,
 } from '@/platform/collab'
 import { TransportError } from '@/platform/transport'
@@ -19,8 +20,39 @@ import { markNewerSchemaShown } from './newerSchemaMark'
 
 export type CollabMode = 'opening' | 'legacy' | 'live' | 'failed'
 
-// A Writer document's live room: opening it, mirroring its state for the page, and closing it.
-// `retainRecovery` keeps the editor's HTML in this browser when the room stops holding unsent work.
+type EditingState = 'editing' | 'paused' | 'closed'
+
+// Whether the person can type: "paused" for a reason that clears, "closed" when they can't (or lost the right to)
+function editingStateOf(roomStatus: RoomStatus): EditingState {
+  const hasLostAccess =
+    roomStatus.blockReason === 'lost_edit' || roomStatus.blockReason === 'lost_read'
+  if (hasLostAccess) {
+    return 'closed'
+  }
+
+  const hasStopped = roomStatus.saveState === 'failed' || roomStatus.blockReason === 'offline'
+  if (hasStopped) {
+    return 'paused'
+  }
+
+  if (roomStatus.canWrite) {
+    return 'editing'
+  }
+
+  const waiting =
+    roomStatus.blockReason ||
+    roomStatus.pauseReason ||
+    roomStatus.holdReason ||
+    roomStatus.isRestoring
+  if (waiting) {
+    return 'paused'
+  }
+
+  return 'closed'
+}
+
+// A Writer document's live room: opening it, mirroring its state for the page, and closing it
+// `retainRecovery` keeps the editor's HTML in this browser when the room stops holding unsent work
 // `mayEdit` is whether the person may edit the document. `threadsChanged` is told when its comment threads may have changed
 // `isFrozen` is whether the editor met content it can't show
 export function useWriterCollab(
@@ -42,7 +74,49 @@ export function useWriterCollab(
   const isNewerAfterReload = ref(false)
   let isNewerSchemaMarked = false
   let stopWatching = () => {}
-  let closed = false
+
+  let isClosed = false
+
+  function settleOpened(opened: Opened, stopRemovals: (() => void) | undefined) {
+    if (isClosed) {
+      stopRemovals?.()
+      if (opened.state === 'live') {
+        void opened.room.close()
+      }
+
+      return
+    }
+
+    if (opened.state !== 'live') {
+      stopRemovals?.()
+      mode.value = 'legacy'
+      return
+    }
+
+    const liveRoom = opened.room
+    room.value = liveRoom
+    recoveryKept.value = false
+    const stopStatus = liveRoom.onChange(() => syncRoomStatus(liveRoom))
+    stopWatching = () => {
+      stopStatus()
+      stopRemovals?.()
+    }
+
+    syncRoomStatus(liveRoom)
+    mode.value = 'live'
+  }
+
+  function setOpenFailure(error: unknown) {
+    if (error instanceof CollabOpenError) {
+      openReason.value = error.reason
+    }
+
+    if (error instanceof CollabOpenError || error instanceof TransportError) {
+      openStatus.value = error.status
+    }
+
+    mode.value = 'failed'
+  }
 
   async function open() {
     mode.value = 'opening'
@@ -59,37 +133,10 @@ export function useWriterCollab(
           stopRemovals = watchRemovals(openingRoom, keepRemovals)
         },
       })
-      if (closed) {
-        stopRemovals?.()
-        if (opened.state === 'live') {
-          void opened.room.close()
-        }
-        return
-      }
-
-      if (opened.state !== 'live') {
-        stopRemovals?.()
-        mode.value = 'legacy'
-        return
-      }
-
-      const liveRoom = opened.room
-      room.value = liveRoom
-      recoveryKept.value = false
-      const stopStatus = liveRoom.onChange(() => syncRoomStatus(liveRoom))
-      stopWatching = () => {
-        stopStatus()
-        stopRemovals?.()
-      }
-      syncRoomStatus(liveRoom)
-      mode.value = 'live'
+      settleOpened(opened, stopRemovals)
     } catch (error) {
       stopRemovals?.()
-      const hasReason = error instanceof CollabOpenError
-      const hasStatus = hasReason || error instanceof TransportError
-      openReason.value = hasReason ? error.reason : null
-      openStatus.value = hasStatus ? error.status : null
-      mode.value = 'failed'
+      setOpenFailure(error)
     }
   }
 
@@ -121,9 +168,9 @@ export function useWriterCollab(
     }
 
     const { blockReason } = liveStatus
-    const stopped =
+    const hasStopped =
       liveStatus.saveState === 'failed' || (blockReason && !isRecoverable(blockReason))
-    if (stopped && liveStatus.unsentCount && !recoveryKept.value) {
+    if (hasStopped && liveStatus.unsentCount && !recoveryKept.value) {
       recoveryKept.value = retainRecovery()
     }
 
@@ -131,28 +178,31 @@ export function useWriterCollab(
       isNewerSchemaMarked = true
       isNewerAfterReload.value = markNewerSchemaShown(session.nodeId)
     }
+
     status.value = liveStatus
   }
 
-  // The editor goes before the old room, so nothing typed lands in a room that no longer sends.
+  // The editor goes before the old room, so nothing typed lands in a room that no longer sends
   // The old room sends what it can; the new one takes the rest over from the device
   async function rebuildRoom(oldRoom: CollabRoom) {
     stopWatching()
     setAside.value = null
-    if (oldRoom.status.unsentCount) {
-      setAside.value = oldRoom.status.stopReason
+    const { unsentCount, stopReason } = oldRoom.status
+    if (unsentCount) {
+      setAside.value = stopReason
     }
+
     room.value = null
     mode.value = 'opening'
     await nextTick()
     await oldRoom.close()
-    if (!closed) {
+    if (!isClosed) {
       await open()
     }
   }
 
   function close() {
-    closed = true
+    isClosed = true
     stopWatching()
     void room.value?.close()
   }
@@ -167,43 +217,24 @@ export function useWriterCollab(
   }
 
   const isLive = computed(() => mode.value === 'live')
-  // Whether the person can type: "paused" for a reason that clears, "closed" when they can't (or lost the right to).
   // "editing" while there is no room to ask
-  const editingState = computed<'editing' | 'paused' | 'closed'>(() => {
+  const editingState = computed<EditingState>(() => {
     const roomStatus = status.value
     if (!isLive.value || !roomStatus) {
       return 'editing'
     }
 
-    const lostAccess =
-      roomStatus.blockReason === 'lost_edit' || roomStatus.blockReason === 'lost_read'
-    if (lostAccess) {
-      return 'closed'
-    }
-
-    const stopped = roomStatus.saveState === 'failed' || roomStatus.blockReason === 'offline'
-    if (stopped) {
-      return 'paused'
-    }
-
-    if (roomStatus.canWrite) {
-      return 'editing'
-    }
-
-    const waiting =
-      roomStatus.blockReason ||
-      roomStatus.pauseReason ||
-      roomStatus.holdReason ||
-      roomStatus.isRestoring
-    if (waiting) {
-      return 'paused'
-    }
-
-    return 'closed'
+    return editingStateOf(roomStatus)
   })
   const allowsEditing = computed(() => editingState.value === 'editing')
   const editingPaused = computed(() => editingState.value === 'paused')
-  const saveState = computed(() => (isLive.value ? (status.value?.saveState ?? 'clean') : null))
+  const saveState = computed(() => {
+    if (!isLive.value) {
+      return null
+    }
+
+    return status.value?.saveState ?? 'clean'
+  })
   // Counts what other tabs of this document keep on the device too, as the save state does
   const unsent = computed(() => {
     const roomStatus = status.value
@@ -213,7 +244,13 @@ export function useWriterCollab(
 
     return roomStatus.unsentCount + roomStatus.othersUnsentCount
   })
-  const paused = computed(() => (isLive.value ? (status.value?.pauseReason ?? null) : null))
+  const paused = computed(() => {
+    if (!isLive.value) {
+      return null
+    }
+
+    return status.value?.pauseReason ?? null
+  })
   const copiesKept = computed(() => (status.value?.keptCopyCount ?? 0) + removedCopies.value)
   const banner = computed(() => {
     const roomStatus = status.value
@@ -224,12 +261,12 @@ export function useWriterCollab(
     const bannerState: BannerState = {
       ...roomStatus,
       canEdit: mayEdit(),
-      failed: roomStatus.saveState === 'failed',
-      recoveryKept:
+      hasFailed: roomStatus.saveState === 'failed',
+      isRecoveryKept:
         recoveryKept.value || (roomStatus.keptCopyCount > 0 && !roomStatus.hasCopyFailed),
       setAside: setAside.value,
       removedWork: removedWork.value,
-      polling: roomStatus.liveState === 'polling',
+      isPolling: roomStatus.liveState === 'polling',
       isNewerAfterReload: isNewerAfterReload.value,
       isFrozen: isFrozen(),
     }

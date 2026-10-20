@@ -16,7 +16,7 @@ SKIP_KIND = 10
 class Unclosed(Exception):
     """A readable row the log can't take: `clock_gap` or `missing_dep`, with the clock it needed."""
 
-    def __init__(self, reason: str, **extra):
+    def __init__(self, reason: str, **extra: int) -> None:
         super().__init__(reason)
         self.reason = reason
         self.extra = extra
@@ -40,15 +40,18 @@ class EditorSchema:
         return all(self.features.get(name, stamp + 1) <= stamp for name in names)
 
     def could_write(self, update: updates.Update) -> bool:
-        """Whether the editor could have written `update`: every struct is content the editor makes,
-        with each name in its role."""
-        return all(
-            struct.kind in self.content_refs
-            and (struct.type is None or struct.type in self.shared_types)
-            and (struct.node is None or struct.node in self.nodes)
-            and (struct.format_key is None or struct.format_key in self.marks)
-            for struct in update.structs
-        )
+        """Whether every struct of `update` is content the editor makes, with each name in its role."""
+        for struct in update.structs:
+            is_editor_content = (
+                struct.kind in self.content_refs
+                and (struct.type is None or struct.type in self.shared_types)
+                and (struct.node is None or struct.node in self.nodes)
+                and (struct.format_key is None or struct.format_key in self.marks)
+            )
+            if not is_editor_content:
+                return False
+
+        return True
 
 
 @dataclass
@@ -60,14 +63,13 @@ class Row:
 
 
 def check_row(payload: bytes, client_id: int) -> Row:
-    """The row `client_id` pushed, or `ValueError` when it is malformed: unreadable, or refused by `admit_update`."""
+    """Read the row `client_id` pushed; `ValueError` when it is unreadable or refused by `admit_update`."""
     update = updates.parse(payload)
     return admit_update(update, client_id)
 
 
 def admit_update(update: updates.Update, client_id: int) -> Row:
-    """The row `update` makes for `client_id`, or `ValueError` when it is empty, written by another client,
-    holds a gap, or holds content no collab app writes."""
+    """Build `client_id`'s row from `update`; `ValueError` when empty, another's, gapped or refused."""
     has_deletes = any(update.deletes.values())
     if not update.structs and not has_deletes:
         raise ValueError("an empty row")
@@ -102,11 +104,26 @@ def next_clocks(payloads: Iterable[bytes]) -> dict[int, int]:
 
 
 def check_closed(app: str, doc_id: str, row: Row, client_id: int, start_clocks: dict[int, int]) -> None:
-    """Refuse a row that does not continue its writer's clocks, or that needs a struct neither
-    committed nor in the row. Run under the document's lock, which every clock change takes."""
+    """Refuse a row that breaks its writer's clocks or needs an uncommitted struct, under the doc's lock."""
     clients = referenced_clients(row, client_id)
     committed = committed_clocks(app, doc_id, clients, start_clocks)
     check_follows(row, client_id, committed)
+
+
+def require_known_refs(struct: updates.Struct, known_clocks: dict[int, int]) -> None:
+    """Refuse `struct` when it follows a clock that isn't known yet."""
+    # A struct can only follow what is committed or earlier in the row, never itself or a later struct
+    for dependency in struct.refs():
+        if dependency[1] >= known_clocks.get(dependency[0], 0):
+            raise Unclosed("missing_dep", client=dependency[0], clock=dependency[1])
+
+
+def require_known_deletes(client: int, ranges: list[tuple[int, int]], known_clocks: dict[int, int]) -> None:
+    """Refuse a delete of `client`'s clocks past the ones known."""
+    known_clock = known_clocks.get(client, 0)
+    for clock, length in ranges:
+        if clock + length > known_clock:
+            raise Unclosed("missing_dep", client=client, clock=max(clock, known_clock))
 
 
 def check_follows(row: Row, client_id: int, committed: dict[int, int]) -> None:
@@ -116,25 +133,21 @@ def check_follows(row: Row, client_id: int, committed: dict[int, int]) -> None:
         raise Unclosed("clock_gap", clock=known_clocks.get(client_id, 0))
 
     for struct in row.update.structs:
-        # A struct can only follow what is committed or earlier in the row, never itself or a later struct
-        for dependency in struct.refs():
-            if dependency[1] >= known_clocks.get(dependency[0], 0):
-                raise Unclosed("missing_dep", client=dependency[0], clock=dependency[1])
-
+        require_known_refs(struct, known_clocks)
         known_clocks[client_id] = struct.clock + struct.length
+
     for client, ranges in row.update.deletes.items():
-        for clock, length in ranges:
-            if clock + length > known_clocks.get(client, 0):
-                raise Unclosed("missing_dep", client=client, clock=max(clock, known_clocks.get(client, 0)))
+        require_known_deletes(client, ranges, known_clocks)
 
 
 def committed_clocks(
     app: str, doc_id: str, clients: set[int], start_clocks: dict[int, int]
 ) -> dict[int, int]:
-    """The next clock of each of `clients` in the log: from its session, or from the start a copy began with."""
+    """Load the next clock of each of `clients`: from its session, or the start a copy began with."""
     clocks = {client: start_clocks.get(client, 0) for client in clients}
+    session_table = table(app, "session")
     sessions = frappe.db.sql(
-        f"""SELECT `client_id`, `next_clock` FROM `{table(app, "session")}`
+        f"""SELECT `client_id`, `next_clock` FROM `{session_table}`
         WHERE `doc_id` = %s AND `client_id` IN %s""",
         (doc_id, tuple(clients)),
     )
@@ -145,6 +158,7 @@ def committed_clocks(
 
 
 def referenced_clients(row: Row, client_id: int) -> set[int]:
+    """Return the writers `row` adds to, deletes from or follows."""
     clients = {client_id, *row.update.deletes}
     for struct in row.update.structs:
         clients.update(client for client, _clock in struct.refs())

@@ -24,8 +24,7 @@ FULL_RETRY_MS = 300_000
 
 
 def edit_max() -> int:
-    """The largest change one push may commit, at most `CHANGE_MAX`; escaping can double its bytes on the way
-    to the database."""
+    """Return the most one push may commit: `CHANGE_MAX` at most, halved as escaping can double it."""
     packet_rows = frappe.db.sql("SELECT @@max_allowed_packet")
     max_packet = int(packet_rows[0][0])
     return min(CHANGE_MAX, (max_packet - 2**20) // 2)
@@ -34,15 +33,15 @@ def edit_max() -> int:
 class Full(Exception):
     """The document can't take the push: `compacting` until a compaction makes room, or `doc_full` for good."""
 
-    def __init__(self, reason: str, retry_ms: int):
+    def __init__(self, reason: str, retry_ms: int) -> None:
         super().__init__(reason)
         self.reason = reason
         self.retry_ms = retry_ms
 
 
 def row_bound(update: updates.Update, row_bytes: int) -> int:
-    """The most a row of `row_bytes` holding `update` can add to the compacted state."""
-    own_ends = set()
+    """Bound what a row of `row_bytes` holding `update` can add to the compacted state."""
+    own_ends: set[tuple[int, int]] = set()
     for struct in update.structs:
         if struct.kind != ingest.SKIP_KIND:
             own_ends |= {(struct.client, struct.clock), (struct.client, struct.clock + struct.length)}
@@ -51,13 +50,8 @@ def row_bound(update: updates.Update, row_bytes: int) -> int:
     return row_bytes + SPLIT_COST * len(splits)
 
 
-def admit(control_row, update: updates.Update, row_bound_bytes: int, now: datetime) -> None:
-    """Raise `Full` unless the locked `control_row` has room under `STATE_MAX` for a row of `row_bound_bytes`.
-
-    A push that only deletes gets `DELETE_ROOM` past the cap. With no tail left
-    to compact, nothing can make room, so a push that adds and doesn't fit is full
-    for good; one that only deletes is taken, as it can name only structs the state holds.
-    """
+def admit(control_row: frappe._dict, update: updates.Update, row_bound_bytes: int, now: datetime) -> None:
+    """Raise `Full` unless the locked `control_row` has room under the cap, or `DELETE_ROOM` for deletes."""
     state_bytes = int(control_row.state_bytes)
     tail_bound = int(control_row.tail_bound)
     tail_rows = int(control_row.tail_rows)
@@ -65,7 +59,10 @@ def admit(control_row, update: updates.Update, row_bound_bytes: int, now: dateti
     if adds_content and state_bytes >= STATE_MAX:
         raise Full("doc_full", FULL_RETRY_MS)
 
-    cap_bytes = STATE_MAX if adds_content else STATE_MAX + DELETE_ROOM
+    cap_bytes = STATE_MAX
+    if not adds_content:
+        cap_bytes = STATE_MAX + DELETE_ROOM
+
     under_cap = state_bytes + tail_bound + row_bound_bytes <= cap_bytes
     tail_has_room = tail_rows < TAIL_ROWS_MAX
     if under_cap and tail_has_room:
@@ -80,5 +77,6 @@ def admit(control_row, update: updates.Update, row_bound_bytes: int, now: dateti
     wait_ms = 0
     if control_row.next_compaction_at:
         wait_ms = max(0, (control_row.next_compaction_at - now).total_seconds() * 1000)
+
     compaction_ms = int(control_row.last_compaction_ms or COMPACTION_MS)
     raise Full("compacting", int(wait_ms) + compaction_ms)

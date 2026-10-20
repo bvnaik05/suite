@@ -13,21 +13,26 @@ from suite.content.wire import PushHeader, busy_refusal
 CLIENT_ID_MAX = 2**30
 
 
-def load_session(app: str, doc_id: str, sid: str, user: str):
-    """The session row for `sid`, or None. Refused if it belongs to another user."""
+def load_session(app: str, doc_id: str, sid: str, user: str) -> frappe._dict | None:
+    """Load the session row for `sid`, or None; refused when it belongs to another user."""
+    session_table = table(app, "session")
     rows = frappe.db.sql(
-        f"SELECT `client_id`, `user`, `acked_seq`, `next_clock`, `closed` FROM `{table(app, 'session')}` WHERE `doc_id` = %s AND `sid` = %s",
+        f"SELECT `client_id`, `user`, `acked_seq`, `next_clock`, `closed` FROM `{session_table}` WHERE `doc_id` = %s AND `sid` = %s",
         (doc_id, sid),
         as_dict=True,
     )
-    if rows and rows[0].user != user:
+    if not rows:
+        return None
+
+    session = rows[0]
+    if session.user != user:
         raise Refusal(409, "session_owner")
 
-    return rows[0] if rows else None
+    return session
 
 
-def session_for(app: str, doc_id: str, header: PushHeader, user: str):
-    """The pushing session, refused unless it is this user's, bound to this clientID and open."""
+def session_for(app: str, doc_id: str, header: PushHeader, user: str) -> frappe._dict:
+    """Load the pushing session, refused unless it is this user's, bound to this clientID and open."""
     session = load_session(app, doc_id, header.sid, user)
     if session is None:
         raise Refusal(409, "session_unknown")
@@ -43,19 +48,21 @@ def session_for(app: str, doc_id: str, header: PushHeader, user: str):
 
 
 def insert_session(app: str, doc_id: str, sid: str, client_id: int, user: str) -> bool:
-    """Commit a new session row. False if the sid or the clientID is already taken, by a session or
-    by a writer of the start state. The doc lock keeps the start from changing under the check."""
-    doc = frappe.db.sql(
-        f"SELECT `start_clocks` FROM `{table(app, 'doc')}` WHERE `id` = %s FOR UPDATE",
+    """Commit a new session row under the doc lock; False when a session or the start already has the ids."""
+    doc_table = table(app, "doc")
+    session_table = table(app, "session")
+    doc_rows = frappe.db.sql(
+        f"SELECT `start_clocks` FROM `{doc_table}` WHERE `id` = %s FOR UPDATE",
         doc_id,
         as_dict=True,
-    )[0]
+    )
+    doc = doc_rows[0]
     if client_id in start_clocks(doc):
         return False
 
     try:
         frappe.db.sql(
-            f"""INSERT INTO `{table(app, "session")}` (`doc_id`, `sid`, `client_id`, `user`, `acked_seq`, `next_clock`, `created`)
+            f"""INSERT INTO `{session_table}` (`doc_id`, `sid`, `client_id`, `user`, `acked_seq`, `next_clock`, `created`)
             VALUES (%s, %s, %s, %s, 0, 0, %s)""",
             (doc_id, sid, client_id, user, now_datetime()),
         )
@@ -83,10 +90,14 @@ def issue_session(app: str, doc_id: str, sid: str, user: str) -> int:
     raise busy_refusal()
 
 
-def claim_session(app: str, doc: dict, sid: str, claim, user: str) -> str:
-    """Bind the clientID a tab opened offline chose itself: `ok`, `clash` or `lineage`. Mints nothing."""
-    client_id = claim.get("cid") if isinstance(claim, dict) else None
-    lineage = claim.get("lineage") if isinstance(claim, dict) else None
+def parsed_claim(claim: object) -> tuple[int, str]:
+    """Read the clientID and lineage a tab claims; raise `Refusal` when either is malformed."""
+    client_id = None
+    lineage = None
+    if isinstance(claim, dict):
+        client_id = claim.get("cid")
+        lineage = claim.get("lineage")
+
     if not isinstance(client_id, int) or isinstance(client_id, bool):
         raise Refusal(400, "malformed")
 
@@ -96,6 +107,12 @@ def claim_session(app: str, doc: dict, sid: str, claim, user: str) -> str:
     if not CLIENT_ID_MAX <= client_id < 2 * CLIENT_ID_MAX:
         raise Refusal(400, "malformed")
 
+    return client_id, lineage
+
+
+def claim_session(app: str, doc: dict, sid: str, claim: object, user: str) -> str:
+    """Bind the clientID a tab opened offline chose itself: `ok`, `clash` or `lineage`. Mints nothing."""
+    client_id, lineage = parsed_claim(claim)
     if lineage != doc["lineage"]:
         return "lineage"
 
@@ -116,4 +133,5 @@ def claim_session(app: str, doc: dict, sid: str, claim, user: str) -> str:
     if insert_session(app, doc["id"], sid, client_id, user):
         return "ok"
 
-    return existing_binding() or "clash"  # lost a race for the sid or the clientID
+    # Lost a race for the sid or the clientID
+    return existing_binding() or "clash"

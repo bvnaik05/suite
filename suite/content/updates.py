@@ -4,6 +4,10 @@ It reads what the compaction's guards need: each struct's writer and clocks,
 its origins, the text it inserts, the names it carries, and the delete set. Anything malformed,
 including trailing bytes, raises `ValueError`. `rewrite_values` copies an update
 with its values changed and nothing else.
+
+A rewrite copies text, names, keys, ids, clocks and origins byte for byte, so the
+copy holds the same structs and Yjs reads it as the same document with those values
+rewritten. Values `rewrite` leaves alone keep their original bytes.
 """
 
 import builtins
@@ -11,10 +15,38 @@ import json
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from typing import NoReturn
 
 MAX_SAFE_INTEGER = 2**53 - 1
 MAX_DEPTH = 100
 ASTRAL_CHAR = re.compile("[\U00010000-\U0010ffff]")
+VARINT_CONTINUE = 0x80
+VARINT_LOW_BITS = 0x7F
+
+CONTENT_GC = 0
+CONTENT_DELETED = 1
+CONTENT_JSON = 2
+CONTENT_BINARY = 3
+CONTENT_STRING = 4
+CONTENT_EMBED = 5
+CONTENT_FORMAT = 6
+CONTENT_TYPE = 7
+CONTENT_ANY = 8
+CONTENT_DOC = 9
+CONTENT_SKIP = 10
+
+ANY_UNDEFINED = 127
+ANY_NULL = 126
+ANY_INTEGER = 125
+ANY_FLOAT32 = 124
+ANY_FLOAT64 = 123
+ANY_BIGINT = 122
+ANY_TRUE = 121
+ANY_FALSE = 120
+ANY_STRING = 119
+ANY_OBJECT = 118
+ANY_ARRAY = 117
+ANY_BINARY = 116
 
 
 @dataclass
@@ -41,7 +73,7 @@ class Struct:
     format_key: str | None = None
 
     def refs(self) -> list[tuple[int, int]]:
-        """The ids this struct needs before it can integrate: its origins and its parent item."""
+        """Answer the ids this struct needs before it can integrate: its origins and its parent item."""
         return [ref for ref in (self.origin, self.right_origin, self.parent) if ref]
 
 
@@ -52,15 +84,20 @@ class Update:
 
     @property
     def names(self) -> set[str]:
-        return {name for struct in self.structs for name in struct.names}
+        """Answer every name the structs carry."""
+        names: set[str] = set()
+        for struct in self.structs:
+            names.update(struct.names)
+
+        return names
 
     def split_points(self) -> set[tuple[int, int]]:
-        """Every position where this update can split an existing struct: after each origin, at each right
-        origin, and at both ends of each delete range."""
-        points = set()
+        """Answer where this update can split a struct: after origins, at right origins, at delete ends."""
+        points: set[tuple[int, int]] = set()
         for struct in self.structs:
             if struct.origin:
                 points.add((struct.origin[0], struct.origin[1] + 1))
+
             if struct.right_origin:
                 points.add(struct.right_origin)
 
@@ -74,11 +111,12 @@ class Update:
 class Reader:
     __slots__ = ("buffer", "position")
 
-    def __init__(self, buffer: bytes):
+    def __init__(self, buffer: bytes) -> None:
         self.buffer = buffer
         self.position = 0
 
     def byte(self) -> int:
+        """Read one byte."""
         if self.position >= len(self.buffer):
             raise ValueError("unexpected end of update")
 
@@ -86,34 +124,39 @@ class Reader:
         return self.buffer[self.position - 1]
 
     def uint(self) -> int:
-        value, factor = 0, 1
+        """Read an unsigned varint, refusing one past `MAX_SAFE_INTEGER`."""
+        value = 0
+        factor = 1
         while True:
             byte = self.byte()
-            value += (byte & 0x7F) * factor
+            value += (byte & VARINT_LOW_BITS) * factor
             factor *= 128
             if value > MAX_SAFE_INTEGER:
                 raise ValueError("integer out of range")
 
-            if byte < 0x80:
+            if byte < VARINT_CONTINUE:
                 return value
 
     def skip_signed(self) -> None:
+        """Read past a signed varint, refusing one past `MAX_SAFE_INTEGER`."""
         byte = self.byte()
-        value, factor = byte & 0x3F, 64
-        if byte & 0x80 == 0:
+        value = byte & 0x3F
+        factor = 64
+        if byte & VARINT_CONTINUE == 0:
             return
 
         while True:
             byte = self.byte()
-            value += (byte & 0x7F) * factor
+            value += (byte & VARINT_LOW_BITS) * factor
             factor *= 128
             if value > MAX_SAFE_INTEGER:
                 raise ValueError("integer out of range")
 
-            if byte < 0x80:
+            if byte < VARINT_CONTINUE:
                 return
 
     def read_bytes(self, length: builtins.int) -> bytes:
+        """Read the next `length` bytes."""
         if self.position + length > len(self.buffer):
             raise ValueError("unexpected end of update")
 
@@ -121,23 +164,26 @@ class Reader:
         return self.buffer[self.position - length : self.position]
 
     def string(self) -> str:
+        """Read a length-prefixed UTF-8 string."""
         length = self.uint()
         return self.read_bytes(length).decode("utf-8")
 
-    def json(self):
+    def json(self) -> object:
+        """Read a string and load the JSON it holds."""
         return checked_json(self.string())
 
     def id(self) -> tuple[builtins.int, builtins.int]:
+        """Read a struct id: its writer and clock."""
         return self.uint(), self.uint()
 
 
-def refuse_constant(name: str):
+def refuse_constant(name: str) -> NoReturn:
+    """Refuse a constant such as `NaN`, which JSON doesn't allow."""
     raise ValueError(f"not JSON: {name}")
 
 
-def checked_json(text: str):
-    """The value `text` holds, refusing text that is not JSON or nests deeper than a value may, so later
-    walks over it can recurse."""
+def checked_json(text: str) -> object:
+    """Load the JSON in `text`, refusing a value nested past `MAX_DEPTH`, so later walks can recurse."""
     try:
         parsed = json.loads(text, parse_constant=refuse_constant)
     except RecursionError:
@@ -154,13 +200,14 @@ def checked_json(text: str):
             items = value.values()
         elif isinstance(value, list):
             items = value
+
         containers.extend((item, depth + 1) for item in items if isinstance(item, dict | list))
 
     return parsed
 
 
 def string_length(struct: Struct, text: str) -> int:
-    """The text's length in UTF-16 code units, the way Yjs counts clocks, noting where each pair splits."""
+    """Count the text's UTF-16 code units, the way Yjs counts clocks, noting where each pair splits."""
     surrogate_count = 0
     for astral_match in ASTRAL_CHAR.finditer(text):
         struct.pairs.append(struct.clock + astral_match.start() + surrogate_count + 1)
@@ -169,122 +216,184 @@ def string_length(struct: Struct, text: str) -> int:
     return len(text) + surrogate_count
 
 
-def parse(payload: bytes) -> Update:
-    reader = Reader(payload)
-    update = Update()
-    seen_clients = set()
+def read_client_structs(reader: Reader, struct_count: int, client: int, clock: int) -> list[Struct]:
+    """Read one writer's structs from `clock` on, refusing an empty one or a clock out of range."""
+    structs: list[Struct] = []
+    for _struct in range(struct_count):
+        struct = read_struct(reader, client, clock)
+        if struct.length == 0:
+            raise ValueError("empty struct")
+
+        clock += struct.length
+        if clock > MAX_SAFE_INTEGER:
+            raise ValueError("clock out of range")
+
+        structs.append(struct)
+
+    return structs
+
+
+def read_structs(reader: Reader) -> list[Struct]:
+    """Read every writer's structs, refusing a writer that appears twice."""
+    structs: list[Struct] = []
+    seen_clients: set[int] = set()
     for _section in range(reader.uint()):
-        struct_count, client, clock = reader.uint(), reader.uint(), reader.uint()
+        struct_count = reader.uint()
+        client = reader.uint()
+        clock = reader.uint()
         if client in seen_clients:
             raise ValueError("a client appears twice")
 
         seen_clients.add(client)
-        for _struct in range(struct_count):
-            struct = read_struct(reader, client, clock)
-            if struct.length == 0:
-                raise ValueError("empty struct")
+        structs.extend(read_client_structs(reader, struct_count, client, clock))
 
-            clock += struct.length
-            if clock > MAX_SAFE_INTEGER:
-                raise ValueError("clock out of range")
+    return structs
 
-            update.structs.append(struct)
 
+def read_delete_ranges(reader: Reader) -> list[tuple[int, int]]:
+    """Read one writer's delete ranges, refusing an empty one or one ending out of range."""
+    ranges: list[tuple[int, int]] = []
+    for _range in range(reader.uint()):
+        clock = reader.uint()
+        length = reader.uint()
+        if length == 0:
+            raise ValueError("empty delete range")
+
+        if clock + length > MAX_SAFE_INTEGER:
+            raise ValueError("clock out of range")
+
+        ranges.append((clock, length))
+
+    return ranges
+
+
+def read_deletes(reader: Reader) -> dict[int, list[tuple[int, int]]]:
+    """Read the delete set, each writer's ranges in the order written."""
+    deletes: dict[int, list[tuple[int, int]]] = {}
     for _section in range(reader.uint()):
         client = reader.uint()
-        ranges = update.deletes.setdefault(client, [])
-        for _range in range(reader.uint()):
-            clock, length = reader.uint(), reader.uint()
-            if length == 0:
-                raise ValueError("empty delete range")
+        ranges = deletes.setdefault(client, [])
+        ranges.extend(read_delete_ranges(reader))
 
-            if clock + length > MAX_SAFE_INTEGER:
-                raise ValueError("clock out of range")
+    return deletes
 
-            ranges.append((clock, length))
 
+def parse(payload: bytes) -> Update:
+    """Parse a whole Yjs v1 update, raising `ValueError` on anything malformed or trailing."""
+    reader = Reader(payload)
+    structs = read_structs(reader)
+    deletes = read_deletes(reader)
     if reader.position != len(payload):
         raise ValueError("trailing bytes")
 
-    return update
+    return Update(structs, deletes)
 
 
-def read_struct(reader: Reader, client: int, clock: int) -> Struct:
-    info = reader.byte()
-    content_ref = info & 0x1F
-    if content_ref in (0, 10):  # GC and Skip
-        length = reader.uint()
-        return Struct(client, clock, length, content_ref)
-
-    struct = Struct(client, clock, 0, content_ref)
+def read_header(reader: Reader, info: int, struct: Struct) -> None:
+    """Read a struct's origins, or its parent and parent key when it has neither."""
     if info & 0x80:
         struct.origin = reader.id()
+
     if info & 0x40:
         struct.right_origin = reader.id()
+
     if info & 0xC0 == 0:
         if reader.uint() == 1:
             struct.root = reader.string()
             struct.names.append(struct.root)
         else:
             struct.parent = reader.id()
+
         if info & 0x20:
             struct.names.append(reader.string())
 
+
+def read_struct(reader: Reader, client: int, clock: int) -> Struct:
+    """Read the struct at `clock`: its header and its content."""
+    info = reader.byte()
+    content_ref = info & 0x1F
+    if content_ref in {CONTENT_GC, CONTENT_SKIP}:
+        length = reader.uint()
+        return Struct(client, clock, length, content_ref)
+
+    struct = Struct(client, clock, 0, content_ref)
+    read_header(reader, info, struct)
     struct.length = read_content(reader, content_ref, struct)
     return struct
 
 
+def read_json_values(reader: Reader) -> int:
+    """Read a JSON content's values, each JSON or `undefined`, and answer how many."""
+    count = reader.uint()
+    for _item in range(count):
+        value = reader.string()
+        if value != "undefined":
+            checked_json(value)
+
+    return count
+
+
+def read_format(reader: Reader, struct: Struct) -> None:
+    """Read a format item's key and attributes, noting the mark and attribute names."""
+    # A mark that may overlap itself is keyed `name--<hash>`
+    struct.format_key = reader.string()
+    mark_name, *_ = struct.format_key.split("--", 1)
+    struct.names.append(mark_name)
+    attributes = reader.json()
+    if isinstance(attributes, dict):
+        struct.names.extend(attributes)
+
+
+def read_type(reader: Reader, struct: Struct) -> None:
+    """Read a type item's shared type, and the node name an XmlElement or XmlHook carries."""
+    struct.type = reader.uint()
+    if struct.type in {3, 5}:
+        struct.node = reader.string()
+        struct.names.append(struct.node)
+    elif struct.type not in {0, 1, 2, 4, 6}:
+        raise ValueError(f"unknown type {struct.type}")
+
+
+def read_any_values(reader: Reader) -> int:
+    """Read an any content's values and answer how many."""
+    count = reader.uint()
+    for _item in range(count):
+        read_any(reader)
+
+    return count
+
+
 def read_content(reader: Reader, content_ref: int, struct: Struct) -> int:
-    if content_ref == 1:  # deleted
+    """Read a struct's content and answer its length in clocks."""
+    if content_ref == CONTENT_DELETED:
         return reader.uint()
 
-    if content_ref == 2:  # JSON
-        count = reader.uint()
-        for _item in range(count):
-            value = reader.string()
-            if value != "undefined":
-                checked_json(value)
-        return count
+    if content_ref == CONTENT_JSON:
+        return read_json_values(reader)
 
-    if content_ref == 3:  # binary
-        length = reader.uint()
-        reader.read_bytes(length)
+    if content_ref == CONTENT_BINARY:
+        reader.read_bytes(reader.uint())
         return 1
 
-    if content_ref == 4:  # string
-        text = reader.string()
-        return string_length(struct, text)
+    if content_ref == CONTENT_STRING:
+        return string_length(struct, reader.string())
 
-    if content_ref == 5:  # embed
+    if content_ref == CONTENT_EMBED:
         reader.json()
         return 1
 
-    if content_ref == 6:  # format
-        # A mark that may overlap itself is keyed `name--<hash>`
-        struct.format_key = reader.string()
-        mark_name = struct.format_key.split("--", 1)[0]
-        struct.names.append(mark_name)
-        attributes = reader.json()
-        if isinstance(attributes, dict):
-            struct.names.extend(attributes)
+    if content_ref == CONTENT_FORMAT:
+        read_format(reader, struct)
         return 1
 
-    if content_ref == 7:  # type
-        struct.type = reader.uint()
-        if struct.type in (3, 5):
-            struct.node = reader.string()
-            struct.names.append(struct.node)
-        elif struct.type not in (0, 1, 2, 4, 6):
-            raise ValueError(f"unknown type {struct.type}")
+    if content_ref == CONTENT_TYPE:
+        read_type(reader, struct)
         return 1
 
-    if content_ref == 8:  # any
-        count = reader.uint()
-        for _item in range(count):
-            read_any(reader)
-        return count
+    if content_ref == CONTENT_ANY:
+        return read_any_values(reader)
 
-    if content_ref == 9:  # subdocument
+    if content_ref == CONTENT_DOC:
         reader.string()
         read_any(reader)
         return 1
@@ -292,113 +401,144 @@ def read_content(reader: Reader, content_ref: int, struct: Struct) -> int:
     raise ValueError(f"unknown content {content_ref}")
 
 
+def read_container(reader: Reader, tag: int, depth: int) -> None:
+    """Read an object's or array's entries, refusing nesting past `MAX_DEPTH`."""
+    if depth >= MAX_DEPTH:
+        raise ValueError("value nested too deep")
+
+    for _item in range(reader.uint()):
+        if tag == ANY_OBJECT:
+            reader.string()
+
+        read_any(reader, depth + 1)
+
+
 def read_any(reader: Reader, depth: int = 0) -> None:
+    """Read one any value, refusing an unknown tag."""
     tag = reader.byte()
-    if tag in (127, 126, 121, 120):  # undefined, null, true, false
+    if tag in {ANY_UNDEFINED, ANY_NULL, ANY_TRUE, ANY_FALSE}:
         return
 
-    if tag == 125:
+    if tag == ANY_INTEGER:
         reader.skip_signed()
-    elif tag == 124:
+    elif tag == ANY_FLOAT32:
         reader.read_bytes(4)
-    elif tag in (123, 122):
+    elif tag in {ANY_FLOAT64, ANY_BIGINT}:
         reader.read_bytes(8)
-    elif tag == 119:
+    elif tag == ANY_STRING:
         reader.string()
-    elif tag in (118, 117):  # object, array
-        if depth >= MAX_DEPTH:
-            raise ValueError("value nested too deep")
-
-        for _item in range(reader.uint()):
-            if tag == 118:
-                reader.string()
-            read_any(reader, depth + 1)
-    elif tag == 116:
+    elif tag in {ANY_OBJECT, ANY_ARRAY}:
+        read_container(reader, tag, depth)
+    elif tag == ANY_BINARY:
         length = reader.uint()
         reader.read_bytes(length)
     else:
         raise ValueError(f"unknown value tag {tag}")
 
 
+@dataclass
+class ValueRewrite:
+    """A copy of an update in the making, each changed value spliced over its original bytes."""
+
+    data: bytes
+    rewrite: Callable[[str], str]
+    reader: Reader
+    copy: bytearray = field(default_factory=bytearray)
+    copied_up_to: int = 0
+
+    def replace_value(self, start: int, value: bytes) -> None:
+        """Splice `value` over the bytes from `start` to the reader's position when they differ."""
+        if value != self.data[start : self.reader.position]:
+            self.copy.extend(self.data[self.copied_up_to : start])
+            self.copy.extend(value)
+            self.copied_up_to = self.reader.position
+
+    def replace_json(self, start: int, text: str) -> None:
+        """Splice JSON `text`, read from `start`, with its strings rewritten."""
+        rewritten = rewritten_json(text, self.rewrite)
+        self.replace_value(start, encoded_string(rewritten))
+
+    def rewrite_json_values(self) -> None:
+        """Rewrite a JSON content's values, leaving `undefined` as written."""
+        for _item in range(self.reader.uint()):
+            start = self.reader.position
+            value = self.reader.string()
+            if value != "undefined":
+                self.replace_json(start, value)
+
+    def rewrite_any_values(self) -> None:
+        """Rewrite an any content's values."""
+        for _item in range(self.reader.uint()):
+            start = self.reader.position
+            rewritten_value = rewritten_any(self.reader, self.rewrite)
+            self.replace_value(start, rewritten_value)
+
+    def rewrite_content(self, content_ref: int) -> None:
+        """Read a struct's content, rewriting attribute, mark, embed and any values."""
+        reader = self.reader
+        if content_ref == CONTENT_JSON:
+            self.rewrite_json_values()
+        elif content_ref == CONTENT_EMBED:
+            start = reader.position
+            value = reader.string()
+            self.replace_json(start, value)
+        elif content_ref == CONTENT_FORMAT:
+            reader.string()
+            start = reader.position
+            value = reader.string()
+            self.replace_json(start, value)
+        elif content_ref == CONTENT_ANY:
+            self.rewrite_any_values()
+        else:
+            read_content(reader, content_ref, Struct(0, 0, 0))
+
+    def rewrite_struct(self) -> None:
+        """Read one struct, rewriting its values; GC and Skip hold none."""
+        info = self.reader.byte()
+        content_ref = info & 0x1F
+        if content_ref in {CONTENT_GC, CONTENT_SKIP}:
+            self.reader.uint()
+            return
+
+        read_header(self.reader, info, Struct(0, 0, 0))
+        self.rewrite_content(content_ref)
+
+    def rewrite_structs(self) -> None:
+        """Read every writer's structs, rewriting their values."""
+        reader = self.reader
+        for _section in range(reader.uint()):
+            count = reader.uint()
+            reader.uint(), reader.uint()
+            for _struct in range(count):
+                self.rewrite_struct()
+
+    def finished(self) -> bytes:
+        """Answer the copy, closed with the bytes after the last changed value."""
+        self.copy.extend(self.data[self.copied_up_to :])
+        return bytes(self.copy)
+
+
 def rewrite_values(data: bytes, rewrite: Callable[[str], str]) -> bytes:
-    """A copy of `data` with every string inside an attribute, mark or embed value passed through `rewrite`.
-
-    Text, names, keys, ids, clocks and origins are copied byte for byte, so the copy
-    holds the same structs and Yjs reads it as the same document with those values
-    rewritten. Values `rewrite` leaves alone keep their original bytes.
-    """
+    """Copy `data` with every string inside an attribute, mark or embed value passed through `rewrite`."""
     parse(data)
-    reader = Reader(data)
-    rewritten_update = bytearray()
-    copied_up_to = 0
-
-    def replace_value(start: int, value: bytes) -> None:
-        nonlocal copied_up_to
-        if value != data[start : reader.position]:
-            rewritten_update.extend(data[copied_up_to:start])
-            rewritten_update.extend(value)
-            copied_up_to = reader.position
-
-    for _section in range(reader.uint()):
-        count = reader.uint()
-        reader.uint(), reader.uint()
-        for _struct in range(count):
-            info = reader.byte()
-            content_ref = info & 0x1F
-            if content_ref in (0, 10):
-                reader.uint()
-                continue
-
-            if info & 0x80:
-                reader.id()
-            if info & 0x40:
-                reader.id()
-            if info & 0xC0 == 0:
-                if reader.uint() == 1:
-                    reader.string()
-                else:
-                    reader.id()
-                if info & 0x20:
-                    reader.string()
-
-            if content_ref == 2:  # JSON
-                for _item in range(reader.uint()):
-                    start = reader.position
-                    value = reader.string()
-                    if value != "undefined":
-                        rewritten = rewritten_json(value, rewrite)
-                        replace_value(start, encoded_string(rewritten))
-            elif content_ref == 5:  # embed
-                start = reader.position
-                value = reader.string()
-                rewritten = rewritten_json(value, rewrite)
-                replace_value(start, encoded_string(rewritten))
-            elif content_ref == 6:  # format
-                reader.string()
-                start = reader.position
-                value = reader.string()
-                rewritten = rewritten_json(value, rewrite)
-                replace_value(start, encoded_string(rewritten))
-            elif content_ref == 8:  # any
-                for _item in range(reader.uint()):
-                    start = reader.position
-                    rewritten_value = rewritten_any(reader, rewrite)
-                    replace_value(start, rewritten_value)
-            else:
-                read_content(reader, content_ref, Struct(0, 0, 0))
-
-    rewritten_update.extend(data[copied_up_to:])
-    return bytes(rewritten_update)
+    value_rewrite = ValueRewrite(data, rewrite, Reader(data))
+    value_rewrite.rewrite_structs()
+    return value_rewrite.finished()
 
 
 def rewritten_json(text: str, rewrite: Callable[[str], str]) -> str:
-    def rewrite_strings(value):
+    """Answer JSON `text` with its strings rewritten, or `text` itself when none changed."""
+
+    def rewrite_strings(value: object) -> object:
         if isinstance(value, str):
             return rewrite(value)
+
         if isinstance(value, list):
             return [rewrite_strings(item) for item in value]
+
         if isinstance(value, dict):
             return {key: rewrite_strings(item) for key, item in value.items()}
+
         return value
 
     value = json.loads(text, parse_constant=refuse_constant)
@@ -413,12 +553,12 @@ def rewritten_any(reader: Reader, rewrite: Callable[[str], str]) -> bytes:
     """One value read from `reader`, encoded again with its strings rewritten and everything else as read."""
     start = reader.position
     tag = reader.byte()
-    if tag == 119:
+    if tag == ANY_STRING:
         text = reader.string()
         rewritten = rewrite(text)
         return bytes([tag]) + encoded_string(rewritten)
 
-    if tag == 118:
+    if tag == ANY_OBJECT:
         count = reader.uint()
         out = bytearray([tag]) + encoded_uint(count)
         for _key in range(count):
@@ -427,13 +567,15 @@ def rewritten_any(reader: Reader, rewrite: Callable[[str], str]) -> bytes:
             key = reader.buffer[key_start : reader.position]
             value = rewritten_any(reader, rewrite)
             out += key + value
+
         return bytes(out)
 
-    if tag == 117:
+    if tag == ANY_ARRAY:
         count = reader.uint()
         out = bytearray([tag]) + encoded_uint(count)
         for _item in range(count):
             out += rewritten_any(reader, rewrite)
+
         return bytes(out)
 
     reader.position = start
@@ -442,14 +584,16 @@ def rewritten_any(reader: Reader, rewrite: Callable[[str], str]) -> bytes:
 
 
 def encoded_string(text: str) -> bytes:
+    """Encode `text` as a length-prefixed UTF-8 string."""
     utf8 = text.encode("utf-8")
     return encoded_uint(len(utf8)) + utf8
 
 
 def encoded_uint(value: int) -> bytes:
+    """Encode `value` as an unsigned varint."""
     encoded = bytearray()
-    while value > 0x7F:
-        encoded.append(0x80 | (value & 0x7F))
+    while value > VARINT_LOW_BITS:
+        encoded.append(VARINT_CONTINUE | (value & VARINT_LOW_BITS))
         value >>= 7
 
     encoded.append(value)

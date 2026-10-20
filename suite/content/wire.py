@@ -15,6 +15,16 @@ from suite.content.snapshot import Snapshot
 PROTOCOL_VERSION = 1
 PACE_MS = 500
 RESTORE_TOKEN_LENGTH = 32
+PUSH_FIELD_TYPES = {
+    "lineage": str,
+    "sid": str,
+    "from": int,
+    "to": int,
+    "cid": int,
+    "seen_rev": int,
+    "schema": int,
+    "shas": list,
+}
 
 
 @dataclass(frozen=True)
@@ -37,6 +47,7 @@ class PushHeader:
 
 
 def busy_refusal() -> Refusal:
+    """Refuse a push as busy, with a jittered retry so waiting tabs spread out."""
     retry_ms = PACE_MS // 2 + secrets.randbelow(PACE_MS // 2 + 1)
     return Refusal(423, "busy", retry_ms=retry_ms)
 
@@ -56,10 +67,12 @@ def encode_frame(
     ]
     for rev, payload in rows:
         parts += [struct.pack(">QI", rev, len(payload)), payload]
+
     return b"".join(parts)
 
 
 def open_header(log_read: Snapshot, *, can_write: bool) -> dict:
+    """Build the header of the frame that opens a live document."""
     return {
         "state": "live",
         "proto": PROTOCOL_VERSION,
@@ -73,7 +86,7 @@ def open_header(log_read: Snapshot, *, can_write: bool) -> dict:
 
 
 def limits(app: str, doc: frappe._dict) -> dict:
-    """The sizes a tab checks a change against before it enters the document."""
+    """Answer the sizes a tab checks a change against before it enters the document."""
     return {
         "fragment": stage.PIECE_MAX,
         "edit_max": capacity.edit_max(),
@@ -83,45 +96,33 @@ def limits(app: str, doc: frappe._dict) -> dict:
     }
 
 
-def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
-    """Split `u32 hlen | header JSON | Yjs update`."""
-    if len(body) < 4:
-        raise Refusal(400, "malformed")
-
-    (header_length,) = struct.unpack(">I", body[:4])
-    header_too_long = header_length > stage.HEADER_MAX
-    body_truncated = len(body) < 4 + header_length
-    if header_too_long or body_truncated:
-        raise Refusal(400, "malformed")
-
+def split_push(body: bytes) -> tuple[object, bytes]:
+    """Split `u32 hlen | header JSON | Yjs update`; refuse a bad frame or an update past `PIECE_MAX`."""
     try:
-        header = json.loads(body[4 : 4 + header_length])
-    except ValueError:
+        header, payload = stage.split_header(body)
+    except stage.Malformed:
         raise Refusal(400, "malformed") from None
 
-    payload = body[4 + header_length :]
     # A bigger change is staged in pieces first
     if len(payload) > stage.PIECE_MAX:
         raise Refusal(413, "too_large")
 
-    required_types = {
-        "lineage": str,
-        "sid": str,
-        "from": int,
-        "to": int,
-        "cid": int,
-        "seen_rev": int,
-        "schema": int,
-        "shas": list,
-    }
-    if not isinstance(header, dict):
-        raise Refusal(400, "malformed")
+    return header, payload
 
-    mistyped = any(
-        not isinstance(header.get(key), expected_type) or isinstance(header.get(key), bool)
-        for key, expected_type in required_types.items()
-    )
-    if mistyped:
+
+def is_mistyped(header: dict) -> bool:
+    """Answer whether a push header lacks a required field or holds one of the wrong type."""
+    for key, expected_type in PUSH_FIELD_TYPES.items():
+        value = header.get(key)
+        if not isinstance(value, expected_type) or isinstance(value, bool):
+            return True
+
+    return False
+
+
+def checked_push_fields(header: object, payload: bytes) -> dict:
+    """Refuse a push header with a field missing or wrong, a bad seq range or schema, or no change."""
+    if not isinstance(header, dict) or is_mistyped(header):
         raise Refusal(400, "malformed")
 
     seq_range_invalid = header["from"] < 1 or header["to"] < header["from"]
@@ -140,18 +141,31 @@ def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
     if len(header["shas"]) != seq_count:
         raise Refusal(400, "malformed")
 
-    try:
-        shas = [bytes.fromhex(sha) for sha in header["shas"]]
-    except (TypeError, ValueError):
-        raise Refusal(400, "malformed") from None
-
-    if any(len(sha) != 32 for sha in shas):
-        raise Refusal(400, "malformed")
-
     restore = header.get("restore")
     if restore is not None and not (isinstance(restore, str) and len(restore) == RESTORE_TOKEN_LENGTH):
         raise Refusal(400, "malformed")
 
+    return header
+
+
+def checked_shas(header_shas: list) -> list[bytes]:
+    """Decode a push's per-seq shas, refusing any that is not `SHA_BYTES` of hex."""
+    try:
+        shas = [bytes.fromhex(sha) for sha in header_shas]
+    except (TypeError, ValueError):
+        raise Refusal(400, "malformed") from None
+
+    if any(len(sha) != stage.SHA_BYTES for sha in shas):
+        raise Refusal(400, "malformed")
+
+    return shas
+
+
+def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
+    """Split `u32 hlen | header JSON | Yjs update` and check the header."""
+    raw_header, payload = split_push(body)
+    header = checked_push_fields(raw_header, payload)
+    shas = checked_shas(header["shas"])
     push_header = PushHeader(
         lineage=header["lineage"],
         sid=header["sid"],
@@ -163,13 +177,13 @@ def parse_push(body: bytes) -> tuple[PushHeader, bytes]:
         shas=shas,
         stage_id=header.get("stage_id"),
         is_final=header.get("final") is True,
-        restore=restore,
+        restore=header.get("restore"),
         expected_user=header.get("expected_user"),
     )
     return push_header, payload
 
 
-def parse_piece(app: str, body: bytes, stage_id: str, index_text: str) -> tuple[dict, int, bytes]:
+def parse_piece(app: str, body: bytes, stage_id: str, index_text: str) -> stage.Piece:
     """Split `u32 hlen | header JSON | piece`; the header names the change the piece belongs to."""
     if not stage.valid_id(stage_id):
         raise Refusal(400, "malformed")

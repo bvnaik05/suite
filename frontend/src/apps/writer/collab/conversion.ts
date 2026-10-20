@@ -359,7 +359,7 @@ const TONES: Record<ColourProperty, { gray: Rgb; none: Rgb }> = {
   'background-color': { gray: GRAY_HIGHLIGHT, none: PAGE },
 }
 
-// A palette name or the editor's own var(--prose-...) reference, with nothing around it
+// A palette name or any var(--...) reference, with nothing around it
 const WHOLE_NAME = /^([a-z]+|var\(--[a-z0-9-]+\))$/i
 
 const CHANNELS = 3

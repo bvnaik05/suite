@@ -63,17 +63,20 @@ async function stateVersion(ydoc: Doc) {
 
 function deferred() {
   let resolve!: (response: Response) => void
-  const promise = new Promise<Response>((done) => (resolve = done))
+  const promise = new Promise<Response>((done) => {
+    resolve = done
+  })
   return { promise, resolve }
 }
 
 // A session whose every fetch waits until the test answers it from `requests`
 function heldSession(requests: ReturnType<typeof deferred>[]) {
-  const fetchLater = () => {
+  function fetchLater() {
     const request = deferred()
     requests.push(request)
     return request.promise
   }
+
   return fakeSession(fetchLater)
 }
 
@@ -92,7 +95,7 @@ function mountPreview(session: DocumentSession, seq = 1) {
   const shownSeq = ref(seq)
   const root = document.createElement('div')
   document.body.append(root)
-  const render = () => {
+  function render() {
     const props = {
       session,
       seq: shownSeq.value,
@@ -100,6 +103,7 @@ function mountPreview(session: DocumentSession, seq = 1) {
     }
     return h(VersionPreview, props)
   }
+
   const app = createApp({ setup: () => render })
   app.mount(root)
 
@@ -113,7 +117,9 @@ function mountPreview(session: DocumentSession, seq = 1) {
   }
 }
 
-const settle = () => new Promise((done) => setTimeout(done, 0))
+function settle() {
+  return new Promise((done) => setTimeout(done, 0))
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()

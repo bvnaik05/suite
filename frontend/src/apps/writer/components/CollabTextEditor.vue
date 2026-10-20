@@ -10,7 +10,7 @@
     :extensions
     :comment-on-selection
     collaborative
-    @save="(_manual: boolean, _html: string | null, done?: () => void) => save(done)"
+    @save="handleSave"
   >
     <template v-for="(_, name) in $slots" #[name]>
       <slot :name="name" />
@@ -68,7 +68,9 @@ provide('editor', editor)
 
 const presence = props.room.presence
 const roster = shallowRef(presence?.peers ?? [])
-const stopListening = presence?.onChange(() => (roster.value = presence.peers))
+const stopListening = presence?.onChange(() => {
+  roster.value = presence.peers
+})
 onBeforeUnmount(() => stopListening?.())
 
 const peers = computed(() => {
@@ -79,26 +81,27 @@ const places = shallowRef<ThreadPlaces>(new Map())
 const isFrozen = ref(false)
 defineExpose({ editor, peers, places, isFrozen })
 
-function onFrozen() {
+function handleFrozen() {
   isFrozen.value = true
 }
 
 const extensions = [
-  ...writerBinding(props.room, onFrozen),
+  ...writerBinding(props.room, handleFrozen),
   PasteSizeGuard.configure({
     limits: () => props.room.status.limits,
     atLimit: () => props.room.status.isAtLimit,
-    onTooLarge: () => toast.error('This is too large to add in one go. Add it in smaller parts.'),
-    onNearFull: () => toast.warning('This document is nearly full. Some changes may not save.'),
+    onTooLarge: () =>
+      toast.error(__('This is too large to add in one go. Add it in smaller parts.')),
+    onNearFull: () => toast.warning(__('This document is nearly full. Some changes may not save.')),
   }),
   ThreadHighlights.configure({
     threads: () => props.threads,
-    placed: (placed) => {
+    onPlaced: (placed) => {
       places.value = placed
     },
     open: () => openThread.value,
     lit: () => props.litThread ?? null,
-    opened: (name) => {
+    onOpened: (name) => {
       openThread.value = name
     },
   }),
@@ -127,12 +130,12 @@ function commentOnSelection() {
   }
 }
 
-async function save(done?: () => void) {
+async function handleSave(_manual: boolean, _html: string | null, done?: () => void) {
   await withinTenSeconds(props.room.flush())
   if (props.room.status.saveState === 'clean') {
     done?.()
   } else if (done) {
-    toast.warning('Not saved yet. Your changes are kept in this tab.')
+    toast.warning(__('Not saved yet. Your changes are kept in this tab.'))
   }
 }
 </script>

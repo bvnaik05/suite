@@ -6,25 +6,35 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { HeadingAnchors } from './heading-anchors'
 import { ReceivedContentGuard } from './received-content-guard'
 
 const editors: Editor[] = []
-afterEach(() => editors.splice(0).forEach((editor) => editor.destroy()))
 
-const waitForUpdates = () => new Promise((resolve) => setTimeout(resolve, 20))
+function destroyEditors() {
+  for (const editor of editors.splice(0)) {
+    editor.destroy()
+  }
+}
+
+afterEach(destroyEditors)
+
+function waitForUpdates() {
+  return new Promise((resolve) => setTimeout(resolve, 20))
+}
 
 function openViewer(state: Uint8Array) {
-  const ydoc = new Y.Doc()
-  Y.applyUpdate(ydoc, state, 'server')
+  const ydoc = new yjs.Doc()
+  yjs.applyUpdate(ydoc, state, 'server')
   let writes = 0
-  const countWrite = (_update: Uint8Array, origin: unknown) => {
+  function countWrite(_update: Uint8Array, origin: unknown) {
     if (origin !== 'server' && origin !== 'remote') {
       writes++
     }
   }
+
   ydoc.on('update', countWrite)
 
   let anchors: { id: string; textContent: string }[] = []
@@ -42,7 +52,11 @@ function openViewer(state: Uint8Array) {
       Text,
       Heading,
       Collaboration.configure(collaboration),
-      HeadingAnchors.configure({ onUpdate: (items) => (anchors = items as never) }),
+      HeadingAnchors.configure({
+        onUpdate: (items) => {
+          anchors = items as never
+        },
+      }),
       ReceivedContentGuard,
     ],
   }
@@ -57,27 +71,29 @@ function openViewer(state: Uint8Array) {
 }
 
 function legacyDoc(...headings: string[]) {
-  const ydoc = new Y.Doc()
-  const headingWithBody = (text: string) => {
-    const heading = new Y.XmlElement('heading')
+  const ydoc = new yjs.Doc()
+  function headingWithBody(text: string) {
+    const heading = new yjs.XmlElement('heading')
     heading.setAttribute('level', 2 as never)
-    heading.insert(0, [new Y.XmlText(text)])
-    const paragraph = new Y.XmlElement('paragraph')
-    paragraph.insert(0, [new Y.XmlText('body')])
+    heading.insert(0, [new yjs.XmlText(text)])
+    const paragraph = new yjs.XmlElement('paragraph')
+    paragraph.insert(0, [new yjs.XmlText('body')])
     return [heading, paragraph]
   }
+
   const blocks = headings.flatMap(headingWithBody)
   ydoc.getXmlFragment('default').insert(0, blocks)
-  return Y.encodeStateAsUpdate(ydoc)
+  return yjs.encodeStateAsUpdate(ydoc)
 }
 
-const headingIds = (editor: Editor) => {
+function headingIds(editor: Editor) {
   const ids: (string | null)[] = []
-  const collect = (node: ProseMirrorNode) => {
+  function collect(node: ProseMirrorNode) {
     if (node.type.name === 'heading') {
       ids.push(node.attrs['data-toc-id'])
     }
   }
+
   editor.state.doc.descendants(collect)
 
   return ids

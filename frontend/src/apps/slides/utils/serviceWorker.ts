@@ -32,14 +32,14 @@ export const clearSlidesUserData = async () => {
   await Promise.all(USER_CACHE_NAMES.map((name) => caches.delete(name)))
 }
 
-let draftsAdopted = false
+let hasAdoptedDrafts = false
 
 // the caches are per origin, the data in them is per user; drafts are kept per
 // user, so another user arriving never touches them
 export const claimSlidesCachesFor = async (user: string) => {
   const previous = localStorage.getItem(CACHES_USER_KEY)
-  if (!draftsAdopted) {
-    draftsAdopted = true
+  if (!hasAdoptedDrafts) {
+    hasAdoptedDrafts = true
     await adoptLegacyDrafts(previous).catch(() => {})
   }
   if (previous === user) return

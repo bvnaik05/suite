@@ -3,26 +3,32 @@ import { fullName, lookUp } from '@/apps/writer/composables/useUsers'
 import type { Peer, RoomPresence } from '@/platform/collab'
 import { useSession } from '@/platform/session'
 
+export const GUEST_USER = 'Guest'
+const GUEST_TAG_RADIX = 36
+const GUEST_TAG_LENGTH = 4
+
 // A guest is named by its tab, so two guests in one document read apart
 export function peerName(user: string, peerId: number) {
-  if (user === 'Guest') {
-    return `Guest ${peerId.toString(36).slice(-4).toUpperCase()}`
+  if (user === GUEST_USER) {
+    const tag = peerId.toString(GUEST_TAG_RADIX).slice(-GUEST_TAG_LENGTH).toUpperCase()
+    return `Guest ${tag}`
   }
 
   return fullName(user)
 }
 
 // Calls `named` once a signed-in person's full name has been looked up; a guest's name never changes
-export function whenNamed(user: string, named: () => void) {
-  if (user !== 'Guest') {
-    void lookUp(user).then(named)
+export async function whenNamed(user: string, named: () => void) {
+  if (user !== GUEST_USER) {
+    await lookUp(user)
+    named()
   }
 }
 
 // Who a tab belongs to; every guest tab is its own person
-export function personKey(user: string, pid: number) {
-  if (user === 'Guest') {
-    return `Guest ${pid}`
+export function personKey(user: string, peerId: number) {
+  if (user === GUEST_USER) {
+    return `Guest ${peerId}`
   }
 
   return user
@@ -65,7 +71,7 @@ function byArrivalThenKey(
 export function presenceColours(presence: RoomPresence) {
   const own = {
     pid: presence.ownPid,
-    user: useSession().user.value?.id ?? 'Guest',
+    user: useSession().user.value?.id ?? GUEST_USER,
     arrival: presence.ownArrival,
     idleSince: null,
   }
@@ -73,26 +79,28 @@ export function presenceColours(presence: RoomPresence) {
 }
 
 // When a tab's person went idle: once every tab of theirs is, from the last to go; null while any is in use
-export function personIdleSince(peers: Peer[], pid: number) {
-  const tab = peers.find((peer) => peer.pid === pid)
+export function personIdleSince(peers: Peer[], peerId: number) {
+  const tab = peers.find((peer) => peer.pid === peerId)
   if (!tab) {
     return null
   }
 
   const person = personKey(tab.user, tab.pid)
   const tabs = peers.filter((peer) => personKey(peer.user, peer.pid) === person)
-  const starts = tabs.map((peer) => peer.idleSince)
-  if (starts.includes(null)) {
+  const starts = tabs
+    .map((peer) => peer.idleSince)
+    .filter((start): start is number => start !== null)
+  if (starts.length < tabs.length) {
     return null
   }
 
-  return Math.max(...(starts as number[]))
+  return Math.max(...starts)
 }
 
 // One entry per person
 export function peopleOf(peers: Peer[], colours: Map<number, PeerColour>) {
   const seen = new Set<string>()
-  const newPerson = (peer: Peer) => {
+  function newPerson(peer: Peer) {
     const key = personKey(peer.user, peer.pid)
     if (seen.has(key)) {
       return []
@@ -108,5 +116,6 @@ export function peopleOf(peers: Peer[], colours: Map<number, PeerColour>) {
     }
     return [person]
   }
+
   return peers.flatMap(newPerson)
 }

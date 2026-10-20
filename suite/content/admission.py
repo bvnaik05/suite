@@ -21,11 +21,7 @@ RELEASE_SCRIPT = (
 
 
 def take_place(app: str, doc_id: str) -> tuple[str, list[str]] | None:
-    """One place of `PLACES`, and the document's own key so two jobs never compact it at once.
-
-    Both hold a token of this job's own, so a job that outlived its lease can't
-    free a place another job has since taken.
-    """
+    """Take one of `PLACES` and the document's own key, under a token a job past its lease can't free."""
     redis = get_redis_conn()
     token = secrets.token_hex(16)
     doc_key = f"suite:collab:compacting:{frappe.local.site}:{app}:{doc_id}"
@@ -42,6 +38,7 @@ def take_place(app: str, doc_id: str) -> tuple[str, list[str]] | None:
 
 
 def free_place(place: tuple[str, list[str]]) -> None:
+    """Free the place and the document key where this job's token still holds them."""
     token, keys = place
     redis = get_redis_conn()
     for key in keys:
@@ -53,8 +50,12 @@ def enough_memory() -> bool:
     try:
         with open(f"{CGROUP}/memory.max") as limit_file:
             max_text = limit_file.read().strip()
+
         with open(f"{CGROUP}/memory.stat") as stat_file:
-            anon_bytes = next(int(line.split()[1]) for line in stat_file if line.startswith("anon "))
+            anon_line = next(line for line in stat_file if line.startswith("anon "))
+
+        _, anon_text = anon_line.split()
+        anon_bytes = int(anon_text)
     except (OSError, StopIteration, ValueError):
         return True
 
@@ -72,7 +73,10 @@ def limit_memory() -> None:
 
     try:
         with open("/proc/self/status") as status:
-            address_space = next(int(line.split()[1]) * 1024 for line in status if line.startswith("VmSize:"))
+            size_line = next(line for line in status if line.startswith("VmSize:"))
+
+        _, size_kb, *_ = size_line.split()
+        address_space = int(size_kb) * 1024
         resource.setrlimit(resource.RLIMIT_AS, (address_space + PER_COMPACTION, resource.RLIM_INFINITY))
     except (OSError, StopIteration, ValueError):
         pass

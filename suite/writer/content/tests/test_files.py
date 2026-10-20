@@ -11,6 +11,7 @@ def picture_state(*attributes: dict) -> bytes:
     paragraph = body.children.append(pycrdt.XmlElement("paragraph"))
     for attrs in attributes:
         paragraph.children.append(pycrdt.XmlElement("image", attrs))
+
     return doc.get_update()
 
 

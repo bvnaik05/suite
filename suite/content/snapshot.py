@@ -1,15 +1,24 @@
-"""Reading a log: the base and every row after it from one snapshot, chain checked."""
+"""Reading a log: the base and every row after it from one snapshot, chain checked.
+
+The base is the app row's checked body, or a fallback newer than it unless the
+read is `integrated`. A read's `rows` leave out quarantined rows, and
+`quarantined` lists their revs. Rows are gap-free and commit-ordered, so a break
+means the store changed under the read or was rewound; the read is tried once
+more before it gives up. A Drive callback may not commit, so it passes
+`own_snapshot=False` and reads in Drive's transaction.
+"""
 
 import contextlib
 import gzip
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 import frappe
 
 from suite.content.app_row import body_row
+from suite.content.db import load_system_variable
 from suite.content.log import ChainBroken, chain_next, chain_seed
 from suite.content.tables import table
 
@@ -29,40 +38,44 @@ class Snapshot:
     q_epoch: int
 
     def payloads(self) -> list[bytes]:
+        """Answer the rows' payloads in rev order."""
         return [payload for _rev, payload in self.rows]
 
 
 def start_clocks(doc: frappe._dict) -> dict[int, int]:
+    """Answer each writer's next clock once the log's start is stored."""
     clocks = json.loads(doc.start_clocks or "{}")
     return {int(client): clock for client, clock in clocks.items()}
 
 
 def rows_after(app: str, doc_id: str, since_rev: int) -> list[tuple[int, bytes]]:
-    """Committed rows after `since_rev`, in rev order, a quarantined one empty. One statement, so one snapshot."""
+    """Load the committed rows after `since_rev` in rev order, a quarantined one empty, in one statement."""
+    update_table = table(app, "update")
     stored_rows = frappe.db.sql(
-        f"SELECT `rev`, `payload` FROM `{table(app, 'update')}` WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`",
+        f"SELECT `rev`, `payload` FROM `{update_table}` WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`",
         (doc_id, since_rev),
     )
     return [(int(rev), bytes(payload)) for rev, payload in stored_rows]
 
 
 def with_tombstones(log_read: Snapshot) -> list[tuple[int, bytes]]:
-    """A read's rows with each quarantined rev as an empty row, which no real row is, in rev order."""
+    """Answer a read's rows with each quarantined rev as an empty row, which no real row is, in rev order."""
     tombstones = [(rev, b"") for rev in log_read.quarantined]
     return sorted([*log_read.rows, *tombstones])
 
 
 def isolation_level() -> str | None:
-    for variable in ("@@transaction_isolation", "@@tx_isolation"):
-        try:
-            return frappe.db.sql(f"SELECT {variable}")[0][0]
-        except Exception:
-            continue
+    """Load the session's isolation level under its current name or the one older servers use."""
+    for name in ("transaction_isolation", "tx_isolation"):
+        level = load_system_variable(name)
+        if level is not None:
+            return level
+
     return None
 
 
 @contextlib.contextmanager
-def repeatable_read():
+def repeatable_read() -> Iterator[None]:
     """Run the reads in one REPEATABLE READ snapshot. The level applies from the next transaction."""
     previous_level = isolation_level()
     frappe.db.sql("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
@@ -72,13 +85,15 @@ def repeatable_read():
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
     finally:
         if previous_level and previous_level != "REPEATABLE-READ":
-            frappe.db.sql(f"SET SESSION TRANSACTION ISOLATION LEVEL {previous_level.replace('-', ' ')}")
+            previous_clause = previous_level.replace("-", " ")
+            frappe.db.sql(f"SET SESSION TRANSACTION ISOLATION LEVEL {previous_clause}")
 
 
 def fallback_rev(app: str, doc_id: str) -> int:
-    """The rev the document's fallback runs through, 0 when it has none."""
+    """Load the rev the document's fallback runs through, 0 when it has none."""
+    checkpoint_table = table(app, "checkpoint")
     found = frappe.db.sql(
-        f"SELECT COALESCE(MAX(`through_rev`), 0) FROM `{table(app, 'checkpoint')}` WHERE `doc_id` = %s",
+        f"SELECT COALESCE(MAX(`through_rev`), 0) FROM `{checkpoint_table}` WHERE `doc_id` = %s",
         doc_id,
     )
     return int(found[0][0])
@@ -95,7 +110,7 @@ class Base:
 
 
 def pick_base(app: str, doc_id: str, doc: frappe._dict, body: bytes, integrated: bool) -> Base:
-    """The app row's body, or a fallback newer than it unless `integrated`."""
+    """Pick the app row's body, or a fallback newer than it unless `integrated`."""
     rev = int(doc.body_rev)
     checkpoint = None
     chain = chain_seed(doc.lineage)
@@ -108,8 +123,9 @@ def pick_base(app: str, doc_id: str, doc: frappe._dict, body: bytes, integrated:
 
     fallback_rows = None
     if not integrated:
+        checkpoint_table = table(app, "checkpoint")
         fallback_rows = frappe.db.sql(
-            f"""SELECT `through_rev`, `gz`, `chain`, `sha256` FROM `{table(app, "checkpoint")}`
+            f"""SELECT `through_rev`, `gz`, `chain`, `sha256` FROM `{checkpoint_table}`
             WHERE `doc_id` = %s AND `through_rev` > %s ORDER BY `through_rev` DESC LIMIT 1""",
             (doc_id, rev),
         )
@@ -124,11 +140,22 @@ def pick_base(app: str, doc_id: str, doc: frappe._dict, body: bytes, integrated:
     return Base(rev, checkpoint, chain, is_intact)
 
 
-def walk_chain(stored: Sequence, chain: bytes) -> tuple[list[tuple[int, bytes]], list[int], bytes]:
-    """The rows and the quarantined revs, and the chain extended over both."""
-    rows, quarantined = [], []
-    for rev, payload, sha, row_state in stored:
-        rev, payload = int(rev), bytes(payload)
+@dataclass(frozen=True)
+class ChainWalk:
+    """The rows and the quarantined revs a read found, and the chain extended over both."""
+
+    rows: list[tuple[int, bytes]]
+    quarantined: list[int]
+    chain: bytes
+
+
+def walk_chain(stored: Sequence, chain: bytes) -> ChainWalk:
+    """Split the stored rows from the quarantined revs and extend the chain over both."""
+    rows: list[tuple[int, bytes]] = []
+    quarantined: list[int] = []
+    for stored_rev, stored_payload, sha, row_state in stored:
+        rev = int(stored_rev)
+        payload = bytes(stored_payload)
         if row_state == "quarantined":
             quarantined.append(rev)
             chain = chain_next(chain, rev, bytes(sha))
@@ -136,61 +163,83 @@ def walk_chain(stored: Sequence, chain: bytes) -> tuple[list[tuple[int, bytes]],
             rows.append((rev, payload))
             chain = chain_next(chain, rev, hashlib.sha256(payload).digest())
 
-    return rows, quarantined, chain
+    return ChainWalk(rows, quarantined, chain)
 
 
-def read_once(app: str, doc_id: str, integrated: bool, own_snapshot: bool) -> Snapshot | None:
-    """Raises `ChainBroken` when the rows don't continue the base to the head."""
-    with repeatable_read() if own_snapshot else contextlib.nullcontext():
-        control_rows = frappe.db.sql(
-            f"""SELECT `node`, `lineage`, `head_rev`, `head_chain`, `body_rev`, `body_chain`, `body_sha`,
-            `schema_steps`, `q_epoch` FROM `{table(app, "doc")}` WHERE `id` = %s AND `mode` != 'purged'""",
-            doc_id,
-            as_dict=True,
-        )
-        app_row = body_row(app, control_rows[0].node) if control_rows else None
-        if app_row is None:
-            return None
+def load_control_row(app: str, doc_id: str) -> frappe._dict | None:
+    """Load the fields a read needs from the document's control row, None when it is purged."""
+    doc_table = table(app, "doc")
+    control_rows = frappe.db.sql(
+        f"""SELECT `node`, `lineage`, `head_rev`, `head_chain`, `body_rev`, `body_chain`, `body_sha`,
+        `schema_steps`, `q_epoch` FROM `{doc_table}` WHERE `id` = %s AND `mode` != 'purged'""",
+        doc_id,
+        as_dict=True,
+    )
+    if not control_rows:
+        return None
 
-        doc = control_rows[0]
-        base = pick_base(app, doc_id, doc, app_row.body, integrated)
-        stored = frappe.db.sql(
-            f"""SELECT `rev`, `payload`, `sha256`, `state` FROM `{table(app, "update")}`
-            WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`""",
-            (doc_id, base.rev),
-        )
+    return control_rows[0]
 
-    rows, quarantined, chain = walk_chain(stored, base.chain)
+
+def load_rows_after_base(app: str, doc_id: str, base_rev: int) -> Sequence:
+    """Load every row after `base_rev` with its sha and state, in rev order."""
+    update_table = table(app, "update")
+    return frappe.db.sql(
+        f"""SELECT `rev`, `payload`, `sha256`, `state` FROM `{update_table}`
+        WHERE `doc_id` = %s AND `rev` > %s ORDER BY `rev`""",
+        (doc_id, base_rev),
+    )
+
+
+def require_unbroken(doc: frappe._dict, base: Base, stored: Sequence, walk: ChainWalk) -> None:
+    """Raise `ChainBroken` unless the rows continue the base, gap-free, to the head and its chain."""
     revs = [int(row[0]) for row in stored]
     is_gap_free = revs == list(range(base.rev + 1, int(doc.head_rev) + 1))
-    is_chain_matched = chain == bytes(doc.head_chain)
+    is_chain_matched = walk.chain == bytes(doc.head_chain)
     if not (base.is_intact and is_gap_free and is_chain_matched):
         raise ChainBroken
 
+
+def snapshot_scope(own_snapshot: bool) -> contextlib.AbstractContextManager[None]:
+    """Answer the scope a read runs in: its own REPEATABLE READ snapshot, or the caller's transaction."""
+    if own_snapshot:
+        return repeatable_read()
+
+    return contextlib.nullcontext()
+
+
+def read_once(app: str, doc_id: str, integrated: bool, own_snapshot: bool) -> Snapshot | None:
+    """Read the log once; raise `ChainBroken` when the rows don't continue the base to the head."""
+    with snapshot_scope(own_snapshot):
+        doc = load_control_row(app, doc_id)
+        if doc is None:
+            return None
+
+        app_row = body_row(app, doc.node)
+        if app_row is None:
+            return None
+
+        base = pick_base(app, doc_id, doc, app_row.body, integrated)
+        stored = load_rows_after_base(app, doc_id, base.rev)
+
+    walk = walk_chain(stored, base.chain)
+    require_unbroken(doc, base, stored, walk)
     steps = json.loads(doc.schema_steps)
     return Snapshot(
         lineage=doc.lineage,
         head_rev=int(doc.head_rev),
-        head_chain=chain,
+        head_chain=walk.chain,
         schema=steps[-1][1],
         base=base.rev,
         checkpoint=base.checkpoint,
-        rows=rows,
-        quarantined=quarantined,
+        rows=walk.rows,
+        quarantined=walk.quarantined,
         q_epoch=int(doc.q_epoch),
     )
 
 
 def read(app: str, doc_id: str, *, integrated: bool = False, own_snapshot: bool = True) -> Snapshot | None:
-    """The base and every row after it through the head, from one snapshot, chain checked.
-    The base is the app row's checked body, or a fallback newer than it unless `integrated`.
-    `rows` leaves out quarantined rows; `quarantined` lists their revs. None when the log is
-    purged or the app has no row for it.
-
-    Rows are gap-free and commit-ordered, so a break means the store changed under
-    the read or was rewound; the read is tried once more before it gives up.
-    A Drive callback may not commit, so it passes `own_snapshot=False` and reads in Drive's transaction.
-    """
+    """Read the base and every row after it to the head; None when the log is purged or lacks an app row."""
     try:
         return read_once(app, doc_id, integrated, own_snapshot)
     except ChainBroken:

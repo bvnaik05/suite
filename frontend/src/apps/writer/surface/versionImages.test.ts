@@ -1,7 +1,7 @@
 import { getSchema } from '@tiptap/core'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import * as Y from 'yjs'
+import { encodeStateAsUpdate } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
@@ -73,7 +73,7 @@ describe('versionImages', () => {
         ],
       })
       .toJSON()
-    const state = Y.encodeStateAsUpdate(prosemirrorJSONToYDoc(schema, content, BODY_FIELD))
+    const state = encodeStateAsUpdate(prosemirrorJSONToYDoc(schema, content, BODY_FIELD))
 
     expect(versionImages({ lineage: 'l', state })).toEqual([{ id: 'one', alt: 'Chart' }])
   })

@@ -145,8 +145,7 @@ drive_content_types = [
     "suite.sheets.drive.SPEC",
 ]
 
-# Dotted paths to `suite.content.editors.EditorSpec` objects,
-# one per app whose documents the content layer keeps.
+# Dotted paths to `suite.content.EditorSpec` objects, one per app whose documents the content layer keeps
 suite_content_editors = ["suite.writer.content.EDITOR"]
 
 # ============================================================================

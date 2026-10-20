@@ -4,18 +4,21 @@ import { adapterAt, base64, fakeServer, fakeTime, idle, join, text } from './tes
 import type { CollabRoom } from './types'
 
 describe('collab room live', () => {
-  const type = (room: CollabRoom, word: string) => {
+  function type(room: CollabRoom, word: string) {
     const ytext = room.doc.getText('t')
     ytext.insert(ytext.length, word)
     return room.flush()
   }
-  const row = (server: ReturnType<typeof fakeServer>, rev: number, extra: object = {}) => ({
-    lineage: 'L',
-    rev,
-    schema: 1,
-    u: base64(server.rows[rev - 1].bytes),
-    ...extra,
-  })
+
+  function row(server: ReturnType<typeof fakeServer>, rev: number, extra: object = {}) {
+    return {
+      lineage: 'L',
+      rev,
+      schema: 1,
+      u: base64(server.rows[rev - 1].bytes),
+      ...extra,
+    }
+  }
 
   it('two tabs see each other’s edits without waiting for a poll', async () => {
     const server = fakeServer()
@@ -60,11 +63,17 @@ describe('collab room live', () => {
     const writer = await join(server.endpoints(), { socket: server.socket() })
     await vi.advanceTimersByTimeAsync(0)
 
-    server.realtime.sockets.forEach((socket) => socket.drop())
+    for (const socket of server.realtime.sockets) {
+      socket.drop()
+    }
+
     await type(writer, 'missed')
     await vi.advanceTimersByTimeAsync(5000)
     const whileDown = [reader.status.liveState, text(reader)]
-    server.realtime.sockets.forEach((socket) => socket.back())
+    for (const socket of server.realtime.sockets) {
+      socket.back()
+    }
+
     await vi.advanceTimersByTimeAsync(100)
 
     expect(whileDown).toEqual(['polling', ''])
@@ -78,9 +87,15 @@ describe('collab room live', () => {
     const writer = await join(server.endpoints(), { socket: server.socket(), pollMs: 5000 })
     await vi.advanceTimersByTimeAsync(0)
 
-    server.realtime.sockets.forEach((socket) => socket.drop())
+    for (const socket of server.realtime.sockets) {
+      socket.drop()
+    }
+
     await vi.advanceTimersByTimeAsync(120_000)
-    for (const socket of server.realtime.sockets) socket.connect = () => socket.back()
+    for (const socket of server.realtime.sockets) {
+      socket.connect = () => socket.back()
+    }
+
     await vi.advanceTimersByTimeAsync(6000)
     await type(writer, 'back')
     await vi.advanceTimersByTimeAsync(100)
@@ -105,6 +120,7 @@ describe('collab room live', () => {
       await vi.advanceTimersByTimeAsync(2000)
       states.push(writer.status.liveState)
     }
+
     server.realtime.publishing = true
     await type(writer, 'd')
 
@@ -124,7 +140,10 @@ describe('collab room live', () => {
     const writer = await join(server.endpoints())
     await vi.advanceTimersByTimeAsync(0)
     server.realtime.publishing = false
-    for (const word of ['a', 'b', 'c', 'd']) await type(writer, word)
+    for (const word of ['a', 'b', 'c', 'd']) {
+      await type(writer, word)
+    }
+
     const pulls = server.pulls.length
 
     socket.hear('suite_collab_row', row(server, 2))
@@ -281,20 +300,22 @@ describe('collab room live', () => {
     const [key] = server.roomKeys().keys
     const pid = 2 ** 31 + 5
     socket.hear('suite_collab_presence_join', { room: key, pid, user: 'b@x.com' })
-    const claim = (n: number, at: unknown) =>
+    function claim(clock: number, at: unknown) {
       socket.hear('suite_collab_presence', {
         room: key,
-        states: [{ pid, user: 'b@x.com', n, state: { at } }],
+        states: [{ pid, user: 'b@x.com', n: clock, state: { at } }],
       })
+    }
 
     server.pulls.length = 0
-    for (let n = 1; n <= 20; n++) {
-      claim(n, [2.5, -3, 2 ** 60][n % 3])
+    for (let clock = 1; clock <= 20; clock++) {
+      claim(clock, [2.5, -3, 2 ** 60][clock % 3])
       await vi.advanceTimersByTimeAsync(100)
     }
+
     const oddPulls = server.pulls.length
-    for (let n = 21; n <= 270; n++) {
-      claim(n, 1e9)
+    for (let clock = 21; clock <= 270; clock++) {
+      claim(clock, 1e9)
       await vi.advanceTimersByTimeAsync(100)
     }
 

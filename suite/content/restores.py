@@ -33,9 +33,10 @@ def locked(app: str, doc_id: str) -> frappe._dict:
     """Lock the document row; refuse `busy` when another request holds it."""
     # The lock must be the first statement of a fresh transaction
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    doc_table = table(app, "doc")
     rows = frappe.db.sql(
         f"""SELECT `lineage`, `head_rev`, `head_chain`, `mode`, `suspect_held`, `restore_token`,
-        `restore_deadline`, `restored_at`, `milestone_chain` FROM `{table(app, "doc")}`
+        `restore_deadline`, `restored_at`, `milestone_chain` FROM `{doc_table}`
         WHERE `id` = %s FOR UPDATE SKIP LOCKED""",
         doc_id,
         as_dict=True,
@@ -54,8 +55,9 @@ def begin(app: str, doc_id: str, seen_rev: int) -> dict:
         check_can_begin(doc, seen_rev, now)
         token = secrets.token_hex(16)
         deadline = now + timedelta(seconds=FENCE_SECONDS)
+        doc_table = table(app, "doc")
         frappe.db.sql(
-            f"""UPDATE `{table(app, "doc")}` SET `mode` = 'restoring', `restore_token` = %s,
+            f"""UPDATE `{doc_table}` SET `mode` = 'restoring', `restore_token` = %s,
             `restore_deadline` = %s WHERE `id` = %s""",
             (token, deadline, doc_id),
         )
@@ -105,8 +107,9 @@ def check_landing(doc: frappe._dict, token: str, seen_rev: int, now: datetime) -
 
 def landed(app: str, doc_id: str, rev: int, now: datetime) -> None:
     """Record `rev` as the restore and lift its fence, in the push's transaction."""
+    doc_table = table(app, "doc")
     frappe.db.sql(
-        f"""UPDATE `{table(app, "doc")}` SET `mode` = 'active', `restore_token` = NULL,
+        f"""UPDATE `{doc_table}` SET `mode` = 'active', `restore_token` = NULL,
         `restore_deadline` = NULL, `restore_rev` = %s, `restored_at` = %s WHERE `id` = %s""",
         (rev, now, doc_id),
     )
@@ -114,9 +117,10 @@ def landed(app: str, doc_id: str, rev: int, now: datetime) -> None:
 
 def header_fields(app: str, doc_id: str) -> dict:
     """Answer the last restore's rev and how long a standing fence lasts."""
+    doc_table = table(app, "doc")
     # Read after the rows a tab gets, so the rev covers every restore among them
     (doc,) = frappe.db.sql(
-        f"""SELECT `mode`, `restore_deadline`, `restore_rev` FROM `{table(app, "doc")}`
+        f"""SELECT `mode`, `restore_deadline`, `restore_rev` FROM `{doc_table}`
         WHERE `id` = %s""",
         doc_id,
         as_dict=True,
@@ -131,8 +135,9 @@ def header_fields(app: str, doc_id: str) -> dict:
 
 def milestone_taken(app: str, doc_id: str, head_chain: bytes) -> None:
     """Record that a version holds this head, so a restore begun again with no edits takes none."""
+    doc_table = table(app, "doc")
     frappe.db.sql(
-        f"UPDATE `{table(app, 'doc')}` SET `milestone_chain` = UNHEX(%s) WHERE `id` = %s",
+        f"UPDATE `{doc_table}` SET `milestone_chain` = UNHEX(%s) WHERE `id` = %s",
         (head_chain.hex(), doc_id),
     )
 
@@ -140,8 +145,9 @@ def milestone_taken(app: str, doc_id: str, head_chain: bytes) -> None:
 def cancel(app: str, doc_id: str, token: str) -> None:
     """Lift the fence `token` set, if it still stands; tabs go back to editing."""
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    doc_table = table(app, "doc")
     lineage = frappe.db.sql(
-        f"""SELECT `lineage` FROM `{table(app, "doc")}` WHERE `id` = %s AND `mode` = 'restoring'
+        f"""SELECT `lineage` FROM `{doc_table}` WHERE `id` = %s AND `mode` = 'restoring'
         AND `restore_token` = %s FOR UPDATE""",
         (doc_id, token),
     )
@@ -156,8 +162,9 @@ def cancel(app: str, doc_id: str, token: str) -> None:
 
 def lift(app: str, doc_id: str) -> None:
     """Clear the fence so the document takes edits again."""
+    doc_table = table(app, "doc")
     frappe.db.sql(
-        f"""UPDATE `{table(app, "doc")}` SET `mode` = 'active', `restore_token` = NULL,
+        f"""UPDATE `{doc_table}` SET `mode` = 'active', `restore_token` = NULL,
         `restore_deadline` = NULL WHERE `id` = %s""",
         doc_id,
     )

@@ -4,20 +4,25 @@ import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import { listTabs, orderedTabs, TabsExtension, tabsIn } from './tabs'
 
-const waitForUpdates = () => new Promise((resolve) => setTimeout(resolve, 20))
+function waitForUpdates() {
+  return new Promise((resolve) => setTimeout(resolve, 20))
+}
 
 const editors: Editor[] = []
 afterEach(async () => {
   await waitForUpdates()
-  editors.splice(0).forEach((editor) => editor.destroy())
+  for (const editor of editors.splice(0)) {
+    editor.destroy()
+  }
 })
 
-const tabHTML = (label: string, index: number) =>
-  `<div data-tab-id="tab-${label}" data-tab-label="${label}" data-tab-order="${index}"><p>${label}</p></div>`
+function tabHTML(label: string, index: number) {
+  return `<div data-tab-id="tab-${label}" data-tab-label="${label}" data-tab-order="${index}"><p>${label}</p></div>`
+}
 
 function makeEditor(labels: string[]) {
   const editorOptions = {
@@ -112,7 +117,7 @@ describe('ordered serialisation', () => {
   })
 })
 
-function openPeer(ydoc = new Y.Doc()) {
+function openPeer(ydoc = new yjs.Doc()) {
   const element = document.createElement('div')
   document.body.append(element)
   const collaboration = {
@@ -128,17 +133,18 @@ function openPeer(ydoc = new Y.Doc()) {
   return { ydoc, editor }
 }
 
-const syncDocs = (first: Y.Doc, second: Y.Doc) => {
-  const missingInFirst = Y.encodeStateAsUpdate(second, Y.encodeStateVector(first))
-  Y.applyUpdate(first, missingInFirst, 'remote')
-  const missingInSecond = Y.encodeStateAsUpdate(first, Y.encodeStateVector(second))
-  Y.applyUpdate(second, missingInSecond, 'remote')
+function syncDocs(first: yjs.Doc, second: yjs.Doc) {
+  const missingInFirst = yjs.encodeStateAsUpdate(second, yjs.encodeStateVector(first))
+  yjs.applyUpdate(first, missingInFirst, 'remote')
+  const missingInSecond = yjs.encodeStateAsUpdate(first, yjs.encodeStateVector(second))
+  yjs.applyUpdate(second, missingInSecond, 'remote')
 }
 
-const textOf = (editor: Editor) =>
-  editor.state.doc.textBetween(0, editor.state.doc.content.size, '|')
+function textOf(editor: Editor) {
+  return editor.state.doc.textBetween(0, editor.state.doc.content.size, '|')
+}
 
-const untabbedPeer = () => {
+function untabbedPeer() {
   const author = openPeer()
   author.editor.commands.setContent('<p>Hello</p>')
   return author
@@ -199,7 +205,8 @@ describe('the first tab', () => {
     const reloaded = makeEditor([])
     reloaded.commands.setContent(html)
     expect(listTabs(reloaded).map((tab) => tab.label)).toEqual(['Notes', 'Second'])
-    expect(reloaded.commands.deleteTab(listTabs(reloaded)[0].id)).toBe(true)
+    const [firstTab] = listTabs(reloaded)
+    expect(reloaded.commands.deleteTab(firstTab.id)).toBe(true)
     expect(listTabs(reloaded).map((tab) => tab.label)).toEqual(['Second'])
   })
 
@@ -215,7 +222,7 @@ describe('the first tab', () => {
 
   it('opens the first saved tab once a tabbed document loads', async () => {
     const saved = makeEditor(['a', 'b'])
-    const stored = new Y.Doc()
+    const stored = new yjs.Doc()
     const author = openPeer(stored)
     author.editor.commands.setContent(saved.getHTML())
     const viewer = openPeer()

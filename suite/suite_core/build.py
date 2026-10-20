@@ -11,33 +11,39 @@ import os
 import re
 
 import frappe
+from werkzeug.wrappers import Response
 
 PACKAGE_DIR = os.path.dirname(os.path.dirname(__file__))
 PAGE_PATH = os.path.join(PACKAGE_DIR, "www", "suite.html")
 BUILD_STAMP = re.compile(r'<meta name="suite-build" content="(\d+)"')
 
-page_cache = {"mtime": None, "build": None}
+_page_cache = {"mtime": None, "build": None}
 
 
 def current_build() -> str | None:
+    """Read the build stamp of the served `suite.html`, rereading it only when the file changes."""
     try:
         mtime = os.stat(PAGE_PATH).st_mtime
     except OSError:
         return None
 
-    if page_cache["mtime"] != mtime:
+    if _page_cache["mtime"] != mtime:
         with open(PAGE_PATH) as page:
             html = page.read()
+
         build_match = BUILD_STAMP.search(html)
         build = build_match and build_match.group(1)
-        page_cache.update(mtime=mtime, build=build)
-    return page_cache["build"]
+        _page_cache.update(mtime=mtime, build=build)
+
+    return _page_cache["build"]
 
 
-def after_request(response):
+def after_request(response: Response) -> None:
+    """Stamp the response with the server's build and each product's oldest editing build."""
     build = current_build()
     if build:
         response.headers["X-Suite-Build"] = build
+
     settings = frappe.get_cached_doc("Suite Settings")
     min_builds = settings.get("min_builds")
     if min_builds:

@@ -1,7 +1,8 @@
 import { classifyRefusal, isDisabled, type AccessRoom } from './access'
-import { readReply, type Reply } from './answers'
+import { HTTP_ACCEPTED, HTTP_LOCKED, HTTP_OK, readReply, type Reply } from './answers'
 import { backoffMs } from './backoff'
 import type { PullHeader } from './frames'
+import { BUSY_RETRY_MS } from './sender'
 import { isRecoverable, type Held } from './types'
 
 /** What a suspect report reads and changes on the room. */
@@ -32,10 +33,15 @@ function recordStrike(lineage: string) {
   return recent.length
 }
 
+// The rev reported, and the `judged` count its verdict comes after
+interface Judging {
+  rev: number
+  seen: number | null
+}
+
 // Rows that failed to apply here are reported, and the room follows nothing more until the server judges them
 export class SuspectReport {
-  // The rev reported, and the `judged` count its verdict comes after
-  private judging: { rev: number; seen: number | null } | null = null
+  private judging: Judging | null = null
   private reportTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly room: VerdictRoom) {}
@@ -63,6 +69,7 @@ export class SuspectReport {
     if (this.reportTimer) {
       clearTimeout(this.reportTimer)
     }
+
     this.reportTimer = null
   }
 
@@ -80,14 +87,20 @@ export class SuspectReport {
       return this.reportAfter(backoffMs())
     }
 
-    if (reply.status === 202 && typeof reply.judged === 'number') {
+    await this.takeReply(judging, reply)
+  }
+
+  private async takeReply(judging: Judging, reply: Reply) {
+    const room = this.room
+    if (reply.status === HTTP_ACCEPTED && typeof reply.judged === 'number') {
       judging.seen = reply.judged
-    } else if (reply.status === 423) {
+    } else if (reply.status === HTTP_LOCKED) {
       if (reply.reason === 'suspect') {
         room.setHeld(room.held ?? 'change')
       }
-      this.reportAfter(reply.retry_ms ?? 1000)
-    } else if (reply.status === 200 && reply.verdict) {
+
+      this.reportAfter(reply.retry_ms ?? BUSY_RETRY_MS)
+    } else if (reply.status === HTTP_OK && reply.verdict) {
       await this.apply(reply.verdict)
     } else {
       // Only a verdict counts against this browser; a failing server or a lapsed sign-in is asked again
@@ -107,6 +120,7 @@ export class SuspectReport {
       this.reportTimer = null
       void this.report()
     }
+
     this.reportTimer = setTimeout(reportAgain, delayMs)
   }
 

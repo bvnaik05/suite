@@ -22,7 +22,8 @@ from suite.writer.content.tests.support import (
 class TestWriterCollabRooms(CollabCase):
     def test_open_and_pull_name_this_epochs_room_and_the_next_and_no_other_documents(self):
         self.set_mode("on")
-        node, other = self.new_document(), self.new_document()
+        node = self.new_document()
+        other = self.new_document()
         grant(node, READER, drive.READ, Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)))
         frappe.db.commit()
 
@@ -31,13 +32,18 @@ class TestWriterCollabRooms(CollabCase):
 
         frappe.set_user(READER)
         with patch.object(live, "time", late_in_epoch_1000):
-            opened = self.open_document(node)[0]["rooms"]
+            opened_header, _ = self.open_document(node)
+            opened = opened_header["rooms"]
             pull = call_route(routes.updates_get, node)
-            pulled = read_frame(pull.get_data())[0]["rooms"]
+            pulled_header, _ = read_frame(pull.get_data())
+            pulled = pulled_header["rooms"]
+
         frappe.set_user(WRITER)
         with patch.object(live, "time", in_epoch_1001):
-            later = self.open_document(node)[0]["rooms"]
-            elsewhere = self.open_document(other)[0]["rooms"]
+            later_header, _ = self.open_document(node)
+            later = later_header["rooms"]
+            elsewhere_header, _ = self.open_document(other)
+            elsewhere = elsewhere_header["rooms"]
 
         self.assertEqual(opened, pulled)
         self.assertEqual((opened["epoch"], opened["epoch_seconds"]), (1000, 150))
@@ -61,8 +67,10 @@ class TestWriterCollabRooms(CollabCase):
         self.set_mode("on")
         node = self.new_document()
         sid, client_id = self.start_session(node)
-        rooms = self.open_document(node)[0]["rooms"]
-        small, large = self.typed_update(client_id, 1, "small"), self.typed_update(client_id, 2, "x" * 40_000)
+        header, _ = self.open_document(node)
+        rooms = header["rooms"]
+        small = self.typed_update(client_id, 1, "small")
+        large = self.typed_update(client_id, 2, "x" * 40_000)
 
         with patch("frappe.publish_realtime") as publish:
             self.push(node, sid, client_id, 1, small)
@@ -70,12 +78,13 @@ class TestWriterCollabRooms(CollabCase):
             self.push(node, sid, client_id, 2, large)
             self.push(node, sid, client_id, 5)
 
-        lineage = self.open_document(node)[0]["lineage"]
-        published = [
-            (event.args, event.kwargs)
-            for event in publish.call_args_list
-            if event.args[0] == "suite_collab_row"
-        ]
+        header, _ = self.open_document(node)
+        lineage = header["lineage"]
+        published: list[tuple[tuple, dict]] = []
+        for event in publish.call_args_list:
+            if event.args[0] == "suite_collab_row":
+                published.append((event.args, event.kwargs))
+
         small_row = {
             "lineage": lineage,
             "rev": 1,
@@ -110,7 +119,7 @@ class TestWriterCollabRooms(CollabCase):
 
     def test_the_realtime_service_may_let_sockets_into_rooms_only_while_collaboration_is_on(self):
         frappe.set_user("Guest")
-        answers = {}
+        answers: dict[str, bool] = {}
         for mode in ("off", "on"):
             self.set_mode(mode)
             answers[mode] = live.joinable()

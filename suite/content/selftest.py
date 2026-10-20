@@ -15,7 +15,7 @@ import frappe
 import pycrdt
 from frappe.utils import now_datetime, sbool
 
-from suite.content import compaction
+from suite.content import compaction, db
 from suite.content.scheduling import enqueue
 
 PART_MAP = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
@@ -31,15 +31,18 @@ DATABASE_VARIABLES = (
     "transaction_isolation",
     "max_allowed_packet",
 )
+CGROUP_PATHS = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.stat")
 
 
 @frappe.whitelist(methods=["POST"])
 def run_self_test() -> None:
+    """Queue the self-test on the compaction queue, for a System Manager."""
     frappe.only_for("System Manager")
     enqueue("suite.content.selftest.self_test", "suite-collab-self-test")
 
 
 def self_test() -> dict:
+    """Run the self-test, record its report on the collab settings and answer it."""
     from suite.content import checker
 
     report = {
@@ -48,9 +51,7 @@ def self_test() -> dict:
         "node": node_version(),
         "node_checks": checker.usable_node() is not None,
         "database": {name: database_variable(name) for name in DATABASE_VARIABLES},
-        "cgroup_readable": all(
-            os.access(f"/sys/fs/cgroup/{name}", os.R_OK) for name in ("memory.max", "memory.stat")
-        ),
+        "cgroup_readable": all(os.access(path, os.R_OK) for path in CGROUP_PATHS),
         "nofork": bool(sbool(os.environ.get("FRAPPE_BACKGROUND_WORKERS_NOFORK", False))),
     }
     passed = report["pycrdt"] == compaction.PYCRDT_VERSION and report["compaction"] == "pass"
@@ -65,7 +66,8 @@ def self_test() -> dict:
 
 
 def fixture_rows() -> list[bytes]:
-    rows = []
+    """Build the fixture's rows in the order its two writers made them."""
+    rows: list[bytes] = []
     first_writer: pycrdt.Doc = pycrdt.Doc(client_id=1)
     first_writer.observe(lambda event: rows.append(event.update))
     first_fragment = first_writer.get("default", type=pycrdt.XmlFragment)
@@ -87,6 +89,7 @@ def fixture_rows() -> list[bytes]:
 
 
 def compaction_check() -> str:
+    """Compact the fixture and answer `pass`, or why its result differs from the known document."""
     try:
         compacted = compaction.compact(None, fixture_rows(), PART_MAP)
     except compaction.CompactionFailed as error:
@@ -123,8 +126,10 @@ def node_version() -> str | None:
         return None
 
 
-def database_variable(name: str):
-    try:
-        return frappe.db.sql(f"SELECT @@{name}")[0][0]
-    except Exception:
+def database_variable(name: str) -> str | int:
+    """Load a database variable for the report, `absent` when the server has none by that name."""
+    value = db.load_system_variable(name)
+    if value is None:
         return "absent"
+
+    return value

@@ -14,9 +14,10 @@ class TestCollabSelfTest(IntegrationTestCase):
         super().setUp()
         # The self-test commits its record, so the site's own last result is put back afterwards
         fields = ("self_test_at", "self_test_passed", "self_test_report")
-        previous_settings = {
-            field: frappe.db.get_single_value("Suite Collab Settings", field) for field in fields
-        }
+        previous_settings: dict[str, object] = {}
+        for field in fields:
+            previous_settings[field] = frappe.db.get_single_value("Suite Collab Settings", field)
+
         self.addCleanup(self.restore, previous_settings)
 
     def restore(self, previous_settings: dict):

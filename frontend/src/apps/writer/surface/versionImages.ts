@@ -1,4 +1,4 @@
-import * as Y from 'yjs'
+import { Doc, XmlElement } from 'yjs'
 
 import { api, client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
@@ -46,14 +46,14 @@ function imagesInHTML(html: string): VersionImage[] {
 }
 
 function imagesInState(state: Uint8Array): VersionImage[] {
-  const doc = new Y.Doc()
+  const doc = new Doc()
   try {
     loadVersion(doc, state)
     const elements = doc
       .getXmlFragment(BODY_FIELD)
-      .createTreeWalker((node) => node instanceof Y.XmlElement)
+      .createTreeWalker((node) => node instanceof XmlElement)
     return [...elements].flatMap((element) => {
-      const attributes = (element as Y.XmlElement).getAttributes() as Record<string, unknown>
+      const attributes = (element as XmlElement).getAttributes() as Record<string, unknown>
       const id = mediaNodeId(textOf(attributes.src), textOf(attributes['data-node']))
       return imageOrNone(id, textOf(attributes.alt))
     })

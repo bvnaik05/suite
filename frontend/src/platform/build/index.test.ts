@@ -6,8 +6,9 @@ vi.mock('@/platform/translation', () => ({
   translate: (text: string, replace: string[] = []) => text.replace('{0}', replace[0]),
 }))
 
-const fakeFetch = (headers: Record<string, string>) =>
-  vi.fn(async () => new Response('{}', { headers }))
+function fakeFetch(headers: Record<string, string>) {
+  return vi.fn(async () => new Response('{}', { headers }))
+}
 
 async function tabOnBuild(build: string, serverHeaders: Record<string, string>) {
   vi.resetModules()
@@ -53,6 +54,20 @@ describe('build watcher', () => {
     await window.fetch('/api/method/ping')
 
     expect(toastInfo.mock.calls.at(-1)![1].description).toBe('Reload to keep editing in Slides.')
+  })
+
+  it('ignores the build headers of another origin', async () => {
+    const tab = await tabOnBuild('100', {})
+    const crossOriginHeaders = {
+      'X-Suite-Build': '200',
+      'X-Suite-Min-Builds': JSON.stringify({ writer: '150' }),
+    }
+    vi.stubGlobal('fetch', fakeFetch(crossOriginHeaders))
+    tab.watchBuild()
+    await window.fetch('https://cdn.example.com/script.js')
+
+    expect(tab.belowMinBuild('writer')).toBe(false)
+    expect(toastInfo).not.toHaveBeenCalled()
   })
 
   it('keeps answering requests when the minimum builds header is malformed', async () => {

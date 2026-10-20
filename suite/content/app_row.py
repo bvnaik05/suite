@@ -12,15 +12,18 @@ from suite.content.tables import table
 
 
 def node_field(spec: EditorSpec) -> str:
+    """Return the column of the app's doctype that names the node."""
     return drive.node_field(spec.doctype)
 
 
 def body_row(app: str, node: str, *, lock: bool = False) -> frappe._dict | None:
-    """The app's row for `node`, with its body decoded, or None when it has none."""
+    """Load the app's row for `node`, with its body decoded, or None when it has none."""
     spec = spec_of(app)
+    node_column = node_field(spec)
+    lock_clause = " FOR UPDATE" if lock else ""
     found = frappe.db.sql(
         f"""SELECT `name`, `{spec.body_field}` AS `body`, `modified` FROM `tab{spec.doctype}`
-        WHERE `{node_field(spec)}` = %s ORDER BY `name` LIMIT 1{" FOR UPDATE" if lock else ""}""",
+        WHERE `{node_column}` = %s ORDER BY `name` LIMIT 1{lock_clause}""",
         node,
         as_dict=True,
     )
@@ -58,9 +61,10 @@ def locked_app_row(app: str, doc_id: str, html_copy: HtmlCopy) -> frappe._dict |
     """Lock and return the app's row of a log that isn't purged, its copy field as `written`."""
     spec = spec_of(app)
     doc_table = table(app, "doc")
+    node_column = node_field(spec)
     found = frappe.db.sql(
         f"""SELECT `app`.`name`, `app`.`{html_copy.field}` AS `written` FROM `tab{spec.doctype}` `app`
-        JOIN `{doc_table}` `doc` ON `app`.`{node_field(spec)}` = `doc`.`node`
+        JOIN `{doc_table}` `doc` ON `app`.`{node_column}` = `doc`.`node`
         WHERE `doc`.`id` = %s AND `doc`.`mode` != 'purged' ORDER BY `app`.`name` LIMIT 1 FOR UPDATE""",
         doc_id,
         as_dict=True,
@@ -72,6 +76,7 @@ def locked_app_row(app: str, doc_id: str, html_copy: HtmlCopy) -> frappe._dict |
 
 
 def write_copy(app: str, docname: str, html: str, html_copy: HtmlCopy) -> None:
+    """Write `html` to the row's copy field."""
     spec = spec_of(app)
     frappe.db.sql(
         f"UPDATE `tab{spec.doctype}` SET `{html_copy.field}` = %s WHERE `name` = %s", (html, docname)
@@ -79,16 +84,17 @@ def write_copy(app: str, docname: str, html: str, html_copy: HtmlCopy) -> None:
 
 
 def copy_row(app: str, doc_id: str, html_copy: HtmlCopy) -> frappe._dict | None:
-    """The copy field as `written`, with the head and the projection row, of a log that isn't purged."""
+    """Load the copy field as `written`, with the head and the projection row, of a log that isn't purged."""
     spec = spec_of(app)
     doc_table = table(app, "doc")
     projection_table = table(app, "projection")
+    node_column = node_field(spec)
     found = frappe.db.sql(
         f"""SELECT `app`.`{html_copy.field}` AS `written`, `doc`.`head_rev`, `projection`.`projected_rev`,
         `projection`.`projection_hash`
         FROM `{doc_table}` `doc`
         JOIN `{projection_table}` `projection` ON `projection`.`doc_id` = `doc`.`id`
-        JOIN `tab{spec.doctype}` `app` ON `app`.`{node_field(spec)}` = `doc`.`node`
+        JOIN `tab{spec.doctype}` `app` ON `app`.`{node_column}` = `doc`.`node`
         WHERE `doc`.`id` = %s AND `doc`.`mode` != 'purged' ORDER BY `app`.`name` LIMIT 1""",
         doc_id,
         as_dict=True,
@@ -100,4 +106,5 @@ def copy_row(app: str, doc_id: str, html_copy: HtmlCopy) -> frappe._dict | None:
 
 
 def forget_cached(app: str, docname: str) -> None:
+    """Drop the app row's cached document."""
     frappe.clear_document_cache(spec_of(app).doctype, docname)

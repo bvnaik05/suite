@@ -35,15 +35,16 @@ class Tab:
         session = answer(call_route(routes.sessions_post, node, body=session_body))
         self.client_id = session["client_id"]
         opened = call_route(routes.document_get, node).get_data()
-        self.header, checkpoint, rows = read_open(opened)
+        frame = read_open(opened)
+        self.header = frame.header
 
         self.ydoc = pycrdt.Doc(client_id=self.client_id)
-        for payload in [checkpoint, *(payload for _rev, payload in rows)]:
+        for payload in [frame.checkpoint, *(payload for _rev, payload in frame.rows)]:
             if payload:
                 self.ydoc.apply_update(payload)
 
         self.seq = 0
-        self.sent = []
+        self.sent: list[bytes] = []
 
     @property
     def text(self) -> pycrdt.XmlText:
@@ -54,11 +55,11 @@ class Tab:
         return fragment.children.append(pycrdt.XmlText())
 
     def push_edit(self, edit) -> object:
-        """Push what `edit(text)` changes, with only its own deletes, as a browser does; answers the response."""
-        updates = []
+        updates: list[bytes] = []
         subscription = self.ydoc.observe(lambda event: updates.append(event.update))
         with self.ydoc.transaction():
             edit(self.text)
+
         self.ydoc.unobserve(subscription)
 
         [update] = updates
@@ -68,7 +69,6 @@ class Tab:
         return call_route(routes.updates_post, self.node, body=body)
 
     def type_at(self, at: int, words: str) -> int:
-        """Push `words` typed at `at`; answers the rev."""
         response = self.push_edit(lambda text: text.insert(at, words))
         self.case.assertEqual(response.status_code, 200, response.get_data())
         return answer(response)["rev"]
@@ -77,6 +77,26 @@ class Tab:
         snapshot = routes.content.read(writer_content.APP, self.case.doc_row(self.node).id)
         for _rev, payload in snapshot.rows:
             self.ydoc.apply_update(payload)
+
+
+def insert_raw_row(doc_id: str, rev: int, tab: Tab, payload: bytes, sha256: bytes, chain: bytes):
+    frappe.db.sql(
+        """INSERT INTO `__writer_content_update` (`doc_id`, `rev`, `sid`, `seq_from`, `seq_to`, `client_id`,
+        `payload`, `sha256`, `seq_shas`, `chain`, `created`)
+        VALUES (%s, %s, %s, %s, %s, %s, UNHEX(%s), UNHEX(%s), UNHEX(%s), UNHEX(%s), NOW())""",
+        (
+            doc_id,
+            rev,
+            tab.sid,
+            tab.seq,
+            tab.seq,
+            tab.client_id,
+            payload.hex(),
+            sha256.hex(),
+            sha256.hex(),
+            chain.hex(),
+        ),
+    )
 
 
 def node_gone():
@@ -90,7 +110,8 @@ class TestQuarantine(CheckpointCase):
     def stored_text(self, node: str) -> str:
         read = routes.content.read(writer_content.APP, self.doc_row(node).id)
         doc = pycrdt.Doc()
-        for payload in [read.checkpoint, *read.payloads()]:
+        payloads = read.payloads()
+        for payload in [read.checkpoint, *payloads]:
             if payload:
                 doc.apply_update(payload)
 
@@ -164,9 +185,11 @@ class TestQuarantine(CheckpointCase):
             self.quarantine(node, {9})
             self.quarantine(node, {2})
 
-        collab_calls = [
-            published for published in publish.call_args_list if published.args[0].startswith("suite_collab")
-        ]
+        collab_calls: list[tuple] = []
+        for published in publish.call_args_list:
+            if published.args[0].startswith("suite_collab"):
+                collab_calls.append(published)
+
         epoch_message = {
             "lineage": first_tab.header["lineage"],
             "kind": "quarantine",
@@ -246,29 +269,12 @@ class TestQuarantine(CheckpointCase):
         self.assertEqual([row[0] for row in self.recovery_copies(node)], [3, 4])
 
     def store_raw(self, node: str, tab: Tab, payload: bytes):
-        """Store `payload` as `tab`'s next row past every check, the way rows from before a check stay."""
         doc = self.doc_row(node)
         rev = doc.head_rev + 1
         tab.seq += 1
         sha256 = hashlib.sha256(payload).digest()
         chain = chain_next(bytes(doc.head_chain), rev, sha256)
-        frappe.db.sql(
-            """INSERT INTO `__writer_content_update` (`doc_id`, `rev`, `sid`, `seq_from`, `seq_to`, `client_id`,
-            `payload`, `sha256`, `seq_shas`, `chain`, `created`)
-            VALUES (%s, %s, %s, %s, %s, %s, UNHEX(%s), UNHEX(%s), UNHEX(%s), UNHEX(%s), NOW())""",
-            (
-                doc.id,
-                rev,
-                tab.sid,
-                tab.seq,
-                tab.seq,
-                tab.client_id,
-                payload.hex(),
-                sha256.hex(),
-                sha256.hex(),
-                chain.hex(),
-            ),
-        )
+        insert_raw_row(doc.id, rev, tab, payload, sha256, chain)
         frappe.db.sql(
             "UPDATE `__writer_content_doc` SET `head_rev` = %s, `head_chain` = UNHEX(%s) WHERE `id` = %s",
             (rev, chain.hex(), doc.id),
@@ -302,9 +308,10 @@ class TestQuarantine(CheckpointCase):
         self.quarantine(node, {3})
 
         opened = call_route(routes.document_get, node).get_data()
-        header, _checkpoint, rows = read_open(opened)
+        frame = read_open(opened)
         self.assertEqual(
-            (header["q_epoch"], rows), (1, [(1, first_tab.sent[0]), (2, second_tab.sent[0]), (3, b"")])
+            (frame.header["q_epoch"], frame.rows),
+            (1, [(1, first_tab.sent[0]), (2, second_tab.sent[0]), (3, b"")]),
         )
         pulled = self.pull_rows(node, q_epoch="1").get_data()
         header, rows = read_frame(pulled)
@@ -600,6 +607,7 @@ class TestQuarantine(CheckpointCase):
         def purged_first(app: str, doc_id: str):
             if doc_id == doc_ids[0]:
                 frappe.db.sql("UPDATE `__writer_content_doc` SET `mode` = 'purged' WHERE `id` = %s", doc_id)
+
             return real_read(app, doc_id)
 
         with patch.object(backfill, "read", purged_first):

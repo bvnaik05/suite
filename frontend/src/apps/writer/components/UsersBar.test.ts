@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick } from 'vue'
 
 import UsersBar from '@/apps/writer/components/UsersBar.vue'
+import { translate } from '@/platform/translation'
 
 vi.mock('frappe-ui', () => ({
   Avatar: defineComponent({ setup: () => () => h('span') }),
@@ -25,6 +26,8 @@ const TICK_MS = 30_000
 const IDLE_FOR_MS = 4.5 * MINUTE_MS
 
 let cleanup: (() => void) | undefined
+
+vi.stubGlobal('__', translate)
 
 afterEach(() => {
   cleanup?.()

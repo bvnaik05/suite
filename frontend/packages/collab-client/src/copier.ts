@@ -1,4 +1,4 @@
-import type * as Y from 'yjs'
+import type * as yjs from 'yjs'
 
 import { randomHex } from './bytes'
 import type { Outbox } from './outbox'
@@ -11,7 +11,7 @@ const STAGE_ID_BYTES = 16
 
 /** What rendering the readable copy reads on the room. */
 export interface CopierRoom {
-  readonly doc: Y.Doc
+  readonly doc: yjs.Doc
   readonly options: OpenOptions
   readonly lineage: string
   readonly epoch: number

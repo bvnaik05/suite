@@ -14,7 +14,7 @@ const FLOATS = ['left', 'right']
 // A list item opens with a paragraph, so a video can't come first
 const LIST_ITEMS = ['listItem', 'taskItem']
 
-type Parent = XmlFragment | XmlElement
+export type Parent = XmlFragment | XmlElement
 
 // An image at the top or in a part that holds blocks; a part the editor doesn't know is left alone
 function isBlockImage(type: XmlElement) {
@@ -80,6 +80,7 @@ function mediaAttributes(old: XmlElement) {
 function element(name: string, attributes: Record<string, unknown>, children: XmlElement[] = []) {
   const node = new XmlElement(name)
   for (const [key, value] of Object.entries(attributes)) {
+    // Yjs types an element's attributes as strings by default, but stores any value as given
     node.setAttribute(key, value as string)
   }
 

@@ -6,7 +6,6 @@ from pathlib import Path
 import pycrdt
 
 from suite import content
-from suite.content.editors import EditorSpec, HtmlCopy, MediaReferences
 from suite.writer.content.files import node_ids, value_rewriter
 from suite.writer.content.readable_copy import is_html_complete
 
@@ -29,13 +28,13 @@ SCHEMA = content.EditorSchema(
 )
 
 
-EDITOR = EditorSpec(
+EDITOR = content.EditorSpec(
     app=APP,
     doctype="Writer Document",
     body_field="content",
     part_map=PART_MAP,
     schema=SCHEMA,
     checker_build=CHECKER_BUILD,
-    readable_copy=HtmlCopy(field="html", is_html_complete=is_html_complete),
-    media=MediaReferences(node_ids=node_ids, value_rewriter=value_rewriter),
+    readable_copy=content.HtmlCopy(field="html", is_html_complete=is_html_complete),
+    media=content.MediaReferences(node_ids=node_ids, value_rewriter=value_rewriter),
 )

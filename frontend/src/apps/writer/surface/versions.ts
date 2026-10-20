@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import { yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
-import * as Y from 'yjs'
+import { Doc } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
@@ -36,7 +36,7 @@ export async function readVersion(bytes: Uint8Array): Promise<StoredVersion> {
     return { content: body.html, firstTabLabel: null }
   }
 
-  const ydoc = new Y.Doc()
+  const ydoc = new Doc()
   try {
     loadVersion(ydoc, body.state)
     const content = yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment(BODY_FIELD))

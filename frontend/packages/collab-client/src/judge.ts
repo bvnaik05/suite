@@ -1,53 +1,40 @@
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 export type Verdict = { verdict: 'clean' } | { verdict: 'bad'; index: number; reason: string }
 
 // What is wrong with a document a product's editor can't take, or null
-export type Fault = (doc: Y.Doc) => string | null
+export type Fault = (doc: yjs.Doc) => string | null
 
-/**
- * Finds the first row that breaks a document, applying rows one at a time as a tab does.
- * Index -1 is the checkpoint itself. Each probe rebuilds from scratch, because a row that
- * throws leaves the document partly applied.
- */
-export function judge(checkpoint: Uint8Array | null, rows: Uint8Array[], fault: Fault): Verdict {
-  const faultAfter = (count: number): string | null => {
-    const doc = new Y.Doc()
-    try {
-      if (checkpoint) {
-        Y.applyUpdate(doc, checkpoint)
-      }
-      for (const row of rows.slice(0, count)) {
-        Y.applyUpdate(doc, row)
-      }
-      return fault(doc)
-    } catch (error) {
-      return `throws: ${String(error)}`
-    } finally {
-      doc.destroy()
+const HALVES = 2
+
+function faultAfter(checkpoint: Uint8Array | null, rows: Uint8Array[], fault: Fault) {
+  const doc = new yjs.Doc()
+  try {
+    if (checkpoint) {
+      yjs.applyUpdate(doc, checkpoint)
     }
-  }
 
-  if (!faultAfter(rows.length)) {
-    return { verdict: 'clean' }
-  }
-
-  const checkpointFault = faultAfter(0)
-  if (checkpointFault) {
-    return {
-      verdict: 'bad',
-      index: -1,
-      reason: checkpointFault,
+    for (const row of rows) {
+      yjs.applyUpdate(doc, row)
     }
-  }
 
+    return fault(doc)
+  } catch (error) {
+    const thrown = String(error)
+    return `throws: ${thrown}`
+  } finally {
+    doc.destroy()
+  }
+}
+
+function firstBadRow(rowCount: number, faultAt: (count: number) => string | null): Verdict {
   // Every prefix up to `cleanPrefix` is fine and the prefix of `badPrefix` rows is not
   let cleanPrefix = 0
-  let badPrefix = rows.length
+  let badPrefix = rowCount
   let reason = ''
   while (badPrefix - cleanPrefix > 1) {
-    const middle = Math.floor((cleanPrefix + badPrefix) / 2)
-    const middleFault = faultAfter(middle)
+    const middle = Math.floor((cleanPrefix + badPrefix) / HALVES)
+    const middleFault = faultAt(middle)
     if (middleFault) {
       badPrefix = middle
       reason = middleFault
@@ -59,6 +46,32 @@ export function judge(checkpoint: Uint8Array | null, rows: Uint8Array[], fault: 
   return {
     verdict: 'bad',
     index: badPrefix - 1,
-    reason: reason || faultAfter(badPrefix)!,
+    reason: reason || faultAt(badPrefix)!,
   }
+}
+
+/**
+ * Finds the first row that breaks a document, applying rows one at a time as a tab does.
+ * Index -1 is the checkpoint itself. Each probe rebuilds from scratch, because a row that
+ * throws leaves the document partly applied.
+ */
+export function judge(checkpoint: Uint8Array | null, rows: Uint8Array[], fault: Fault): Verdict {
+  function faultAt(count: number) {
+    return faultAfter(checkpoint, rows.slice(0, count), fault)
+  }
+
+  if (!faultAt(rows.length)) {
+    return { verdict: 'clean' }
+  }
+
+  const checkpointFault = faultAt(0)
+  if (checkpointFault) {
+    return {
+      verdict: 'bad',
+      index: -1,
+      reason: checkpointFault,
+    }
+  }
+
+  return firstBadRow(rows.length, faultAt)
 }

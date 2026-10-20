@@ -13,24 +13,30 @@ class LinkTargets(HTMLParser):
         self.targets: set[str] = set()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.targets |= {value for name, value in attrs if name in ("href", "src") and value}
+        """Collect the link and image targets of one start tag."""
+        self.targets |= {value for name, value in attrs if name in {"href", "src"} and value}
+
+
+def read_text(node: pycrdt.XmlText, characters: Counter[str], targets: set[str]) -> None:
+    """Count the visible characters of one text node and collect the targets of its links."""
+    for run, marks in node.diff():
+        if isinstance(run, str):
+            characters.update(character for character in run if not character.isspace())
+
+        link = (marks or {}).get("link") or {}
+        if link.get("href"):
+            targets.add(link["href"])
 
 
 def is_html_complete(state: bytes, html: str, text: str) -> bool:
-    """Whether `text` holds every visible character of `state` and `html` every link and image. The copy may
-    hold more, since a mention or a list marker renders text the state keeps in an attribute."""
+    """Check that `text` holds every visible character of `state` and `html` every link and image, or more."""
     doc: pycrdt.Doc = pycrdt.Doc()
     doc.apply_update(state)
     characters: Counter[str] = Counter()
     targets: set[str] = set()
     for node in nodes(doc.get("default", type=pycrdt.XmlFragment)):
         if isinstance(node, pycrdt.XmlText):
-            for run, marks in node.diff():
-                if isinstance(run, str):
-                    characters.update(character for character in run if not character.isspace())
-                link = (marks or {}).get("link") or {}
-                if link.get("href"):
-                    targets.add(link["href"])
+            read_text(node, characters, targets)
         elif isinstance(node, pycrdt.XmlElement) and node.attributes.get("src"):
             targets.add(node.attributes["src"])
 
@@ -43,6 +49,7 @@ def is_html_complete(state: bytes, html: str, text: str) -> bool:
 def nodes(
     parent: pycrdt.XmlFragment | pycrdt.XmlElement,
 ) -> Iterator[pycrdt.XmlFragment | pycrdt.XmlElement | pycrdt.XmlText]:
+    """Yield every node below `parent`, each before its children."""
     for child in parent.children:
         yield child
         if isinstance(child, pycrdt.XmlElement):

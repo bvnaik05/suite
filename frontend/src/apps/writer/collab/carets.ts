@@ -9,12 +9,12 @@ import {
   ySyncPluginKey,
 } from '@tiptap/y-tiptap'
 import type { Awareness } from 'y-protocols/awareness'
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 import type { RoomPresence } from '@/platform/collab'
 
 import { colourStyle, type PeerColour } from './colours'
-import { peerName, personIdleSince, presenceColours, whenNamed } from './peers'
+import { GUEST_USER, peerName, personIdleSince, presenceColours, whenNamed } from './peers'
 
 interface CaretUser {
   id: string
@@ -49,7 +49,7 @@ function canPlace(editor: Editor, position: unknown) {
     return false
   }
 
-  const relative = Y.createRelativePositionFromJSON(position)
+  const relative = yjs.createRelativePositionFromJSON(position)
   const absolute = relativePositionToAbsolutePosition(
     syncState.doc,
     syncState.type,
@@ -63,7 +63,7 @@ function canPlace(editor: Editor, position: unknown) {
 // A flag carries a signed-in person's first name; a guest keeps the whole label, which tells guests apart
 function flagName(user: string, peerId: number) {
   const name = peerName(user, peerId)
-  if (user === 'Guest') {
+  if (user === GUEST_USER) {
     return name
   }
 
@@ -85,7 +85,7 @@ function caretDrawer(flags: NameFlags, colourOf: ColourOf) {
     label.textContent = flagName(user.id, peerId)
 
     // The plugin keeps a caret's element while the pid stays, so a name that arrives later is filled in
-    whenNamed(user.id, () => {
+    void whenNamed(user.id, () => {
       label.textContent = flagName(user.id, peerId)
     })
 
@@ -111,6 +111,48 @@ function selectionShader(colourOf: ColourOf) {
   })
 }
 
+function flagsPlugin(presence: RoomPresence, flags: NameFlags, colourOf: ColourOf) {
+  return new Plugin({
+    view(view) {
+      const stopListening = presence.onChange(() => repaint(view, colourOf))
+      flags.showIn(view)
+      return {
+        update: () => flags.settle(),
+        destroy() {
+          stopListening()
+          flags.destroy()
+        },
+      }
+    },
+  })
+}
+
+function caretPlugins(editor: Editor, presence: RoomPresence) {
+  const awareness = presence.awareness
+  function colourOf(peerId: number) {
+    return presenceColours(presence).get(peerId)
+  }
+
+  function isIdle(peerId: number) {
+    return personIdleSince(presence.peers, peerId) !== null
+  }
+
+  const flags = new NameFlags(awareness, isIdle)
+
+  const cursorOptions = {
+    awarenessStateFilter: (_: number, id: number) => id !== 0,
+    cursorBuilder: caretDrawer(flags, colourOf),
+    selectionBuilder: selectionShader(colourOf),
+  }
+
+  const placedAwareness = withHeldCarets(awareness, (position) => canPlace(editor, position))
+  // The plugin reads only the members a held awareness has
+  return [
+    yCursorPlugin(placedAwareness as Awareness, cursorOptions),
+    flagsPlugin(presence, flags, colourOf),
+  ]
+}
+
 // Other people's carets, drawn from the room's presence. This tab's own state is client 0, which the
 // default filter would draw because it compares against the document's clientID
 export const Carets = Extension.create<{ presence: RoomPresence | null }>({
@@ -131,43 +173,7 @@ export const Carets = Extension.create<{ presence: RoomPresence | null }>({
       return []
     }
 
-    const editor = this.editor
-    const presence = this.options.presence
-    const awareness = presence.awareness
-    function colourOf(peerId: number) {
-      return presenceColours(presence).get(peerId)
-    }
-
-    function isIdle(peerId: number) {
-      return personIdleSince(presence.peers, peerId) !== null
-    }
-
-    const flags = new NameFlags(awareness, isIdle)
-
-    const cursorOptions = {
-      awarenessStateFilter: (_: number, id: number) => id !== 0,
-      cursorBuilder: caretDrawer(flags, colourOf),
-      selectionBuilder: selectionShader(colourOf),
-    }
-
-    const placedAwareness = withHeldCarets(awareness, (position) => canPlace(editor, position))
-    // The plugin reads only the members a held awareness has
-    return [
-      yCursorPlugin(placedAwareness as Awareness, cursorOptions),
-      new Plugin({
-        view(view) {
-          const stopListening = presence.onChange(() => repaint(view, colourOf))
-          flags.showIn(view)
-          return {
-            update: () => flags.settle(),
-            destroy() {
-              stopListening()
-              flags.destroy()
-            },
-          }
-        },
-      }),
-    ]
+    return caretPlugins(this.editor, this.options.presence)
   },
 })
 
@@ -302,7 +308,10 @@ class NameFlags {
   }
 }
 
-type Caret = { anchor: unknown; head: unknown }
+interface Caret {
+  anchor: unknown
+  head: unknown
+}
 
 // The members of an awareness the cursor plugin uses
 type HeldAwareness = Pick<
@@ -310,33 +319,47 @@ type HeldAwareness = Pick<
   'getStates' | 'getLocalState' | 'setLocalStateField' | 'on' | 'off'
 >
 
+type AwarenessStates = ReturnType<Awareness['getStates']>
+
+function heldStates(
+  states: AwarenessStates,
+  heldCarets: Map<number, Caret>,
+  canPlacePosition: (position: unknown) => boolean,
+) {
+  for (const id of heldCarets.keys()) {
+    if (!states.get(id)?.cursor) {
+      heldCarets.delete(id)
+    }
+  }
+
+  const shownStates = new Map<number, Record<string, unknown>>()
+  for (const [id, state] of states) {
+    const cursor = state.cursor as Caret | null | undefined
+    if (cursor && canPlacePosition(cursor.anchor) && canPlacePosition(cursor.head)) {
+      heldCarets.set(id, cursor)
+    }
+
+    let shownState = state
+    if (heldCarets.has(id)) {
+      shownState = { ...state, cursor: heldCarets.get(id) }
+    }
+
+    shownStates.set(id, shownState)
+  }
+
+  return shownStates
+}
+
 // A peer's caret can point into text whose row hasn't reached this tab, and the plugin draws no caret it can't
 // place. Until it can, the caret stays where it last was placed, which this tab's own edits keep valid
 function withHeldCarets(
   awareness: Awareness,
-  canPlace: (position: unknown) => boolean,
+  canPlacePosition: (position: unknown) => boolean,
 ): HeldAwareness {
   const heldCarets = new Map<number, Caret>()
   return {
     getStates() {
-      const states = awareness.getStates()
-      for (const id of heldCarets.keys()) {
-        if (!states.get(id)?.cursor) {
-          heldCarets.delete(id)
-        }
-      }
-
-      const shownStates = new Map<number, Record<string, unknown>>()
-      for (const [id, state] of states) {
-        const cursor = state.cursor as Caret | null | undefined
-        if (cursor && canPlace(cursor.anchor) && canPlace(cursor.head)) {
-          heldCarets.set(id, cursor)
-        }
-
-        const shownState = heldCarets.has(id) ? { ...state, cursor: heldCarets.get(id) } : state
-        shownStates.set(id, shownState)
-      }
-      return shownStates
+      return heldStates(awareness.getStates(), heldCarets, canPlacePosition)
     },
     getLocalState: () => awareness.getLocalState(),
     setLocalStateField: (field, value) => awareness.setLocalStateField(field, value),
@@ -345,9 +368,15 @@ function withHeldCarets(
   }
 }
 
-type CaretRange = { anchor?: unknown; head?: unknown }
+interface CaretRange {
+  anchor?: unknown
+  head?: unknown
+}
 
-type ItemId = { client?: unknown; clock?: unknown }
+interface ItemId {
+  client?: unknown
+  clock?: unknown
+}
 
 // A peer's caret as Writer draws it: only the numbers a relative position needs reach the cursor plugin
 export function caretPosition(cursor: unknown) {
@@ -372,14 +401,14 @@ function sanitizePosition(raw: unknown) {
     return null
   }
 
-  const strayName = tname !== undefined && tname !== null && typeof tname !== 'string'
-  if (strayName) {
+  const hasStrayName = tname !== undefined && tname !== null && typeof tname !== 'string'
+  if (hasStrayName) {
     return null
   }
 
   // No item, no parent type and no root type name leaves nothing to anchor to
-  const unanchored = !itemId && !typeId && typeof tname !== 'string'
-  if (unanchored) {
+  const isUnanchored = !itemId && !typeId && typeof tname !== 'string'
+  if (isUnanchored) {
     return null
   }
 

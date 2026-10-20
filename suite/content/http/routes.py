@@ -8,6 +8,7 @@ the same reason, but only to read: guest editing waits for stage G.
 """
 
 import json
+from collections.abc import Callable
 
 import frappe
 from frappe import _
@@ -129,7 +130,9 @@ DRIVE_REFUSALS = (
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
-def document_get(node: str):
+def document_get(node: str) -> Response:
+    """Answer the document as it stands, and whether this user can edit it."""
+
     def answer() -> bytes:
         app = authorize_node(node, drive.READ, frappe.get_request_header(EXPECTED_USER_HEADER))
         can_write = frappe.session.user != "Guest" and can_access(node, drive.EDIT)
@@ -139,14 +142,17 @@ def document_get(node: str):
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
-def updates_get(node: str, since_rev: str | None = None, q_epoch: str | None = None):
+def updates_get(node: str, since_rev: str | None = None, q_epoch: str | None = None) -> Response:
+    """Answer the rows after `since_rev`."""
     return respond_or_refuse(
         lambda: content.pull_rows(authorized(node, drive.READ), node, since_rev, q_epoch)
     )
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def updates_post(node: str):
+def updates_post(node: str) -> Response:
+    """Push the tab's rows, once the user its push names may edit the node."""
+
     def authorize(expected_user: object) -> str:
         return authorize_node(node, drive.EDIT, expected_user)
 
@@ -154,7 +160,8 @@ def updates_post(node: str):
 
 
 @frappe.whitelist(allow_guest=True, methods=["PUT"])
-def stage_put(node: str, stage_id: str, piece_index: str):
+def stage_put(node: str, stage_id: str, piece_index: str) -> Response:
+    """Stage one piece of a change too big for one push."""
     return respond_or_refuse(
         lambda: content.stage_piece(
             authorized(node, drive.EDIT), node, stage_id, piece_index, frappe.request.get_data()
@@ -163,42 +170,48 @@ def stage_put(node: str, stage_id: str, piece_index: str):
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def sessions_post(node: str):
+def sessions_post(node: str) -> Response:
+    """Start or resume the tab's writing session."""
     return respond_or_refuse(lambda: content.start_session(authorized(node, drive.EDIT), node, json_body()))
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def suspect_post(node: str):
+def suspect_post(node: str) -> Response:
+    """Report a row the tab couldn't apply."""
     return respond_or_refuse(lambda: content.report_suspect(authorized(node, drive.READ), node, json_body()))
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def html_post(node: str):
+def html_post(node: str) -> Response:
+    """Take the tab's render of the document as its readable copy."""
     return respond_or_refuse(lambda: content.submit_render(authorized(node, drive.EDIT), node, json_body()))
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def restore_post(node: str):
+def restore_post(node: str) -> Response:
+    """Begin restoring the document to a version."""
     return respond_or_refuse(lambda: content.begin_restore(authorized(node, drive.EDIT), node, json_body()))
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def restore_cancel_post(node: str):
+def restore_cancel_post(node: str) -> Response:
+    """Cancel the restore in progress."""
     return respond_or_refuse(lambda: content.cancel_restore(authorized(node, drive.EDIT), node, json_body()))
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
 def unknown() -> None:
+    """Answer an address no route names as not found."""
     raise frappe.DoesNotExistError(_("That content address does not exist"))
 
 
 def authorized(node: str, role: int) -> str:
-    """The node's app, once the tab's sign-in and its access to the node are checked."""
+    """Return the node's app, once the tab's sign-in and its access to the node are checked."""
     return authorize_node(node, role, frappe.get_request_header(EXPECTED_USER_HEADER))
 
 
 def json_body() -> dict:
-    """The request's JSON object; empty when the body is missing, unreadable or not an object."""
+    """Read the request's JSON object; empty when the body is missing, unreadable or not an object."""
     try:
         body = json.loads(frappe.request.get_data() or b"{}")
     except ValueError:
@@ -210,9 +223,8 @@ def json_body() -> dict:
     return body
 
 
-def authorize_node(node: str, role: int, expected_user) -> str:
-    """Who the tab says it is, then the app that keeps the node, then what Drive says it may do.
-    Editing needs a signed-in user. Answers the app's name."""
+def authorize_node(node: str, role: int, expected_user: object) -> str:
+    """Check the tab's user, a sign-in to edit, the node's app and Drive's access, then return the app."""
     require_expected_user(expected_user)
     if role == drive.EDIT and frappe.session.user == "Guest":
         raise content.Refusal(401, "signed_out")
@@ -223,34 +235,51 @@ def authorize_node(node: str, role: int, expected_user) -> str:
 
 
 def app_of(node: str) -> str:
-    """A node of a type no app keeps here is not found, as a missing one is."""
+    """Return the app that keeps the node; a node of a type no app keeps here is not found."""
     content_type = frappe.db.get_value("Drive Node", node, "content_doctype")
-    spec = editors.for_type(content_type) if content_type else None
+    if not content_type:
+        raise content.Refusal(404, "not_found")
+
+    spec = editors.for_type(content_type)
     if spec is None:
         raise content.Refusal(404, "not_found")
 
     return spec.app
 
 
+def refusal_for(error: drive.DriveError) -> content.Refusal | None:
+    """Return the refusal a tab gets for Drive's `error`, or None when it has none."""
+    for kind, status, reason in DRIVE_REFUSALS:
+        if isinstance(error, kind):
+            return content.Refusal(status, reason)
+
+    return None
+
+
 def check_drive_access(node: str, role: int) -> None:
+    """Refuse the request unless Drive lets this user take `role` on the node."""
     try:
         drive.check(node, role)
     except drive.DriveError as error:
-        for kind, status, reason in DRIVE_REFUSALS:
-            if isinstance(error, kind):
-                raise content.Refusal(status, reason) from None
-        raise
+        refusal = refusal_for(error)
+        if refusal is None:
+            raise
+
+        raise refusal from None
 
 
 def can_access(node: str, role: int) -> bool:
+    """Whether Drive lets this user take `role` on the node."""
     try:
         check_drive_access(node, role)
     except (content.Refusal, drive.DriveError):
         return False
+
     return True
 
 
-def require_expected_user(expected_user) -> None:
+def require_expected_user(expected_user: object) -> None:
+    """Refuse a tab whose user isn't the one signed in: signed out, or changed."""
     if expected_user == frappe.session.user:
         return
 
@@ -260,7 +289,7 @@ def require_expected_user(expected_user) -> None:
     raise content.Refusal(409, "user_changed")
 
 
-def respond_or_refuse(answer) -> Response:
+def respond_or_refuse(answer: Callable[[], bytes | tuple[int, dict]]) -> Response:
     """`answer`'s frame, or its status and JSON body, as the response; a refusal as its own."""
     try:
         reply = answer()
@@ -275,5 +304,6 @@ def respond_or_refuse(answer) -> Response:
 
 
 def json_response(status: int, body: dict) -> Response:
+    """Answer `body` as JSON with `status`."""
     text = json.dumps(body)
     return Response(text, status=status, mimetype="application/json")

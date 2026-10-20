@@ -25,7 +25,6 @@ def written_doc(text: str, client_id: int = 5) -> pycrdt.Doc:
 
 
 def edit_payload(base: pycrdt.Doc, client_id: int, edit) -> bytes:
-    """What a tab writing as `client_id` sends after making `edit` to `base`'s text."""
     tab = pycrdt.Doc(client_id=client_id)
     tab.apply_update(base.get_update())
     before = tab.get_state()
@@ -83,6 +82,7 @@ class TestAdmit(UnitTestCase):
     def refusal(self, doc, update, bound):
         with self.assertRaises(capacity.Full) as raised:
             capacity.admit(doc, update, bound, NOW)
+
         return raised.exception.reason, raised.exception.retry_ms
 
     def test_a_push_that_fits_under_the_cap_with_the_tail_is_admitted(self):
@@ -90,7 +90,7 @@ class TestAdmit(UnitTestCase):
 
     def test_a_push_one_byte_past_the_cap_waits_for_the_next_compaction(self):
         doc = doc_row(state_bytes=STATE_CAP - 300, tail_bound=200)
-        reason = self.refusal(doc, self.adds, 101)[0]
+        reason, _ = self.refusal(doc, self.adds, 101)
 
         self.assertEqual(reason, "compacting")
 
@@ -108,13 +108,13 @@ class TestAdmit(UnitTestCase):
 
     def test_a_document_at_the_cap_is_full_for_anything_that_adds(self):
         doc = doc_row(state_bytes=STATE_CAP, tail_bound=0, tail_rows=5)
-        reason = self.refusal(doc, self.adds, 1)[0]
+        reason, _ = self.refusal(doc, self.adds, 1)
 
         self.assertEqual(reason, "doc_full")
 
     def test_a_push_that_no_compaction_can_make_room_for_is_full(self):
         doc = doc_row(state_bytes=STATE_CAP - 100, tail_bound=0, tail_rows=0)
-        reason = self.refusal(doc, self.adds, 101)[0]
+        reason, _ = self.refusal(doc, self.adds, 101)
 
         self.assertEqual(reason, "doc_full")
 
@@ -127,7 +127,7 @@ class TestAdmit(UnitTestCase):
         )
 
         doc = doc_row(state_bytes=STATE_CAP, tail_bound=200, tail_rows=1)
-        reason = self.refusal(doc, self.deletes, 512 * 2**10 - 199)[0]
+        reason, _ = self.refusal(doc, self.deletes, 512 * 2**10 - 199)
         self.assertEqual(reason, "compacting")
 
     def test_a_delete_is_never_full_for_good_however_far_past_the_cap(self):
@@ -141,7 +141,7 @@ class TestAdmit(UnitTestCase):
     def test_a_tail_of_twenty_thousand_rows_waits_for_a_compaction_however_small(self):
         capacity.admit(doc_row(tail_rows=19_999), self.adds, 1, NOW)
 
-        reason = self.refusal(doc_row(tail_rows=20_000), self.adds, 1)[0]
+        reason, _ = self.refusal(doc_row(tail_rows=20_000), self.adds, 1)
         self.assertEqual(reason, "compacting")
 
 

@@ -12,16 +12,15 @@ import {
 
 import { encodeAnchor } from '@/apps/writer/collab/anchors'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { isPlainObject, OVERLAP_SUFFIX } from '@/apps/writer/collab/inventory'
 import { quoteBetween } from '@/apps/writer/collab/places'
 
 // The old comment mark, which excludes itself, so the binding keeps it under its own name
 const COMMENT_KEY = 'comment'
-// The comment mark under its own name or a hashed copy, which the binding shouldn't write
-const ANY_COMMENT_KEY = /^comment(--[a-zA-Z0-9+/=]{8})?$/
 
 // Drive's later comment mark, which could overlap itself (`excludes: ''`), so the binding keeps
 // each under a hashed name; and the list its threads were kept in
-const ANNOTATION_KEY = /^annotation(--[a-zA-Z0-9+/=]{8})?$/
+const ANNOTATION_KEY = 'annotation'
 const ANNOTATIONS_ROOT = 'docAnnotations'
 
 // Drive's comment marks in HTML, holding a whole thread or an annotation id
@@ -31,6 +30,7 @@ interface Run {
   type: XmlElement | XmlFragment | XmlText
   from: number
   to: number
+  atom?: XmlElement
 }
 
 interface PlacedRun {
@@ -48,7 +48,11 @@ interface Insert {
 }
 
 function threadId(attrs: unknown): string | undefined {
-  const id = (attrs as { commentId?: unknown } | null)?.commentId
+  if (!isPlainObject(attrs)) {
+    return undefined
+  }
+
+  const id = attrs.commentId
   if (typeof id === 'string' && id.trim()) {
     return id
   }
@@ -56,32 +60,46 @@ function threadId(attrs: unknown): string | undefined {
   return undefined
 }
 
-// An annotation, or a comment mark with no thread id, as Drive's earlier one that held its whole thread
-function isUnreadableMark([key, attrs]: [string, unknown]) {
-  return ANNOTATION_KEY.test(key) || (ANY_COMMENT_KEY.test(key) && threadId(attrs) === undefined)
+function markName(key: string) {
+  return key.replace(OVERLAP_SUFFIX, '')
 }
 
-function markEntries(type: XmlElement | XmlFragment | XmlText | XmlHook): [string, unknown][] {
+// An annotation, or a comment mark with no thread id, as Drive's earlier one that held its whole thread
+function isUnreadableMark([key, attrs]: [string, unknown]) {
+  const name = markName(key)
+  return name === ANNOTATION_KEY || (name === COMMENT_KEY && threadId(attrs) === undefined)
+}
+
+function addMarkEntries(
+  type: XmlElement | XmlFragment | XmlText | XmlHook,
+  entries: [string, unknown][],
+) {
   if (type instanceof XmlText) {
-    return (type.toDelta() as Insert[]).flatMap((op) => Object.entries(op.attributes ?? {}))
+    for (const op of type.toDelta() as Insert[]) {
+      entries.push(...Object.entries(op.attributes ?? {}))
+    }
+
+    return
   }
 
   if (type instanceof XmlElement) {
-    return [...Object.entries(type.getAttributes()), ...type.toArray().flatMap(markEntries)]
+    entries.push(...Object.entries(type.getAttributes()))
   }
 
-  if (type instanceof XmlFragment) {
-    return type.toArray().flatMap(markEntries)
+  if (!(type instanceof XmlElement || type instanceof XmlFragment)) {
+    return
   }
 
-  return []
+  for (const child of type.toArray()) {
+    addMarkEntries(child, entries)
+  }
 }
 
 /** The old comment marks and annotations in `old` that no thread can be made from yet */
 export function unreadableThreads(old: Doc) {
-  const found = markEntries(old.getXmlFragment(BODY_FIELD))
-    .filter(isUnreadableMark)
-    .map(([key]) => key)
+  const entries: [string, unknown][] = []
+  addMarkEntries(old.getXmlFragment(BODY_FIELD), entries)
+  const found = entries.filter(isUnreadableMark).map(([key]) => key)
   if (old.share.has(ANNOTATIONS_ROOT) && old.getArray(ANNOTATIONS_ROOT).length) {
     found.push(ANNOTATIONS_ROOT)
   }
@@ -121,27 +139,33 @@ function atomRuns(
     return []
   }
 
-  return [[id, { type: parent, from: index, to: index + 1 }]]
+  return [[id, { type: parent, from: index, to: index + 1, atom: child }]]
 }
 
-function commentRuns(
+function addCommentRuns(
   type: XmlElement | XmlFragment | XmlText | XmlHook,
   schema: Schema,
-): [string, Run][] {
+  runs: [string, Run][],
+) {
   if (type instanceof XmlText) {
-    return textRuns(type)
+    runs.push(...textRuns(type))
+    return
   }
 
   if (!(type instanceof XmlElement || type instanceof XmlFragment)) {
-    return []
+    return
   }
 
-  return type
-    .toArray()
-    .flatMap((child, index) => [
-      ...atomRuns(type, child, index, schema),
-      ...commentRuns(child, schema),
-    ])
+  for (const [index, child] of type.toArray().entries()) {
+    runs.push(...atomRuns(type, child, index, schema))
+    addCommentRuns(child, schema, runs)
+  }
+}
+
+function commentRuns(body: XmlFragment, schema: Schema) {
+  const runs: [string, Run][] = []
+  addCommentRuns(body, schema, runs)
+  return runs
 }
 
 // Where the editor shows `position`, or null when it can't
@@ -216,7 +240,8 @@ export function oldCommentAnchors(body: XmlFragment, schema: Schema) {
   const runs = new Map<string, (PlacedRun | null)[]>()
   for (const [id, run] of commentRuns(body, schema)) {
     const known = runs.get(id) ?? []
-    runs.set(id, [...known, placedRun(body, built, run)])
+    known.push(placedRun(body, built, run))
+    runs.set(id, known)
   }
 
   const anchors: Record<string, string> = {}
@@ -237,11 +262,11 @@ export function oldCommentAnchors(body: XmlFragment, schema: Schema) {
 /** Takes the old comment marks that carry a thread id off `body`; the ids it took them from */
 export function dropCommentMarks(body: XmlFragment, schema: Schema) {
   const runs = commentRuns(body, schema)
-  for (const [, { type, from, to }] of runs) {
-    if (type instanceof XmlText) {
+  for (const [, { type, from, to, atom }] of runs) {
+    if (atom) {
+      atom.removeAttribute(COMMENT_KEY)
+    } else if (type instanceof XmlText) {
       type.format(from, to - from, { [COMMENT_KEY]: null })
-    } else if (type instanceof XmlElement || type instanceof XmlFragment) {
-      ;(type.get(from) as XmlElement).removeAttribute(COMMENT_KEY)
     }
   }
 

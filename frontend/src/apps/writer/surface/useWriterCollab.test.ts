@@ -7,31 +7,33 @@ import { openCollabRoom } from '@/platform/collab'
 import { useWriterCollab } from './useWriterCollab'
 
 const fakeRooms = vi.hoisted(() => {
-  const makeRoom = () => ({
-    status: {
-      canWrite: true,
-      blockReason: null as string | null,
-      stopReason: null as string | null,
-      keptCopyCount: 0,
-      hasCopyFailed: false,
-      pauseReason: null as string | null,
-      holdReason: null as string | null,
-      isRestoring: false,
-      hasNewerSchema: false,
-      isReopenNeeded: false,
-      saveState: 'clean',
-      unsentCount: 0,
-      othersUnsentCount: 0,
-      isKeptOnDevice: true,
-      isAtLimit: false,
-    },
-    listeners: [] as (() => void)[],
-    onChange(listener: () => void) {
-      this.listeners.push(listener)
-      return () => {}
-    },
-    close: async () => {},
-  })
+  function makeRoom() {
+    return {
+      status: {
+        canWrite: true,
+        blockReason: null as string | null,
+        stopReason: null as string | null,
+        keptCopyCount: 0,
+        hasCopyFailed: false,
+        pauseReason: null as string | null,
+        holdReason: null as string | null,
+        isRestoring: false,
+        hasNewerSchema: false,
+        isReopenNeeded: false,
+        saveState: 'clean',
+        unsentCount: 0,
+        othersUnsentCount: 0,
+        isKeptOnDevice: true,
+        isAtLimit: false,
+      },
+      listeners: [] as (() => void)[],
+      onChange(listener: () => void) {
+        this.listeners.push(listener)
+        return () => {}
+      },
+      close: async () => {},
+    }
+  }
 
   return {
     room: makeRoom(),
@@ -113,13 +115,13 @@ describe('writer collab editing state', () => {
     expect(collab.editingPaused.value).toBe(false)
 
     for (const blockReason of ['signed_out', 'locked', 'offline', 'stale_session', 'other_user']) {
-      const keepsWriteRight =
+      const canKeepWriting =
         blockReason === 'signed_out' || blockReason === 'locked' || blockReason === 'offline'
       becomes({
         blockReason,
         saveState: 'failed',
         unsentCount: 9,
-        canWrite: keepsWriteRight,
+        canWrite: canKeepWriting,
       })
       expect(collab.allowsEditing.value).toBe(false)
       expect(collab.editingPaused.value).toBe(true)
@@ -179,6 +181,7 @@ describe('writer collab editing state', () => {
       becomes({ blockReason, saveState: 'failed', canWrite: false })
       expect(collab.editingPaused.value).toBe(false)
     }
+
     becomes({ blockReason: null, saveState: 'clean', canWrite: false })
     expect(collab.allowsEditing.value).toBe(false)
     expect(collab.editingPaused.value).toBe(false)
@@ -327,7 +330,9 @@ describe('writer collab rebuild', () => {
     const opensBefore = fakeRooms.openCount
 
     oldRoom.status = { ...oldRoom.status, isReopenNeeded: true }
-    oldRoom.listeners.forEach((listener) => listener())
+    for (const listener of oldRoom.listeners) {
+      listener()
+    }
 
     expect([collab.mode.value, collab.room.value]).toEqual(['opening', null])
     await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
@@ -352,7 +357,9 @@ describe('writer collab rebuild', () => {
       unsentCount: 2,
       isKeptOnDevice: false,
     }
-    oldRoom.listeners.forEach((listener) => listener())
+    for (const listener of oldRoom.listeners) {
+      listener()
+    }
 
     await vi.waitFor(() => expect(collab.room.value).toBe(fakeRooms.room))
     expect(order).toEqual(['kept', 'closed'])

@@ -1,4 +1,4 @@
-import * as Y from 'yjs'
+import * as yjs from 'yjs'
 
 // One tab load's session of a document. `bound` is false for a clientID a tab
 // chose itself offline, until the server accepts its claim
@@ -76,8 +76,8 @@ export interface DeviceStore {
     extra?: StoredEntry[],
     snapshot?: RecoverySnapshot,
   ): Promise<void>
-  // Drops the session unless it still holds entries, so another tab's ack can't orphan what its own tab typed since.
-  // Resolves whether the session was dropped
+  // Drops the session unless it still holds entries, so another tab's ack can't orphan what its own tab typed since
+  // and resolves whether the session was dropped
   release(doc: string, sid: string): Promise<boolean>
   recovery(doc: string): Promise<RecoveryRecord[]>
   // Every document's recovery records on the device
@@ -89,13 +89,16 @@ export interface DeviceStore {
 const DB_VERSION = 1
 // The device copy is merged back into one piece once it holds this many
 const MAX_PIECES = 64
-const EMPTY_UPDATE = Y.encodeStateAsUpdate(new Y.Doc())
+const EMPTY_UPDATE = yjs.encodeStateAsUpdate(new yjs.Doc())
 
 // The device copy's rev and lineage, kept apart from its pieces
 type CopyMeta = Omit<DeviceCopy, 'bytes'>
 
 // One stored part of the device copy's bytes
-type StoredPiece = { id: number; bytes: Uint8Array }
+interface StoredPiece {
+  id: number
+  bytes: Uint8Array
+}
 
 // Null where the browser keeps no IndexedDB for this page (blocked storage, or opening hangs)
 export function openDeviceStore(name: string, timeoutMs = 3000): Promise<DeviceStore | null> {
@@ -105,26 +108,23 @@ export function openDeviceStore(name: string, timeoutMs = 3000): Promise<DeviceS
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), timeoutMs)
+    function settle(store: DeviceStore | null) {
+      clearTimeout(timer)
+      resolve(store)
+    }
+
     let request: IDBOpenDBRequest
     try {
       request = indexedDB.open(name, DB_VERSION)
     } catch {
-      clearTimeout(timer)
-      resolve(null)
+      settle(null)
       return
     }
 
     request.onupgradeneeded = () => createStores(request.result)
-    request.onsuccess = () => {
-      clearTimeout(timer)
-      resolve(new IndexedDeviceStore(request.result))
-    }
-    const openFailed = () => {
-      clearTimeout(timer)
-      resolve(null)
-    }
-    request.onerror = openFailed
-    request.onblocked = openFailed
+    request.onsuccess = () => settle(new IndexedDeviceStore(request.result))
+    request.onerror = () => settle(null)
+    request.onblocked = () => settle(null)
   })
 }
 
@@ -148,9 +148,23 @@ function createStores(db: IDBDatabase) {
   recovery.createIndex('doc', 'doc')
 }
 
-const sessionRange = (doc: string, sid: string) =>
-  IDBKeyRange.bound([doc, sid, 0], [doc, sid, Infinity])
-const docRange = (doc: string) => IDBKeyRange.bound([doc, ''], [doc, '￿'])
+function sessionRange(doc: string, sid: string) {
+  return IDBKeyRange.bound([doc, sid, 0], [doc, sid, Infinity])
+}
+
+function docRange(doc: string) {
+  return IDBKeyRange.bound([doc, ''], [doc, '￿'])
+}
+
+function deleteCopyPieces(tx: IDBTransaction, doc: string) {
+  const pieces = tx.objectStore('copies')
+  const keys = pieces.index('doc').getAllKeys(doc)
+  keys.onsuccess = () => {
+    for (const key of keys.result) {
+      pieces.delete(key)
+    }
+  }
+}
 
 class IndexedDeviceStore implements DeviceStore {
   constructor(private readonly db: IDBDatabase) {}
@@ -193,7 +207,11 @@ class IndexedDeviceStore implements DeviceStore {
       return null
     }
 
-    const bytes = pieces.length ? Y.mergeUpdates(pieces.map((piece) => piece.bytes)) : EMPTY_UPDATE
+    let bytes: Uint8Array = EMPTY_UPDATE
+    if (pieces.length) {
+      bytes = yjs.mergeUpdates(pieces.map((piece) => piece.bytes))
+    }
+
     return {
       lineage: meta.lineage,
       rev: meta.rev,
@@ -208,12 +226,13 @@ class IndexedDeviceStore implements DeviceStore {
   }
 
   capture(session: StoredSession, entries: StoredEntry[]) {
-    const putAll = (tx: IDBTransaction) => {
+    function putAll(tx: IDBTransaction) {
       tx.objectStore('sessions').put(session)
       for (const entry of entries) {
         tx.objectStore('entries').put(entry)
       }
     }
+
     return this.write(['sessions', 'entries'], putAll)
   }
 
@@ -225,7 +244,7 @@ class IndexedDeviceStore implements DeviceStore {
     lineage: string,
     epoch: number,
   ) {
-    const moveToCopy = (tx: IDBTransaction) => {
+    function moveToCopy(tx: IDBTransaction) {
       const acked = IDBKeyRange.bound([doc, sid, 0], [doc, sid, through])
       tx.objectStore('entries').delete(acked)
 
@@ -239,11 +258,12 @@ class IndexedDeviceStore implements DeviceStore {
         }
       }
     }
+
     return this.write(['entries', 'meta', 'copies'], moveToCopy)
   }
 
   commit(doc: string, copy: CopyMeta, bytes: Uint8Array | null) {
-    const addToCopy = (tx: IDBTransaction) => {
+    function addToCopy(tx: IDBTransaction) {
       const metaStore = tx.objectStore('meta')
       const metaRequest = metaStore.get(doc)
       metaRequest.onsuccess = () => {
@@ -256,9 +276,7 @@ class IndexedDeviceStore implements DeviceStore {
 
         const outdated = storedMeta && (!sameLineage || storedEpoch < newEpoch)
         if (outdated) {
-          const pieces = tx.objectStore('copies')
-          const keys = pieces.index('doc').getAllKeys(doc)
-          keys.onsuccess = () => keys.result.forEach((key) => pieces.delete(key))
+          deleteCopyPieces(tx, doc)
         }
 
         metaStore.put({ doc, ...copy })
@@ -267,6 +285,7 @@ class IndexedDeviceStore implements DeviceStore {
         }
       }
     }
+
     return this.write(['meta', 'copies'], addToCopy)
   }
 
@@ -277,7 +296,7 @@ class IndexedDeviceStore implements DeviceStore {
     extra: StoredEntry[] = [],
     snapshot?: RecoverySnapshot,
   ) {
-    const moveToRecovery = (tx: IDBTransaction) => {
+    function moveToRecovery(tx: IDBTransaction) {
       const entries = tx.objectStore('entries')
       const remaining: StoredEntry[] = []
       for (const sid of sids) {
@@ -295,12 +314,13 @@ class IndexedDeviceStore implements DeviceStore {
         forgetSessions(tx, doc, sids)
       }
     }
+
     return this.write(['sessions', 'entries', 'recovery'], moveToRecovery)
   }
 
   async release(doc: string, sid: string) {
     let dropped = false
-    const dropIfEmpty = (tx: IDBTransaction) => {
+    function dropIfEmpty(tx: IDBTransaction) {
       const remainingCount = tx.objectStore('entries').count(sessionRange(doc, sid))
       remainingCount.onsuccess = () => {
         dropped = !remainingCount.result
@@ -309,6 +329,7 @@ class IndexedDeviceStore implements DeviceStore {
         }
       }
     }
+
     await this.write(['sessions', 'entries'], dropIfEmpty)
     return dropped
   }
@@ -334,7 +355,10 @@ class IndexedDeviceStore implements DeviceStore {
 
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve()
-      const writeFailed = () => reject(tx.error ?? new Error('IndexedDB write aborted'))
+      function writeFailed() {
+        reject(tx.error ?? new Error('IndexedDB write aborted'))
+      }
+
       tx.onerror = writeFailed
       tx.onabort = writeFailed
     })
@@ -354,9 +378,10 @@ function addPiece(tx: IDBTransaction, doc: string, bytes: Uint8Array) {
       for (const piece of stored) {
         pieces.delete(piece.id)
       }
+
       const merged = {
         doc,
-        bytes: Y.mergeUpdates(stored.map((piece) => piece.bytes)),
+        bytes: yjs.mergeUpdates(stored.map((piece) => piece.bytes)),
       }
       pieces.add(merged)
     }

@@ -49,6 +49,7 @@ class CheckerFailed(Exception):
 
 
 def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict | None:
+    """Ask the checker which of `rows` breaks the document; None without a usable Node or bundle."""
     checkpoint_text = None
     if checkpoint:
         checkpoint_text = encoded(checkpoint)
@@ -115,7 +116,8 @@ def ask(bundle: Path, request: dict) -> dict | None:
         return answer
     except subprocess.CalledProcessError as error:
         last_stderr_line = error.stderr.strip().rsplit("\n", 1)[-1]
-        raise CheckerFailed(f"exit {error.returncode}: {plain_reason(last_stderr_line)}") from error
+        reason = plain_reason(last_stderr_line)
+        raise CheckerFailed(f"exit {error.returncode}: {reason}") from error
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         raise CheckerFailed(repr(error)) from error
 
@@ -134,15 +136,19 @@ def node_command(node_path: str, bundle: Path) -> list[str]:
 
 
 def plain_reason(text: str) -> str:
-    return REASON_END.split(text, maxsplit=1)[0][:80].strip()
+    """Cut `text` to its first 80 plain characters, before anything that could quote content."""
+    plain_text, *_ = REASON_END.split(text, maxsplit=1)
+    return plain_text[:80].strip()
 
 
 def usable_node() -> str | None:
+    """Return the path of a Node new enough to run the checker."""
     version = node_version()
     if not version:
         return None
 
-    major = int(version.lstrip("v").split(".")[0])
+    major_text, *_ = version.lstrip("v").split(".")
+    major = int(major_text)
     if major < NODE_MAJOR:
         return None
 

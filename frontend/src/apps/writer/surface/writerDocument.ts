@@ -29,6 +29,23 @@ export function isLocked(settings: WriterSettings): boolean {
   return Boolean(settings.lock)
 }
 
+function parseSettings(stored: unknown): unknown {
+  if (typeof stored === 'string') {
+    return JSON.parse(stored || '{}')
+  }
+
+  return stored
+}
+
+function settingsOf(stored: unknown): WriterSettings {
+  const settings = parseSettings(stored)
+  if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
+    return settings as WriterSettings
+  }
+
+  return {}
+}
+
 /** Writer keeps editable body state; Drive selects the open document's access scope. */
 export function createWriterDocument(
   session: Pick<DocumentSession, 'contentDocname' | 'credentials'>,
@@ -63,15 +80,7 @@ export function createWriterDocument(
   })
   async function load() {
     const row = await client.query(api.writer.documents.get, { name }, { context })
-    const settings: unknown =
-      typeof row.settings === 'string' ? JSON.parse(row.settings || '{}') : row.settings
-    document.doc = {
-      ...row,
-      settings:
-        settings && typeof settings === 'object' && !Array.isArray(settings)
-          ? (settings as WriterSettings)
-          : {},
-    }
+    document.doc = { ...row, settings: settingsOf(row.settings) }
   }
 
   void load().catch(() => {

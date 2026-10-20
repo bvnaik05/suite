@@ -6,7 +6,8 @@ from suite.content.editors import editors
 
 
 class SuiteCollabSettings(Document):
-    def validate(self):
+    def validate(self) -> None:
+        """Refuse a row for an app the content layer doesn't know, or a second row for one app."""
         known = editors()
         seen: set[str] = set()
         for row in self.apps:

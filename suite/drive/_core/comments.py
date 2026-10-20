@@ -29,6 +29,39 @@ _CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 MAX_COMMENT_BYTES = 65_535
 
 
+def insert_thread(
+    principals: Principals,
+    node_row: frappe._dict,
+    anchor: str,
+    text: str,
+    via_link: str | None,
+    author_name: str | None,
+    client_id: str | None,
+) -> str:
+    """Insert a thread with its first comment and record the comment; answer the thread."""
+    thread = frappe.get_doc(
+        {
+            "doctype": "Drive Comment Thread",
+            "node": node_row.name,
+            "anchor": anchor,
+            "resolved": 0,
+            "client_id": client_id,
+        }
+    ).insert(ignore_permissions=True)
+    comment, mentions = _insert_comment(
+        principals, thread.name, node_row.name, text, author_name=author_name, client_id=None
+    )
+    activity = record(
+        principals,
+        node_row.name,
+        "comment",
+        detail={"thread": thread.name, "comment": comment, "resolved": False},
+        via_link=via_link,
+    )
+    notify_users(activity, mentions)
+    return thread.name
+
+
 def create_thread(
     principals: Principals,
     node: str,
@@ -62,31 +95,7 @@ def create_thread(
             frappe.db.release_savepoint(savepoint)
             return _thread_view(sent.name)
 
-        thread = frappe.get_doc(
-            {
-                "doctype": "Drive Comment Thread",
-                "node": node_row.name,
-                "anchor": anchor,
-                "resolved": 0,
-                "client_id": client_id,
-            }
-        ).insert(ignore_permissions=True)
-        comment, mentions = _insert_comment(
-            principals,
-            thread.name,
-            node_row.name,
-            text,
-            author_name=author_name,
-            client_id=None,
-        )
-        activity = record(
-            principals,
-            node_row.name,
-            "comment",
-            detail={"thread": thread.name, "comment": comment, "resolved": False},
-            via_link=via_link,
-        )
-        notify_users(activity, mentions)
+        thread = insert_thread(principals, node_row, anchor, text, via_link, author_name, client_id)
     except Exception as exc:
         rollback_savepoint(savepoint, exc)
         raise
@@ -94,7 +103,40 @@ def create_thread(
         frappe.db.release_savepoint(savepoint)
 
     announce_threads(node_row)
-    return _thread_view(thread.name)
+    return _thread_view(thread)
+
+
+def insert_reply(
+    principals: Principals,
+    thread_row: frappe._dict,
+    node: frappe._dict,
+    text: str,
+    via_link: str | None,
+    author_name: str | None,
+    client_id: str | None,
+) -> str:
+    """Insert a reply into a thread and record it; answer the comment."""
+    comment, mentions = _insert_comment(
+        principals,
+        thread_row.name,
+        node.name,
+        text,
+        author_name=author_name,
+        client_id=client_id,
+    )
+    activity = record(
+        principals,
+        node.name,
+        "comment",
+        detail={
+            "thread": thread_row.name,
+            "comment": comment,
+            "resolved": bool(thread_row.resolved),
+        },
+        via_link=via_link,
+    )
+    notify_users(activity, mentions)
+    return comment
 
 
 def reply(
@@ -123,26 +165,7 @@ def reply(
             frappe.db.release_savepoint(savepoint)
             return _comment_view(sent.name)
 
-        comment, mentions = _insert_comment(
-            principals,
-            thread_row.name,
-            node.name,
-            text,
-            author_name=author_name,
-            client_id=client_id,
-        )
-        activity = record(
-            principals,
-            node.name,
-            "comment",
-            detail={
-                "thread": thread_row.name,
-                "comment": comment,
-                "resolved": bool(thread_row.resolved),
-            },
-            via_link=via_link,
-        )
-        notify_users(activity, mentions)
+        comment = insert_reply(principals, thread_row, node, text, via_link, author_name, client_id)
     except Exception as exc:
         rollback_savepoint(savepoint, exc)
         raise
@@ -153,10 +176,34 @@ def reply(
     return _comment_view(comment)
 
 
+def write_resolution(
+    principals: Principals,
+    thread_row: frappe._dict,
+    node: frappe._dict,
+    resolved: bool,
+    via_link: str | None,
+) -> None:
+    """Resolve or reopen a thread and record it."""
+    values: dict[str, object] = {"resolved": int(resolved), "resolved_by": None, "resolved_at": None}
+    if resolved:
+        values["resolved_by"] = principals.user
+        values["resolved_at"] = now_datetime()
+
+    frappe.db.set_value("Drive Comment Thread", thread_row.name, values)
+    record(
+        principals,
+        node.name,
+        "comment",
+        detail={"thread": thread_row.name, "comment": None, "resolved": resolved},
+        via_link=via_link,
+    )
+
+
 def resolve(principals: Principals, thread: str, resolved: bool = True) -> frappe._dict:
     """Resolve or reopen a thread with Comment access; answer the thread as listed."""
     if type(resolved) is not bool:
         frappe.throw(_("Drive comment resolution must be a boolean"), frappe.ValidationError)
+
     savepoint = f"drive_comment_resolve_{uuid4().hex[:12]}"
     frappe.db.savepoint(savepoint)
     try:
@@ -167,19 +214,8 @@ def resolve(principals: Principals, thread: str, resolved: bool = True) -> frapp
         if bool(thread_row.resolved) == resolved:
             frappe.db.release_savepoint(savepoint)
             return _thread_view(thread_row.name)
-        values = {
-            "resolved": int(resolved),
-            "resolved_by": principals.user if resolved else None,
-            "resolved_at": now_datetime() if resolved else None,
-        }
-        frappe.db.set_value("Drive Comment Thread", thread_row.name, values)
-        record(
-            principals,
-            node.name,
-            "comment",
-            detail={"thread": thread_row.name, "comment": None, "resolved": resolved},
-            via_link=via_link,
-        )
+
+        write_resolution(principals, thread_row, node, resolved, via_link)
     except Exception as exc:
         rollback_savepoint(savepoint, exc)
         raise
@@ -192,7 +228,7 @@ def resolve(principals: Principals, thread: str, resolved: bool = True) -> frapp
 
 def reanchor_threads(principals: Principals, node: str, anchors: dict[str, str]) -> list[frappe._dict]:
     """Move threads of one document to new anchors with Edit access; answer them as listed."""
-    _validate_anchor_map(anchors)
+    validate_anchor_map(anchors)
     if not anchors:
         return []
 
@@ -203,7 +239,7 @@ def reanchor_threads(principals: Principals, node: str, anchors: dict[str, str])
         require(node_row, EDIT, principals)
         _require_document(node_row)
         _require_active(node_row)
-        _write_anchors(node_row.name, anchors)
+        write_anchors(node_row.name, anchors)
     except Exception as exc:
         rollback_savepoint(savepoint, exc)
         raise
@@ -214,7 +250,8 @@ def reanchor_threads(principals: Principals, node: str, anchors: dict[str, str])
     return _thread_views({"name": ["in", list(anchors)]})
 
 
-def _write_anchors(node: str, anchors: dict[str, str]) -> None:
+def write_anchors(node: str, anchors: dict[str, str]) -> None:
+    """Move threads of one node to new anchors, refusing a thread that is not on it."""
     filters = {"name": ["in", list(anchors)], "node": node}
     held = frappe.get_all("Drive Comment Thread", filters=filters, pluck="name")
     if len(held) != len(anchors):
@@ -222,6 +259,35 @@ def _write_anchors(node: str, anchors: dict[str, str]) -> None:
 
     for thread, anchor in anchors.items():
         frappe.db.set_value("Drive Comment Thread", thread, "anchor", anchor, update_modified=False)
+
+
+def write_comment_edit(
+    principals: Principals,
+    comment_row: frappe._dict,
+    node: frappe._dict,
+    text: str,
+    via_link: str | None,
+) -> None:
+    """Rewrite a comment's text and record it, telling only the people it newly mentions."""
+    mentions = _mentions(text)
+    frappe.db.set_value(
+        "Drive Comment",
+        comment_row.name,
+        {"content": text, "mentions": frappe.as_json(mentions)},
+    )
+    thread = _thread(comment_row.thread)
+    activity = record(
+        principals,
+        node.name,
+        "comment",
+        detail={
+            "thread": comment_row.thread,
+            "comment": comment_row.name,
+            "resolved": bool(thread.resolved),
+        },
+        via_link=via_link,
+    )
+    notify_users(activity, set(mentions) - set(_json_value(comment_row.mentions, [])))
 
 
 def edit_comment(principals: Principals, comment: str, text: str) -> frappe._dict:
@@ -235,25 +301,7 @@ def edit_comment(principals: Principals, comment: str, text: str) -> frappe._dic
         _require_document(node)
         _require_active(node)
         _require_editor_or_author(principals, node, comment_row, via_link)
-        mentions = _mentions(text)
-        frappe.db.set_value(
-            "Drive Comment",
-            comment_row.name,
-            {"content": text, "mentions": frappe.as_json(mentions)},
-        )
-        thread = _thread(comment_row.thread)
-        activity = record(
-            principals,
-            node.name,
-            "comment",
-            detail={
-                "thread": comment_row.thread,
-                "comment": comment_row.name,
-                "resolved": bool(thread.resolved),
-            },
-            via_link=via_link,
-        )
-        notify_users(activity, set(mentions) - set(_json_value(comment_row.mentions, [])))
+        write_comment_edit(principals, comment_row, node, text, via_link)
     except Exception as exc:
         rollback_savepoint(savepoint, exc)
         raise
@@ -262,6 +310,31 @@ def edit_comment(principals: Principals, comment: str, text: str) -> frappe._dic
 
     announce_threads(node)
     return _comment_view(comment_row.name)
+
+
+def delete_comment_row(
+    principals: Principals,
+    comment_row: frappe._dict,
+    node: frappe._dict,
+    via_link: str | None,
+) -> None:
+    """Delete a comment, and its thread once it holds no other, and record it."""
+    thread = _thread(comment_row.thread, for_update=True)
+    frappe.db.delete("Drive Comment", {"name": comment_row.name})
+    if not frappe.db.count("Drive Comment", {"thread": thread.name}):
+        frappe.db.delete("Drive Comment Thread", {"name": thread.name})
+
+    record(
+        principals,
+        node.name,
+        "comment",
+        detail={
+            "thread": comment_row.thread,
+            "comment": comment_row.name,
+            "resolved": bool(thread.resolved),
+        },
+        via_link=via_link,
+    )
 
 
 def delete_comment(principals: Principals, comment: str) -> None:
@@ -279,21 +352,7 @@ def delete_comment(principals: Principals, comment: str) -> None:
         _require_document(node)
         _require_active(node)
         _require_editor_or_author(principals, node, comment_row, via_link)
-        thread = _thread(comment_row.thread, for_update=True)
-        frappe.db.delete("Drive Comment", {"name": comment_row.name})
-        if not frappe.db.count("Drive Comment", {"thread": thread.name}):
-            frappe.db.delete("Drive Comment Thread", {"name": thread.name})
-        record(
-            principals,
-            node.name,
-            "comment",
-            detail={
-                "thread": comment_row.thread,
-                "comment": comment_row.name,
-                "resolved": bool(thread.resolved),
-            },
-            via_link=via_link,
-        )
+        delete_comment_row(principals, comment_row, node, via_link)
     except Exception as exc:
         rollback_savepoint(savepoint, exc)
         raise
@@ -590,7 +649,8 @@ def _validate_anchor(anchor: str) -> None:
         frappe.throw(_("Drive comment anchor must contain 1 to 255 characters"), frappe.ValidationError)
 
 
-def _validate_anchor_map(anchors: dict[str, str]) -> None:
+def validate_anchor_map(anchors: dict[str, str]) -> None:
+    """Refuse an anchor map that is too big or names a thread or an anchor badly."""
     if not isinstance(anchors, dict) or len(anchors) > MAX_PAGE_SIZE:
         frappe.throw(
             _("Drive may move at most {0} comment threads at once").format(MAX_PAGE_SIZE),

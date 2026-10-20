@@ -46,6 +46,27 @@ export function keepPageCopy(node: string, title: string, html: string, now = ne
 const schema = getSchema(writerSchema())
 const KEPT_FIELD = 'kept'
 
+async function storeRemovedWork(
+  store: DeviceStore,
+  node: string,
+  title: string,
+  fresh: Removal[],
+  blocks: yjs.XmlElement[],
+): Promise<'kept' | 'unkept'> {
+  // A sid of its own, since recover() files the copy under it and forgets that session
+  const id = crypto.randomUUID()
+  const sid = `restructure-${id}`
+  const keys = fresh.flatMap((removal) => removal.key ?? [])
+  const state = removedDoc(blocks, keys)
+  const entry = { doc: node, sid, seq: 0, bytes: state, sha: '', seenRev: 0 }
+  try {
+    await store.recover(node, [sid], 'restructure', [entry], { state, title })
+    return 'kept'
+  } catch {
+    return 'unkept'
+  }
+}
+
 /**
  * Keeps what someone else's edit removed as a recovery copy of `node`: a paragraph per lost
  * run and the removed images and the like, never where they sat. A removal with a key is
@@ -75,18 +96,7 @@ export async function keepRemovedWork(
     return null
   }
 
-  // A sid of its own, since recover() files the copy under it and forgets that session
-  const id = crypto.randomUUID()
-  const sid = `restructure-${id}`
-  const keys = fresh.flatMap((removal) => removal.key ?? [])
-  const state = removedDoc(blocks, keys)
-  const entry = { doc: node, sid, seq: 0, bytes: state, sha: '', seenRev: 0 }
-  try {
-    await store.recover(node, [sid], 'restructure', [entry], { state, title })
-    return 'kept'
-  } catch {
-    return 'unkept'
-  }
+  return storeRemovedWork(store, node, title, fresh, blocks)
 }
 
 // The keys of the losses this device's copies hold; a copy that can't be read holds none
