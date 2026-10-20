@@ -133,7 +133,7 @@ export function createWorkbook({
   let model: Model
   try {
     model = loadBytes
-      ? Model.from_bytes(loadBytes, LANGUAGE)
+      ? Model.fromBytes(loadBytes, LANGUAGE)
       : new Model(name, locale, timezone, LANGUAGE)
   } catch (e) {
     throw asWorkbookError(e, null)
@@ -164,7 +164,7 @@ export function createWorkbook({
   // protocol error, so this is acceptable.
   function restore(bytes: Uint8Array): void {
     try {
-      const fresh = Model.from_bytes(bytes, LANGUAGE)
+      const fresh = Model.fromBytes(bytes, LANGUAGE)
       model.free()
       model = fresh
     } catch {
