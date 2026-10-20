@@ -1,4 +1,5 @@
 import { Extension, Mark, Node, type AnyExtension } from '@tiptap/core'
+import { LineHeight } from '@tiptap/extension-text-style'
 import { Mark as PMMark, type Node as PMNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { AddMarkStep, ReplaceAroundStep, ReplaceStep, type Step } from '@tiptap/pm/transform'
@@ -256,6 +257,7 @@ export const writerSchema = () => [
   Heading,
   FontSize,
   FontFamily,
+  LineHeight,
   EmbedNode,
   ExtendedParagraph,
   PageBreakExtension,

@@ -1,5 +1,6 @@
 import type { AnyExtension } from '@tiptap/core'
 import { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
+import { LineHeight } from '@tiptap/extension-text-style'
 import { CharacterCount, Selection } from '@tiptap/extensions'
 import { Heading, ImageGroup, ImageViewer, type MentionSuggestionItem } from 'frappe-ui/editor'
 import type { Ref } from 'vue'
@@ -78,6 +79,7 @@ export const writerEditorExtensions = (options: WriterEditorOptions): AnyExtensi
   ReceivedContentGuard,
   FontSize,
   FontFamily,
+  LineHeight,
   EmbedExtension,
   ExtendedParagraph,
   CoreEditorExtension,

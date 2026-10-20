@@ -947,6 +947,57 @@ describe('convertLegacy', () => {
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
+  it('converts a Yjs text style with a line height and keeps the line height', () => {
+    const style = { textStyle: { color: 'red', lineHeight: '1.5' } }
+
+    const result = convert(stored(legacyDoc(yMarked('tall', style))))
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content).toEqual([
+      {
+        type: 'text',
+        text: 'tall',
+        marks: [
+          {
+            type: 'textStyle',
+            attrs: expect.objectContaining({ color: 'red', lineHeight: '1.5' }),
+          },
+        ],
+      },
+    ])
+  })
+
+  it('converts a Yjs text style whose values are all empty', () => {
+    const empty = { color: null, fontFamily: null, fontSize: null, lineHeight: null }
+    const style = { textStyle: { ...empty, backgroundColor: null } }
+
+    const result = convert(stored(legacyDoc(yMarked('plain', style))))
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content.map(({ text }: { text: string }) => text)).toEqual(['plain'])
+  })
+
+  it('reads a line height on an HTML span as the text style line height', () => {
+    const html = '<p><span style="line-height: 1.5">tall</span></p>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content).toEqual([
+      {
+        type: 'text',
+        text: 'tall',
+        marks: [{ type: 'textStyle', attrs: expect.objectContaining({ lineHeight: '1.5' }) }],
+      },
+    ])
+  })
+
+  it('refuses a Yjs text style with a background colour', () => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: '#fef08a' } })))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
   it("keeps Drive's HTML text colour and highlight as palette colours, and its ink as none", () => {
     const highlight = 'data-color="#fef9c3" style="background-color: #fef9c3; color: inherit"'
     const html = [
