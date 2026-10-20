@@ -1032,7 +1032,8 @@ const {
 const formats = createFormatsEngine()
 const merge = createMergeEngine()
 const sortFilter = createSortFilter({
-  read: (sn, rect) => _readRect(sn, rect),
+  // opts carries { numFmts }: sort and filter read dates by their format.
+  read: (sn, rect, opts) => _readRect(sn, rect, opts),
   write: (sn, map) => _writeInputs(sn, map),
 })
 const slicers = createSlicerEngine()
