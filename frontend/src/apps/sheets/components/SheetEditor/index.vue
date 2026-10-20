@@ -3692,9 +3692,23 @@ function _afterHistoryNavigate() {
 
 // ── Number format ─────────────────────────────────────────────────────────────
 
+// The active cell's number format for the toolbar label and the $ / %
+// buttons: ours, else the one IronCalc gave a typed `$1.50`, `50%` or date
+// (ISSUES #49: the label said General for those). IronCalc's is read in the
+// background; a newer selection wins.
+let _numFmtSeq = 0
 function _syncNumberFormat(id) {
-  const fmt = formats.get(id, currentSheet.value)
-  activeNumberFormat.value = fmt.numberFormat || ''
+  const sn = currentSheet.value
+  const ours = formats.get(id, sn).numberFormat || ''
+  activeNumberFormat.value = ours
+  const seq = ++_numFmtSeq
+  const p = parseCellId(id)
+  if (ours || !p) return
+  _readEngineFormats({ r0: p.row, c0: p.col, r1: p.row, c1: p.col }, sn)
+    .then((fmts) => {
+      if (seq === _numFmtSeq) activeNumberFormat.value = numFmtFromEngine(fmts[id], { dates: true })
+    })
+    .catch(() => {})
 }
 function toggleNumberFmt(type) {
   onNumberFormatChange(activeNumberFormatType.value === type ? '' : type)
@@ -3724,9 +3738,24 @@ function _applyPaintedFormat() {
   _copiedFormat = null
   refreshActiveFormat()
 }
-function onNumberFormatChange(value) {
+async function onNumberFormatChange(value) {
   const sn = currentSheet.value
   const ids = selectionIds()
+  // General (or a pressed $ / % turned off) also drops the format IronCalc
+  // gave a typed value, or it would still show. Like Clear formatting, it
+  // goes into our store first, so undo brings it back.
+  let engineIds = []
+  if (!value) {
+    const sel = grid?.getSelection()
+    const small = sel && (sel.r1 - sel.r0 + 1) * (sel.c1 - sel.c0 + 1) <= 10000
+    const engineFmts = small ? await _readEngineFormats(sel, sn) : {}
+    engineIds = Object.keys(engineFmts)
+    for (const id of engineIds) {
+      const ours = numFmtFromEngine(engineFmts[id], { dates: true })
+      if (ours && !formats.get(id, sn).numberFormat)
+        formats.applyToRange([id], { numberFormat: ours }, sn)
+    }
+  }
   _recordFormatOp(ids, sn, () =>
     formats.applyToRange(
       ids,
@@ -3736,6 +3765,7 @@ function onNumberFormatChange(value) {
       sn,
     ),
   )
+  if (engineIds.length) _resetEngineFormats(engineIds, sn)
   grid?.render?.() // the grid applies number formats as it paints
   _syncNumberFormat(activeCell.value)
   syncFlags()
