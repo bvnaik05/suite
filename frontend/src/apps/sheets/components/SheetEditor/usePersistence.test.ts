@@ -155,6 +155,38 @@ describe('Sheets persistence', () => {
     expect(started).toEqual([new Uint8Array([7]), null])
   })
 
+  it('names both IronCalc versions when a body saved by another one does not open', async () => {
+    const failing = (version?: string) => {
+      server.answer = () => ({
+        name: 's',
+        title: 'T',
+        sheets_data: JSON.stringify({ engine: btoa('\x07'), engine_version: version }),
+      })
+      return persistence({
+        engine: {
+          start: async () => {
+            throw new Error('Error parsing workbook: bitcode error')
+          },
+        },
+      })
+    }
+
+    const newer = failing('0.9.0')
+    await newer.loadSheet('s')
+    expect(newer.loadError.value).toEqual({
+      kind: 'other',
+      message: expect.stringMatching(/IronCalc 0\.9\.0.*IronCalc 0\.8\.4/),
+    })
+
+    // Same version: the body itself is damaged; say what IronCalc said.
+    const same = failing('0.8.4')
+    await same.loadSheet('s')
+    expect(same.loadError.value).toEqual({
+      kind: 'other',
+      message: 'Error parsing workbook: bitcode error',
+    })
+  })
+
   it("loads and saves through the caller's fetch, so link credentials ride along", async () => {
     const requestContext = vi.fn()
     const saved = persistence({ requestContext })
