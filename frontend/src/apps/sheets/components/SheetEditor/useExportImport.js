@@ -6,6 +6,7 @@ import {
   toXlsxCell,
 } from '../../engine/xlsx-io.js'
 import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
+import { dateSerialFromShown } from '../../utils/format-number.js'
 
 // ── private helpers ────────────────────────────────────────────────────────────
 
@@ -126,8 +127,14 @@ export function useExportImport({
         if (raw === '') return
         const id = cellId(r, c)
         const computed = raw.startsWith('=') ? displays[r][c] : null
-        const fmt = formats?.get(id, sn)?.numberFormat || numFmtFromEngine(numFmts?.[r]?.[c]) || ''
-        const cell = toXlsxCell(raw, computed, fmt)
+        const ours = formats?.get(id, sn)?.numberFormat
+        const engineCode = numFmts?.[r]?.[c]
+        // A date IronCalc formatted (a typed 2025-12-09, =TODAY()) goes out
+        // as its day serial with IronCalc's code, which is Excel's grammar.
+        const serial = ours ? NaN : dateSerialFromShown(displays[r][c], engineCode)
+        const cell = !isNaN(serial)
+          ? { ...(raw.startsWith('=') && { f: raw.slice(1) }), t: 'n', v: serial, z: engineCode }
+          : toXlsxCell(raw, computed, ours || numFmtFromEngine(engineCode) || '')
         if (!cell) return
         ws[id] = cell
         if (r > maxR) maxR = r

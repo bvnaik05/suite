@@ -15,9 +15,9 @@ vi.mock('xlsx', async (load) => {
 describe('exportXLSX', () => {
   it('carries the format IronCalc gave a typed value, and formula results as numbers', async () => {
     const sheet = {
-      inputs: [['1.5', '0.15', '1000', '=A1*2', 'x']],
-      displays: [['$1.50', '15%', '1,000', '$3.00', 'x']],
-      numFmts: [['$#,##0.00', '#,##0%', '#,##0', '$#,##0.00', 'general']],
+      inputs: [['1.5', '0.15', '1000', '=A1*2', 'x', '2025-12-09', '=DATE(2025,12,9)']],
+      displays: [['$1.50', '15%', '1,000', '$3.00', 'x', '2025-12-09', '12/9/2025']],
+      numFmts: [['$#,##0.00', '#,##0%', '#,##0', '$#,##0.00', 'general', 'yyyy-mm-dd', 'm/d/yyyy']],
     }
     const readSheet = vi.fn(async (_sn: string, opts?: { numFmts?: boolean }) =>
       opts?.numFmts ? sheet : { inputs: sheet.inputs, displays: sheet.displays },
@@ -43,5 +43,8 @@ describe('exportXLSX', () => {
     expect(ws.D1).toMatchObject({ t: 'n', v: 3, z: '"$"#,##0.00' })
     expect(ws.E1).toMatchObject({ t: 's', v: 'x' })
     expect(ws.E1?.z).toBeUndefined()
+    // A typed date is the day serial with its date code, not the text.
+    expect(ws.F1).toEqual({ t: 'n', v: 46000, z: 'yyyy-mm-dd' })
+    expect(ws.G1).toEqual({ f: 'DATE(2025,12,9)', t: 'n', v: 46000, z: 'm/d/yyyy' })
   })
 })
