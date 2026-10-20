@@ -229,6 +229,65 @@ describe('where a thread shows after another tab edits its text', () => {
   })
 })
 
+// A thread from "bb" to "cc", across two paragraphs, made in a tab
+function threadAcrossParagraphs() {
+  const local = new Y.Doc()
+  const editor = openEditor(local)
+  editor.commands.setContent('<p>aa bb</p><p>cc dd</p>')
+  editor.commands.setTextSelection({ from: 4, to: 10 })
+  return { local, editor, anchor: anchorSelection(editor.state)! }
+}
+
+// Where it shows after `edit` in the editing tab, a tab it reaches, and a doc opened after it
+function shownInEveryTab(edit: (editor: Editor) => void) {
+  const { local, editor, anchor } = threadAcrossParagraphs()
+  const remote = new Y.Doc()
+  Y.applyUpdate(remote, Y.encodeStateAsUpdate(local))
+  const remoteEditor = openEditor(remote)
+  edit(editor)
+  Y.applyUpdate(remote, Y.encodeStateAsUpdate(local, Y.encodeStateVector(remote)))
+  const fresh = new Y.Doc()
+  Y.applyUpdate(fresh, Y.encodeStateAsUpdate(local))
+  return [editor, remoteEditor, openEditor(fresh)].map((each) => shownText(each, anchor))
+}
+
+function deleteBetween(from: number, to: number) {
+  return (editor: Editor) => {
+    editor.commands.setTextSelection({ from, to })
+    editor.commands.deleteSelection()
+  }
+}
+
+describe('where a thread across two paragraphs shows after the tab holding it edits', () => {
+  it.each([
+    {
+      name: 'joins the paragraphs',
+      edit: (editor: Editor) => {
+        editor.commands.setTextSelection(8)
+        editor.commands.joinBackward()
+      },
+      shown: 'deleted',
+    },
+    { name: 'deletes across the paragraph break', edit: deleteBetween(5, 9), shown: 'deleted' },
+    {
+      name: 'deletes some of its words, leaving both paragraphs',
+      edit: deleteBetween(4, 6),
+      shown: 'cc',
+    },
+    {
+      name: 'deletes all of its words, leaving both paragraphs',
+      edit: (editor: Editor) => {
+        deleteBetween(1, 6)(editor)
+        deleteBetween(3, 5)(editor)
+      },
+      shown: '',
+    },
+    { name: 'leaves it alone', edit: () => {}, shown: 'bbcc' },
+  ])('shows the same in every tab when it $name', ({ edit, shown }) => {
+    expect(shownInEveryTab(edit)).toEqual([shown, shown, shown])
+  })
+})
+
 describe('an anchor on the selection', () => {
   it('holds its first and last characters, so text typed at either edge stays outside', () => {
     const doc = new Y.Doc()

@@ -34,6 +34,10 @@ export function placeThread(state: EditorState, anchor: string): ThreadPlace {
   }
 
   const { doc, type, binding } = sync
+  if (isInDeletedBlock(doc, read.start) || isInDeletedBlock(doc, read.end)) {
+    return { kind: 'deleted', quote: read.quote }
+  }
+
   const { mapping, hidden } = binding
   const from = relativePositionToAbsolutePosition(doc, type, read.start, mapping, hidden)
   const to = relativePositionToAbsolutePosition(doc, type, read.end, mapping, hidden)
@@ -73,6 +77,20 @@ function atomText(node: PMNode): string {
 function positionAt(doc: Y.Doc, position: Y.RelativePosition, assoc: number) {
   const absolute = Y.createAbsolutePositionFromRelativePosition(position, doc)!
   return Y.createRelativePositionFromTypeIndex(absolute.type, absolute.index, assoc)
+}
+
+// A tab whose undo history keeps a deleted block would otherwise place the end where the block was
+function isInDeletedBlock(doc: Y.Doc, position: Y.RelativePosition) {
+  let type = Y.createAbsolutePositionFromRelativePosition(position, doc)?.type
+  while (type?._item) {
+    if (type._item.deleted) {
+      return true
+    }
+
+    type = type._item.parent as Y.AbstractType<unknown>
+  }
+
+  return false
 }
 
 // Yjs can't tell text not received yet from text deleted for good, so this asks first
