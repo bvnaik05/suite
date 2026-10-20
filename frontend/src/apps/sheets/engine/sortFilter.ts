@@ -93,7 +93,8 @@ export function createSortFilter(cells: CellPort) {
   // Sort data rows of the active filter range (range.r0 stays as the header)
   // by their displayed values. Formulas move with their row and shift their
   // references by the distance moved. Returns the {cellId: input} maps of
-  // the rows before and after, for undo; null when nothing to sort.
+  // the rows before and after, for undo, and the order and rect it used;
+  // null when nothing to sort.
   async function sort(colIndex: number, dir: 'asc' | 'desc' = 'asc', sheetName: string) {
     const range = getRange(sheetName)
     if (!range || !_inCols(colIndex, range) || range.r1 <= range.r0) return null
@@ -118,7 +119,9 @@ export function createSortFilter(cells: CellPort) {
       }
     })
     cells.write(sheetName, after)
-    return { before, after }
+    // `order[to] = from`: the data row each sorted row came from, so the
+    // caller can move the rows' formats the same way (formatsAfterSort).
+    return { before, after, order, rect }
   }
 
   function _cmp(av: string | number, bv: string | number, dir: 'asc' | 'desc') {
@@ -361,4 +364,25 @@ export function createSortFilter(cells: CellPort) {
     snapshot,
     restore,
   }
+}
+
+/**
+ * Each cell of a sorted rect mapped to the format of the cell its value came
+ * from (`order[to] = from`, rows relative to rect.r0), so formats travel
+ * with their rows as in Google Sheets. `before` is {cellId: format | null}
+ * over the rect; a missing or empty source maps to null (clear).
+ */
+export function formatsAfterSort<F>(
+  order: number[],
+  rect: Rect,
+  before: Record<string, F | null | undefined>,
+): Record<string, F | null> {
+  const out: Record<string, F | null> = {}
+  order.forEach((from, to) => {
+    for (let c = rect.c0; c <= rect.c1; c++) {
+      const src = before[cellId(rect.r0 + from, c)]
+      out[cellId(rect.r0 + to, c)] = src && Object.keys(src).length ? src : null
+    }
+  })
+  return out
 }

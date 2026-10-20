@@ -70,3 +70,13 @@ describe('pushEditOp', () => {
     expect(refit).not.toHaveBeenCalled()
   })
 })
+
+describe('pushEditOp extra fields', () => {
+  it('puts them on the op (sort adds its format maps)', () => {
+    const op = setup().pushEditOp('Sheet1', { A1: 'a' }, { A1: 'b' }, 'Sort', {
+      beforeFormats: { A1: null },
+      afterFormats: { A1: { bold: true } },
+    })
+    expect(op).toMatchObject({ beforeFormats: { A1: null }, afterFormats: { A1: { bold: true } } })
+  })
+})

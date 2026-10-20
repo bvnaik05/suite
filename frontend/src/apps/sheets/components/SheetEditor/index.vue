@@ -2248,7 +2248,7 @@ const {
   getGridWrap: () => gridWrapRef.value,
   contextMenu,
   currentSheet,
-  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+  pushEditOp: (sn, before, after, summary, extra) => _pushEditOp(sn, before, after, summary, extra),
   blockProtected: (rect, sn) => _rectBlocked(rect, sn),
 })
 
@@ -2398,12 +2398,16 @@ const {
   getGrid: () => grid,
   readRect: _readRect,
   rectBlocked: (rect, sn) => _rectBlocked(rect, sn),
-  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+  pushEditOp: (sn, before, after, summary, extra) => _pushEditOp(sn, before, after, summary, extra),
   repopulateGrid: () => _repopulateGrid(),
   applyHiddenRows: () => _applyHiddenRows(),
   markDirty: () => {
     isDirty.value = true
   },
+  formats,
+  captureFormatsRange: _captureFormatsRange,
+  readEngineFormats: _readEngineFormats,
+  resetEngineFormats: _resetEngineFormats,
 })
 
 // Per-sub-sheet peer dots — small colored circles next to each tab label
@@ -4406,7 +4410,7 @@ const {
   cellBlocked: (id, sn) => _cellBlocked(id, sn),
   cellSilentlyProtected: (id, sn) => _cellSilentlyProtected(id, sn),
   recordFormatOp: (ids, sn, mutate) => _recordFormatOp(ids, sn, mutate),
-  pushEditOp: (sn, before, after, summary) => _pushEditOp(sn, before, after, summary),
+  pushEditOp: (sn, before, after, summary, extra) => _pushEditOp(sn, before, after, summary, extra),
   refreshActiveFormat: () => refreshActiveFormat(),
   syncFlags: () => syncFlags(),
   markDirty: () => {

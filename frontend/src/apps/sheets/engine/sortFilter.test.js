@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { cellId } from '../utils/cells.js'
-import { createSortFilter } from './sortFilter.js'
+import { createSortFilter, formatsAfterSort } from './sortFilter.js'
 
 // The `cells` port over {cellId: input} plus {cellId: display} stores. A
 // cell without a display entry displays its input.
@@ -186,5 +186,26 @@ describe('dates', () => {
     sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 0 }, 'Sheet1')
     await sf.sort(0, 'asc', 'Sheet1')
     expect(cells.writes[0][1]).toEqual({ A2: '2025-12-09', A3: '2025-12-10', A4: '2026-01-05' })
+  })
+})
+
+// Formats travel with their rows (ISSUES #48): sort reports the order it
+// used, and formatsAfterSort maps each target cell to its source's format.
+describe('formats move with their rows', () => {
+  it('returns the order and the rect it sorted', async () => {
+    const cells = makeCells({ A1: 'h', A2: '3', A3: '1', A4: '2' })
+    const sf = createSortFilter(cells)
+    sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 0 }, 'Sheet1')
+    const res = await sf.sort(0, 'asc', 'Sheet1')
+    expect(res.order).toEqual([1, 2, 0])
+    expect(res.rect).toEqual({ r0: 1, c0: 0, r1: 3, c1: 0 })
+  })
+
+  it('maps each cell to the format of the cell its value came from', () => {
+    const bold = { bold: true }
+    const usd = { numberFormat: 'currency:USD:2' }
+    const before = { A2: bold, B2: usd, A3: null, B3: null, A4: null, B4: { italic: true } }
+    const out = formatsAfterSort([2, 0, 1], { r0: 1, c0: 0, r1: 3, c1: 1 }, before)
+    expect(out).toEqual({ A2: null, B2: { italic: true }, A3: bold, B3: usd, A4: null, B4: null })
   })
 })

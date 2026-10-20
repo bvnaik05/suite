@@ -30,7 +30,8 @@ export function useEditOps({
   isDirty,
   refitRowsFor,
 }) {
-  function pushEditOp(sheetName, beforeMap, afterMap, summary = '') {
+  // `extra` adds fields to the op (sort adds beforeFormats / afterFormats).
+  function pushEditOp(sheetName, beforeMap, afterMap, summary = '', extra = {}) {
     if (!beforeMap || !afterMap) return null
     const sn = sheetName || currentSheet.value
     const refs = []
@@ -45,7 +46,7 @@ export function useEditOps({
       }
     }
     if (!refs.length) return null
-    const op = { opType: 'edit', subSheet: sn, cellRefs: refs, before, after, summary }
+    const op = { opType: 'edit', subSheet: sn, cellRefs: refs, before, after, summary, ...extra }
     const rowH = refitRowsFor?.(sn, after)
     if (rowH) {
       op.beforeRowH = rowH.before
