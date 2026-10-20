@@ -49,12 +49,14 @@ export interface LegacyBody {
 
 /**
  * What the conversion couldn't carry over: a part the editor can't hold, a change Yjs held back,
- * or the words of an old comment's copy away from its anchor.
+ * the words of an old comment's copy away from its anchor, or a Yjs body holding nothing, read
+ * past for the HTML.
  */
 export type Dropped =
   | { kind: 'node'; name: string; text: string }
   | { kind: 'pending'; text: string; parts: string[] }
   | { kind: 'comment-copy'; id: string; text: string }
+  | { kind: 'empty-yjs' }
 
 export type Converted =
   | {
@@ -179,6 +181,26 @@ function isHintOnlyToc(part: AbstractType<unknown>) {
 
 function isDroppable(part: AbstractType<unknown>) {
   return isHintOnlyToc(part) || !holdsContent(part)
+}
+
+// Blocks that hold no words when empty, and the line break, which never does
+const WORDLESS = new Set(['paragraph', 'heading', 'hardBreak'])
+
+function isWordOrPart(type: AbstractType<unknown>) {
+  if (type instanceof XmlText) {
+    return type.length > 0
+  }
+
+  if (isHintOnlyToc(type)) {
+    return false
+  }
+
+  return type instanceof XmlElement && !type.length && !WORDLESS.has(type.nodeName)
+}
+
+// No words, embeds or parts; what empty blocks store, like a heading's level, isn't counted
+function holdsNothing(body: XmlFragment) {
+  return !!body.createTreeWalker(isWordOrPart).next().done
 }
 
 function lostParts(lost: AbstractType<unknown>[]): Dropped[] {
@@ -354,6 +376,17 @@ function fromHtml(html: string) {
   }
 }
 
+// The HTML read in place of a Yjs body holding nothing; the Yjs document's threads still refuse it
+// and its held-back changes are still recorded
+function fromHtmlOverYjs(old: Doc, html: string) {
+  const parsed = fromHtml(html)
+  return {
+    ...parsed,
+    dropped: [{ kind: 'empty-yjs' } as const, ...pendingDrop(old)],
+    hasUnreadableThreads: parsed.hasUnreadableThreads || unreadableThreads(old).length > 0,
+  }
+}
+
 function isNotComment([key]: [string, unknown]) {
   return key !== 'comment'
 }
@@ -388,6 +421,10 @@ function read(legacy: LegacyBody) {
   // A body saved without collaboration has only its HTML
   if (legacy.collab !== 0) {
     const old = decoded(legacy.content)
+    if (old && holdsNothing(old.getXmlFragment(BODY_FIELD))) {
+      return { ...fromHtmlOverYjs(old, legacy.html ?? ''), from: 'html' as const }
+    }
+
     if (old) {
       return { ...fromYjs(old), from: 'yjs' as const }
     }

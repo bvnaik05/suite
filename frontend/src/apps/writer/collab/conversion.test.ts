@@ -425,6 +425,66 @@ describe('convertLegacy', () => {
     expect(result.from).toBe('html')
   })
 
+  it('converts from the HTML when the Yjs body holds no words or parts, and records it (R317)', () => {
+    const toc = yAtom('tocNode', { placeholder: 'Table of Contents' })
+    const doc = legacyDoc(yElement('paragraph'), yHeading(''), toc, yParagraph(''))
+    const legacy = { ...stored(doc), html: '<p>typed later</p>' }
+
+    const result = convert(legacy)
+
+    expect(bodyOf(result.state)).toEqual(page(words('typed later')))
+    expect([result.from, result.dropped]).toEqual(['html', [{ kind: 'empty-yjs' }]])
+  })
+
+  it('converts from the HTML when the Yjs body holds only a list of empty items', () => {
+    const list = yElement('bulletList', yElement('listItem', yElement('paragraph')))
+    const legacy = { ...stored(legacyDoc(list)), html: '<p>typed later</p>' }
+
+    const result = convert(legacy)
+
+    expect(bodyOf(result.state)).toEqual(page(words('typed later')))
+    expect([result.from, result.dropped]).toEqual(['html', [{ kind: 'empty-yjs' }]])
+  })
+
+  it.each([
+    { name: 'words', block: () => yParagraph('typed') },
+    { name: 'a part', block: () => new XmlElement('horizontalRule') },
+  ])('converts from a Yjs body holding $name, not the HTML', ({ block }) => {
+    const legacy = { ...stored(legacyDoc(yElement('paragraph'), block())), html: '<p>older</p>' }
+
+    const result = convert(legacy)
+
+    expect(result.from).toBe('yjs')
+    expect(JSON.stringify(bodyOf(result.state))).not.toContain('older')
+  })
+
+  it('refuses the HTML over a Yjs body holding nothing whose annotations list holds threads', () => {
+    const doc = legacyDoc(yElement('paragraph'))
+    doc.getArray('docAnnotations').insert(0, [{ id: 'a1' }])
+    const legacy = { ...stored(doc), html: '<p>typed later</p>' }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('records text Yjs holds back in a body holding nothing read past for the HTML', () => {
+    const writer = new Doc()
+    const text = new XmlText()
+    writer.getXmlFragment(BODY_FIELD).insert(0, [yElement('paragraph', text)])
+    const before = encodeStateVector(writer)
+    text.insert(0, 'held')
+    const later = encodeStateAsUpdate(writer, before)
+    const other = legacyDoc(yElement('paragraph'))
+    const content = toBase64(mergeUpdates([encodeStateAsUpdate(other), later]))
+
+    const result = convert({ content, html: '<p>typed later</p>', collab: 1 })
+
+    expect(bodyOf(result.state)).toEqual(page(words('typed later')))
+    expect(result.dropped).toEqual([
+      { kind: 'empty-yjs' },
+      { kind: 'pending', text: 'held', parts: [] },
+    ])
+  })
+
   it('gives headings the ids the editor draws for them today and keeps ids they had', () => {
     const doc = legacyDoc(
       yHeading('Intro'),
