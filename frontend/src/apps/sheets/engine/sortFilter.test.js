@@ -149,3 +149,42 @@ describe('numbers IronCalc formatted', () => {
     expect(sf.getColumnValues(0, 'Sheet1')).toEqual(['3', '12', '1,000'])
   })
 })
+
+// Dates show as text (`12/10/2025`); compared as strings, 12/10 sorted
+// before 12/9 and 1/5/2026 before both. Sort reads IronCalc's date format
+// with the cells and compares the dates.
+describe('dates', () => {
+  function datesCells(shown, code) {
+    const inputs = { A1: 'When' }
+    shown.forEach((s, i) => (inputs[`A${i + 2}`] = s))
+    const base = makeCells(inputs)
+    return {
+      ...base,
+      read: async (sn, rect, opts) => {
+        const res = await base.read(sn, rect, opts)
+        return opts?.numFmts ? { ...res, numFmts: res.displays.map((r) => r.map(() => code)) } : res
+      },
+    }
+  }
+
+  it('sorts m/d/yyyy dates by date', async () => {
+    const cells = datesCells(['12/10/2025', '1/5/2026', '12/9/2025'], 'm/d/yyyy')
+    const sf = createSortFilter(cells)
+    sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 0 }, 'Sheet1')
+    await sf.sort(0, 'asc', 'Sheet1')
+    expect(cells.writes[0][1]).toEqual({ A2: '12/9/2025', A3: '12/10/2025', A4: '1/5/2026' })
+  })
+
+  it('sorts dd/mm/yyyy and yyyy-mm-dd dates by date', async () => {
+    let cells = datesCells(['10/12/2025', '05/01/2026', '09/12/2025'], 'dd/mm/yyyy')
+    let sf = createSortFilter(cells)
+    sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 0 }, 'Sheet1')
+    await sf.sort(0, 'desc', 'Sheet1')
+    expect(cells.writes[0][1]).toEqual({ A2: '05/01/2026', A3: '10/12/2025', A4: '09/12/2025' })
+    cells = datesCells(['2025-12-10', '2026-01-05', '2025-12-09'], 'yyyy-mm-dd')
+    sf = createSortFilter(cells)
+    sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 0 }, 'Sheet1')
+    await sf.sort(0, 'asc', 'Sheet1')
+    expect(cells.writes[0][1]).toEqual({ A2: '2025-12-09', A3: '2025-12-10', A4: '2026-01-05' })
+  })
+})

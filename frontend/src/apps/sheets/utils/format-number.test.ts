@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyNumberFmt, buildNumberFmt, parseNumberFmt } from './format-number.js'
+import {
+  applyNumberFmt,
+  buildNumberFmt,
+  dateSerialFromShown,
+  parseNumberFmt,
+} from './format-number.js'
 
 describe('parseNumberFmt', () => {
   it('returns empty fields for falsy input', () => {
@@ -420,5 +425,22 @@ describe('applyCustomFmt — Excel-style patterns', () => {
       variant: '',
       decimals: null,
     })
+  })
+})
+
+describe('dateSerialFromShown', () => {
+  it('reads a date in the order its code gives', () => {
+    expect(dateSerialFromShown('12/9/2025', 'm/d/yyyy')).toBe(46000)
+    expect(dateSerialFromShown('09/12/2025', 'dd/mm/yyyy')).toBe(46000)
+    expect(dateSerialFromShown('2025-12-09', 'yyyy-mm-dd')).toBe(46000)
+  })
+  it('adds the time of day', () => {
+    expect(dateSerialFromShown('12/9/2025 6:00 PM', 'm/d/yyyy h:mm AM/PM')).toBe(46000.75)
+    expect(dateSerialFromShown('12/9/2025 12:00 AM', 'm/d/yyyy h:mm AM/PM')).toBe(46000)
+  })
+  it('is NaN for text or a non-date code', () => {
+    expect(dateSerialFromShown('hello', 'm/d/yyyy')).toBeNaN()
+    expect(dateSerialFromShown('12/9/2025', 'general')).toBeNaN()
+    expect(dateSerialFromShown('12/9/2025', '#,##0')).toBeNaN()
   })
 })

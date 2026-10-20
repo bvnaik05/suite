@@ -1,6 +1,6 @@
 import { cellId } from '../utils/cells.js'
 import { deepClone } from '../utils/deep-clone.js'
-import { displayNumber } from '../utils/format-number.js'
+import { dateSerialFromShown, displayNumber } from '../utils/format-number.js'
 import { adjustFormula } from './formula-adjust.js'
 import { remapIndexKeys, remapRect } from './ref-remap.js'
 import type { CellPort, IndexMap, Rect } from './types.js'
@@ -98,10 +98,16 @@ export function createSortFilter(cells: CellPort) {
     const range = getRange(sheetName)
     if (!range || !_inCols(colIndex, range) || range.r1 <= range.r0) return null
     const rect = { r0: range.r0 + 1, c0: range.c0, r1: range.r1, c1: range.c1 }
-    const { inputs, displays } = await cells.read(sheetName, rect)
+    const { inputs, displays, numFmts } = await cells.read(sheetName, rect, { numFmts: true })
     const key = colIndex - rect.c0
+    // A date shows as text (12/9/2025); its format turns it back into a date.
+    const shown = (i: number) => {
+      const s = displays[i]?.[key] ?? ''
+      const serial = dateSerialFromShown(s, numFmts?.[i]?.[key])
+      return isNaN(serial) ? s : serial
+    }
     const order = inputs.map((_, i) => i)
-    order.sort((a, b) => _cmp(displays[a]?.[key] ?? '', displays[b]?.[key] ?? '', dir))
+    order.sort((a, b) => _cmp(shown(a), shown(b), dir))
     const before: Record<string, string> = {}
     const after: Record<string, string> = {}
     order.forEach((from, to) => {
@@ -115,7 +121,7 @@ export function createSortFilter(cells: CellPort) {
     return { before, after }
   }
 
-  function _cmp(av: string, bv: string, dir: 'asc' | 'desc') {
+  function _cmp(av: string | number, bv: string | number, dir: 'asc' | 'desc') {
     if (av === '' && bv === '') return 0
     if (av === '') return 1
     if (bv === '') return -1

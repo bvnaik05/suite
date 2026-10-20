@@ -222,6 +222,28 @@ export function displayNumber(value: unknown): number {
   return (sign === '-' ? -n : n) / (percent ? 100 : 1)
 }
 
+// The day serial of a date IronCalc displays with an Excel-style date code
+// (`12/9/2025` under m/d/yyyy, `09/12/2025` under dd/mm/yyyy, `2025-12-09`,
+// with an optional `h:mm[:ss] [AM/PM]`), or NaN. The code gives the order of
+// day, month and year; the worker exposes no raw value, so sort reads dates
+// back this way.
+export function dateSerialFromShown(shown: unknown, code: string | null | undefined): number {
+  const c = String(code ?? '').replace(/"[^"]*"/g, '')
+  if (!/[dy]/i.test(c) || /general/i.test(c)) return NaN
+  const m =
+    /^(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)?)?$/i.exec(
+      String(shown ?? '').trim(),
+    )
+  if (!m) return NaN
+  const [a, b, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const lead = c.trim()[0]?.toLowerCase()
+  const [y, mo, day] = lead === 'y' ? [a, b, d] : lead === 'd' ? [d, b, a] : [d, a, b]
+  let h = Number(m[4] ?? 0)
+  if (m[7]) h = (h % 12) + (/p/i.test(m[7]) ? 12 : 0)
+  const secs = h * 3600 + Number(m[5] ?? 0) * 60 + Number(m[6] ?? 0)
+  return Date.UTC(y, mo - 1, day) / 86400000 + 25569 + secs / 86400
+}
+
 // Types whose value is a date, not a plain number to round/group.
 const DATE_LIKE = new Set(['date', 'time', 'datetime'])
 
