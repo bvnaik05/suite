@@ -435,7 +435,12 @@
       />
 
       <!-- Rename sheet dialog -->
-      <Dialog v-model:open="showRenameDialog" title="Rename sheet" size="sm">
+      <Dialog
+        v-model:open="showRenameDialog"
+        title="Rename sheet"
+        size="sm"
+        @after-leave="_refocusGridAfterDialog"
+      >
         <template #default>
           <FormControl
             ref="renameInputRef"
@@ -578,6 +583,7 @@
         v-model:open="showInsertManyDialog"
         :title="insertMany.kind === 'row' ? 'Insert rows' : 'Insert columns'"
         size="sm"
+        @after-leave="_refocusGridAfterDialog"
       >
         <template #default>
           <FormControl
@@ -598,7 +604,12 @@
       </Dialog>
 
       <!-- Custom number-format dialog -->
-      <Dialog v-model:open="customFormatDialog.open" title="Custom number format" size="sm">
+      <Dialog
+        v-model:open="customFormatDialog.open"
+        title="Custom number format"
+        size="sm"
+        @after-leave="_refocusGridAfterDialog"
+      >
         <template #default>
           <div class="sn-form-stack">
             <FormControl
@@ -4064,6 +4075,14 @@ const {
 })
 
 // ── Context menu ──────────────────────────────────────────────────────────────
+
+// A closing dialog hands focus back to what had it before it opened (a tab
+// menu item, gone by then), so it lands on <body>: keys typed into the grid
+// right after a rename were lost (ISSUES #63). Once it has gone, the grid
+// takes focus back unless something else (a click, an editor) has it.
+function _refocusGridAfterDialog() {
+  setTimeout(_refocusGridIfIdle)
+}
 
 const showRenameDialog = ref(false)
 const renameValue = ref('')
