@@ -353,11 +353,14 @@ const GRAY_HIGHLIGHT = { red: 229, green: 231, blue: 235 }
 
 type Rgb = typeof INK
 
-// The gray an old tone the editor reads as none keeps its look as, and what shows with no colour
+// Where an unnamed tone lands: gray when nearer `gray`, no colour when nearer `none` or as near
 const TONES: Record<ColourProperty, { gray: Rgb; none: Rgb }> = {
   color: { gray: GRAY_TEXT, none: INK },
   'background-color': { gray: GRAY_HIGHLIGHT, none: PAGE },
 }
+
+// A palette name or the editor's own var(--prose-...) reference, with nothing around it
+const WHOLE_NAME = /^([a-z]+|var\(--[a-z0-9-]+\))$/i
 
 const CHANNELS = 3
 const BYTE = 255
@@ -399,14 +402,16 @@ function byteOf(channel: string) {
   return Math.max(0, Math.min(BYTE, Math.round(byte)))
 }
 
-// The distance frappe-ui's color-parse matches colours by, straight across red, green and blue
-function distance(from: Rgb, to: Rgb) {
-  return Math.hypot(from.red - to.red, from.green - to.green, from.blue - to.blue)
+// How far apart two colours are straight across red, green and blue, squared: it's only compared,
+// so a whole-byte tie stays a tie
+function squaredDistance(from: Rgb, to: Rgb) {
+  const [red, green, blue] = [from.red - to.red, from.green - to.green, from.blue - to.blue]
+  return red * red + green * green + blue * blue
 }
 
 // The palette name an old colour keeps its look as, '' when it looks like none: the one the editor
 // reads, or for a tone it reads as none, gray or no colour by whichever is nearer; null when it
-// can't be read
+// can't be read or holds more than a colour
 function oldPaletteName(property: ColourProperty, value: string): string | null {
   if (value.includes(';')) {
     return null
@@ -416,6 +421,10 @@ function oldPaletteName(property: ColourProperty, value: string): string | null 
   const isSeeThrough = property === 'background-color' && rgb?.alpha === 0
   if (isSeeThrough || value.trim().toLowerCase() === LOOKS_UNSET[property]) {
     return ''
+  }
+
+  if (!rgb && !WHOLE_NAME.test(value.trim())) {
+    return null
   }
 
   const name = paletteName(property, value)
@@ -428,7 +437,7 @@ function oldPaletteName(property: ColourProperty, value: string): string | null 
   }
 
   const { gray, none } = TONES[property]
-  if (distance(rgb, gray) < distance(rgb, none)) {
+  if (squaredDistance(rgb, gray) < squaredDistance(rgb, none)) {
     return 'gray'
   }
 
@@ -472,28 +481,21 @@ function highlightName(value: unknown): string | null {
 // run holds, or that highlight's own colour; null when one can't be read
 function highlightFormat(backgroundColor: unknown, held: unknown): Attributes | null {
   const heldColour = (held as Attributes | undefined)?.color
-  const [name, heldName] = [backgroundColor, heldColour].map(highlightName)
-  if (name === null || heldName === null) {
+  const name = highlightName(backgroundColor)
+  const heldName = highlightName(heldColour)
+  if (name === null || heldName === null || (name && heldName && name !== heldName)) {
     return null
   }
 
-  if (name) {
-    if (heldName && heldName !== name) {
-      return null
-    }
-
-    return { namedHighlight: { color: name } }
+  if (name || heldName) {
+    return { namedHighlight: { color: name || heldName } }
   }
 
-  if (typeof heldColour !== 'string') {
+  if (heldColour == null) {
     return {}
   }
 
-  if (!heldName) {
-    return { namedHighlight: null }
-  }
-
-  return { namedHighlight: { ...(held as Attributes), color: heldName } }
+  return { namedHighlight: null }
 }
 
 // The keys that set formatting's old text style colours as palette names, its background on the
