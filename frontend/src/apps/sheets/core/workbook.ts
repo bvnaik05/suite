@@ -456,7 +456,13 @@ export function createWorkbook({
             if (col < c1 || col > c2 || model.getCellContent(idx, row, col) === '') continue
             stats.count++
             if (model.getCellType(idx, row, col) !== NUMBER_CELL) continue
-            const n = numberFromShown(model.getFormattedCellValue(idx, row, col))
+            const shown = model.getFormattedCellValue(idx, row, col)
+            // A date counts but isn't added up: its shown 2026-01-15 read
+            // as the number 2026 (ISSUES #67). Only text that looks like a
+            // date pays for the style read.
+            const dateLike = /\d[-/]\d|[A-Za-z]{3}/.test(shown)
+            if (dateLike && isDateFormat(model.getCellStyle(idx, row, col).style.num_fmt)) continue
+            const n = numberFromShown(shown)
             if (Number.isFinite(n)) {
               stats.numCount++
               stats.sum += n
