@@ -825,6 +825,7 @@ import { createSlicerEngine } from '../../engine/slicers.js'
 import { createSortFilter } from '../../engine/sortFilter.js'
 import { parseSparkline, sparkSpec } from '../../engine/sparkline.js'
 import { createValidationEngine } from '../../engine/validation.js'
+import { numFmtFromEngine } from '../../engine/xlsx-io.js'
 import { cellHistory as fetchCellHistory } from '../../services/versions.js'
 import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
 import { applyNumberFmt, buildNumberFmt, parseNumberFmt } from '../../utils/format-number.js'
@@ -1683,13 +1684,17 @@ async function _computeSelectionStatsAsync(token) {
 
 // Bump decimal precision for the selection. Treats 'General' as 'number:1' on
 // first +, no-op on -. Numeric types pick a sensible default if no decimals
-// were previously set.
-function adjustDecimals(delta) {
+// were previously set. A cell with no format of ours starts from the one
+// IronCalc gave a typed `$1.50` or `50%`, so the $ or % stays.
+async function adjustDecimals(delta) {
   const ids = selectionIds()
   const sh = currentSheet.value
+  const sel = grid?.getSelection()
+  const small = sel && (sel.r1 - sel.r0 + 1) * (sel.c1 - sel.c0 + 1) <= 10000
+  const engineFmts = small ? await _readEngineFormats(sel, sh) : {}
   _recordFormatOp(ids, sh, () => {
     for (const id of ids) {
-      const cur = formats.get(id, sh).numberFormat || ''
+      const cur = formats.get(id, sh).numberFormat || numFmtFromEngine(engineFmts[id])
       let { type, variant, decimals } = parseNumberFmt(cur)
       if (!type) {
         if (delta < 0) continue

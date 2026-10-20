@@ -150,7 +150,9 @@ export function zToNumFmt(z: string | null | undefined): string {
  */
 export function numFmtFromEngine(code: string | null | undefined): string {
   if (!code || /^general$/i.test(code) || code === '@') return ''
-  const fmt = zToNumFmt(code)
+  // IronCalc writes `$#,##0.00` unquoted; as our USD currency (not a custom
+  // pattern) the decimal buttons can change it.
+  const fmt = zToNumFmt(/^\$#,##0(\.0+)?$/.test(code) ? `"$"${code.slice(1)}` : code)
   if (DATE_TYPES.has(parseNumberFmt(fmt).type)) return ''
   // A code zToNumFmt doesn't know stays custom; only a numeric pattern
   // renders (a date code like m/d/yyyy would paint as literal text).

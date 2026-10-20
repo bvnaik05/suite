@@ -132,7 +132,7 @@ describe('IronCalc formats', () => {
     t.select({ r0: 0, c0: 0, r1: 2, c1: 2 })
     t.fill.fillDown()
     await vi.waitFor(() => expect(t.cells.A3).toBe('1.5'))
-    expect(t.formatStore.A3).toEqual({ numberFormat: 'custom:$#,##0.00' })
+    expect(t.formatStore.A3).toEqual({ numberFormat: 'currency:USD:2' })
     expect(t.formatStore.B2).toEqual({ numberFormat: 'percentage:0' })
     // A side-store format wins over IronCalc's.
     expect(t.formatStore.C2).toEqual({ numberFormat: 'number:2' })

@@ -138,9 +138,12 @@ describe('toXlsxCell — engine → SheetJS', () => {
 // carry that format into the side store with this.
 describe('numFmtFromEngine — IronCalc num_fmt → our format', () => {
   it('maps the formats typing produces', () => {
-    expect(numFmtFromEngine('$#,##0.00')).toBe('custom:$#,##0.00')
+    // A currency, not a custom pattern, so the decimal buttons can change it.
+    expect(numFmtFromEngine('$#,##0.00')).toBe('currency:USD:2')
     expect(applyNumberFmt('1.5', numFmtFromEngine('$#,##0.00'))).toBe('$1.50')
-    expect(numFmtFromEngine('€#,##0')).toBe('custom:€#,##0')
+    expect(numFmtFromEngine('$#,##0')).toBe('currency:USD:0')
+    expect(numFmtFromEngine('€#,##0')).toBe('custom:€#,##0') // our EUR paints 2 €
+    expect(numFmtFromEngine('#,##0$')).toBe('custom:#,##0$')
     expect(numFmtFromEngine('"₹"#,##0.00')).toBe('currency:INR:2')
     expect(numFmtFromEngine('#,##0%')).toBe('percentage:0')
     expect(numFmtFromEngine('#,##0.00%')).toBe('percentage')

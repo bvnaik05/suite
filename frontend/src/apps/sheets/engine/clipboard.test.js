@@ -382,7 +382,7 @@ describe('clipboard — carries the format IronCalc gave a typed value', () => {
     expect(t.asked()).toEqual({ numFmts: true })
     await t.cb.paste('A3', null, 'all')
     expect(t.sheet.getCell('A3')).toBe('1.5')
-    expect(t.fmtStore.A3).toEqual({ numberFormat: 'custom:$#,##0.00' })
+    expect(t.fmtStore.A3).toEqual({ numberFormat: 'currency:USD:2' })
     expect(t.fmtStore.B3).toEqual({ numberFormat: 'percentage:0' })
     // A side-store format wins over IronCalc's.
     expect(t.fmtStore.C3).toEqual({ numberFormat: 'number:2' })
