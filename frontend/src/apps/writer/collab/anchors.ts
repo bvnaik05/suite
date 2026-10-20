@@ -51,38 +51,6 @@ export function readAnchor(anchor: string): ThreadAnchor {
     return { kind: 'document' }
   }
 
-  return parsed(anchor)
-}
-
-/** The text a text anchor was made on; empty for any other anchor. */
-export function anchorQuote(anchor: string) {
-  const read = readAnchor(anchor)
-  if (read.kind !== 'text') {
-    return ''
-  }
-
-  return read.quote
-}
-
-/** The Yjs items a text anchor's ends hold on to; none for any other anchor. */
-export function anchorEnds(anchor: string): Y.ID[] {
-  const read = readAnchor(anchor)
-  if (read.kind !== 'text') {
-    return []
-  }
-
-  const ends: Y.ID[] = []
-  for (const position of [read.start, read.end]) {
-    const id = position.item ?? position.type
-    if (id) {
-      ends.push(id)
-    }
-  }
-
-  return ends
-}
-
-function parsed(anchor: string): ThreadAnchor {
   let value: unknown
   try {
     value = JSON.parse(anchor)
@@ -111,6 +79,34 @@ function parsed(anchor: string): ThreadAnchor {
   } catch {
     return { kind: 'unplaced' }
   }
+}
+
+/** The text a text anchor was made on; empty for any other anchor. */
+export function anchorQuote(anchor: string) {
+  const read = readAnchor(anchor)
+  if (read.kind !== 'text') {
+    return ''
+  }
+
+  return read.quote
+}
+
+/** The Yjs items a text anchor's ends hold on to; none for any other anchor. */
+export function anchorEnds(anchor: string): Y.ID[] {
+  const read = readAnchor(anchor)
+  if (read.kind !== 'text') {
+    return []
+  }
+
+  const ends: Y.ID[] = []
+  for (const position of [read.start, read.end]) {
+    const id = position.item ?? position.type
+    if (id) {
+      ends.push(id)
+    }
+  }
+
+  return ends
 }
 
 function toBase64(bytes: Uint8Array): string {

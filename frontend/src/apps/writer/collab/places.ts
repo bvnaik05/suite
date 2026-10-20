@@ -82,16 +82,7 @@ function positionAt(doc: Y.Doc, position: Y.RelativePosition, assoc: number) {
 
 // A tab whose undo history keeps a deleted block would otherwise place the end where the block was
 function isInDeletedBlock(doc: Y.Doc, position: Y.RelativePosition) {
-  let type: unknown = Y.createAbsolutePositionFromRelativePosition(position, doc)?.type
-  while (type instanceof Y.AbstractType && type._item) {
-    if (type._item.deleted) {
-      return true
-    }
-
-    type = type._item.parent
-  }
-
-  return false
+  return Y.createAbsolutePositionFromRelativePosition(position, doc)?.type._item?.deleted ?? false
 }
 
 // A range across blocks with no words left may still cover an atom or a block such as a rule
