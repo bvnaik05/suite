@@ -124,3 +124,56 @@ describe('xlsx dates in a timezone ahead of UTC', () => {
     expect(ed.fmts).toEqual({ A1: 'date:long', B1: 'date:mdy', C1: 'datetime:ymd_hm' })
   })
 })
+
+// ISSUES #61. Importing next to sheets of the same name adds `Sales (2)`,
+// but its formulas still named `Sales` and `Rates`, so the copy silently
+// read the sheets that were already there. Excel and Google rename them.
+describe('importXLSX into a workbook with the same sheet names', () => {
+  it('points imported formulas at the imported sheets', async () => {
+    const { utils, write } = await import('xlsx')
+    const wb = utils.book_new()
+    utils.book_append_sheet(
+      wb,
+      {
+        '!ref': 'A1:B2',
+        A1: { t: 'n', v: 1, f: 'VLOOKUP(A2,Rates!A:B,2,FALSE)' },
+        B1: { t: 'n', v: 2, f: "'Rates (2)'!A1+Summary!B2" },
+        B2: { t: 's', v: 'x', f: '"Rates!"&Rates!A1' },
+      },
+      'Sales',
+    )
+    utils.book_append_sheet(wb, { '!ref': 'A1', A1: { t: 'n', v: 3 } }, 'Rates')
+    utils.book_append_sheet(wb, { '!ref': 'A1', A1: { t: 'n', v: 4, f: 'sales!A1' } }, 'Rates (2)')
+    const buf = write(wb, { type: 'array', bookType: 'xlsx' })
+    const writes: Record<string, Record<string, string>> = {}
+    const { importXLSX } = useExportImport({
+      cells: {
+        write: (sn: string, map: Record<string, string>) =>
+          (writes[sn] = { ...writes[sn], ...map }),
+        addSheet: vi.fn(),
+        idle: async () => {},
+      },
+      sheetNames: () => ['Sales', 'Rates', 'Summary'],
+      currentSheet: { value: 'Sales' },
+      getCurrentTitle: () => 't',
+      getFormats: () => null,
+      getMerge: () => null,
+      repopulateGrid: vi.fn(),
+      syncNames: vi.fn(),
+      switchSheet: vi.fn(),
+      syncFlags: vi.fn(),
+      isDirty: { value: false },
+    })
+    await importXLSX({ target: { files: [{ arrayBuffer: async () => buf }], value: '' } })
+    expect(Object.keys(writes)).toEqual(['Sales (2)', 'Rates (2)', 'Rates (2) (2)'])
+    expect(writes['Sales (2)']).toEqual({
+      A1: "=VLOOKUP(A2,'Rates (2)'!A:B,2,FALSE)",
+      // The file's own `Rates (2)` is now `Rates (2) (2)`; Summary isn't in
+      // the file, so it still means the workbook's Summary.
+      B1: "='Rates (2) (2)'!A1+Summary!B2",
+      // Text in quotes is not a reference.
+      B2: `="Rates!"&'Rates (2)'!A1`,
+    })
+    expect(writes['Rates (2) (2)']).toEqual({ A1: "='Sales (2)'!A1" })
+  })
+})

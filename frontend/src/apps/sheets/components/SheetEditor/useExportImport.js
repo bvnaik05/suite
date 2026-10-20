@@ -1,3 +1,4 @@
+import { renameSheetsInFormula } from '../../engine/formula-adjust.js'
 import {
   fromXlsxCell,
   mergesFromXlsx,
@@ -281,19 +282,23 @@ export function useExportImport({
     const formats = getFormats?.()
     const merge = getMerge?.()
     const existing = new Set(sheetNames().map((n) => n.toLowerCase()))
+    // Every tab's name first: a formula may name a sheet later in the file,
+    // and must follow it when it gets a new name (`Sales` → `Sales (2)`).
+    const renames = {}
+    for (const wsName of wb.SheetNames) {
+      if (!wb.Sheets[wsName]) continue
+      renames[wsName] = _uniqueSheetName(wsName, existing)
+      existing.add(renames[wsName].toLowerCase())
+    }
     let firstAdded = null
     // finally: even if a worksheet throws mid-import, resync the tab bar so the
     // engine and UI never disagree about which sheets exist, and surface what
     // was already ingested.
     try {
-      for (const wsName of wb.SheetNames) {
-        const ws = wb.Sheets[wsName]
-        if (!ws) continue
-        const name = _uniqueSheetName(wsName, existing)
-        existing.add(name.toLowerCase())
+      for (const [wsName, name] of Object.entries(renames)) {
         cells.addSheet(name)
         if (!firstAdded) firstAdded = name
-        await _ingestWorksheet(ws, formats, merge, name)
+        await _ingestWorksheet(wb.Sheets[wsName], formats, merge, name, renames)
       }
     } finally {
       // The tab list is the engine's as of its last apply, so wait for the
@@ -311,7 +316,7 @@ export function useExportImport({
     }
   }
 
-  async function _ingestWorksheet(ws, formats, merge, name) {
+  async function _ingestWorksheet(ws, formats, merge, name, renames) {
     const out = _writer(name)
     const fmts = []
     let n = 0
@@ -319,7 +324,7 @@ export function useExportImport({
       if (id[0] === '!') continue // !ref, !merges, !cols meta keys
       if (!parseCellId(id)) continue
       const { value, fmt } = fromXlsxCell(cell)
-      if (value !== '' && value != null) out.add(id, value)
+      if (value !== '' && value != null) out.add(id, renameSheetsInFormula(value, renames))
       if (fmt) fmts.push([id, fmt])
       if (++n % CHUNK_ROWS === 0) await _yield()
     }
