@@ -131,6 +131,12 @@ describe('where a thread shows', () => {
     expect(placeThread(editor.state, DOCUMENT_ANCHOR)).toEqual({ kind: 'document' })
     expect(placeThread(editor.state, '5f0c2e6a-old-comment')).toEqual({ kind: 'unplaced' })
   })
+
+  it('shows a thread stored as deleted as deleted, with its quote', () => {
+    const editor = openEditor()
+
+    expect(placeThread(editor.state, '{"v":1,"q":""}')).toEqual({ kind: 'deleted', quote: '' })
+  })
 })
 
 // Each pair of client ids, local then remote, so either one can win yjs's ordering

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
 
+import anchorForms from './anchor-forms.json'
 import { ANCHOR_LIMIT, DOCUMENT_ANCHOR, encodeAnchor, readAnchor } from './anchors'
 
 function paragraph(words: string) {
@@ -90,5 +91,15 @@ describe('anchors', () => {
       'unplaced',
       'unplaced',
     ])
+  })
+
+  it('reads a deleted anchor with its quote', () => {
+    expect(readAnchor('{"v":1,"q":""}')).toEqual({ kind: 'deleted', quote: '' })
+    expect(readAnchor('{"v":1,"q":"gone words"}')).toEqual({ kind: 'deleted', quote: 'gone words' })
+  })
+
+  // The anchor forms the server writes or reads; the server's tests can read this file too
+  it.each(anchorForms)('reads $anchor as $kind', ({ anchor, kind }) => {
+    expect(readAnchor(anchor).kind).toBe(kind)
   })
 })

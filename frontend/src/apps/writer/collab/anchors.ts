@@ -6,10 +6,14 @@ const QUOTE_LIMIT = 150
 /** A thread on the whole document rather than on its text. */
 export const DOCUMENT_ANCHOR = 'document'
 
-/** Where a thread sits: the whole document, a text range with its quote, or nowhere this client can find. */
+/**
+ * Where a thread sits: the whole document, a text range with its quote, text deleted before the
+ * thread had a place, or nowhere this client can find.
+ */
 export type ThreadAnchor =
   | { kind: 'document' }
   | { kind: 'text'; start: Y.RelativePosition; end: Y.RelativePosition; quote: string }
+  | { kind: 'deleted'; quote: string }
   | { kind: 'unplaced' }
 
 interface StoredAnchor {
@@ -52,6 +56,10 @@ export function readAnchor(anchor: string): ThreadAnchor {
     return { kind: 'unplaced' }
   }
 
+  if (!('s' in stored)) {
+    return { kind: 'deleted', quote: stored.q }
+  }
+
   try {
     const start = Y.decodeRelativePosition(fromBase64(stored.s))
     const end = Y.decodeRelativePosition(fromBase64(stored.e))
@@ -89,7 +97,7 @@ export function anchorEnds(anchor: string): Y.ID[] {
   return ends
 }
 
-function parsed(anchor: string): StoredAnchor | null {
+function parsed(anchor: string): StoredAnchor | { v: 1; q: string } | null {
   let value: unknown
   try {
     value = JSON.parse(anchor)
@@ -99,12 +107,15 @@ function parsed(anchor: string): StoredAnchor | null {
   }
 
   const stored = value as Partial<StoredAnchor> | null
-  const isStored =
-    stored?.v === 1 &&
-    typeof stored.s === 'string' &&
-    typeof stored.e === 'string' &&
-    typeof stored.q === 'string'
-  if (!isStored) {
+  if (stored?.v !== 1 || typeof stored.q !== 'string') {
+    return null
+  }
+
+  if (stored.s === undefined && stored.e === undefined) {
+    return { v: 1, q: stored.q }
+  }
+
+  if (typeof stored.s !== 'string' || typeof stored.e !== 'string') {
     return null
   }
 
