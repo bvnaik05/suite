@@ -24,8 +24,8 @@ const SHA256: Record<string, string> = {
   // then marks on inline atoms are kept as element attributes;
   // then a filled element is replaced, not reused for an empty node, when its neighbour node takes its content
   'dist/y-tiptap.js': '67b0e17285aa06c88ed45024b28a6bb87bf50716404442c6b88e556430af6a1b',
-  // published 788e88fe...; then positions skip hidden leftovers; then the side a position is tied to
-  'dist/src/lib.d.ts': '44ad9f354ad7a2f929feb90acc6cb321c6447b7236af1f518c87ce2ea5a6fcef',
+  // published 788e88fe...; then positions skip hidden leftovers; then the side a position is tied to; then initProseMirrorDoc's meta is BindingMetadata
+  'dist/src/lib.d.ts': 'f75de6a35b5c903e315fe627cb8252faf66a393885ca5c6d2fb571b8e8bedff2',
   'dist/src/plugins/cursor-plugin.d.ts':
     '14df8f3b1fd5b5cdc11bea5eadee07b107719aefd705a97c699465a31488f11a',
   'dist/src/plugins/keys.d.ts': '9596550a6e87582af85039f4c83300bbd6b3e69af1aef98caf2e4d8f632b96f2',
