@@ -42,7 +42,17 @@ export function placeThread(state: EditorState, anchor: string): ThreadPlace {
 
     return relativePositionToAbsolutePosition(doc, type, end, mapping, hidden)
   })
-  if (from === null || to === null || from >= to || !holdsLeaf(state.doc, from, to)) {
+  if (from === null || to === null) {
+    return { kind: 'deleted', quote: read.quote }
+  }
+
+  // The binding holds the text before the editor first draws it
+  const size = state.doc.content.size
+  if (from > size || to > size) {
+    return { kind: 'arriving', quote: read.quote }
+  }
+
+  if (from >= to || !holdsLeaf(state.doc, from, to)) {
     return { kind: 'deleted', quote: read.quote }
   }
 

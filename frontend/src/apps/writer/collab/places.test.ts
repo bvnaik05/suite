@@ -5,6 +5,9 @@ import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import { BulletList, ListItem } from '@tiptap/extension-list'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
+import { EditorState } from '@tiptap/pm/state'
+import { EditorView } from '@tiptap/pm/view'
+import { ySyncPlugin } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as yjs from 'yjs'
 
@@ -133,6 +136,27 @@ describe('where a thread shows', () => {
 
     expect(waiting).toEqual({ kind: 'arriving', quote: 'there' })
     expect(shownText(editor, anchor)).toBe('there')
+  })
+
+  it('waits for the editor to draw its text when asked before the first render', () => {
+    const doc = new yjs.Doc()
+    const editor = openEditor(doc)
+    editor.commands.setContent('<p>hello world</p>')
+    const anchor = anchorOn(paragraphText(doc), 6, 11)
+
+    const opening = EditorState.create({
+      schema: editor.schema,
+      plugins: [ySyncPlugin(doc.getXmlFragment('default'))],
+    })
+
+    const waiting = placeThread(opening, anchor)
+    const view = new EditorView(document.createElement('div'), { state: opening })
+    const drawn = placeThread(view.state, anchor)
+    const shown = drawn.kind === 'text' && view.state.doc.textBetween(drawn.from, drawn.to)
+    view.destroy()
+
+    expect(waiting).toEqual({ kind: 'arriving', quote: 'world' })
+    expect(shown).toBe('world')
   })
 
   it('shows a document thread on the document and an old comment id as not attached', () => {
