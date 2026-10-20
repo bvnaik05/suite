@@ -716,6 +716,31 @@ describe('convertLegacy', () => {
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
+  it('refuses the HTML read past a Yjs body holding nothing when it holds a Drive thread', () => {
+    const html = `<p><span data-comment='${DRIVE_THREAD}'>see</span></p>`
+    const legacy = { ...stored(legacyDoc(yElement('paragraph'))), html }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a Yjs body holding a Drive thread on a mention', () => {
+    const mention = yAtom('mention', { id: 'x', label: 'Ann' })
+    mention.setAttribute('comment', { comment: DRIVE_THREAD } as never)
+    const legacy = stored(legacyDoc(yElement('paragraph', new XmlText('hi '), mention)))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a Drive thread split across runs by bold', () => {
+    const thread = { comment: { comment: DRIVE_THREAD } }
+    const runs = yRuns(['one ', thread], ['two', { ...thread, bold: {} }], [' three', thread])
+
+    expect(convertLegacy(stored(legacyDoc(runs)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('converts comments that carry their thread ids, in Yjs, as a lone overlapping copy read by its mark name and in HTML', () => {
     const yjs = stored(legacyDoc(yMarked('see', { comment: { commentId: 'c1' } })))
     const overlap = stored(legacyDoc(yMarked('see', { 'comment--a+/=bC9z': { commentId: 'c2' } })))
