@@ -11,6 +11,7 @@
 import { Model, type ExtendedCellStyle } from '@ironcalc/wasm'
 
 import { CommandTypes, validateCommand, type Command, type CommandType } from './commands.js'
+import { isDateDifference, isDateFormat } from './date-diff.js'
 import { MAX_ROWS } from './limits.js'
 import { percentFormatFor } from './percent-format.js'
 
@@ -191,29 +192,32 @@ export function createWorkbook({
     return { version }
   }
 
-  // A formula that scales one percent cell by plain numbers shows a percent
-  // (see percent-format.ts). Only a cell IronCalc left unformatted, so a
-  // format the cell already had, or one IronCalc inferred, stays.
-  function inheritPercent(si: number, row: number, col: number, input: string): void {
-    if (!input.startsWith('=')) return
-    if (model.getCellStyle(si, row, col).style.num_fmt.toLowerCase() !== 'general') return
-    const fmt = percentFormatFor(
-      input,
-      (sheet, r, c) =>
-        model.getCellStyle(sheet == null ? si : sheetIndex(sheet), r, c).style.num_fmt,
-    )
-    if (!fmt) return
+  // A typed input, as IronCalc's setUserInput, plus the formats IronCalc
+  // gets wrong (Google Sheets is the reference):
+  //   - a formula scaling one percent cell by plain numbers shows a percent
+  //     (percent-format.ts);
+  //   - one date minus another shows the days between (date-diff.ts).
+  function setInput(si: number, row: number, col: number, input: string): void {
     const area = { sheet: si, row, column: col, width: 1, height: 1 }
-    model.updateRangeStyle(area, 'num_fmt', fmt)
+    const numFmt = (sheet: string | null, r: number, c: number) =>
+      model.getCellStyle(sheet == null ? si : sheetIndex(sheet), r, c).style.num_fmt
+    model.setUserInput(si, row, col, input)
+    const fmt = numFmt(null, row, col)
+    if (!input.startsWith('=')) return
+    if (/^general$/i.test(fmt)) {
+      // Only a cell IronCalc left unformatted: a format it inferred stays.
+      const percent = percentFormatFor(input, numFmt)
+      if (percent) model.updateRangeStyle(area, 'num_fmt', percent)
+    } else if (isDateFormat(fmt) && isDateDifference(input, numFmt)) {
+      model.updateRangeStyle(area, 'num_fmt', 'general')
+    }
   }
 
   function applyOne(cmd: Command): void {
     switch (cmd.type) {
       case CommandTypes.setInput: {
         const p = cmd.payload
-        const si = sheetIndex(p.sheet)
-        model.setUserInput(si, p.row, p.col, p.input)
-        inheritPercent(si, p.row, p.col, p.input)
+        setInput(sheetIndex(p.sheet), p.row, p.col, p.input)
         return
       }
       // setUserArrayFormula pins the result to a fixed width × height

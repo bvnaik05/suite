@@ -149,6 +149,36 @@ describe('workbook — a percent times plain numbers stays a percent', () => {
   })
 })
 
+// IronCalc gives a date minus a date the date format, so the days between
+// two dates showed as 1899-12-31. Google Sheets shows the number of days.
+describe('workbook — days between two dates are a number', () => {
+  const shown = (formula) => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 1, 1, '2025-12-09')
+    setInput(wb, 'Sheet1', 2, 1, '2025-12-19')
+    setInput(wb, 'Sheet1', 3, 1, '5')
+    setInput(wb, 'Sheet1', 4, 1, formula)
+    return wb.getDisplayValue('Sheet1', 4, 1)
+  }
+
+  it('shows the days between two date cells', () => {
+    expect(shown('=A2-A1')).toBe('10')
+    expect(shown('=$A$1-A2')).toBe('-10')
+  })
+
+  it('works with date functions', () => {
+    expect(shown('=DATE(2025,12,19)-A1')).toBe('10')
+    expect(shown('=A2-DATE(2025,12,9)')).toBe('10')
+    expect(Number(shown('=TODAY()-A1'))).toBeGreaterThan(300)
+  })
+
+  it('keeps a date plus or minus a number a date', () => {
+    expect(shown('=A1-7')).toBe('2025-12-02')
+    expect(shown('=A1+30')).toBe('2026-01-08')
+    expect(shown('=A2-A3')).toBe('2025-12-14')
+  })
+})
+
 describe('workbook — structure ops', () => {
   it('insertRows adjusts references', () => {
     const wb = createWorkbook()
