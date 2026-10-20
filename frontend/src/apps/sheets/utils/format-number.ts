@@ -193,7 +193,8 @@ function _toDate(value: unknown): Date | null {
   if (typeof value === 'number') return _serialToDate(value)
   const s = String(value).trim()
   if (s === '') return null
-  if (/^-?\d+(\.\d+)?$/.test(s)) return _serialToDate(parseFloat(s))
+  const n = _displayNumber(s)
+  if (!isNaN(n)) return _serialToDate(n)
   let norm = s.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1')
   if (/^\d{4}-\d{2}-\d{2}$/.test(norm)) norm += 'T00:00:00'
   let d = new Date(norm)
@@ -201,12 +202,30 @@ function _toDate(value: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d
 }
 
+// A number written the way IronCalc displays a typed one: an optional sign
+// and currency symbol, digits with grouping commas, an optional exponent,
+// then an optional % or trailing symbol. `1,000`, `50%`, `$1.50`, `-$3`,
+// `₹1,50,000`, `5$`, `1.5E+11`. Anything else (`12 apples`) isn't one.
+const DISPLAY_NUMBER =
+  /^([-+]?)\s*(?:[A-Z]{0,2}[$€£¥₹])?\s*(\d[\d,]*(?:\.\d*)?|\.\d+)(?:[eE]([-+]?\d+))?\s*([$€£¥₹]?)\s*(%?)$/
+
+// The number a cell shows. The grid formats IronCalc's display string, and
+// IronCalc has already formatted a typed `1,000` or `50%`; parseFloat read
+// those as 1 and 50 (so the $ button showed $1.00, the % button 5000.00%).
+function _displayNumber(value: unknown): number {
+  if (typeof value === 'number') return value
+  const m = DISPLAY_NUMBER.exec(String(value ?? '').trim())
+  if (!m) return NaN
+  const [, sign, digits = '', exp, , percent] = m
+  const n = parseFloat(digits.replace(/,/g, '') + (exp ? `e${exp}` : ''))
+  return (sign === '-' ? -n : n) / (percent ? 100 : 1)
+}
+
 // Types whose value is a date, not a plain number to round/group.
 const DATE_LIKE = new Set(['date', 'time', 'datetime'])
 
 // Returns the formatted string, or the value untouched when the format
-// doesn't apply to it. (`parseFloat` coerces its argument to a string itself,
-// so cell values of any type go straight in.)
+// doesn't apply to it.
 export function applyNumberFmt<T>(value: T, format: unknown): T | string {
   if (!format) return value
   if (String(format).startsWith('custom:')) return applyCustomFmt(value, String(format).slice(7))
@@ -215,7 +234,7 @@ export function applyNumberFmt<T>(value: T, format: unknown): T | string {
   // Cells flagged 'text' should also be treated as text in formulas; that's
   // handled by the engine's strict-arithmetic — see toNumStrict.
   if (type === 'text') return value == null ? '' : String(value)
-  const n = parseFloat(value as string)
+  const n = _displayNumber(value)
   if (isNaN(n) && !DATE_LIKE.has(type)) return value
   if (type === 'number') {
     const loc = NUMBER_LOCALES[variant] !== undefined ? NUMBER_LOCALES[variant] : undefined
@@ -263,7 +282,7 @@ export function applyNumberFmt<T>(value: T, format: unknown): T | string {
 // so `"$"#,##0.00`, `0.0%`, `#,##0 "kg"` all work. Negatives get a leading '-'
 // (Excel's `positive;negative` sections are a later follow-up).
 function applyCustomFmt<T>(value: T, pattern: string): T | string {
-  const n = parseFloat(value as string)
+  const n = _displayNumber(value)
   if (isNaN(n)) return value == null ? '' : String(value)
   const { prefix, numSpec, suffix, percent } = _parseCustomPattern(pattern)
   if (!numSpec) return prefix + suffix

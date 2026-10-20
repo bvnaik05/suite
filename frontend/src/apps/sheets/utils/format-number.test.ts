@@ -172,6 +172,41 @@ describe('applyNumberFmt — currency variants', () => {
   })
 })
 
+// The grid formats IronCalc's display string, which IronCalc has already
+// formatted for a typed `1,000`, `50%` or `$1.50`. Reading that with
+// parseFloat gave 1, 50 and NaN: `1,000` + the $ button showed $1.00 and
+// `50%` + the % button showed 5000.00%.
+describe('applyNumberFmt — reads the number back from a formatted display', () => {
+  it('drops grouping commas', () => {
+    expect(applyNumberFmt('1,000', 'currency')).toBe('$1,000.00')
+    expect(applyNumberFmt('1,234,567.5', 'number:1')).toMatch(/^1,234,567\.5$/)
+  })
+  it('reads a percent as its fraction', () => {
+    expect(applyNumberFmt('50%', 'percentage')).toBe('50.00%')
+    expect(applyNumberFmt('250%', 'currency')).toBe('$2.50')
+    expect(applyNumberFmt('12.5%', 'number:3')).toMatch(/^0\.125$/)
+  })
+  it('drops a currency symbol', () => {
+    expect(applyNumberFmt('$1.50', 'percentage:0')).toBe('150%')
+    expect(applyNumberFmt('-$3', 'currency:INR:0')).toBe('-₹3')
+    expect(applyNumberFmt('€2', 'number:2')).toMatch(/^2\.00$/)
+    expect(applyNumberFmt('₹1,50,000', 'number:in:0')).toBe('1,50,000')
+    expect(applyNumberFmt('5$', 'number:1')).toMatch(/^5\.0$/)
+  })
+  it('custom patterns read it the same way', () => {
+    expect(applyNumberFmt('250%', 'custom:$#,##0.00')).toBe('$2.50')
+    expect(applyNumberFmt('1,000', 'custom:#,##0.0')).toBe('1,000.0')
+  })
+  it('reads scientific notation', () => {
+    expect(applyNumberFmt('1.5E+11', 'number:us:0')).toBe('150,000,000,000')
+  })
+  it('leaves text that only starts with a number alone', () => {
+    expect(applyNumberFmt('12 apples', 'number:2')).toBe('12 apples')
+    expect(applyNumberFmt('1-2', 'currency')).toBe('1-2')
+    expect(applyNumberFmt('%', 'percentage')).toBe('%')
+  })
+})
+
 describe('applyNumberFmt — date variants', () => {
   // Numbers are IronCalc/Google day serials: days since 1899-12-30, the
   // fraction is the time of day. 45672 = 2025-01-15.
@@ -217,6 +252,10 @@ describe('applyNumberFmt — date variants', () => {
     expect(applyNumberFmt(1, 'date:ymd')).toBe('1899-12-31')
     expect(applyNumberFmt(0, 'date:ymd')).toBe('1899-12-30')
     expect(applyNumberFmt(-1, 'date:ymd')).toBe('1899-12-29')
+  })
+
+  it('reads a grouped serial (IronCalc showed it as 46,000)', () => {
+    expect(applyNumberFmt('46,000', 'date:ymd')).toBe('2025-12-09')
   })
 
   it('drops the time of day for a date format', () => {
