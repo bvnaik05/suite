@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
 import { createWorkbookClient, type WorkbookClient } from '../../core/client'
+import { ENGINE_VERSION } from '../../core/snapshot-codec'
 import { createWorkerHost } from '../../core/worker'
 import { usePersistence } from './usePersistence.js'
 
@@ -131,7 +132,7 @@ describe('Sheets persistence', () => {
       formats: {},
       merge: null,
       view: null,
-      engine_version: '0.8.4',
+      engine_version: ENGINE_VERSION,
     })
     expect(workbook.engine).toBe(btoa('\x01\x02\x03'))
   })
@@ -171,15 +172,17 @@ describe('Sheets persistence', () => {
       })
     }
 
-    const newer = failing('0.9.0')
-    await newer.loadSheet('s')
-    expect(newer.loadError.value).toEqual({
+    const older = failing('0.8.4')
+    await older.loadSheet('s')
+    expect(older.loadError.value).toEqual({
       kind: 'other',
-      message: expect.stringMatching(/IronCalc 0\.9\.0.*IronCalc 0\.8\.4/),
+      message: expect.stringContaining(
+        `saved by IronCalc 0.8.4, which this Sheets (IronCalc ${ENGINE_VERSION}) cannot read`,
+      ),
     })
 
     // Same version: the body itself is damaged; say what IronCalc said.
-    const same = failing('0.8.4')
+    const same = failing(ENGINE_VERSION)
     await same.loadSheet('s')
     expect(same.loadError.value).toEqual({
       kind: 'other',

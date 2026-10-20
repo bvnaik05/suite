@@ -1,14 +1,14 @@
-// Old sheets must keep opening. Every sheet's body in sheets_data is
+// Saved sheets must keep opening. Every sheet's body in sheets_data is
 // IronCalc's own bytes (workbook.toBytes(), core/snapshot-codec.ts), and
 // IronCalc's byte format is not versioned: 0.9.0 cannot read bytes saved by
 // 0.8.4 ("Error parsing workbook: bitcode error"). An IronCalc bump that
-// breaks reading old bodies would break every existing sheet, so this test
-// opens a body saved by IronCalc 0.8.4 with the installed IronCalc and checks
+// breaks reading saved bodies would break every existing sheet, so this test
+// opens a body saved by IronCalc 0.9.0 with the installed IronCalc and checks
 // that inputs, values, names, styles and sizes come back.
 //
 // The fixture is frozen: it stands for bodies already saved in sites. Never
 // regenerate it with a newer IronCalc (the generator refuses). To rebuild it
-// on 0.8.4: SHEETS_WRITE_SAVED_BODY=1 npx vitest run saved-body
+// on 0.9.0: SHEETS_WRITE_SAVED_BODY=1 npx vitest run saved-body
 
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -25,7 +25,7 @@ import { createWorkbook } from '../workbook.js'
 const require = createRequire(import.meta.url)
 initSync({ module: fs.readFileSync(require.resolve('@ironcalc/wasm/wasm_bg.wasm')) })
 
-const FIXTURE_VERSION = '0.8.4'
+const FIXTURE_VERSION = '0.9.0'
 const FIXTURE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   `saved-body-${FIXTURE_VERSION}.json`,
