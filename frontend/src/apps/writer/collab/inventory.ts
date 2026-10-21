@@ -118,6 +118,12 @@ export const NOISE_ATTRIBUTES = ['spellcheck', 'loading']
 // Word's own style properties, which the parse reads past
 const NOISE_STYLE = /^mso-/
 
+// A boolean attribute draws by being there, whatever its value
+const BOOLEAN_ATTRIBUTES = new Map([
+  ['video', 'controls'],
+  ['input', 'checked'],
+])
+
 // Class and style are compared by their parts, and noise not at all
 const UNCOMPARED_ATTRIBUTES = new Set(['class', 'style', ...NOISE_ATTRIBUTES])
 
@@ -153,9 +159,14 @@ function classOf(element: Element) {
 }
 
 function attributesOf(element: Element): Entry[] {
+  const flag = BOOLEAN_ATTRIBUTES.get(element.localName)
   const entries = [...element.attributes]
-    .filter(({ name }) => !UNCOMPARED_ATTRIBUTES.has(name))
+    .filter(({ name }) => !UNCOMPARED_ATTRIBUTES.has(name) && name !== flag)
     .map(({ name, value }): Entry => [name, value])
+  if (flag) {
+    entries.push([flag, element.hasAttribute(flag)])
+  }
+
   if (element.classList.length) {
     entries.push(['class', classOf(element)])
   }

@@ -221,6 +221,28 @@ describe('what drawn HTML keeps of the old HTML', () => {
     ).toEqual(['element mention'])
   })
 
+  it.each([
+    ['<video src="/v" controls="true"></video>', '<video src="/v" controls=""></video>'],
+    ['<input type="checkbox" checked="">', '<input type="checkbox" checked="checked">'],
+  ])('compares a boolean attribute by its being there: %s', (source, result) => {
+    expect(unkeptHtml(source, result)).toEqual([])
+  })
+
+  it.each([
+    ['<video src="/v" controls="true"></video>', '<video src="/v"></video>', 'element video'],
+    ['<video src="/v"></video>', '<video src="/v" controls=""></video>', 'element video'],
+    ['<input type="checkbox" checked="">', '<input type="checkbox">', 'element input'],
+    ['<input type="checkbox">', '<input type="checkbox" checked="checked">', 'element input'],
+  ])('refuses a boolean attribute on one side only: %s', (source, result, lost) => {
+    expect(unkeptHtml(source, result)).toEqual([lost])
+  })
+
+  it('still compares a non-boolean attribute by its value', () => {
+    expect(unkeptHtml('<input type="checkbox" checked>', '<input type="radio" checked>')).toEqual([
+      'element input',
+    ])
+  })
+
   it('leaves out the whitespace the parser folds', () => {
     expect(unkeptHtml('<p>a b\n\tc</p>', '<p>abc</p>')).toEqual([])
   })
