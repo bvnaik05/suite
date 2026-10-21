@@ -282,7 +282,7 @@ describe('what the parse keeps of the raw style text', () => {
   })
 
   it.each(['border: 1px solid red !important', 'border: 1px solid red !important; color: blue'])(
-    'keeps an !important shorthand whose longhands the parse leaves unprioritised: %s',
+    'keeps an !important border the parse expands with an unprioritised border-image: %s',
     (style) => {
       expect(rawOf(`<p style="${style}">x</p>`).isKept).toBe(true)
     },
@@ -309,8 +309,18 @@ describe('what the parse keeps of the raw style text', () => {
       name: "an !important piece that doesn't parse on its own",
       style: 'color: notacolour !important; color: red',
     },
+    { name: 'a border-image, which the parse reads as none', style: 'border-image: url(a.png) 30' },
+    { name: 'a border-image gradient', style: 'border-image: linear-gradient(red, blue) 1' },
+    {
+      name: 'a border-image beside a colour',
+      style: 'color: red; border-image: url(a.png) 30 stretch',
+    },
   ])('loses $name', ({ style }) => {
     expect(rawOf(`<p><span style="${style}">x</span></p>`).isKept).toBe(false)
+  })
+
+  it('keeps a border-image of none', () => {
+    expect(rawOf('<p><span style="border-image: none">x</span></p>').isKept).toBe(true)
   })
 
   it("reads past Word's own properties, naming each once", () => {

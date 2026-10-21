@@ -118,6 +118,9 @@ export const NOISE_ATTRIBUTES = ['spellcheck', 'loading']
 // Word's own style properties, which the parse reads past
 const NOISE_STYLE = /^mso-/
 
+// jsdom reads any border-image but none as none
+const UNREAD_PROPERTIES = new Set(['border-image'])
+
 // A boolean attribute draws by being there, whatever its value
 const BOOLEAN_ATTRIBUTES = new Map([
   ['video', 'controls'],
@@ -277,11 +280,30 @@ function parsedPiece(scratch: CSSStyleDeclaration, text: string): StylePiece {
   return { piece, name, value, priority, longhands }
 }
 
-// A piece is lost when it names no property or doesn't parse on its own with its !important
-function isLost({ piece, name, value, priority }: StylePiece) {
+// The value a piece's text gives, lowercased and without its !important
+function textValue(piece: string) {
+  return piece
+    .slice(piece.indexOf(':') + 1)
+    .replace(/!\s*important\s*$/i, '')
+    .trim()
+    .toLowerCase()
+}
+
+// Whether a piece names no property, a value the parse rejects, or a value jsdom can't read
+function isUnread({ piece, name, value }: StylePiece) {
+  if (name && UNREAD_PROPERTIES.has(name)) {
+    return textValue(piece) !== 'none'
+  }
+
+  return !name || !value
+}
+
+// A piece is lost when the parse can't read it or doesn't keep its !important
+function isLost(stylePiece: StylePiece) {
+  const { piece, priority } = stylePiece
   const isImportant = /!\s*important\s*$/i.test(piece)
   // A guard: jsdom never loses the priority of a piece that parses
-  return !!piece && (!name || !value || (isImportant && priority !== 'important'))
+  return !!piece && (isUnread(stylePiece) || (isImportant && priority !== 'important'))
 }
 
 // Each longhand a piece lists is set in order with the priority its parse gave it, unless the rebuild
