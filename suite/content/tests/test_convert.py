@@ -124,12 +124,14 @@ class TestConvert(UnitTestCase):
         self.assertIsNone(convert.convert(self.folder / "missing.cjs", "1", LEGACY))
 
     def test_sends_the_old_body_with_no_collab_as_0_and_the_cap(self):
-        # The child hands back what it read as its one dropped entry
+        # The child hands back its first frame, the header, as its one dropped entry
         good = json.dumps(GOOD)
         bundle = self.bundle(
-            "let read = ''\n"
-            "process.stdin.on('data', (chunk) => (read += chunk)).on('end', () => {\n"
-            f"  const answer = {{ ...{good}, dropped: [JSON.parse(read)] }}\n"
+            "const chunks = []\n"
+            "process.stdin.on('data', (chunk) => chunks.push(chunk)).on('end', () => {\n"
+            "  const read = Buffer.concat(chunks)\n"
+            "  const header = read.subarray(4, 4 + read.readUInt32LE(0)).toString()\n"
+            f"  const answer = {{ ...{good}, dropped: [JSON.parse(header)] }}\n"
             "  process.stdout.write(JSON.stringify(answer))\n"
             "})"
         )

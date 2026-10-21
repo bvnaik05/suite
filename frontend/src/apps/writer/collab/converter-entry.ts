@@ -1,5 +1,6 @@
 import { JSDOM } from 'jsdom'
 
+import { readFrames } from '@/apps/writer/collab/child-input'
 import { convertLegacy } from '@/apps/writer/collab/conversion'
 import { addInnerText } from '@/apps/writer/collab/headless-dom'
 import type { LegacyBody } from '@/apps/writer/collab/legacy-read'
@@ -27,14 +28,15 @@ for (const name of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']) {
   Reflect.deleteProperty(window, name)
 }
 
-// The Node child the server runs per document: {legacy, maxState} on stdin, the conversion with its
-// state in base64 and the converter version on stdout; an empty request answers the version alone
+// The Node child the server runs per document: on stdin, frames whose first is the JSON header
+// {legacy, maxState}; on stdout, the conversion with its state in base64 and the converter
+// version. An empty header answers the version alone
 const stdinChunks: Buffer[] = []
 
 function convertInput() {
   // Trusted as the server's own request; anything else throws, and the server sees the child fail
-  const inputText = Buffer.concat(stdinChunks).toString()
-  const input = JSON.parse(inputText) as ConverterInput
+  const [headerFrame] = readFrames(Buffer.concat(stdinChunks))
+  const input = JSON.parse(headerFrame.toString()) as ConverterInput
 
   let answer: object = {}
   if ('legacy' in input) {

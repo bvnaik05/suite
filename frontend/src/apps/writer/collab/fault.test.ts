@@ -91,7 +91,7 @@ describe('writerFault', () => {
     const withContent = docWithBody((fragment) => fragment.insert(0, [paragraph('abc')]))
     const checkpoint = yjs.encodeStateAsUpdate(withContent)
     const empty = yjs.encodeStateAsUpdate(new yjs.Doc())
-    expect(judge(checkpoint, [empty, empty], writerFault)).toEqual({ verdict: 'clean' })
+    expect(judge(checkpoint, [empty, empty], writerFault, () => {})).toEqual({ verdict: 'clean' })
   })
 
   it('writes nothing to the document, even over two texts it made side by side', () => {

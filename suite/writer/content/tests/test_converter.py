@@ -132,12 +132,11 @@ class TestConverter(UnitTestCase):
         """
         completed = subprocess.run(
             [checker.usable_node(convert.NODE_MIN), "--permission", f"--allow-fs-read={bundle}", "-e", probe],
-            input="{}",
+            input=checker.framed([b"{}"]),
             capture_output=True,
-            text=True,
             check=True,
         )
-        exposed_globals, version_line = completed.stdout.splitlines()
+        exposed_globals, version_line = completed.stdout.decode().splitlines()
         self.assertEqual((exposed_globals, json.loads(version_line)), ("[]", {"version": "1"}))
 
     def test_loads_nothing_an_old_body_points_at(self):
@@ -164,5 +163,5 @@ class TestConverter(UnitTestCase):
         bundle.write_text(
             f"require('net').connect({port}, '127.0.0.1', () => process.stdout.write('{{}}')).unref()"
         )
-        self.assertEqual(checker.ask(bundle, {}, convert.NODE_MIN), {})
+        self.assertEqual(checker.ask(bundle, {}, minimum=convert.NODE_MIN), {})
         self.assertTrue(connected(listener))

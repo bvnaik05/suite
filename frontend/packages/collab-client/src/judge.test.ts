@@ -25,24 +25,35 @@ function neverFaults() {
   return null
 }
 
+function releaseNothing() {}
+
 describe('judge', () => {
   it('passes rows that apply and satisfy the fault check', () => {
-    expect(judge(null, typing('a', 'b', 'c'), rejectsBad)).toEqual({ verdict: 'clean' })
+    expect(judge(null, typing('a', 'b', 'c'), rejectsBad, releaseNothing)).toEqual({
+      verdict: 'clean',
+    })
   })
 
   it('names the first row that throws, even with good rows after it', () => {
     const rows = typing('a', 'b', 'c', 'd', 'e')
     rows.splice(2, 0, garbage)
-    expect(judge(null, rows, neverFaults)).toMatchObject({ verdict: 'bad', index: 2 })
+    expect(judge(null, rows, neverFaults, releaseNothing)).toMatchObject({
+      verdict: 'bad',
+      index: 2,
+    })
   })
 
   it('names the first row the fault check refuses', () => {
     const rows = typing('a', 'b', 'c', 'bad', 'e', 'f', 'g')
-    expect(judge(null, rows, rejectsBad)).toEqual({ verdict: 'bad', index: 3, reason: 'has bad' })
+    expect(judge(null, rows, rejectsBad, releaseNothing)).toEqual({
+      verdict: 'bad',
+      index: 3,
+      reason: 'has bad',
+    })
   })
 
   it('names the last row when only it is bad', () => {
-    expect(judge(null, typing('a', 'bad'), rejectsBad)).toEqual({
+    expect(judge(null, typing('a', 'bad'), rejectsBad, releaseNothing)).toEqual({
       verdict: 'bad',
       index: 1,
       reason: 'has bad',
@@ -50,11 +61,18 @@ describe('judge', () => {
   })
 
   it('blames the checkpoint when it is already bad', () => {
-    expect(judge(garbage, typing('a'), neverFaults)).toMatchObject({ verdict: 'bad', index: -1 })
+    expect(judge(garbage, typing('a'), neverFaults, releaseNothing)).toMatchObject({
+      verdict: 'bad',
+      index: -1,
+    })
   })
 
   it('judges rows on top of the checkpoint', () => {
     const [first, ...rest] = typing('bad', 'b')
-    expect(judge(first, rest, rejectsBad)).toEqual({ verdict: 'bad', index: -1, reason: 'has bad' })
+    expect(judge(first, rest, rejectsBad, releaseNothing)).toEqual({
+      verdict: 'bad',
+      index: -1,
+      reason: 'has bad',
+    })
   })
 })

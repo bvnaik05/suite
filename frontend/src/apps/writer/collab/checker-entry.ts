@@ -1,5 +1,6 @@
 import { covers, judge } from '@suite/collab-client'
 
+import { readFrames } from '@/apps/writer/collab/child-input'
 import { writerFault } from '@/apps/writer/collab/fault'
 
 // Node's permission model can't block the network, so the child drops the globals the editor's
@@ -8,36 +9,30 @@ for (const name of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']) {
   Reflect.deleteProperty(globalThis, name)
 }
 
-interface CheckerInput {
-  mode?: 'covers'
-  checkpoint: string | null
-  rows: string[]
+interface CheckerHeader {
+  mode: 'judge' | 'covers'
 }
 
-// The Node child the server runs on demand: {checkpoint, rows} in base64 on stdin, a verdict
-// and the bundled Yjs version on stdout; in `covers` mode, whether the checkpoint holds the rows
+// node_command starts the child with --expose-gc, so each probe's document is collected before the next
+const { gc } = globalThis as unknown as { gc: () => void }
+
+// The Node child the server runs on demand. On stdin, frames: a JSON header, the checkpoint (empty
+// for none), then one frame per row. On stdout, a verdict and the bundled Yjs version; in `covers`
+// mode, whether the checkpoint holds the rows
 const stdinChunks: Buffer[] = []
-
-function fromBase64(base64: string) {
-  return new Uint8Array(Buffer.from(base64, 'base64'))
-}
 
 function judgeInput() {
   // Trusted as checker.py's own request; anything else throws, and the server sees the child fail
-  const inputText = Buffer.concat(stdinChunks).toString()
-  const input = JSON.parse(inputText) as CheckerInput
+  const [headerFrame, checkpointFrame, ...rows] = readFrames(Buffer.concat(stdinChunks))
+  stdinChunks.length = 0
+  const header = JSON.parse(headerFrame.toString()) as CheckerHeader
+  const checkpoint = checkpointFrame.length ? checkpointFrame : null
 
-  let checkpoint: Uint8Array | null = null
-  if (input.checkpoint) {
-    checkpoint = fromBase64(input.checkpoint)
-  }
-
-  const rows = input.rows.map(fromBase64)
   let answer: object
-  if (input.mode === 'covers') {
+  if (header.mode === 'covers') {
     answer = { covered: checkpoint !== null && covers(checkpoint, rows) }
   } else {
-    answer = judge(checkpoint, rows, writerFault)
+    answer = judge(checkpoint, rows, writerFault, gc)
   }
 
   const reply = {

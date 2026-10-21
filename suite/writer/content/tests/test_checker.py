@@ -79,6 +79,41 @@ class TestChecker(UnitTestCase):
         self.assertEqual(verdict.index, 1)
         self.assertTrue(verdict.reason.startswith("throws: "), verdict.reason)
 
+    def test_names_a_bad_row_among_heavy_rows_on_a_large_checkpoint(self):
+        doc = pycrdt.Doc()
+        body = doc.get("default", type=pycrdt.XmlFragment)
+        for _ in range(3000):
+            body.children.append(paragraph("Lorem ipsum dolor sit amet " * 4))
+
+        for edit in range(20000):
+            text = body.children[edit * 7919 % 3000].children[0]
+            if edit % 3:
+                text.insert(edit * 31 % len(text), "x")
+            else:
+                del text[2:3]
+
+        checkpoint = doc.get_update()
+        bad_row = 41
+        rows: list[bytes] = []
+        for row in range(64):
+            added = paragraph("row")
+            if row == bad_row:
+                added = pycrdt.XmlElement("tableCell", contents=[paragraph("z")])
+
+            before = doc.get_state()
+            with doc.transaction():
+                body.children.append(added)
+                del body.children[row * 13].children[0][3:5]
+
+            # Each row carries the document's whole delete set, as one made against a state vector does
+            rows.append(doc.get_update(before))
+
+        self.assertGreater(min(map(len, rows)), 1000)
+        self.assertEqual(
+            checker.judge(BUNDLE, checkpoint, rows),
+            checker.Verdict(bad_row, "schema: cannot place tableCell"),
+        )
+
     def test_a_body_holds_the_rows_merged_into_it(self):
         rows = typed_rows(append_node(paragraph("abc")), append_node(paragraph("def")))
         body = pycrdt.merge_updates(*rows)
@@ -169,27 +204,23 @@ class TestChecker(UnitTestCase):
         const names = ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest']
         process.stdout.write(JSON.stringify(names.filter((name) => name in globalThis)) + '\\n')
         """
-        empty_request = json.dumps({"checkpoint": None, "rows": []})
         completed = subprocess.run(
-            [checker.usable_node(), "--permission", f"--allow-fs-read={bundle}", "-e", probe],
-            input=empty_request,
+            [checker.usable_node(), "--permission", f"--allow-fs-read={bundle}", "--expose-gc", "-e", probe],
+            input=checker.framed([b'{"mode": "judge"}', b""]),
             capture_output=True,
-            text=True,
             check=True,
         )
-        exposed_globals, verdict_line = completed.stdout.splitlines()
+        exposed_globals, verdict_line = completed.stdout.decode().splitlines()
         verdict_name = json.loads(verdict_line)["verdict"]
         self.assertEqual((exposed_globals, verdict_name), ("[]", "clean"))
 
     def test_the_bundle_runs_the_yjs_the_browsers_get(self):
         lockfile = (Path(__file__).parents[4] / "yarn.lock").read_text()
         locked = set(re.findall(r'^"?yjs@[^\n]*\n\s+version "([^"]+)"', lockfile, re.M))
-        empty_request = json.dumps({"checkpoint": None, "rows": []})
         completed = subprocess.run(
-            [checker.usable_node(), str(BUNDLE)],
-            input=empty_request,
+            checker.node_command(checker.usable_node(), BUNDLE),
+            input=checker.framed([b'{"mode": "judge"}', b""]),
             capture_output=True,
-            text=True,
             check=True,
         )
         bundled_yjs = json.loads(completed.stdout)["yjs"]

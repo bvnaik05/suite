@@ -51,7 +51,7 @@ class Refused:
 
 def bundle_ready(bundle: Path, version: str) -> bool:
     """Whether `bundle` holds converter `version`; False without Node or it, CheckerFailed if it fails."""
-    answer = checker.ask(bundle, {}, NODE_MIN)
+    answer = checker.ask(bundle, {}, minimum=NODE_MIN)
     return answer is not None and answer.get("version") == version
 
 
@@ -61,7 +61,7 @@ def convert(
     """Convert the old body `legacy`; None without Node or the bundle, ConverterChanged on a new version."""
     request = {"legacy": {**legacy, "collab": legacy["collab"] or 0}, "maxState": max_state}
     try:
-        answer = checker.ask(bundle, request, NODE_MIN)
+        answer = checker.ask(bundle, request, minimum=NODE_MIN)
     except checker.CheckerFailed as error:
         return Refused(failure_reason(error.__cause__))
 

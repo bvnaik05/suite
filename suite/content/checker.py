@@ -3,7 +3,7 @@ Yjs and the editor's schema.
 
 Node is optional: without Node 24 or later, or without the product's built bundle, there is no
 verdict and the caller keeps the document suspect. The child runs only from background jobs. It
-reads rows on stdin and answers on stdout, with an empty environment, a heap limit and a timeout,
+reads raw frames on stdin and answers on stdout, with an empty environment, a heap limit and a timeout,
 and it can't read files other than its bundle, write files or start processes.
 
 The permission model doesn't cover the network: the child can still load Node's network modules.
@@ -17,11 +17,11 @@ the input: a compaction job can meet a larger state. A child that runs out of it
 is killed for memory fails as CheckerFailed, and the document is held with an alert.
 """
 
-import base64
 import json
 import re
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,11 +49,7 @@ class CheckerFailed(Exception):
 
 def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict | None:
     """Ask the checker which of `rows` breaks the document; None without a usable Node or bundle."""
-    checkpoint_text = None
-    if checkpoint:
-        checkpoint_text = encoded(checkpoint)
-
-    answer = ask(bundle, {"checkpoint": checkpoint_text, "rows": [encoded(row) for row in rows]})
+    answer = ask(bundle, {"mode": "judge"}, checkpoint, rows)
     if answer is None:
         return None
 
@@ -72,8 +68,7 @@ def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict 
 
 def covers(bundle: Path, body: bytes, rows: list[bytes]) -> bool | None:
     """Whether `body` holds every change in `rows`, by the browsers' Yjs; None without a usable Node."""
-    request = {"mode": "covers", "checkpoint": encoded(body), "rows": [encoded(row) for row in rows]}
-    answer = ask(bundle, request)
+    answer = ask(bundle, {"mode": "covers"}, body, rows)
     if answer is None:
         return None
 
@@ -84,12 +79,14 @@ def covers(bundle: Path, body: bytes, rows: list[bytes]) -> bool | None:
     return covered
 
 
-def encoded(part: bytes) -> str:
-    """Encode one part of a request in base64 text."""
-    return base64.b64encode(part).decode()
-
-
-def ask(bundle: Path, request: dict, minimum: tuple[int, int] = (NODE_MAJOR, 0)) -> dict | None:
+def ask(
+    bundle: Path,
+    header: dict,
+    checkpoint: bytes | None = None,
+    rows: Sequence[bytes] = (),
+    *,
+    minimum: tuple[int, int] = (NODE_MAJOR, 0),
+) -> dict | None:
     """Run `bundle` on one request and answer its reply, or None without a Node at `minimum` or the bundle."""
     if not getattr(frappe.local, "job", None):
         raise RuntimeError("the collab checker runs only in background jobs")
@@ -101,9 +98,8 @@ def ask(bundle: Path, request: dict, minimum: tuple[int, int] = (NODE_MAJOR, 0))
     try:
         completed = subprocess.run(
             node_command(node_path, bundle),
-            input=json.dumps(request),
+            input=framed([json.dumps(header).encode(), checkpoint or b"", *rows]),
             capture_output=True,
-            text=True,
             timeout=TIMEOUT_S,
             env={},
             check=True,
@@ -114,11 +110,16 @@ def ask(bundle: Path, request: dict, minimum: tuple[int, int] = (NODE_MAJOR, 0))
 
         return answer
     except subprocess.CalledProcessError as error:
-        last_stderr_line = error.stderr.strip().rsplit("\n", 1)[-1]
+        last_stderr_line = error.stderr.decode(errors="replace").strip().rsplit("\n", 1)[-1]
         reason = plain_reason(last_stderr_line)
         raise CheckerFailed(f"exit {error.returncode}: {reason}") from error
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         raise CheckerFailed(repr(error)) from error
+
+
+def framed(parts: list[bytes]) -> bytes:
+    """Join `parts` as the child reads them, each after its length in 4 little-endian bytes."""
+    return b"".join(len(part).to_bytes(4, "little") + part for part in parts)
 
 
 def node_command(node_path: str, bundle: Path) -> list[str]:
@@ -132,6 +133,8 @@ def node_command(node_path: str, bundle: Path) -> list[str]:
         f"--max-old-space-size={HEAP_MB}",
         # A small young generation cuts the peak resident memory by about a third, with the same answer
         "--max-semi-space-size=1",
+        # The checker collects each probe's document before building the next
+        "--expose-gc",
         str(bundle),
     ]
 
