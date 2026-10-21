@@ -34,7 +34,7 @@ import { placeThread } from '@/apps/writer/collab/places'
 const REFUSED = { kind: 'failed', reason: 'check' }
 const MENTION = '<span class="mention" data-type="mention" data-id="x" data-label="Ann">@Ann</span>'
 
-const forced = vi.hoisted(() => ({ isUnitLost: false, isPlaceShifted: false, calls: 0 }))
+const forced = vi.hoisted(() => ({ isUnitLost: false, isPlaceShifted: false, calls: 0, key: '' }))
 
 vi.mock('@/apps/writer/collab/old-comments', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/apps/writer/collab/old-comments')>()
@@ -66,8 +66,17 @@ vi.mock('@tiptap/y-tiptap', async (importOriginal) => {
   return { ...real, absolutePositionToRelativePosition }
 })
 
+vi.mock('uuid', async (importOriginal) => {
+  const real = await importOriginal<typeof import('uuid')>()
+  function v4() {
+    return forced.key || real.v4()
+  }
+
+  return { ...real, v4 }
+})
+
 afterEach(() => {
-  Object.assign(forced, { isUnitLost: false, isPlaceShifted: false, calls: 0 })
+  Object.assign(forced, { isUnitLost: false, isPlaceShifted: false, calls: 0, key: '' })
 })
 
 function withComments(doc: Doc, ...entries: { id: string; [key: string]: unknown }[]) {
@@ -277,6 +286,17 @@ describe('convertLegacy, a Yjs document with comments kept beside the body', () 
       ycomments: (doc: Doc) => yComments({ c2: oldComment(doc, 'c1', 5, 8) }),
     },
     {
+      name: 'a comment whose place is not a map',
+      ycomments: (doc: Doc) => yComments({ c1: { ...oldComment(doc, 'c1', 5, 8), anchor: 'two' } }),
+    },
+    {
+      name: 'a comment whose end is not kept as bytes',
+      ycomments: (doc: Doc) => {
+        const comment = oldComment(doc, 'c1', 5, 8)
+        return yComments({ c1: { ...comment, anchor: { ...comment.anchor, to: [1, 2] } } })
+      },
+    },
+    {
       name: 'a comment whose start it cannot read',
       ycomments: (doc: Doc) => {
         const comment = oldComment(doc, 'c1', 5, 8)
@@ -288,6 +308,18 @@ describe('convertLegacy, a Yjs document with comments kept beside the body', () 
     const doc = legacyDoc(yParagraph('one two three'))
 
     expect(convertLegacy({ ...stored(doc), ycomments: ycomments(doc) }, MAX_STATE)).toEqual(REFUSED)
+  })
+
+  it("refuses a comment kept under a 2023 thread's key", () => {
+    forced.key = 'k1'
+    const doc = legacyDoc(
+      yMarked('see', { comment: { comment: DRIVE_THREAD } }),
+      yParagraph('one two'),
+    )
+
+    expect(convertLegacy(withComments(doc, oldComment(doc, 'k1', 10, 13)), MAX_STATE)).toEqual(
+      REFUSED,
+    )
   })
 
   it('refuses a comment whose words the new body no longer holds in the same order', () => {
