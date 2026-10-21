@@ -133,7 +133,7 @@ function renderCellStyle(attrs: Record<string, unknown>) {
 export function isImportantBackground(text: string) {
   return text
     .split(';')
-    .some((piece) => propertyOf(piece) === BACKGROUND && /!\s*important\s*$/i.test(piece))
+    .some((piece) => propertyOf(piece) === BACKGROUND && /!\s*important/i.test(piece))
 }
 
 export function isKeptCellStyle(text: string) {

@@ -1220,6 +1220,7 @@ describe('convertLegacy on table cell styles', () => {
     { style: 'background-color: #fef08a', backgroundColor: 'yellow' },
     { style: 'background-color: #fef08a !important' },
     { style: 'background-color: var(--prose-highlight-blue) !important' },
+    { style: 'background-color: #fef08a !important /* c */' },
   ])('refuses an old Yjs cell holding %o', (attributes) => {
     expect(convertLegacy(yTable(yCell('tableCell', attributes)), MAX_STATE)).toEqual({
       kind: 'failed',
