@@ -236,6 +236,23 @@ describe("convertLegacy, Drive's 2023 threads", () => {
     expect(convertLegacy(legacy, MAX_STATE)).toEqual(REFUSED)
   })
 
+  it.each([
+    {
+      name: 'an empty span',
+      legacy: html(`<p>one <span data-comment='${DRIVE_THREAD}'></span></p>`),
+    },
+    {
+      name: 'a span holding only a space the page drops',
+      legacy: html(`<p>one <span data-comment='${DRIVE_THREAD}'> </span></p>`),
+    },
+    {
+      name: 'a paragraph holding only a space',
+      legacy: html(`<p><span data-comment='${DRIVE_THREAD}'> </span></p><p>two</p>`),
+    },
+  ])('refuses an HTML thread on $name, which leaves it no place', ({ legacy }) => {
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual(REFUSED)
+  })
+
   it('refuses an HTML mark holding a thread id beside its thread', () => {
     const span = `<span data-comment='${DRIVE_THREAD}' data-comment-id="c1">see</span>`
 
