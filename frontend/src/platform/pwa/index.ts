@@ -77,8 +77,27 @@ const pushEnabled = ref(false)
  * Suite app, every app (see suite.suite_core.push).
  */
 function pushApps(): string[] {
-  if (standalone() && currentApp.value !== 'suite') return [currentApp.value]
+  const app = launchedApp()
+  if (standalone() && app !== 'suite') return [app]
   return installableApps.map((app) => app.id)
+}
+
+const LAUNCHED_KEY = 'suite_launched_app'
+
+/**
+ * The app this installed app is: the one it launched as, kept for the session. The page is not
+ * enough: the one Suite app covers every page, and reloaded on Calendar's it is still the Suite.
+ */
+function launchedApp(): string {
+  const loaded = loadedApp ?? currentApp.value
+  try {
+    const launched = sessionStorage.getItem(LAUNCHED_KEY)
+    if (launched) return launched
+    sessionStorage.setItem(LAUNCHED_KEY, loaded)
+  } catch {
+    // Storage can be unavailable (private mode); the page it loaded on stands in.
+  }
+  return loaded
 }
 
 const NOTIFY_ASKED_KEY = 'suite_notify_asked'

@@ -77,6 +77,7 @@ beforeEach(() => {
   vi.resetModules()
   document.head.innerHTML = ''
   localStorage.clear()
+  sessionStorage.clear()
   fcm.config = { projectId: 'suite-push', appId: '1:2:web:3' }
   fcm.initialized = []
   fcm.handlers = []
@@ -270,7 +271,9 @@ describe('Suite PWA', () => {
     await install('authenticated', 'a@suite.test')
     expect(fcm.apps).toEqual([['mail', 'calendar']])
 
+    // Calendar's own installed app: a session of its own.
     vi.resetModules()
+    sessionStorage.clear()
     fcm.apps = []
     fcm.calls = []
     Object.defineProperty(navigator, 'standalone', { configurable: true, value: true })
@@ -279,6 +282,24 @@ describe('Suite PWA', () => {
     Reflect.deleteProperty(navigator, 'standalone')
     expect(fcm.apps).toEqual([['calendar']])
     expect(fcm.calls).toEqual(['subscribe token-a for calendar'])
+  })
+
+  it("keeps the one Suite app subscribed for every app, reloaded on another app's page", async () => {
+    localStorage.setItem(TOKEN_KEY, 'token-a')
+    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true })
+    try {
+      // The Suite app opens at its start URL.
+      path.value = '/suite/start'
+      await install('authenticated', 'a@suite.test')
+      // Later in the same session it reloads on Calendar's page.
+      vi.resetModules()
+      fcm.apps = []
+      path.value = '/calendar'
+      await install('authenticated', 'a@suite.test')
+      expect(fcm.apps).toEqual([['mail', 'calendar']])
+    } finally {
+      Reflect.deleteProperty(navigator, 'standalone')
+    }
   })
 
   it("drops another user's token at sign-in when the logout did not go through the platform", async () => {
