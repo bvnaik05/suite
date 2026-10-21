@@ -2,6 +2,7 @@ import { generateJSON, type JSONContent } from '@tiptap/core'
 import { XmlElement, XmlFragment, XmlText } from 'yjs'
 
 import { writerSchema } from '@/apps/writer/schema'
+import { rgbOf, squaredDistance, type Rgb } from '@/apps/writer/utils/css-colour'
 
 const extensions = writerSchema()
 
@@ -80,8 +81,6 @@ const PAGE = { red: 255, green: 255, blue: 255 }
 // The anchor frappe-ui's highlightColorHexMap matches a gray highlight to
 const GRAY_HIGHLIGHT = { red: 229, green: 231, blue: 235 }
 
-type Rgb = typeof INK
-
 // Where an unnamed tone lands: gray when nearer `gray`, no colour when nearer `none` or as near
 const TONES: Record<ColourProperty, { gray: Rgb; none: Rgb }> = {
   color: { gray: GRAY_TEXT, none: INK },
@@ -90,63 +89,6 @@ const TONES: Record<ColourProperty, { gray: Rgb; none: Rgb }> = {
 
 // A palette name or any var(--...) reference, with nothing around it
 const WHOLE_NAME = /^([a-z]+|var\(--[a-z0-9-]+\))$/i
-
-const CHANNELS = 3
-const BYTE = 255
-const PERCENT = 100
-const HEX = 16
-
-// A colour as frappe-ui's color-parse reads it, when it's the whole value: a hex of exactly 6
-// digits, or rgb() or rgba() with 3 channels; the alpha it ignores comes after a ',' or a '/'
-function rgbOf(value: string): (Rgb & { alpha: number }) | null {
-  const colour = value.trim()
-  const [, ...pairs] = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(colour) ?? []
-  if (pairs.length) {
-    const [red, green, blue] = pairs.map((pair) => parseInt(pair, HEX))
-    return { red, green, blue, alpha: 1 }
-  }
-
-  const [, body] = /^rgba?\(([^)]+)\)$/i.exec(colour) ?? []
-  if (!body) {
-    return null
-  }
-
-  const [channels, slashed] = body.split('/')
-  const parts = channels.split(/[\s,]+/).filter(Boolean)
-  const [red, green, blue] = parts.slice(0, CHANNELS).map(byteOf)
-  if (parts.length < CHANNELS || [red, green, blue].some(Number.isNaN)) {
-    return null
-  }
-
-  return { red, green, blue, alpha: alphaOf(slashed ?? parts[CHANNELS] ?? '1') }
-}
-
-// An alpha as a fraction, from a number or a percentage, clamped as CSS clamps it
-function alphaOf(alpha: string) {
-  let amount = parseFloat(alpha)
-  if (alpha.trim().endsWith('%')) {
-    amount /= PERCENT
-  }
-
-  return Math.max(0, Math.min(1, amount))
-}
-
-// A channel as frappe-ui's color-parse reads it, a number or a percentage, rounded into a byte
-function byteOf(channel: string) {
-  let byte = parseFloat(channel)
-  if (channel.endsWith('%')) {
-    byte = (byte / PERCENT) * BYTE
-  }
-
-  return Math.max(0, Math.min(BYTE, Math.round(byte)))
-}
-
-// How far apart two colours are straight across red, green and blue, squared: it's only compared,
-// so a whole-byte tie stays a tie
-function squaredDistance(from: Rgb, to: Rgb) {
-  const [red, green, blue] = [from.red - to.red, from.green - to.green, from.blue - to.blue]
-  return red * red + green * green + blue * blue
-}
 
 // Old Drive's highlight picker, from its DocMenuAndInfoBar: the editor reads these tones as their
 // names only from these hexes, and matches any other form of them to a different tone
@@ -159,16 +101,6 @@ const OLD_DRIVE_HIGHLIGHTS = [
   ['purple', '#f3e8ff'],
   ['pink', '#fce7f3'],
 ]
-
-// Whether two colours are the same one, as written or by channels and alpha
-export function isSameColour(one: string, other: string) {
-  if (one.trim().toLowerCase() === other.trim().toLowerCase()) {
-    return true
-  }
-
-  const [first, second] = [rgbOf(one), rgbOf(other)]
-  return !!first && !!second && squaredDistance(first, second) === 0 && first.alpha === second.alpha
-}
 
 function isColour(hex: string, rgb: Rgb) {
   const colour = rgbOf(hex)

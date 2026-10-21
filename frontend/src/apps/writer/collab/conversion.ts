@@ -58,7 +58,6 @@ import {
   clearSeeThroughHighlights,
   clearSeeThroughText,
   DRIVE_INK,
-  isSameColour,
   mapOldColours,
   moveSpanHighlights,
   nameOldDriveHighlights,
@@ -66,6 +65,7 @@ import {
 import { DRIVE_HEADING_LINE_HEIGHT, INDENTED_BLOCKS } from '@/apps/writer/extensions/block-layout'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
+import { isSameColour } from '@/apps/writer/utils/css-colour'
 
 const extensions = writerSchema()
 const schema = getSchema(extensions)
