@@ -686,6 +686,13 @@ describe('convertLegacy', () => {
       doc: () =>
         legacyDoc(yElement('paragraph', yAtom('mention', { id: 'x', label: 'A', uploadId: 'u1' }))),
     },
+    {
+      name: 'mention with an inherited key',
+      doc: () =>
+        legacyDoc(
+          yElement('paragraph', yAtom('mention', { id: 'x', label: 'A', constructor: 'x' })),
+        ),
+    },
     { name: 'horizontal rule', doc: () => legacyDoc(yAtom('horizontalRule', { colour: 'red' })) },
   ])('refuses an old Yjs $name holding a key Writer does not declare', ({ doc }) => {
     expect(convertLegacy(stored(doc()), MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
