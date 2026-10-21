@@ -68,13 +68,13 @@ import {
 } from '@/apps/writer/collab/old-media'
 import {
   breaksStyle,
-  clearSeeThroughHighlights,
-  clearSeeThroughText,
   DRIVE_INK,
+  dropEmptyFonts,
   mapOldCellStyles,
   mapOldColours,
   moveSpanHighlights,
-  nameOldDriveHighlights,
+  readOldHighlights,
+  readOldTextColours,
 } from '@/apps/writer/collab/old-styles'
 import { readOldThreads, type OldComment } from '@/apps/writer/collab/old-threads'
 import { placeThread } from '@/apps/writer/collab/places'
@@ -510,15 +510,15 @@ function droppedHtmlFloats(body: HTMLElement) {
   return ['datafloat']
 }
 
-// The HTML the editor reads, its old media mapped and see-through colours cleared in place;
-// written back from the parse only when that, moving a span's background or naming an old Drive
-// highlight changed it. Text goes first, so a mark whose text colour is see-through can unwrap
+// The HTML the editor reads, its old media mapped and its colours and empty fonts read in place as
+// on the Yjs path; written back from the parse only when that or moving a span's background changed
+// it. Text goes first, so a mark whose text colour is see-through can unwrap
 function readableHtml(body: HTMLElement, html: string, isMarked: boolean) {
-  const isCleared = [clearSeeThroughText(body), clearSeeThroughHighlights(body)].includes(true)
+  const reads = [readOldTextColours(body), readOldHighlights(body), dropEmptyFonts(body)]
   const isMapped = mapOldMedia(body)
   const readable = body.cloneNode(true) as HTMLElement
   const isMoved = moveSpanHighlights(readable)
-  if (!nameOldDriveHighlights(readable) && !isMoved && !isMapped && !isCleared && !isMarked) {
+  if (!reads.includes(true) && !isMoved && !isMapped && !isMarked) {
     return html
   }
 
@@ -610,7 +610,7 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
   })
 }
 
-// The check compares the old HTML, its old media mapped, its see-through colours cleared and a
+// The check compares the old HTML, its old media mapped, its colours and empty fonts read and a
 // float beside an alignment dropped (recorded), frappe-ui's upload marks and Drive's mention author
 // dropped (recorded) and Drive's defaults dropped, with the fresh body as the editor draws it;
 // every property the raw style text names must survive the parse, bar the noise list, and the

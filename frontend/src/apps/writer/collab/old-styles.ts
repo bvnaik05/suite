@@ -67,11 +67,11 @@ function paletteName(property: ColourProperty, value: string) {
   return name
 }
 
-// Old colours that look like none where they're drawn: black text is the default text, a
-// see-through highlight shows the page
-const LOOKS_UNSET: Record<ColourProperty, string> = {
-  color: 'black',
-  'background-color': 'transparent',
+// Old colours that look like none where they're drawn: black text is the default text, see-through
+// text or a see-through highlight shows what's behind it
+const LOOKS_UNSET: Record<ColourProperty, string[]> = {
+  color: ['black', 'transparent'],
+  'background-color': ['transparent'],
 }
 
 // The default text Writer draws, prose-v3's var(--ink-gray-7): frappe-ui's gray 800,
@@ -132,7 +132,7 @@ function oldPaletteName(property: ColourProperty, value: string): string | null 
   }
 
   const rgb = rgbOf(value)
-  if (rgb?.alpha === 0 || value.trim().toLowerCase() === LOOKS_UNSET[property]) {
+  if (rgb?.alpha === 0 || LOOKS_UNSET[property].includes(value.trim().toLowerCase())) {
     return ''
   }
 
@@ -417,23 +417,6 @@ export function moveSpanHighlights(body: HTMLElement) {
   return spans.length > 0
 }
 
-// The editor reads old Drive's highlights by name only from their hexes, so any form of one is
-// written as the variable the editor draws that name with
-export function nameOldDriveHighlights(body: HTMLElement) {
-  const { variable } = COLOUR_READS['background-color']
-  let isNamed = false
-  for (const { style } of body.querySelectorAll<HTMLElement>('mark')) {
-    const name = oldDriveName('background-color', rgbOf(style.getPropertyValue('background-color')))
-    if (name) {
-      const priority = style.getPropertyPriority('background-color')
-      style.setProperty('background-color', `var(--${variable}-${name})`, priority)
-      isNamed = true
-    }
-  }
-
-  return isNamed
-}
-
 // The colours an element sets for a property; a highlight also kept its colour in data-color
 function coloursOf(element: HTMLElement, property: ColourProperty) {
   const colours = [element.style.getPropertyValue(property)]
@@ -444,10 +427,89 @@ function coloursOf(element: HTMLElement, property: ColourProperty) {
   return colours.filter((colour) => colour !== '')
 }
 
-// Whether every colour an element sets for a property is one no one could see
-function isSeeThrough(element: HTMLElement, property: ColourProperty) {
+function isSeeThrough(colour: string) {
+  return rgbOf(colour)?.alpha === 0 || colour.trim().toLowerCase() === 'transparent'
+}
+
+// Parents the editor's CSS colours, which would show where a child's colour goes
+const CSS_COLOURED: Record<ColourProperty, string> = {
+  // frappe-ui tailwind/plugin.js: blockquote color var(--ink-gray-6), and a code block's
+  // --tw-prose-pre-code
+  color: 'blockquote, pre',
+  // EDITOR_TEXT_CLASS prose-th:bg-surface-gray-2 (utils/editor-layout.ts), and frappe-ui
+  // tailwind/plugin.js: the inline code pill's var(--surface-gray-2), which pre code clears, and a
+  // code block's --tw-prose-pre-bg
+  'background-color': 'th, :not(pre) > code, pre',
+}
+
+function drawsAsInk(property: ColourProperty, colour: string) {
+  return property === 'color' && isDriveInk(colour)
+}
+
+// Whether a parent sets the property, whose colour would show where a child's goes; inherit sets
+// none, and Drive's ink draws as the default text
+function hasColouredParent(element: HTMLElement, property: ColourProperty) {
+  if (element.parentElement?.closest(CSS_COLOURED[property])) {
+    return true
+  }
+
+  let parent = element.parentElement
+  while (parent) {
+    const colours = coloursOf(parent, property).filter((colour) => !drawsAsInk(property, colour))
+    if (colours.some((colour) => colour !== 'inherit')) {
+      return true
+    }
+
+    parent = parent.parentElement
+  }
+
+  return false
+}
+
+function colourName(property: ColourProperty, colour: string) {
+  if (isSeeThrough(colour)) {
+    return ''
+  }
+
+  return oldPaletteName(property, colour)
+}
+
+// The palette name an element's colours for a property read as on the Yjs path, '' when none;
+// null when it sets none, one can't be read, they disagree, a tone reading as none would show a
+// parent's, or a name would lose its !important, which the check can't see on a variable
+function oldColourName(element: HTMLElement, property: ColourProperty) {
   const colours = coloursOf(element, property)
-  return colours.length > 0 && colours.every((colour) => rgbOf(colour)?.alpha === 0)
+  if (!colours.length) {
+    return null
+  }
+
+  if (colours.every(isSeeThrough)) {
+    return ''
+  }
+
+  const names = new Set(colours.map((colour) => colourName(property, colour)))
+  const [name] = names
+  if (names.size > 1 || name == null || (!name && hasColouredParent(element, property))) {
+    return null
+  }
+
+  if (name && element.style.getPropertyPriority(property)) {
+    return null
+  }
+
+  return name
+}
+
+// An element's colour for a property set as the variable the editor draws its palette name with,
+// or gone when it reads as none
+function setOldColour(element: HTMLElement, property: ColourProperty, name: string) {
+  if (!name) {
+    element.style.removeProperty(property)
+    return
+  }
+
+  const { variable } = COLOUR_READS[property]
+  element.style.setProperty(property, `var(--${variable}-${name})`)
 }
 
 // A mark that holds nothing but its colour, Drive's inherited text colour aside
@@ -459,35 +521,59 @@ function isBareMark(mark: HTMLElement) {
   return !names.length && !attributes.length
 }
 
-// A text colour no one could see shows none, as on the Yjs path, so it goes in place
-export function clearSeeThroughText(body: HTMLElement) {
-  const cleared = [...body.querySelectorAll<HTMLElement>('[style]')].filter((element) =>
-    isSeeThrough(element, 'color'),
-  )
-  for (const { style } of cleared) {
-    style.removeProperty('color')
-  }
-
-  return cleared.length > 0
-}
-
-// A background no one could see shows no highlight, as on the Yjs path, so it goes in place; a
-// mark left with other attributes stays and fails the check
-export function clearSeeThroughHighlights(body: HTMLElement) {
-  const cleared = [...body.querySelectorAll<HTMLElement>('span, mark')].filter((element) =>
-    isSeeThrough(element, 'background-color'),
-  )
-  for (const element of cleared) {
-    element.style.removeProperty('background-color')
-    if (element.localName !== 'mark') {
+// Old text colours read in place as on the Yjs path: on a span, where the editor reads one, and a
+// see-through one on anything; Drive's ink is left to its own rule, parents are read first
+export function readOldTextColours(body: HTMLElement) {
+  let isRead = false
+  for (const element of body.querySelectorAll<HTMLElement>('[style]')) {
+    const color = element.style.getPropertyValue('color')
+    const isSkipped = !color || color === 'inherit' || isDriveInk(color)
+    if (isSkipped || (element.localName !== 'span' && !isSeeThrough(color))) {
       continue
     }
 
-    element.removeAttribute('data-color')
-    if (isBareMark(element)) {
-      element.replaceWith(...element.childNodes)
+    const name = oldColourName(element, 'color')
+    if (name != null) {
+      setOldColour(element, 'color', name)
+      isRead = true
     }
   }
 
-  return cleared.length > 0
+  return isRead
+}
+
+// Old highlights read in place as on the Yjs path, a data-color that disagrees left to fail the
+// check; a mark left holding nothing unwraps, and one left with other attributes fails the check
+export function readOldHighlights(body: HTMLElement) {
+  let isRead = false
+  for (const element of body.querySelectorAll<HTMLElement>('span, mark')) {
+    const background = element.style.getPropertyValue('background-color')
+    const name = oldColourName(element, 'background-color')
+    if (background === 'inherit' || name == null || (name && !background)) {
+      continue
+    }
+
+    setOldColour(element, 'background-color', name)
+    element.removeAttribute('data-color')
+    if (element.localName === 'mark' && !name && isBareMark(element)) {
+      element.replaceWith(...element.childNodes)
+    }
+
+    isRead = true
+  }
+
+  return isRead
+}
+
+// A font family Writer reads as empty, its quotes stripped, draws none
+export function dropEmptyFonts(body: HTMLElement) {
+  const empty = [...body.querySelectorAll<HTMLElement>('span[style]')].filter(({ style }) => {
+    const family = style.getPropertyValue('font-family')
+    return family !== '' && !family.replace(/['"]+/g, '')
+  })
+  for (const { style } of empty) {
+    style.removeProperty('font-family')
+  }
+
+  return empty.length > 0
 }

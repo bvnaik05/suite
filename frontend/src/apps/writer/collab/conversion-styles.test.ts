@@ -205,10 +205,6 @@ describe('convertLegacy', () => {
     { name: "indented in a unit Drive didn't write", html: '<p style="margin-left: 2em">one</p>' },
     { name: 'holding formatting the editor has no mark for', html: '<p>x<sup>2</sup></p>' },
     { name: 'with a block attribute the editor drops', html: '<p dir="rtl">one</p>' },
-    {
-      name: "with a colour the editor can't read",
-      html: '<p><span style="color: hsl(0, 70%, 50%)">red</span></p>',
-    },
   ])('refuses HTML $name', ({ html }) => {
     const legacy = { content: null, html, collab: 0, ycomments: null }
 
@@ -776,8 +772,8 @@ describe('convertLegacy on old HTML spans', () => {
     },
   )
 
-  it.each(['transparent', ''])('refuses a span background of "%s"', (value) => {
-    const html = `<p>a<span style="background-color: ${value}">b</span></p>`
+  it('refuses an empty span background', () => {
+    const html = '<p>a<span style="background-color: ">b</span></p>'
 
     expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
@@ -1195,6 +1191,211 @@ describe('convertLegacy on text colours no one could see (R537)', () => {
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([['lit', []]])
+  })
+})
+
+describe('convertLegacy on pasted HTML span colours, read as on the Yjs path', () => {
+  const TEXT = [
+    { value: 'rgb(0, 0, 0)', drawn: [] },
+    { value: 'black', drawn: [] },
+    { value: 'rgb(67, 67, 67)', drawn: [] },
+    { value: 'transparent', drawn: [] },
+    { value: '#7c7c7c', drawn: [['textStyle', 'gray']] },
+    { value: 'rgb(124, 124, 124)', drawn: [['textStyle', 'gray']] },
+    { value: 'rgb(206, 145, 120)', drawn: [['textStyle', 'gray']] },
+    { value: 'rgb(255, 255, 255)', drawn: [['textStyle', 'gray']] },
+    { value: 'red', drawn: [['textStyle', 'red']] },
+    { value: 'hsl(0, 70%, 50%)', drawn: [['textStyle', 'red']] },
+  ]
+  const HIGHLIGHTS = [
+    { value: 'transparent', drawn: [] },
+    { value: 'rgb(255, 255, 255)', drawn: [] },
+    { value: 'rgb(217, 248, 233)', drawn: [['namedHighlight', 'gray']] },
+    { value: 'rgb(52, 53, 65)', drawn: [['namedHighlight', 'gray']] },
+  ]
+
+  it.each(TEXT)('keeps an HTML span colour $value as $drawn', ({ value, drawn }) => {
+    const html = `<p>a<span style="color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', drawn],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it.each(HIGHLIGHTS)('keeps an HTML span background $value as $drawn', ({ value, drawn }) => {
+    const html = `<p>a<span style="background-color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', drawn],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps an HTML highlight of transparent as its text, with no mark', () => {
+    const html = '<p>a<mark style="background-color: transparent">b</mark></p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content).toEqual([{ type: 'text', text: 'ab' }])
+  })
+
+  it('keeps a transparent span inside a highlight as the highlight', () => {
+    const inner = '<span style="background-color: transparent">b</span>'
+    const html = `<p><span style="background-color: rgb(207, 226, 243)">a${inner}</span></p>`
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['ab', [['namedHighlight', 'blue']]]])
+  })
+
+  it('refuses an HTML highlight whose data-color is another colour', () => {
+    const style = 'background-color: transparent'
+    const html = `<p>a<mark data-color="#fef9c3" style="${style}">b</mark></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it("refuses an HTML span colour the editor can't read, whose alpha is a variable", () => {
+    const html = '<p>a<span style="color: rgb(0 0 0 / var(--tw-text-opacity))">b</span></p>'
+
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('refuses a black span inside a red one, which drew black over the red', () => {
+    const html = '<p><span style="color: red">a<span style="color: black">b</span></span></p>'
+
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('keeps an HTML span font family of empty quotes as no font family', () => {
+    const html = '<p>a<span style=\'font-family: ""\'>b</span></p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    const fonts = content.map(({ text, marks = [] }: JSONContent) => [
+      text,
+      marks.map(({ attrs }) => attrs?.fontFamily).filter(Boolean),
+    ])
+    expect(fonts).toEqual([
+      ['a', []],
+      ['b', []],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+})
+
+describe('convertLegacy on pasted HTML colours beside a priority or a drawn parent (R601-R605)', () => {
+  function refused(html: string) {
+    return convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)
+  }
+
+  it('keeps a transparent paragraph colour as no colour', () => {
+    const html = '<p style="color: transparent">ab</p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['ab', []]])
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps an old Yjs text colour transparent as no colour', () => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { color: 'transparent' } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', []]])
+  })
+
+  it('keeps an important black span colour as no colour', () => {
+    const html = '<p>a<span style="color: black !important">b</span></p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', []],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it.each([
+    '<p>a<span style="color: rgb(124, 124, 124) !important">b</span></p>',
+    '<p>a<mark style="background-color: #fef9c3 !important">b</mark></p>',
+  ])('refuses an important colour a palette name would draw without its priority: %s', (html) => {
+    expect(refused(html)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it("refuses Drive's highlight whose data-color is another of its colours", () => {
+    const html = '<p>a<mark data-color="#fee2e2" style="background-color: #fef9c3">b</mark></p>'
+
+    expect(refused(html)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it("refuses a span background of the keyword white, which the Yjs path doesn't read either", () => {
+    const html = '<p>a<span style="background-color: white">b</span></p>'
+
+    expect(refused(html)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it.each([
+    '<table><tr><th><p>a<span style="background-color: rgb(255, 255, 255)">b</span></p></th></tr></table>',
+    '<p><code>a<span style="background-color: rgb(255, 255, 255)">b</span></code></p>',
+    '<blockquote><p>a<span style="color: black">b</span></p></blockquote>',
+    '<pre><code>a<span style="background-color: rgb(255, 255, 255)">b</span></code></pre>',
+    '<pre><code>a<span style="color: rgb(13, 13, 13)">b</span></code></pre>',
+  ])('refuses a colour reading as none over one the editor draws: %s', (html) => {
+    expect(refused(html)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it("keeps a black span inside Drive's ink as no colour", () => {
+    const html = `<p><span ${INK}>a<span style="color: black">b</span></span></p>`
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['ab', []]])
+  })
+
+  it('draws a gray span colour and highlight as the palette variables', () => {
+    const colours = 'color: rgb(124, 124, 124); background-color: rgb(217, 248, 233)'
+    const html = `<p>a<span style="${colours}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const element = document.createElement('div')
+    element.innerHTML = openConverted(result.state).getHTML()
+    const drawn = [...element.querySelectorAll<HTMLElement>('p [style]')].map(({ style }) => [
+      style.getPropertyValue('color'),
+      style.getPropertyValue('background-color'),
+    ])
+    expect(drawn.flat().filter(Boolean).sort()).toEqual([
+      'var(--prose-color-gray)',
+      'var(--prose-highlight-gray)',
+    ])
   })
 })
 
