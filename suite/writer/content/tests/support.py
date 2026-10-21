@@ -425,8 +425,17 @@ class CheckpointCase(IntegrationTestCase):
             parent, f"Collab {uuid.uuid4().hex[:8]}", content_doctype="Writer Document"
         )
         frappe.db.commit()
+        self.addCleanup(self.delete_document, node)
         self.addCleanup(self.delete_log, node)
         return node
+
+    def delete_document(self, node: str):
+        docname = frappe.db.get_value("Drive Node", node, "content_docname")
+        if docname:
+            frappe.db.delete("Writer Document", docname)
+
+        frappe.db.delete("Drive Node", node)
+        frappe.db.commit()
 
     def delete_log(self, node: str):
         doc = routes.content.find(writer_content.APP, node)
