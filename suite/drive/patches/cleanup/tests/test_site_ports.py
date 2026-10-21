@@ -13,7 +13,7 @@ import unittest
 from base64 import b64encode
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 
@@ -199,17 +199,6 @@ class TestSiteContentRowsCommentStripping(unittest.TestCase):
         written = _decode_written(written_raw)
         self.assertNotIn("comments", written)
         self.assertEqual(written["title"], "Q3")
-
-    def test_writes_no_writer_row(self):
-        with (
-            patch("frappe.get_all") as get_all,
-            patch("frappe.db", new=MagicMock()) as db,
-        ):
-            get_all.side_effect = [self._rows(("sheet-1", json.dumps({"comments": {"Sheet1": {}}}))), []]
-            SiteContentRows().strip_sheet_comments(batch_size=10)
-
-        db.set_value.assert_called_once_with("Sheet", "sheet-1", "sheets_data", ANY, update_modified=False)
-        self.assertEqual(len(db.mock_calls), 1)
 
     def test_a_sheet_with_no_comments_key_is_never_written(self):
         with (

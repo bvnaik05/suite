@@ -6,8 +6,10 @@ saves go through `validate`, which refuses too. The scan lists each function tha
 the row directly; a new one fails until it is listed here with why it can't write over a
 logged document.
 
-The scan reads one file at a time, so it misses a doctype passed in a variable and a qb
-table that came from another file or a function argument.
+The scan reads one file at a time, so it misses a doctype passed in a variable (Build's
+`write_writer_template`, through `_bulk`), and a qb table held in anything but a plain name
+assigned in the same file (annotated, tuple or attribute assigns), or built off a receiver
+not named qb.
 """
 
 import ast
@@ -16,7 +18,7 @@ import unittest
 from pathlib import Path
 
 SUITE_ROOT = Path(__file__).resolve().parents[2]
-ROW_CALLS = frozenset({"set_value", "new_doc", "delete_doc"})
+ROW_CALLS = frozenset({"set_value", "new_doc", "delete_doc", "delete", "bulk_insert", "bulk_update"})
 ROW_SQL = re.compile(
     r"(UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+`tab(Writer Document|\{spec\.doctype\})`", re.IGNORECASE
 )
@@ -51,6 +53,16 @@ def call_name(call: ast.Call) -> str:
         return call.func.attr
 
     return getattr(call.func, "id", "")
+
+
+def sql_text(node: ast.AST) -> str:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+
+    if isinstance(node, ast.FormattedValue):
+        return "{" + ast.unparse(node.value) + "}"
+
+    return "".join(sql_text(child) for child in ast.iter_child_nodes(node))
 
 
 def is_row(node: ast.expr, path: str) -> bool:
@@ -106,11 +118,11 @@ def writes_row(call: ast.Call, path: str, tables: set[str]) -> bool:
     if name == "db_set":
         return path.startswith(WRITER_DOCUMENT)
 
-    if name in ROW_CALLS:
-        return names_row(call, path)
+    if name in ROW_CALLS and names_row(call, path):
+        return True
 
     if name == "sql" and call.args:
-        return bool(ROW_SQL.search(ast.unparse(call.args[0])))
+        return bool(ROW_SQL.search(sql_text(call.args[0])))
 
     return qb_writes_row(call, path, tables)
 
@@ -176,6 +188,18 @@ def by_lowercase_sql(name):
 def by_lowercase_delete(name):
     frappe.db.sql("delete from `tabWriter Document` where name = %s", name)
 
+def by_multiline_sql(name):
+    frappe.db.sql('''
+        UPDATE
+            `tabWriter Document` SET html = ''
+        WHERE name = %s''', name)
+
+def by_db_delete(name):
+    frappe.db.delete("Writer Document", {"name": name})
+
+def by_bulk_insert(name):
+    frappe.db.bulk_insert("Writer Document", ["name"], [(name,)])
+
 def by_qb_update(name):
     table = frappe.qb.DocType("Writer Document")
     frappe.qb.update(table).set(table.ycomments, None).where(table.name == name).run()
@@ -198,7 +222,17 @@ def elsewhere(name):
 """
 
 # The SYNTHETIC writers that name the row outright, so they count in any app's file
-NAMED_ROW_WRITERS = ("by_sql", "by_lowercase_sql", "by_lowercase_delete", "by_qb_update", "by_qb_delete")
+NAMED_ROW_WRITERS = (
+    "Shadow.by_value",
+    "by_sql",
+    "by_lowercase_sql",
+    "by_lowercase_delete",
+    "by_multiline_sql",
+    "by_db_delete",
+    "by_bulk_insert",
+    "by_qb_update",
+    "by_qb_delete",
+)
 
 
 def synthetic_writers(path: str) -> set[str]:
@@ -213,10 +247,9 @@ class TestGuardedWrites(unittest.TestCase):
 
     def test_direct_writes_to_the_row_are_detected(self):
         path = "suite/writer/shadow.py"
-        names = ("Shadow.by_value", *NAMED_ROW_WRITERS, "by_qb_insert", "by_doctype")
+        names = (*NAMED_ROW_WRITERS, "by_qb_insert", "by_doctype")
         self.assertEqual(synthetic_writers(path), {f"{path}:{name}" for name in names})
 
     def test_another_app_s_doctype_constant_is_not_the_row(self):
         path = "suite/sheets/shadow.py"
-        names = ("Shadow.by_value", *NAMED_ROW_WRITERS)
-        self.assertEqual(synthetic_writers(path), {f"{path}:{name}" for name in names})
+        self.assertEqual(synthetic_writers(path), {f"{path}:{name}" for name in NAMED_ROW_WRITERS})

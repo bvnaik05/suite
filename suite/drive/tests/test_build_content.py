@@ -18,6 +18,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import frappe
 import pycrdt
@@ -989,6 +990,40 @@ class TestCleanupKeepsComments(BuildContentCase):
         self.assertEqual(frappe.db.get_value("Writer Document", self.prefix + "wdoc", "ycomments"), comments)
         self.assertTrue(frappe.db.exists("Drive Comment Thread", thread))
         self.assertEqual(content.strip_calls, 1)
+
+    def test_the_sheet_comment_strip_leaves_writer_comments(self):
+        thread = self.prefix + "th"
+        comments = writer_comments(
+            {
+                thread: {
+                    "id": thread,
+                    "text": "First",
+                    "owner": self.owner,
+                    "creation": 1_000,
+                    "mentions": [],
+                    "replies": [],
+                }
+            }
+        )
+        self.writer_fixture(comments=comments)
+        self.sheet_fixture(
+            workbook={"comments": {"Sheet1": {"A1": {"resolved": False, "thread": []}}}, "cells": []}
+        )
+        sheet = self.prefix + "sheet"
+        real_get_all = frappe.get_all
+
+        def only_this_sheet(doctype, *args, **kwargs):
+            if doctype == "Sheet":
+                kwargs["filters"] = [["name", *kwargs["filters"]["name"]], ["name", "=", sheet]]
+
+            return real_get_all(doctype, *args, **kwargs)
+
+        with patch("frappe.get_all", side_effect=only_this_sheet):
+            stripped = SiteContentRows().strip_sheet_comments(batch_size=10)
+
+        self.assertEqual(stripped, 1)
+        self.assertEqual(frappe.db.get_value("Writer Document", self.prefix + "wdoc", "ycomments"), comments)
+        self.assertNotIn("comments", json.loads(frappe.db.get_value("Sheet", sheet, "sheets_data")))
 
 
 class TestContentLinksAndSources(BuildContentCase):
