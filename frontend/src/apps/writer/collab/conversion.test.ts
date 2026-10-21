@@ -32,6 +32,9 @@ import { convertOldMedia } from '@/apps/writer/collab/old-media'
 // The binding never writes a null attribute; this covers hand-written or foreign data, which the
 // inventory reads as unset
 const UNSET = null as unknown as string
+// Old Drive's page break as its editor wrote it, its data attribute aside
+const DRIVE_PAGE_BREAK =
+  'id="page-break-div" style="page-break-after: always; border: 2px dashed lightgray; margin: 25px 0px;"'
 
 vi.mock('@tiptap/core', async (importOriginal) => {
   const original = await importOriginal<typeof import('@tiptap/core')>()
@@ -707,6 +710,59 @@ describe('convertLegacy', () => {
     expect(bodyOf(result.state)).toEqual(page(paragraph({ type: 'image', attrs: { src: SRC } })))
   })
 
+  it("drops the author Drive's HTML mentions held, never drawn, recording it once", () => {
+    const ann =
+      '<span class="mention" data-type="mention" data-id="x" data-label="Ann" data-author="a@b.c">@Ann</span>'
+    const bo =
+      '<span class="mention" data-type="mention" data-id="y" data-label="Bo" data-author="a@b.c">@Bo</span>'
+    const html = `<p>${ann} ${bo}</p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      page(
+        paragraph(
+          { type: 'mention', attrs: { id: 'x', label: 'Ann' } },
+          { type: 'text', text: ' ' },
+          { type: 'mention', attrs: { id: 'y', label: 'Bo' } },
+        ),
+      ),
+      [{ kind: 'noise', name: 'author' }],
+    ])
+  })
+
+  it("keeps Drive's HTML page break, its id and look going since the editor draws the same", () => {
+    const html = `<p>one</p><div ${DRIVE_PAGE_BREAK} data-page-break="true"></div><p>two</p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      page(words('one'), { type: 'pageBreak' }, words('two')),
+      [],
+    ])
+  })
+
+  it.each([
+    { name: 'another look', attributes: DRIVE_PAGE_BREAK.replace('lightgray', 'red') },
+    {
+      name: "more than Drive's look",
+      attributes: DRIVE_PAGE_BREAK.replace('0px;', '0px; color: red;'),
+    },
+    { name: 'another id', attributes: DRIVE_PAGE_BREAK.replace('page-break-div', 'x') },
+    {
+      name: "Drive's look and no id",
+      attributes: DRIVE_PAGE_BREAK.replace('id="page-break-div" ', ''),
+    },
+    { name: "Drive's id and no look", attributes: 'id="page-break-div"' },
+  ])('refuses an HTML page break holding $name', ({ attributes }) => {
+    const html = `<p>one</p><div ${attributes} data-page-break="true"></div><p>two</p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('keeps a heading holding a non-breaking space and a line break', () => {
     const legacy = { content: null, html: '<h2>Big&nbsp;plan<br>today</h2>', collab: 0 }
 
@@ -914,6 +970,22 @@ describe('convertLegacy', () => {
 
     const [{ content }] = bodyOf(result.state).content
     expect(content[0].marks[0].attrs.href).toBe('/a')
+  })
+
+  it("keeps the target and rel Drive's links held, from HTML and from Yjs", () => {
+    const drive = { target: '_blank', rel: 'noopener noreferrer nofollow' }
+    const html = '<p><a href="/a" target="_blank" rel="noopener noreferrer nofollow">go</a></p>'
+    const yjs = stored(legacyDoc(yMarked('go', { link: { href: '/a', ...drive, class: null } })))
+
+    const results = [{ content: null, html, collab: 0 }, yjs].map(convert)
+
+    for (const { state, dropped } of results) {
+      const [{ content }] = bodyOf(state).content
+      expect([content[0].marks[0].attrs, dropped]).toEqual([
+        expect.objectContaining({ href: '/a', ...drive }),
+        [],
+      ])
+    }
   })
 
   it('keeps a table whose cell holds its widths and a span at its default', () => {

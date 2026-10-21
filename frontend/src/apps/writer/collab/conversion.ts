@@ -374,10 +374,15 @@ function hasColouredAncestor(element: HTMLElement) {
   return false
 }
 
+// The id and look Drive wrote on every page break, which the editor draws by its data attribute
+const DRIVE_PAGE_BREAK_ID = 'page-break-div'
+const DRIVE_PAGE_BREAK_STYLE =
+  'page-break-after: always; border: 2px dashed lightgray; margin: 25px 0px;'
+
 // Drive stored its indent on paragraphs and headings, its heading line height and its ink on
 // default text, all at their defaults; a highlight also kept its colour in data-color, which the
-// editor reads from the style, so it goes only when it's the same colour; and a video repeated its
-// src in a source
+// editor reads from the style, so it goes only when it's the same colour; a video repeated its src
+// in a source; and a page break held Drive's id and look, which go only when written exactly so
 function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const block of body.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')) {
     if (block.style.getPropertyValue('margin-left') === '0px') {
@@ -407,6 +412,16 @@ function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const source of body.querySelectorAll('video > source')) {
     if (source.getAttribute('src') === source.parentElement?.getAttribute('src')) {
       source.remove()
+    }
+  }
+
+  for (const pageBreak of body.querySelectorAll('div[data-page-break="true"]')) {
+    const isDrives =
+      pageBreak.id === DRIVE_PAGE_BREAK_ID &&
+      pageBreak.getAttribute('style') === DRIVE_PAGE_BREAK_STYLE
+    if (isDrives) {
+      pageBreak.removeAttribute('id')
+      pageBreak.removeAttribute('style')
     }
   }
 }
@@ -478,6 +493,22 @@ function dropUploadMarks(body: HTMLElement) {
   return names
 }
 
+// Drive's mention held its author, which it never drew; its words stay
+function dropMentionAuthors(body: HTMLElement) {
+  const mentions = [...body.querySelectorAll('[data-author]')].filter(
+    (element) => atomNameOf(element) === 'mention',
+  )
+  for (const mention of mentions) {
+    mention.removeAttribute('data-author')
+  }
+
+  if (!mentions.length) {
+    return []
+  }
+
+  return ['author']
+}
+
 // The fresh body as the editor draws it
 function drawn(fresh: XmlFragment) {
   const { content } = yXmlFragmentToProseMirrorRootNode(fresh, schema)
@@ -497,10 +528,10 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
 }
 
 // The check compares the old HTML, its old media mapped, its see-through colours cleared and a
-// float beside an alignment dropped (recorded), frappe-ui's upload marks dropped (recorded) and
-// Drive's defaults dropped, with the fresh body as the editor draws it; every property the raw
-// style text names must survive the parse, bar the noise list, and the whitespace the parser
-// folds isn't compared
+// float beside an alignment dropped (recorded), frappe-ui's upload marks and Drive's mention author
+// dropped (recorded) and Drive's defaults dropped, with the fresh body as the editor draws it;
+// every property the raw style text names must survive the parse, bar the noise list, and the
+// whitespace the parser folds isn't compared
 function fromHtml(html: string) {
   const { body } = new DOMParser().parseFromString(html, 'text/html')
   const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)
@@ -509,6 +540,7 @@ function fromHtml(html: string) {
   const floats = droppedHtmlFloats(body)
   const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html), extensions))
   const uploadMarks = dropUploadMarks(body)
+  const mentionAuthors = dropMentionAuthors(body)
   dropDriveHtmlDefaults(body)
   const source = domInventory(body, atomNameOf)
   return {
@@ -521,7 +553,13 @@ function fromHtml(html: string) {
         return null
       }
 
-      const names = [...raw.noise, ...uploadMarks, ...floats, ...droppedNoise(body, result)]
+      const names = [
+        ...raw.noise,
+        ...uploadMarks,
+        ...mentionAuthors,
+        ...floats,
+        ...droppedNoise(body, result),
+      ]
       return names.map((name): Dropped => ({ kind: 'noise', name }))
     },
   }
