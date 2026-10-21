@@ -28,7 +28,8 @@ import {
 } from '@/apps/writer/collab/legacy-fixtures'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
 
-// Yjs types attributes as strings, but the binding stores null for an attribute it leaves unset
+// The binding never writes a null attribute; this covers hand-written or foreign data, which the
+// inventory reads as unset
 const UNSET = null as unknown as string
 
 vi.mock('@tiptap/core', async (importOriginal) => {

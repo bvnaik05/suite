@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Doc, XmlElement, XmlText } from 'yjs'
 
-import { domInventory, inventory, unkept } from '@/apps/writer/collab/inventory'
+import { domInventory, inventory, rawStyles, unkept } from '@/apps/writer/collab/inventory'
 
 type Run = [string, Record<string, unknown>?]
 
@@ -164,8 +164,20 @@ function unkeptHtml(source: string, result: string) {
 }
 
 describe('what drawn HTML keeps of the old HTML', () => {
-  it('ignores a class, and a span with nothing else on it', () => {
-    expect(unkeptHtml('<p class="a"><span>hi</span></p>', '<p class="b">hi</p>')).toEqual([])
+  it('ignores a span with nothing on it', () => {
+    expect(unkeptHtml('<p><span>hi</span></p>', '<p>hi</p>')).toEqual([])
+  })
+
+  it('needs every class drawn, letting the drawn HTML add its own', () => {
+    expect(unkeptHtml('<p class="a">hi</p>', '<p class="b a">hi</p>')).toEqual([])
+    expect(unkeptHtml('<p class="a b">hi</p>', '<p class="a">hi</p>')).toEqual(['element p'])
+    expect(unkeptHtml('<p><span class="a">hi</span></p>', '<p>hi</p>')).toEqual(['formatting at 0'])
+  })
+
+  it('leaves out the noise attributes', () => {
+    expect(
+      unkeptHtml('<p spellcheck="false">x <img loading="lazy"></p>', '<p>x <img></p>'),
+    ).toEqual([])
   })
 
   it('compares a style property by property', () => {
@@ -175,6 +187,19 @@ describe('what drawn HTML keeps of the old HTML', () => {
     expect(unkeptHtml(both, '<p style="text-align: right; line-height: 2">x</p>')).toEqual([
       'element p',
     ])
+  })
+
+  it('compares a style property with its priority', () => {
+    const important = '<p style="text-align: center !important">x</p>'
+
+    expect(unkeptHtml(important, important)).toEqual([])
+    expect(unkeptHtml(important, '<p style="text-align: center">x</p>')).toEqual(['element p'])
+    expect(
+      unkeptHtml(
+        '<span style="color: red !important">x</span>',
+        '<span style="color: red">x</span>',
+      ),
+    ).toEqual(['formatting at 0'])
   })
 
   it('compares a colour by its being there, inherit counting as none', () => {
@@ -196,7 +221,44 @@ describe('what drawn HTML keeps of the old HTML', () => {
     ).toEqual(['element mention'])
   })
 
-  it('leaves out whitespace and line breaks', () => {
-    expect(unkeptHtml('<p>a b<br>c</p>', '<p>a\u00a0b c</p>')).toEqual([])
+  it('leaves out the whitespace the parser folds', () => {
+    expect(unkeptHtml('<p>a b\n\tc</p>', '<p>abc</p>')).toEqual([])
+  })
+
+  it('counts a non-breaking space and a line break', () => {
+    expect(unkeptHtml('<p>a\u00a0b</p>', '<p>a b</p>')).toEqual(['text at 1'])
+    expect(unkeptHtml('<p>a<br>b</p>', '<p>a b</p>')).toEqual(['element br'])
+  })
+})
+
+function rawOf(html: string) {
+  return rawStyles(new DOMParser().parseFromString(html, 'text/html').body)
+}
+
+describe('what the parse keeps of the raw style text', () => {
+  it('keeps a shorthand the parse splits into longhands, and skips empty pieces', () => {
+    expect(rawOf('<p style="border: 1px solid red; margin: 0 auto; ;">x</p>')).toEqual({
+      isKept: true,
+      noise: [],
+    })
+  })
+
+  it.each([
+    { name: 'an unknown property', style: 'foo-bar: 1' },
+    { name: 'a value the parse rejects', style: 'color: notacolour' },
+    { name: 'a property in capitals', style: 'COLOR: red' },
+    { name: 'a piece with no colon', style: 'color red' },
+    { name: 'a lost !important', style: 'color: notacolour !important; color: red' },
+  ])('loses $name', ({ style }) => {
+    expect(rawOf(`<p><span style="${style}">x</span></p>`).isKept).toBe(false)
+  })
+
+  it("reads past Word's own properties, naming each once", () => {
+    const word = 'mso-spacerun: yes; mso-ansi-language: EN'
+
+    expect(rawOf(`<p style="mso-spacerun: yes"><span style="${word}">x</span></p>`)).toEqual({
+      isKept: true,
+      noise: ['mso-spacerun', 'mso-ansi-language'],
+    })
   })
 })

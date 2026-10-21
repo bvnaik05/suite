@@ -112,28 +112,54 @@ const FORMATTING_TAGS = new Set([
 // The editor snaps a colour to its palette, so a colour counts by being there
 const COLOUR_PROPS = new Set(['color', 'background-color'])
 
+/** Attributes the editor may drop, recorded when it does. */
+export const NOISE_ATTRIBUTES = ['spellcheck', 'loading']
+
+// Word's own style properties, which the parse reads past
+const NOISE_STYLE = /^mso-/
+
+// Class and style are compared by their parts, and noise not at all
+const UNCOMPARED_ATTRIBUTES = new Set(['class', 'style', ...NOISE_ATTRIBUTES])
+
 type AtomName = (element: Element) => string | undefined
+
+function withPriority(value: string, priority: string) {
+  if (!priority) {
+    return value
+  }
+
+  return `${value} !${priority}`
+}
 
 function styleOf(element: Element) {
   const { style } = element as HTMLElement
   const found: Record<string, unknown> = {}
   for (const property of style) {
     const value = style.getPropertyValue(property)
+    const priority = style.getPropertyPriority(property)
     if (!COLOUR_PROPS.has(property)) {
-      found[property] = value
+      found[property] = withPriority(value, priority)
     } else if (value !== 'inherit') {
-      found[property] = true
+      found[property] = priority || true
     }
   }
 
   return found
 }
 
-// A class only picks how a part is drawn
+// The drawn HTML may add classes of its own
+function classOf(element: Element) {
+  return Object.fromEntries([...element.classList].map((token) => [token, true]))
+}
+
 function attributesOf(element: Element): Entry[] {
   const entries = [...element.attributes]
-    .filter(({ name }) => name !== 'class' && name !== 'style')
+    .filter(({ name }) => !UNCOMPARED_ATTRIBUTES.has(name))
     .map(({ name, value }): Entry => [name, value])
+  if (element.classList.length) {
+    entries.push(['class', classOf(element)])
+  }
+
   const style = styleOf(element)
   if (Object.keys(style).length) {
     entries.push(['style', style])
@@ -151,10 +177,10 @@ function withFormat(formats: Entry[], element: Element) {
   return [...formats, [element.localName, Object.fromEntries(entries)] as Entry]
 }
 
-// The HTML parser folds whitespace, so it isn't compared
+// The parser folds ASCII whitespace, so it isn't compared; a non-breaking space is kept
 function addDomText(text: string, formats: Entry[], found: Inventory) {
   for (const char of text) {
-    if (!/\s/.test(char)) {
+    if (!/[ \t\n\r\f]/.test(char)) {
       found.characters.push({ char, entries: formats })
     }
   }
@@ -162,10 +188,6 @@ function addDomText(text: string, formats: Entry[], found: Inventory) {
 
 // An atom counts by its name, its attributes and the words it holds, such as a mention's label
 function addElement(element: Element, formats: Entry[], atomName: AtomName, found: Inventory) {
-  if (element.localName === 'br') {
-    return
-  }
-
   const name = atomName(element)
   let inner = formats
   if (name) {
@@ -197,6 +219,44 @@ export function domInventory(root: ParentNode, atomName: AtomName) {
   }
 
   return found
+}
+
+// The property a piece of raw style text names that the parse lost: '' for a piece naming none,
+// null for an empty piece or a kept property
+function lostProperty(style: CSSStyleDeclaration, piece: string) {
+  if (!piece.trim()) {
+    return null
+  }
+
+  const colon = piece.indexOf(':')
+  if (colon < 0) {
+    return ''
+  }
+
+  const name = piece.slice(0, colon).trim().toLowerCase()
+  const isImportant = /!\s*important\s*$/i.test(piece)
+  if (
+    !style.getPropertyValue(name) ||
+    (isImportant && style.getPropertyPriority(name) !== 'important')
+  ) {
+    return name
+  }
+
+  return null
+}
+
+function lostProperties(element: HTMLElement) {
+  return (element.getAttribute('style') ?? '')
+    .split(';')
+    .map((piece) => lostProperty(element.style, piece))
+    .filter((name) => name !== null)
+}
+
+/** Whether the parse kept every property the raw style text under `root` names, and the noise properties it read past. */
+export function rawStyles(root: ParentNode) {
+  const lost = [...root.querySelectorAll<HTMLElement>('[style]')].flatMap(lostProperties)
+  const noise = lost.filter((name) => NOISE_STYLE.test(name))
+  return { isKept: noise.length === lost.length, noise: [...new Set(noise)] }
 }
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {

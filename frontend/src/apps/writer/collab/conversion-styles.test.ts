@@ -11,6 +11,7 @@ import {
   legacyDoc,
   MAX_STATE,
   openConverted,
+  SRC,
   stored,
   yAtom,
   yElement,
@@ -471,5 +472,56 @@ describe('convertLegacy', () => {
       kind: 'failed',
       reason: 'check',
     })
+  })
+})
+
+describe('convertLegacy on the raw HTML (R439)', () => {
+  it.each(['foo-bar: 1', 'color: notacolour', 'color red', 'color: #dc2626 !important'])(
+    'refuses a span styled "%s", which the editor would lose',
+    (style) => {
+      const html = `<p>a<span style="${style}">b</span></p>`
+
+      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+        kind: 'failed',
+        reason: 'check',
+      })
+    },
+  )
+
+  it("refuses a class the editor doesn't draw", () => {
+    const html = '<p class="MsoNormal">one</p>'
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it("converts Word's own style properties, recording each once", () => {
+    const word = 'style="mso-spacerun: yes"'
+    const html = `<p style="mso-line-height-rule: exactly"><span ${word}>a</span> <span ${word}>b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [block] = bodyOf(result.state).content
+    expect(block.content.map(({ text }: JSONContent) => text).join('')).toBe('a b')
+    expect(result.dropped).toEqual([
+      { kind: 'noise', name: 'mso-line-height-rule' },
+      { kind: 'noise', name: 'mso-spacerun' },
+    ])
+  })
+
+  it('converts a spellcheck, recording it', () => {
+    const result = convert({ content: null, html: '<p spellcheck="false">one</p>', collab: 0 })
+
+    expect(result.dropped).toEqual([{ kind: 'noise', name: 'spellcheck' }])
+  })
+
+  it('records an image loading hint the editor draws as its own loading="false"', () => {
+    const html = `<p><img src="${SRC}" loading="lazy"></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    expect(result.dropped).toEqual([{ kind: 'noise', name: 'loading' }])
   })
 })

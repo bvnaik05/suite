@@ -24,7 +24,14 @@ import {
 } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
-import { domInventory, inventory, unkept, type Inventory } from '@/apps/writer/collab/inventory'
+import {
+  domInventory,
+  inventory,
+  NOISE_ATTRIBUTES,
+  rawStyles,
+  unkept,
+  type Inventory,
+} from '@/apps/writer/collab/inventory'
 import {
   isAtomName,
   isContent,
@@ -50,7 +57,8 @@ const schema = getSchema(extensions)
 /**
  * What the conversion couldn't carry over: Drive's table of contents, rebuilt from the headings, a
  * part holding nothing, a change Yjs held back, the words of an old comment's copy away from its
- * anchor, or a Yjs body holding nothing, read past for the HTML.
+ * anchor, a Yjs body holding nothing, read past for the HTML, or a property or attribute on the noise
+ * list.
  */
 export type Dropped =
   | { kind: 'toc-hint' }
@@ -58,6 +66,7 @@ export type Dropped =
   | { kind: 'pending'; text: string; parts: string[] }
   | { kind: 'comment-copy'; id: string; text: string }
   | { kind: 'empty-yjs' }
+  | { kind: 'noise'; name: string }
 
 export type Converted =
   | {
@@ -516,11 +525,18 @@ function fromYjs(old: Doc) {
     node,
     dropped: [...setAside.map(droppedPart), ...pendingDrop(old)],
     hasUnreadableThreads,
-    isKept: (fresh: XmlFragment) =>
-      lost.every(isDroppable) &&
-      isColourMapped &&
-      isMediaKept &&
-      !unkept(source, inventory(fresh)).length,
+    check: (fresh: XmlFragment): Dropped[] | null => {
+      const isKept =
+        lost.every(isDroppable) &&
+        isColourMapped &&
+        isMediaKept &&
+        !unkept(source, inventory(fresh)).length
+      if (!isKept) {
+        return null
+      }
+
+      return []
+    },
   }
 }
 
@@ -589,19 +605,42 @@ function drawn(fresh: XmlFragment) {
   return DOMSerializer.fromSchema(schema).serializeFragment(content)
 }
 
+// A noise attribute is dropped when a value the old HTML holds isn't drawn
+function valuesOf(root: ParentNode, name: string) {
+  return [...root.querySelectorAll(`[${name}]`)].map((element) => element.getAttribute(name))
+}
+
+function droppedNoise(source: ParentNode, result: ParentNode) {
+  return NOISE_ATTRIBUTES.filter((name) => {
+    const drawnValues = new Set(valuesOf(result, name))
+    return valuesOf(source, name).some((value) => !drawnValues.has(value))
+  })
+}
+
 // The check compares the old HTML, Drive's defaults dropped, with the fresh body as the editor draws
-// it; whitespace and line breaks aren't compared
+// it; every property the raw style text names must survive the parse, bar the noise list, and the
+// whitespace the parser folds isn't compared
 function fromHtml(html: string) {
   const node = schema.nodeFromJSON(generateJSON(html, extensions))
   const { body } = new DOMParser().parseFromString(html, 'text/html')
   const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)
+  // Before the defaults go, since dropping one rewrites the style text from the parse
+  const raw = rawStyles(body)
   dropDriveHtmlDefaults(body)
   const source = domInventory(body, atomNameOf)
   return {
     node,
     dropped: [] as Dropped[],
     hasUnreadableThreads,
-    isKept: (fresh: XmlFragment) => !unkept(source, domInventory(drawn(fresh), atomNameOf)).length,
+    check: (fresh: XmlFragment): Dropped[] | null => {
+      const result = drawn(fresh)
+      if (!raw.isKept || unkept(source, domInventory(result, atomNameOf)).length) {
+        return null
+      }
+
+      const names = [...raw.noise, ...droppedNoise(body, result)]
+      return names.map((name): Dropped => ({ kind: 'noise', name }))
+    },
   }
 }
 
@@ -659,7 +698,7 @@ function read(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
 }
 
 function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
-  const { node, dropped, hasUnreadableThreads, isKept, from } = read(choice)
+  const { node, dropped, hasUnreadableThreads, check, from } = read(choice)
   if (hasUnreadableThreads) {
     return null
   }
@@ -668,7 +707,8 @@ function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
   const fresh = new Doc()
   const body = fresh.getXmlFragment(BODY_FIELD)
   prosemirrorToYXmlFragment(converted, body)
-  if (!isKept(body) || breaksStyle(body)) {
+  const noise = check(body)
+  if (!noise || breaksStyle(body)) {
     return null
   }
 
@@ -677,7 +717,12 @@ function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
     return null
   }
 
-  return { fresh, from, anchors: comments.anchors, dropped: [...dropped, ...comments.dropped] }
+  return {
+    fresh,
+    from,
+    anchors: comments.anchors,
+    dropped: [...dropped, ...noise, ...comments.dropped],
+  }
 }
 
 /** The old document as a fresh collaborative body, checked to hold the old text, formatting and parts apart from what it drops. */
