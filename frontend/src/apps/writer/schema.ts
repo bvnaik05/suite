@@ -7,6 +7,11 @@ import { builtMarks } from '@tiptap/y-tiptap'
 import { Code, CodeBlock, Heading, Image, ImageGroup, RichTextKit, Video } from 'frappe-ui/editor'
 
 import { BlockLayout } from '@/apps/writer/extensions/block-layout'
+import {
+  WriterTableCell,
+  WriterTableCellColor,
+  WriterTableHeader,
+} from '@/apps/writer/extensions/cell-style'
 import ExtendedParagraph from '@/apps/writer/extensions/extended-paragraph'
 import FontFamily from '@/apps/writer/extensions/font-family'
 import { FontSize } from '@/apps/writer/extensions/font-size'
@@ -116,15 +121,19 @@ const WriterCode = Code.extend({ excludes: CODE_EXCLUDES })
 
 const WriterCodeBlock = CodeBlock.extend({ marks: KEPT_FORMATTING })
 
-function writerVersion(extension: AnyExtension) {
-  if (extension.name === 'code') {
-    return WriterCode
-  }
+const WRITER_VERSIONS = new Map<string, AnyExtension>([
+  ['code', WriterCode],
+  ['codeBlock', WriterCodeBlock],
+  ['tableCell', WriterTableCell],
+  ['tableHeader', WriterTableHeader],
+  ['tableCellColor', WriterTableCellColor],
+])
 
-  return extension.name === 'codeBlock' ? WriterCodeBlock : extension
+function writerVersion(extension: AnyExtension) {
+  return WRITER_VERSIONS.get(extension.name) ?? extension
 }
 
-// RichTextKit with code that may carry kept formatting
+// RichTextKit with code that may carry kept formatting, and cells that keep their style
 export const WriterKit = RichTextKit.extend({
   addExtensions() {
     return (this.parent?.() ?? []).map(writerVersion)

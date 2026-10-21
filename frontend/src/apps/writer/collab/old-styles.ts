@@ -1,6 +1,11 @@
 import { generateJSON, type JSONContent } from '@tiptap/core'
 import { XmlElement, XmlFragment, XmlText } from 'yjs'
 
+import {
+  isKeptCellStyle,
+  parseCellBackground,
+  parseCellStyle,
+} from '@/apps/writer/extensions/cell-style'
 import { writerSchema } from '@/apps/writer/schema'
 import { rgbOf, squaredDistance, type Rgb } from '@/apps/writer/utils/css-colour'
 
@@ -270,6 +275,52 @@ export function mapOldColours(body: XmlFragment) {
 
     return !(part instanceof XmlElement) || mapPartColours(part)
   })
+}
+
+const CELLS = new Set(['tableCell', 'tableHeader'])
+
+// A cell's style read the way pasted HTML is, its background as a highlight name when it's exactly
+// one; false when it holds a property a cell doesn't keep, or a background beside a name
+function mapCellStyle(cell: XmlElement) {
+  const text: unknown = cell.getAttribute('style')
+  if (text == null) {
+    return true
+  }
+
+  if (typeof text !== 'string' || !isKeptCellStyle(text)) {
+    return false
+  }
+
+  const element = document.createElement('td')
+  element.setAttribute('style', text)
+  const hasName = cell.getAttribute('backgroundColor') != null
+  if (hasName && element.style.getPropertyValue('background-color')) {
+    return false
+  }
+
+  setCellStyle(cell, element)
+  return true
+}
+
+function setCellStyle(cell: XmlElement, element: HTMLElement) {
+  const name = parseCellBackground(element)
+  if (name) {
+    cell.setAttribute('backgroundColor', name)
+  }
+
+  const style = parseCellStyle(element)
+  if (style) {
+    cell.setAttribute('style', style)
+  } else {
+    cell.removeAttribute('style')
+  }
+}
+
+export function mapOldCellStyles(body: XmlFragment) {
+  const cells = [
+    ...body.createTreeWalker((type) => type instanceof XmlElement && CELLS.has(type.nodeName)),
+  ] as XmlElement[]
+  return cells.every(mapCellStyle)
 }
 
 // Whether formatting holds a text style value with a ';', which would end its declaration where

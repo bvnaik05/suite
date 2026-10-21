@@ -58,6 +58,7 @@ import {
   clearSeeThroughHighlights,
   clearSeeThroughText,
   DRIVE_INK,
+  mapOldCellStyles,
   mapOldColours,
   moveSpanHighlights,
   nameOldDriveHighlights,
@@ -263,7 +264,7 @@ function droppedFloats(body: XmlFragment): Dropped[] {
 // convertOldMedia, checked on its own by where the media points and by old media holding only what
 // the old editor wrote; a float beside an alignment, dropped (recorded); Drive's defaults, dropped;
 // frappe-ui's upload id on media, dropped (recorded); old colours, read as palette names, or the
-// check fails; the parts the build set aside holding nothing, hidden or lost (recorded), and
+// check fails; cell styles, read as pasted HTML is, or the check fails; the parts the build set aside holding nothing, hidden or lost (recorded), and
 // Drive's table of contents holding only its hint, left out of the source, so a lost part with
 // content fails; and the extras the result may hold, being the filler the build adds, declared
 // defaults and heading ids
@@ -278,6 +279,7 @@ function fromYjs(old: Doc) {
   const isIndentKept = hasWholeIndents(body)
   const uploadIds = dropUploadIds(body)
   const isColourMapped = mapOldColours(body)
+  const isCellStyleMapped = mapOldCellStyles(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(body) === media
   const setAside = [...hidden, ...lost.filter(isDroppable)]
@@ -290,6 +292,7 @@ function fromYjs(old: Doc) {
       const isKept =
         lost.every(isDroppable) &&
         isColourMapped &&
+        isCellStyleMapped &&
         isIndentKept &&
         isMediaKept &&
         isOldMediaKept &&

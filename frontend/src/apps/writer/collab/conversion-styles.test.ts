@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
-import { XmlText } from 'yjs'
+import { XmlText, type XmlElement } from 'yjs'
 
 import { convertLegacy } from '@/apps/writer/collab/conversion'
 import {
@@ -1113,5 +1113,109 @@ describe('convertLegacy on text colours no one could see (R537)', () => {
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([['lit', []]])
+  })
+})
+
+function htmlCell(attributes: string) {
+  return `<table><tr><td ${attributes}><p>x</p></td></tr></table>`
+}
+
+function yCell(name: string, attributes: Record<string, unknown>) {
+  const cell = yElement(name, yParagraph('x'))
+  for (const [key, value] of Object.entries(attributes)) {
+    cell.setAttribute(key, value as never)
+  }
+
+  return cell
+}
+
+function yTable(cell: XmlElement) {
+  return stored(legacyDoc(yElement('table', yElement('tableRow', cell))))
+}
+
+function cellOf(state: Uint8Array) {
+  const [table] = bodyOf(state).content
+  return table.content[0].content[0]
+}
+
+describe('convertLegacy on table cell styles', () => {
+  const KEPT = [
+    ['background-color: #fef08a; border: 1px solid red', 'yellow', 'border: 1px solid red;'],
+    ['background-color: var(--prose-highlight-blue)', 'blue', null],
+    ['background-color: #123456', null, 'background-color: #123456;'],
+    ['background-color: hsl(10, 50%, 50%)', null, 'background-color: hsl(10, 50%, 50%);'],
+    ['background-color: red', null, 'background-color: red;'],
+    ['background-color: inherit', null, 'background-color: inherit;'],
+    ['background-color: rgba(254, 240, 138, 0)', null, 'background-color: rgba(254, 240, 138, 0);'],
+    [
+      'padding: 4px !important; vertical-align: top',
+      null,
+      'padding: 4px !important; vertical-align: top;',
+    ],
+  ]
+
+  it.each(KEPT)('keeps an HTML cell styled "%s"', (style, name, kept) => {
+    const result = convert({ content: null, html: htmlCell(`style="${style}"`), collab: 0 })
+
+    expect(cellOf(result.state).attrs).toMatchObject({ backgroundColor: name, style: kept })
+    expect(result.dropped).toEqual([])
+  })
+
+  it.each(KEPT)('keeps an old Yjs cell styled "%s"', (style, name, kept) => {
+    const result = convert(yTable(yCell('tableCell', { style })))
+
+    expect(cellOf(result.state).attrs).toMatchObject({ backgroundColor: name, style: kept })
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps an old Yjs header cell style', () => {
+    const result = convert(yTable(yCell('tableHeader', { style: 'border-top: 2px dashed red' })))
+
+    expect(cellOf(result.state)).toMatchObject({
+      type: 'tableHeader',
+      attrs: { style: 'border-top: 2px dashed red;' },
+    })
+  })
+
+  it.each(['border: 1px solid red; position: absolute', 'background: #123456'])(
+    'refuses an HTML cell styled "%s", which a cell does not keep',
+    (style) => {
+      const html = htmlCell(`style="${style}"`)
+
+      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+        kind: 'failed',
+        reason: 'check',
+      })
+    },
+  )
+
+  it.each([
+    { style: 'border: 1px solid red; position: absolute' },
+    { style: 'background: #123456' },
+    { style: 'padding: notapadding' },
+    { style: { border: '1px solid red' } },
+    { style: 'background-color: #123456', backgroundColor: 'blue' },
+    { style: 'background-color: #fef08a', backgroundColor: 'yellow' },
+  ])('refuses an old Yjs cell holding %o', (attributes) => {
+    expect(convertLegacy(yTable(yCell('tableCell', attributes)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('keeps an HTML merged cell whose width is shorter than its span, as stored', () => {
+    const result = convert({
+      content: null,
+      html: htmlCell('colspan="2" colwidth="100"'),
+      collab: 0,
+    })
+
+    expect(cellOf(result.state).attrs).toMatchObject({ colspan: 2, colwidth: [100] })
+  })
+
+  it('keeps an old Yjs merged cell whose width is shorter than its span, as stored', () => {
+    const result = convert(yTable(yCell('tableCell', { colspan: 2, colwidth: [100] })))
+
+    expect(cellOf(result.state).attrs).toMatchObject({ colspan: 2, colwidth: [100] })
   })
 })
