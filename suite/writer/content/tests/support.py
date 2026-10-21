@@ -434,6 +434,7 @@ class CheckpointCase(IntegrationTestCase):
         if docname:
             frappe.db.delete("Writer Document", docname)
 
+        frappe.db.delete("Drive Activity", {"node": node})
         frappe.db.delete("Drive Node", node)
         frappe.db.commit()
 

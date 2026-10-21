@@ -74,4 +74,5 @@ class DriveCallbackCase(CheckpointCase):
         aged = now_datetime() - timedelta(days=drive_content.UNUSED_MEDIA_GRACE_DAYS + 1)
         frappe.db.set_value("Drive Node", media, "creation", aged, update_modified=False)
         frappe.db.commit()
+        self.addCleanup(self.delete_document, media)
         return media
