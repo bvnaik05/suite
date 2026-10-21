@@ -1,4 +1,12 @@
-"""Mail's provider and administration interfaces used by Suite composition."""
+"""Mail's provider and administration interfaces used by Suite composition.
+
+Suite Core calls is_configured before choosing its local Email Account path, then calls
+send_email for configured Suite Cloud delivery. The provider preserves Suite Cloud's response
+and exception types; Core owns first-party notification retries and transaction timing.
+"""
+
+from collections.abc import Mapping
+from typing import Any
 
 
 def is_configured() -> bool:
@@ -8,7 +16,7 @@ def is_configured() -> bool:
     return is_suite_cloud_configured()
 
 
-def send_email(email_type: str, recipient: str, params: dict, request_key: str) -> None:
+def send_email(email_type: str, recipient: str, params: Mapping[str, Any], request_key: str) -> None:
     """Ask Suite Cloud to send one first-party email from its named template."""
     import frappe
     from frappe import _
