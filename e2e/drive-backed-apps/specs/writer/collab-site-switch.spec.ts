@@ -24,6 +24,7 @@ test.describe("Writer collaboration", () => {
 	let title = "";
 
 	test.beforeEach(async ({ owner, collaborator, run, testApi }, testInfo) => {
+		node = "";
 		title = uniqueWriterTitle(run.run_id, `collab ${testInfo.title}`);
 		node = (await createWriterDocument(owner.page.request, title)).name;
 		await openForCollab(testApi, owner.page.request, node, collaborator.user.user);
