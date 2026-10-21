@@ -100,6 +100,7 @@ beforeEach(() => {
 afterEach(() => {
   Reflect.deleteProperty(navigator, 'serviceWorker')
   Reflect.deleteProperty(window, 'push_relay_server_url')
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
@@ -136,6 +137,13 @@ async function install(status: SessionStatus, user: string | null = 'a@suite.tes
 
 const linked = (rel: string) =>
   [...document.head.querySelectorAll(`link[rel="${rel}"]`)].map((link) => link.getAttribute('href'))
+
+/** The browser's notification permission, answering `answer` when asked. */
+function stubNotification(answer: NotificationPermission) {
+  const requestPermission = vi.fn(async () => answer)
+  vi.stubGlobal('Notification', { permission: 'default', requestPermission })
+  return requestPermission
+}
 
 async function settle() {
   await nextTick()
@@ -317,7 +325,42 @@ describe('Suite PWA', () => {
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull()
   })
 
+  it('asks for permission from the tap, before the push worker is ready', async () => {
+    const requestPermission = stubNotification('granted')
+    let ready!: () => void
+    register.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          ready = () => resolve({ scope: 'http://suite.test/', showNotification })
+        }),
+    )
+    await install('authenticated', 'a@suite.test')
+    const { useDevicePush } = await import('@/platform/pwa')
+
+    const turningOn = useDevicePush().enable()
+    expect(requestPermission).toHaveBeenCalled()
+    ready()
+    expect(await turningOn).toBe(true)
+  })
+
+  it('says the browser refused only when it did, and a failed setup as that', async () => {
+    stubNotification('denied')
+    await install('authenticated', 'a@suite.test')
+    const { useDevicePush } = await import('@/platform/pwa')
+    expect(await useDevicePush().enable()).toBe(false)
+
+    vi.resetModules()
+    stubNotification('granted')
+    register.mockRejectedValue(new Error('no worker'))
+    await install('authenticated', 'a@suite.test')
+    const fresh = await import('@/platform/pwa')
+    await expect(fresh.useDevicePush().enable()).rejects.toThrow(
+      'Notifications could not be set up on this device.',
+    )
+  })
+
   it('drops a token turned on in this browser when the next user signs in', async () => {
+    stubNotification('granted')
     await install('authenticated', 'a@suite.test')
     const { useDevicePush } = await import('@/platform/pwa')
     expect(await useDevicePush().enable()).toBe(true)

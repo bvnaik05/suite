@@ -1,6 +1,7 @@
 import { computed, readonly, ref, shallowRef, watch } from 'vue'
 
 import type { Session } from '@/platform/session'
+import { translate } from '@/platform/translation'
 
 import { onIos, standalone, startInstallOffer } from './install'
 import { pushNotification } from './notification'
@@ -120,9 +121,20 @@ export function useDevicePush() {
       Notification.permission === 'default' &&
       !asked.value.includes(currentApp.value),
   )
+  /**
+   * Turns this device's notifications on: true, or false when the browser refuses. Throws when
+   * this device could not be set up for them, which is not the browser's settings at fault.
+   */
   const enable = async (): Promise<boolean> => {
+    // Asked from the tap itself, before anything is awaited: an iPhone lets a page ask only while
+    // the tap is fresh, and setting up the worker can take longer than that.
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      dismissAsk()
+      return false
+    }
     const push = await pushClient
-    if (!push) return false
+    if (!push) throw new Error(translate('Notifications could not be set up on this device.'))
     const { permission_granted } = await push.enableNotification()
     pushEnabled.value = permission_granted
     // The token is this user's: a sign-in by someone else drops it (see claimPushToken).
