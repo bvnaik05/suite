@@ -30,6 +30,8 @@ test.describe("Writer collaboration", () => {
 	});
 
 	test.afterEach(async ({ owner, testApi }) => {
+		if (!node) return;
+
 		try {
 			await enableCollab(testApi, node);
 		} finally {
@@ -92,6 +94,7 @@ test.describe("Writer collaboration", () => {
 		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
 		await viewing.getByRole("button", { name: /^Actions for/ }).click();
 		await owner.page.getByRole("menuitem", { name: "Back to current" }).click();
+		await expect(kept).toBeVisible();
 
 		const keptHeight = (await kept.boundingBox())!.height;
 		await kept.getByRole("button", { name: "View" }).click();
