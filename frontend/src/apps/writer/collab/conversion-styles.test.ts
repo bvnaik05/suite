@@ -821,3 +821,41 @@ describe('convertLegacy on nested spans resetting a style (R525)', () => {
     },
   )
 })
+
+describe("convertLegacy on old Drive's text colours", () => {
+  // Old Drive's font colour picker, from its DocMenuAndInfoBar
+  const OLD_TEXT_COLOURS = [
+    ['yellow', '#ca8a04', 'rgb(202, 138, 4)'],
+    ['orange', '#ea580c', 'rgb(234, 88, 12)'],
+    ['red', '#dc2626', 'rgb(220, 38, 38)'],
+    ['green', '#16a34a', 'rgb(22, 163, 74)'],
+    ['blue', '#1579D0', 'rgb(21, 121, 208)'],
+    ['purple', '#9333ea', 'rgb(147, 51, 234)'],
+    ['pink', '#db2777', 'rgb(219, 39, 119)'],
+  ]
+  const FORMS = OLD_TEXT_COLOURS.flatMap(([name, hex, rgb]) =>
+    [hex, rgb, rgb.replaceAll(' ', '')].map((value) => ({ name, value })),
+  )
+
+  it.each(FORMS)('keeps an HTML span colour $value as $name', ({ name, value }) => {
+    const html = `<p>a<span style="color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['textStyle', name]]],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it.each(FORMS)('keeps an old Yjs text colour $value as $name', ({ name, value }) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { color: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', [['textStyle', name]]]])
+  })
+})
