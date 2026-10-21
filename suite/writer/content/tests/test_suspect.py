@@ -171,7 +171,7 @@ class TestSuspect(CheckpointCase):
 
         alerts_before = self.alert_count("suspect held: no_node")
 
-        with patch.object(checker, "usable_node", lambda: None):
+        with patch.object(checker, "usable_node", return_value=None):
             self.assertEqual(self.judge(node), "held")
 
         doc = self.doc_row(node)
@@ -351,7 +351,7 @@ class TestSuspect(CheckpointCase):
             raise checker.CheckerFailed("killed")
 
         for why, stub in (
-            ("no_node", lambda: patch.object(checker, "usable_node", lambda: None)),
+            ("no_node", lambda: patch.object(checker, "usable_node", return_value=None)),
             ("checker_failed", lambda: patch.object(checker, "judge", checker_fails)),
         ):
             with self.subTest(why=why):
@@ -701,7 +701,7 @@ class TestSuspect(CheckpointCase):
         alerts_before = self.alert_count("suspect held: no_node")
         suspect.rejudge(writer_content.APP, held.doc_id, JUDGE)
 
-        with patch.object(checker, "usable_node", lambda: None):
+        with patch.object(checker, "usable_node", return_value=None):
             self.assertEqual(self.judge(held.node), "held")
 
         self.assertEqual(

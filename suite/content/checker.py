@@ -90,12 +90,12 @@ def encoded(part: bytes) -> str:
     return base64.b64encode(part).decode()
 
 
-def ask(bundle: Path, request: dict) -> dict | None:
-    """Run the checker on one request and answer its reply, or None without a usable Node or bundle."""
+def ask(bundle: Path, request: dict, minimum: tuple[int, int] = (NODE_MAJOR, 0)) -> dict | None:
+    """Run `bundle` on one request and answer its reply, or None without a Node at `minimum` or the bundle."""
     if not getattr(frappe.local, "job", None):
         raise RuntimeError("the collab checker runs only in background jobs")
 
-    node_path = usable_node()
+    node_path = usable_node(minimum)
     if not node_path or not bundle.is_file():
         return None
 
@@ -141,15 +141,14 @@ def plain_reason(text: str) -> str:
     return plain_text[:80].strip()
 
 
-def usable_node() -> str | None:
-    """Return the path of a Node new enough to run the checker."""
+def usable_node(minimum: tuple[int, int] = (NODE_MAJOR, 0)) -> str | None:
+    """Return the path of a Node at version `minimum` or newer, by default one that can run the checker."""
     version = node_version()
     if not version:
         return None
 
-    major_text, *_ = version.lstrip("v").split(".")
-    major = int(major_text)
-    if major < NODE_MAJOR:
+    major_text, minor_text, *_ = version.lstrip("v").split(".")
+    if (int(major_text), int(minor_text)) < minimum:
         return None
 
     return shutil.which("node")

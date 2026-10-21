@@ -16,8 +16,11 @@ from pathlib import Path
 
 from suite.content import checker
 
+# The oldest Node the converter runs on, the first whose --permission is stable; CI runs it there
+NODE_MIN = (22, 13)
+
 
 def bundle_ready(bundle: Path, version: str) -> bool:
     """Whether `bundle` runs and holds converter `version`; False without a usable Node or the bundle."""
-    answer = checker.ask(bundle, {})
+    answer = checker.ask(bundle, {}, NODE_MIN)
     return answer is not None and answer.get("version") == version

@@ -28,7 +28,9 @@ BUILTINS = {
 
 def converted(html: str | None = None, content: str | None = None) -> dict:
     legacy = {"content": content, "html": html, "collab": int(bool(content)), "ycomments": None}
-    return checker.ask(writer_content.CONVERTER_BUILD, {"legacy": legacy, "maxState": 1_000_000})
+    return checker.ask(
+        writer_content.CONVERTER_BUILD, {"legacy": legacy, "maxState": 1_000_000}, convert.NODE_MIN
+    )
 
 
 def body_of(answer: dict) -> str:
@@ -49,8 +51,9 @@ def connected(listener: socket.socket) -> bool:
 
 class TestConverter(UnitTestCase):
     def setUp(self):
-        if not checker.usable_node() or not writer_content.CONVERTER_BUILD.is_file():
-            reason = f"needs Node {checker.NODE_MAJOR}+ and the built bundle at {writer_content.CONVERTER_BUILD}; run bench build"
+        if not checker.usable_node(convert.NODE_MIN) or not writer_content.CONVERTER_BUILD.is_file():
+            minimum = ".".join(map(str, convert.NODE_MIN))
+            reason = f"needs Node {minimum}+ and the built bundle at {writer_content.CONVERTER_BUILD}; run bench build"
             # A skip in CI would leave the job green with a converter that can't run
             if os.environ.get("CI"):
                 self.fail(reason)
@@ -76,6 +79,17 @@ class TestConverter(UnitTestCase):
             bundle.write_text(source)
             with self.subTest(name):
                 self.assertFalse(convert.bundle_ready(bundle, "1"))
+
+    def test_runs_on_node_22_13_and_newer_where_the_checker_needs_24(self):
+        for version, converter_runs, checker_runs in (
+            ("v22.12.0", False, False),
+            ("v22.13.0", True, False),
+            ("v23.0.0", True, False),
+            ("v24.0.0", True, True),
+        ):
+            with self.subTest(version), patch.object(checker, "node_version", return_value=version):
+                runs = (bool(checker.usable_node(convert.NODE_MIN)), bool(checker.usable_node()))
+                self.assertEqual(runs, (converter_runs, checker_runs))
 
     def test_refuses_a_missing_bundle(self):
         missing = writer_content.CONVERTER_BUILD.with_name("missing.cjs")
@@ -121,7 +135,7 @@ class TestConverter(UnitTestCase):
         process.stdout.write(JSON.stringify(exposed) + '\\n')
         """
         completed = subprocess.run(
-            [checker.usable_node(), "--permission", f"--allow-fs-read={bundle}", "-e", probe],
+            [checker.usable_node(convert.NODE_MIN), "--permission", f"--allow-fs-read={bundle}", "-e", probe],
             input="{}",
             capture_output=True,
             text=True,
@@ -154,5 +168,5 @@ class TestConverter(UnitTestCase):
         bundle.write_text(
             f"require('net').connect({port}, '127.0.0.1', () => process.stdout.write('{{}}')).unref()"
         )
-        self.assertEqual(checker.ask(bundle, {}), {})
+        self.assertEqual(checker.ask(bundle, {}, convert.NODE_MIN), {})
         self.assertTrue(connected(listener))
