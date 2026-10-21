@@ -363,14 +363,14 @@ function rgbOf(value: string): (Rgb & { alpha: number }) | null {
   return { red, green, blue, alpha: alphaOf(slashed ?? parts[CHANNELS] ?? '1') }
 }
 
-// An alpha as a fraction, from a number or a percentage
+// An alpha as a fraction, from a number or a percentage, clamped as CSS clamps it
 function alphaOf(alpha: string) {
-  const amount = parseFloat(alpha)
+  let amount = parseFloat(alpha)
   if (alpha.trim().endsWith('%')) {
-    return amount / PERCENT
+    amount /= PERCENT
   }
 
-  return amount
+  return Math.max(0, Math.min(1, amount))
 }
 
 // A channel as frappe-ui's color-parse reads it, a number or a percentage, rounded into a byte
@@ -402,6 +402,16 @@ const OLD_DRIVE_HIGHLIGHTS = [
   ['pink', '#fce7f3'],
 ]
 
+// Whether two colours are the same one, as written or by channels and alpha
+function isSameColour(one: string, other: string) {
+  if (one.trim().toLowerCase() === other.trim().toLowerCase()) {
+    return true
+  }
+
+  const [first, second] = [rgbOf(one), rgbOf(other)]
+  return !!first && !!second && squaredDistance(first, second) === 0 && first.alpha === second.alpha
+}
+
 function isColour(hex: string, rgb: Rgb) {
   const colour = rgbOf(hex)
   return colour !== null && squaredDistance(colour, rgb) === 0
@@ -426,8 +436,7 @@ function oldPaletteName(property: ColourProperty, value: string): string | null 
   }
 
   const rgb = rgbOf(value)
-  const isSeeThrough = property === 'background-color' && rgb?.alpha === 0
-  if (isSeeThrough || value.trim().toLowerCase() === LOOKS_UNSET[property]) {
+  if (rgb?.alpha === 0 || value.trim().toLowerCase() === LOOKS_UNSET[property]) {
     return ''
   }
 
@@ -667,7 +676,8 @@ function hasColouredAncestor(element: HTMLElement) {
 
 // Drive stored its indent on paragraphs and headings, its heading line height and its ink on
 // default text, all at their defaults; a highlight also kept its colour in data-color, which the
-// editor reads from the style, and a video repeated its src in a source
+// editor reads from the style, so it goes only when it's the same colour; and a video repeated its
+// src in a source
 function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const block of body.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')) {
     if (block.style.getPropertyValue('margin-left') === '0px') {
@@ -688,7 +698,8 @@ function dropDriveHtmlDefaults(body: HTMLElement) {
   }
 
   for (const mark of body.querySelectorAll<HTMLElement>('mark[data-color]')) {
-    if (mark.style.getPropertyValue('background-color')) {
+    const background = mark.style.getPropertyValue('background-color')
+    if (background && isSameColour(background, mark.getAttribute('data-color') ?? '')) {
       mark.removeAttribute('data-color')
     }
   }
@@ -772,22 +783,49 @@ function nameOldDriveHighlights(body: HTMLElement) {
   return isNamed
 }
 
-function isSeeThrough(element: HTMLElement) {
-  const colour = element.style.getPropertyValue('background-color')
-  return rgbOf(colour || (element.getAttribute('data-color') ?? ''))?.alpha === 0
+// The colours an element sets for a property; a highlight also kept its colour in data-color
+function coloursOf(element: HTMLElement, property: ColourProperty) {
+  const colours = [element.style.getPropertyValue(property)]
+  if (property === 'background-color') {
+    colours.push(element.getAttribute('data-color') ?? '')
+  }
+
+  return colours.filter((colour) => colour !== '')
+}
+
+// Whether every colour an element sets for a property is one no one could see
+function isSeeThrough(element: HTMLElement, property: ColourProperty) {
+  const colours = coloursOf(element, property)
+  return colours.length > 0 && colours.every((colour) => rgbOf(colour)?.alpha === 0)
 }
 
 // A mark that holds nothing but its colour, Drive's inherited text colour aside
 function isBareMark(mark: HTMLElement) {
-  const names = [...mark.style].filter((name) => mark.style.getPropertyValue(name) !== 'inherit')
+  const names = [...mark.style].filter(
+    (name) => name !== 'color' || mark.style.getPropertyValue(name) !== 'inherit',
+  )
   const attributes = [...mark.attributes].filter(({ name }) => name !== 'style')
   return !names.length && !attributes.length
+}
+
+// A text colour no one could see shows none, as on the Yjs path, so it goes in place
+function clearSeeThroughText(body: HTMLElement) {
+  const cleared = [...body.querySelectorAll<HTMLElement>('[style]')].filter((element) =>
+    isSeeThrough(element, 'color'),
+  )
+  for (const { style } of cleared) {
+    style.removeProperty('color')
+  }
+
+  return cleared.length > 0
 }
 
 // A background no one could see shows no highlight, as on the Yjs path, so it goes in place; a
 // mark left with other attributes stays and fails the check
 function clearSeeThroughHighlights(body: HTMLElement) {
-  const cleared = [...body.querySelectorAll<HTMLElement>('span, mark')].filter(isSeeThrough)
+  const cleared = [...body.querySelectorAll<HTMLElement>('span, mark')].filter((element) =>
+    isSeeThrough(element, 'background-color'),
+  )
   for (const element of cleared) {
     element.style.removeProperty('background-color')
     if (element.localName === 'mark') {
@@ -802,11 +840,11 @@ function clearSeeThroughHighlights(body: HTMLElement) {
   return cleared.length > 0
 }
 
-// The HTML the editor reads, its old media mapped and see-through highlights cleared in place;
+// The HTML the editor reads, its old media mapped and see-through colours cleared in place;
 // written back from the parse only when that, moving a span's background or naming an old Drive
-// highlight changed it
+// highlight changed it. Text goes first, so a mark whose text colour is see-through can unwrap
 function readableHtml(body: HTMLElement, html: string) {
-  const isCleared = clearSeeThroughHighlights(body)
+  const isCleared = [clearSeeThroughText(body), clearSeeThroughHighlights(body)].includes(true)
   const isMapped = mapOldMedia(body)
   const readable = body.cloneNode(true) as HTMLElement
   const isMoved = moveSpanHighlights(readable)
@@ -851,7 +889,7 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
   })
 }
 
-// The check compares the old HTML, its old media mapped, its see-through highlights cleared and a
+// The check compares the old HTML, its old media mapped, its see-through colours cleared and a
 // float beside an alignment dropped (recorded), frappe-ui's upload marks dropped (recorded) and
 // Drive's defaults dropped, with the fresh body as the editor draws it; every property the raw
 // style text names must survive the parse, bar the noise list, and the whitespace the parser

@@ -1007,3 +1007,111 @@ describe("convertLegacy on old Drive's yellow at half alpha", () => {
     expect(drawnColours(content)).toEqual([['lit', [['namedHighlight', 'orange']]]])
   })
 })
+
+describe('convertLegacy on a highlight whose colours disagree (R534, R535)', () => {
+  const SEE_THROUGH = 'rgba(254, 249, 195, 0)'
+  const DISAGREEING = [
+    { background: SEE_THROUGH, dataColor: '#fef9c3' },
+    { background: SEE_THROUGH, dataColor: '#fee2e2' },
+    { background: '#fee2e2', dataColor: '#fef9c3' },
+  ]
+  const AGREEING = [
+    { background: '#fef9c3', dataColor: 'rgb(254, 249, 195)' },
+    { background: 'rgb(254, 249, 195)', dataColor: '#FEF9C3' },
+  ]
+
+  it.each(DISAGREEING)(
+    'refuses an HTML highlight $background with data-color $dataColor',
+    ({ background, dataColor }) => {
+      const style = `background-color: ${background}; color: inherit`
+      const html = `<p>a<mark data-color="${dataColor}" style="${style}">b</mark></p>`
+
+      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+        kind: 'failed',
+        reason: 'check',
+      })
+    },
+  )
+
+  it.each(AGREEING)(
+    'keeps an HTML highlight $background with data-color $dataColor as yellow',
+    ({ background, dataColor }) => {
+      const style = `background-color: ${background}; color: inherit`
+      const html = `<p>a<mark data-color="${dataColor}" style="${style}">b</mark></p>`
+
+      const result = convert({ content: null, html, collab: 0 })
+
+      const [{ content }] = bodyOf(result.state).content
+      expect(drawnColours(content)).toEqual([
+        ['a', []],
+        ['b', [['namedHighlight', 'yellow']]],
+      ])
+      expect(result.dropped).toEqual([])
+    },
+  )
+
+  it('refuses a see-through HTML highlight with another inherited style', () => {
+    const mark = `<mark style="background-color: ${SEE_THROUGH}; display: inherit">`
+    const html = `<p>a${mark}b</mark></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+})
+
+describe('convertLegacy on a highlight alpha outside 0 to 1 (R536)', () => {
+  const ALPHAS = [
+    { value: 'rgba(254, 249, 195, -1)', drawn: [] },
+    { value: 'rgba(254, 249, 195, 150%)', drawn: [['namedHighlight', 'yellow']] },
+    { value: 'rgba(254, 249, 195, 2)', drawn: [['namedHighlight', 'yellow']] },
+  ]
+
+  it.each(ALPHAS)('keeps an HTML span background $value as $drawn', ({ value, drawn }) => {
+    const html = `<p>a<span style="background-color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', drawn],
+    ])
+  })
+
+  it.each(ALPHAS)('keeps an old Yjs highlight $value as $drawn', ({ value, drawn }) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { namedHighlight: { color: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', drawn]])
+  })
+})
+
+describe('convertLegacy on text colours no one could see (R537)', () => {
+  const SEE_THROUGH = ['rgba(220, 38, 38, 0)', 'rgba(254, 249, 195, 0)', 'rgb(220 38 38 / 0%)']
+
+  it.each(SEE_THROUGH)('keeps an HTML span colour %s as no colour', (value) => {
+    const html = `<p>a<span style="color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', []],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it.each(SEE_THROUGH)('keeps an old Yjs text colour %s as no colour', (value) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { color: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', []]])
+  })
+})
