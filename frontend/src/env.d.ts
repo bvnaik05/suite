@@ -53,6 +53,9 @@ declare global {
 
   /** The Yjs version the checker build bundles, injected by vite.checker.config.ts. */
   const __CHECKER_YJS__: string
+
+  /** The converter version the converter build holds, injected by vite.checker.config.ts. */
+  const __CONVERTER_VERSION__: string
 }
 
 export {}

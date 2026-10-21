@@ -14,6 +14,9 @@ APP = "writer"
 PART_MAP = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
 # The Node checker `bench build` makes, which judges suspect documents with the browsers' Yjs and this schema
 CHECKER_BUILD = Path(__file__).with_name("dist") / "checker.cjs"
+# The Node converter `bench build` makes, which turns an old document into a collaborative one
+CONVERTER_BUILD = Path(__file__).with_name("dist") / "converter.cjs"
+CONVERTER_VERSION = json.loads(Path(__file__).with_name("converter-version.json").read_text())["version"]
 DECLARED = json.loads(Path(__file__).with_name("schema.json").read_text())
 # y-prosemirror writes only GC, deleted, string, format, type and any content, and only XmlElement and
 # XmlText shared types. `meta` holds only plain values; if it ever nests a Map, Array or Text,
