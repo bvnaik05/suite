@@ -11,11 +11,10 @@ The bundle has no network code on the judging path, names no Node module but nod
 drops fetch and WebSocket before it reads its input, which test_checker checks against the built
 bundle. This guards against network use by mistake, not against a compromised child.
 
-Bisecting peaks at about 30 times the input in resident memory, past the heap limit: about
-120 MB at the 4 MiB state the scheduler aims for, and 560 MB for a 19.1 MB checkpoint, which
-passed. Nothing bounds the input: a compaction job can meet a larger state. A child that runs out
-of its 512 MB heap or is killed for memory fails as CheckerFailed, and the document is held with
-an alert.
+On a laptop, bisecting 64 rows on the 4 MiB state the scheduler aims for peaks at about 285 MB
+resident, and a 19.1 MB checkpoint passed at 560 MB before the young-space flag. Nothing bounds
+the input: a compaction job can meet a larger state. A child that runs out of its 512 MB heap or
+is killed for memory fails as CheckerFailed, and the document is held with an alert.
 """
 
 import base64
@@ -131,6 +130,8 @@ def node_command(node_path: str, bundle: Path) -> list[str]:
         "--permission",
         f"--allow-fs-read={bundle}",
         f"--max-old-space-size={HEAP_MB}",
+        # A small young generation cuts the peak resident memory by about a third, with the same answer
+        "--max-semi-space-size=1",
         str(bundle),
     ]
 
