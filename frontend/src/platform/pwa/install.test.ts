@@ -84,15 +84,13 @@ describe('the offer to install an app of its own', () => {
     expect(offer.bannerOpen.value).toBe(false)
   })
 
-  it("shows an iPhone the steps, and Profile shows them again once they're dismissed", async () => {
+  it('shows an iPhone the steps, until they are dismissed', async () => {
     const { offer } = await open({ phone: IPHONE })
     expect(offer.how.value).toBe('steps')
     expect(offer.bannerOpen.value).toBe(true)
 
     offer.dismiss()
     expect(offer.bannerOpen.value).toBe(false)
-    offer.install()
-    expect(offer.bannerOpen.value).toBe(true)
   })
 
   it('offers nothing inside an installed app, nor the Suite itself', async () => {

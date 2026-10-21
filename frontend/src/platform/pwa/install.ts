@@ -1,11 +1,10 @@
 import { computed, ref, shallowRef, type Ref } from 'vue'
 
 /**
- * Offering to install an app of its own (ticket 047). Once, quietly: the first time an app's pages
- * open in a phone's browser a banner says it can be installed, and once dismissed it stays
- * dismissed on that device. After that the offer is in the app's Profile. Never inside an
- * installed app. Inside the one Suite app installed before the split, a note says once that Mail
- * and Calendar are apps of their own now.
+ * Offering to install an app of its own. Once, quietly: the first time an app's pages open in a
+ * phone's browser a banner says it can be installed, and once dismissed it stays dismissed on that
+ * device. Never inside an installed app. Inside the one Suite app installed before the split, a
+ * note says once that Mail and Calendar are apps of their own now.
  *
  * Chrome says an app can be installed with `beforeinstallprompt`, once per page load and only
  * while it is not installed, so the event is caught here at boot rather than by whatever is on
@@ -23,8 +22,6 @@ type InstallPrompt = { event: BeforeInstallPromptEvent; app: string }
 const prompt = shallowRef<InstallPrompt | null>(null)
 const dismissed = ref(new Set(readList(DISMISSED_KEY)))
 const noteDismissed = ref(read(NOTE_KEY) === '1')
-// The iPhone's steps, asked for again from Profile after the banner was dismissed.
-const stepsAsked = ref(false)
 // The app the page links, as installPwa keeps it.
 const linked: { app: Readonly<Ref<string>> } = { app: ref('suite') }
 
@@ -41,7 +38,6 @@ export function startInstallOffer(app: Readonly<Ref<string>>): void {
   })
   window.addEventListener('appinstalled', () => {
     prompt.value = null
-    stepsAsked.value = false
   })
   // The Suite app opens at its start URL; the apps of their own open at theirs. Remembered for the
   // session, which is the app's while it runs.
@@ -53,9 +49,9 @@ export interface InstallOffer {
   app: Readonly<Ref<string>>
   /** How this page's app can be installed here: by the browser's prompt, by the iPhone's steps, or not at all. */
   how: Readonly<Ref<'prompt' | 'steps' | null>>
-  /** Whether the banner is up: the first offer, not yet dismissed, or the steps asked for again. */
+  /** Whether the banner is up: the first offer, until dismissed. */
   bannerOpen: Readonly<Ref<boolean>>
-  /** Installs: the browser's prompt, or the iPhone's steps in the banner. */
+  /** Installs by the browser's prompt. An iPhone has none: its steps are shown, not run. */
   install: () => void
   /** Dismisses the banner for this app, on this device. */
   dismiss: () => void
@@ -71,14 +67,8 @@ export function useInstallOffer(): InstallOffer {
     if (prompt.value?.app === app.value) return 'prompt'
     return onIos() ? 'steps' : null
   })
-  const bannerOpen = computed(
-    () => !!how.value && (!dismissed.value.has(app.value) || stepsAsked.value),
-  )
+  const bannerOpen = computed(() => !!how.value && !dismissed.value.has(app.value))
   const install = () => {
-    if (how.value === 'steps') {
-      stepsAsked.value = true
-      return
-    }
     // A prompt shows once: used, it is let go, and Install is offered again only when the
     // browser offers again (a later visit, if this one was declined).
     const used = prompt.value
@@ -86,7 +76,6 @@ export function useInstallOffer(): InstallOffer {
     void used?.event.prompt()
   }
   const dismiss = () => {
-    stepsAsked.value = false
     if (dismissed.value.has(app.value)) return
     dismissed.value = new Set([...dismissed.value, app.value])
     write(DISMISSED_KEY, JSON.stringify([...dismissed.value]))
