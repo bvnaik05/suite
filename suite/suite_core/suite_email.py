@@ -5,8 +5,9 @@ delivery. With no configured provider, Core renders and sends through the site's
 The provider owns its transport; this module owns first-party notification routing and retries.
 """
 
+from collections.abc import Mapping
 from importlib import import_module
-from typing import Protocol
+from typing import Any, Protocol
 
 import frappe
 
@@ -16,7 +17,9 @@ class EmailProvider(Protocol):
 
     def is_configured(self) -> bool: ...
 
-    def send_email(self, email_type: str, recipient: str, params: dict, request_key: str) -> None: ...
+    def send_email(
+        self, email_type: str, recipient: str, params: Mapping[str, Any], request_key: str
+    ) -> None: ...
 
 
 class EmailDeliveryUnavailableError(frappe.ValidationError):
