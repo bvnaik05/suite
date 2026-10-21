@@ -648,6 +648,65 @@ describe('convertLegacy', () => {
     expect(result.dropped).toEqual([])
   })
 
+  it("drops the author and kind Drive's mentions stored, never drawn, recording each once", () => {
+    const doc = legacyDoc(
+      yElement(
+        'paragraph',
+        yAtom('mention', { id: 'x', label: 'Ann', author: 'a@b.c', type: 'user' }),
+        yAtom('mention', { id: 'y', label: 'Bo', author: 'a@b.c' }),
+      ),
+    )
+
+    const result = convert(stored(doc))
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      page(
+        paragraph(
+          { type: 'mention', attrs: { id: 'x', label: 'Ann' } },
+          { type: 'mention', attrs: { id: 'y', label: 'Bo' } },
+        ),
+      ),
+      [
+        { kind: 'noise', name: 'author' },
+        { kind: 'noise', name: 'type' },
+      ],
+    ])
+  })
+
+  it.each([
+    {
+      name: 'image',
+      doc: () => legacyDoc(yElement('paragraph', yAtom('image', { src: SRC, 'data-node': 'x' }))),
+    },
+    {
+      name: 'mention',
+      doc: () =>
+        legacyDoc(yElement('paragraph', yAtom('mention', { id: 'x', label: 'A', uploadId: 'u1' }))),
+    },
+    { name: 'horizontal rule', doc: () => legacyDoc(yAtom('horizontalRule', { colour: 'red' })) },
+  ])('refuses an old Yjs $name holding a key Writer does not declare', ({ doc }) => {
+    expect(convertLegacy(stored(doc()), MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('keeps an old Yjs mention whose bold is stored under an overlap suffix', () => {
+    const mention = yAtom('mention', { id: 'x', label: 'A' })
+    mention.setAttribute('bold--abcd1234', {} as never)
+    const legacy = stored(legacyDoc(yElement('paragraph', mention)))
+
+    const result = convert(legacy)
+
+    const shownMention = openConverted(result.state).state.doc.firstChild!.child(0)
+    expect(shownMention.marks.map((mark) => mark.toJSON())).toEqual([{ type: 'bold' }])
+  })
+
+  it('keeps an old Yjs image whose undeclared key is unset', () => {
+    const doc = legacyDoc(yElement('paragraph', yAtom('image', { src: SRC, 'data-node': UNSET })))
+
+    const result = convert(stored(doc))
+
+    expect(bodyOf(result.state)).toEqual(page(paragraph({ type: 'image', attrs: { src: SRC } })))
+  })
+
   it('keeps a heading holding a non-breaking space and a line break', () => {
     const legacy = { content: null, html: '<h2>Big&nbsp;plan<br>today</h2>', collab: 0 }
 

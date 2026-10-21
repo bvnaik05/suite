@@ -27,6 +27,7 @@ import {
   domInventory,
   inventory,
   NOISE_ATTRIBUTES,
+  OVERLAP_SUFFIX,
   rawStyles,
   unkept,
   type Inventory,
@@ -251,6 +252,42 @@ function dropUploadIds(body: XmlFragment): Dropped[] {
   return [{ kind: 'noise', name: 'uploadId' }]
 }
 
+// Drive's mention stored its author and kind, which it never drew; its words stay
+const UNDRAWN_MENTION_KEYS = ['author', 'type']
+
+function dropMentionData(body: XmlFragment): Dropped[] {
+  const mentions = elementsOf(body).filter(({ nodeName }) => nodeName === 'mention')
+  const dropped: Dropped[] = []
+  for (const name of UNDRAWN_MENTION_KEYS) {
+    const held = mentions.filter((mention) => mention.getAttribute(name) != null)
+    for (const mention of held) {
+      mention.removeAttribute(name)
+    }
+
+    if (held.length) {
+      dropped.push({ kind: 'noise', name })
+    }
+  }
+
+  return dropped
+}
+
+function isDeclaredAtomKey(name: string, key: string) {
+  const declared = schema.nodes[name].spec.attrs ?? {}
+  return Object.hasOwn(declared, key) || key.replace(OVERLAP_SUFFIX, '') in schema.marks
+}
+
+// A key on an atom naming neither its attribute nor a mark would be carried along and never drawn
+function hasDeclaredAtomKeys(body: XmlFragment) {
+  return elementsOf(body)
+    .filter(({ nodeName }) => isAtomName(nodeName))
+    .every((atom) =>
+      Object.entries(atom.getAttributes()).every(
+        ([key, value]) => value == null || isDeclaredAtomKey(atom.nodeName, key),
+      ),
+    )
+}
+
 // The old editor showed old media's alignment over its float, so a float beside one goes
 function droppedFloats(body: XmlFragment): Dropped[] {
   if (!isFloatDropped(body)) {
@@ -263,11 +300,12 @@ function droppedFloats(body: XmlFragment): Dropped[] {
 // The check compares the old body with the fresh one as Yjs holds both. Between them:
 // convertOldMedia, checked on its own by where the media points and by old media holding only what
 // the old editor wrote; a float beside an alignment, dropped (recorded); Drive's defaults, dropped;
-// frappe-ui's upload id on media, dropped (recorded); old colours, read as palette names, or the
-// check fails; cell styles, read as pasted HTML is, or the check fails; the parts the build set aside holding nothing, hidden or lost (recorded), and
-// Drive's table of contents holding only its hint, left out of the source, so a lost part with
-// content fails; and the extras the result may hold, being the filler the build adds, declared
-// defaults and heading ids
+// frappe-ui's upload id on media, dropped (recorded); Drive's mention author and type, dropped
+// (recorded); an atom key Writer doesn't declare, or the check fails; old colours, read as palette
+// names, or the check fails; cell styles, read as pasted HTML is, or the check fails; the parts the
+// build set aside holding nothing, hidden or lost (recorded), and Drive's table of contents
+// holding only its hint, left out of the source, so a lost part with content fails; and the extras
+// the result may hold, being the filler the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
@@ -278,6 +316,8 @@ function fromYjs(old: Doc) {
   dropDriveDefaults(body)
   const isIndentKept = hasWholeIndents(body)
   const uploadIds = dropUploadIds(body)
+  const mentionData = dropMentionData(body)
+  const isAtomDeclared = hasDeclaredAtomKeys(body)
   const isColourMapped = mapOldColours(body)
   const isCellStyleMapped = mapOldCellStyles(body)
   const { node, hidden, lost } = placeFragment(body, schema)
@@ -293,6 +333,7 @@ function fromYjs(old: Doc) {
         lost.every(isDroppable) &&
         isColourMapped &&
         isCellStyleMapped &&
+        isAtomDeclared &&
         isIndentKept &&
         isMediaKept &&
         isOldMediaKept &&
@@ -301,7 +342,7 @@ function fromYjs(old: Doc) {
         return null
       }
 
-      return [...uploadIds, ...floats]
+      return [...uploadIds, ...floats, ...mentionData]
     },
   }
 }
