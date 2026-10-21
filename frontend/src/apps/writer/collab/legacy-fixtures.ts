@@ -1,5 +1,4 @@
 import { Editor, getSchema } from '@tiptap/core'
-import Collaboration from '@tiptap/extension-collaboration'
 import Document from '@tiptap/extension-document'
 import Heading from '@tiptap/extension-heading'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -12,6 +11,7 @@ import { convertLegacy } from '@/apps/writer/collab/conversion'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import type { LegacyBody } from '@/apps/writer/collab/legacy-read'
 import { placeThread } from '@/apps/writer/collab/places'
+import { tabEditor } from '@/apps/writer/collab/tab-editor'
 import { HeadingAnchors } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
 
@@ -133,10 +133,7 @@ export function bodyOf(state: Uint8Array) {
 
 // The converted state open in an editor, the way a tab opens it
 export function openConverted(state: Uint8Array) {
-  const editor = new Editor({
-    element: document.createElement('div'),
-    extensions: [...writerSchema(), Collaboration.configure({ document: opened(state) })],
-  })
+  const editor = tabEditor(opened(state))
   editors.push(editor)
   return editor
 }

@@ -4,9 +4,11 @@ import { Transform } from '@tiptap/pm/transform'
 import {
   placeFragment,
   prosemirrorToYXmlFragment,
+  ySyncPluginKey,
   yXmlFragmentToProseMirrorRootNode,
 } from '@tiptap/y-tiptap'
 import {
+  applyUpdate,
   ContentDeleted,
   ContentEmbed,
   ContentFormat,
@@ -15,7 +17,9 @@ import {
   decodeUpdateV2,
   Doc,
   encodeStateAsUpdate,
+  equalSnapshots,
   Item,
+  snapshot,
   XmlElement,
   XmlFragment,
   type AbstractStruct,
@@ -66,6 +70,8 @@ import {
   nameOldDriveHighlights,
 } from '@/apps/writer/collab/old-styles'
 import { readOldThreads, type OldComment } from '@/apps/writer/collab/old-threads'
+import { placeThread } from '@/apps/writer/collab/places'
+import { tabEditor } from '@/apps/writer/collab/tab-editor'
 import { DRIVE_HEADING_LINE_HEIGHT, INDENTED_BLOCKS } from '@/apps/writer/extensions/block-layout'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
@@ -690,6 +696,25 @@ function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
   }
 }
 
+// A tab opening the state must write nothing to it, show all of it and show each thread on its words
+function opensAsTab(state: Uint8Array, anchors: string[]) {
+  const doc = new Doc()
+  applyUpdate(doc, state)
+  const before = snapshot(doc)
+  const editor = tabEditor(doc)
+  try {
+    // Stands in for the create-tick dispatch a real tab makes (Tabs onCreate)
+    editor.view.dispatch(editor.state.tr)
+    return (
+      equalSnapshots(before, snapshot(doc)) &&
+      !ySyncPluginKey.getState(editor.state)?.binding.isFrozen &&
+      anchors.every((anchor) => placeThread(editor.state, anchor).kind === 'text')
+    )
+  } finally {
+    editor.destroy()
+  }
+}
+
 /** The old document as a fresh collaborative body, checked to hold the old text, formatting and parts apart from what it drops. */
 export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   let checked: ReturnType<typeof checkedBody>
@@ -714,5 +739,19 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   }
 
   const { dropped, from, anchors, threads } = checked
+  let isOpenedAsIs = false
+  try {
+    isOpenedAsIs = opensAsTab(state, [
+      ...Object.values(anchors),
+      ...threads.map(({ anchor }) => anchor),
+    ])
+  } catch {
+    isOpenedAsIs = false
+  }
+
+  if (!isOpenedAsIs) {
+    return { kind: 'failed', reason: 'check' }
+  }
+
   return { kind: 'converted', state, dropped, from, anchors, threads }
 }
