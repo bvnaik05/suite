@@ -67,7 +67,7 @@ describe('convertLegacy', () => {
   })
 
   it("keeps Drive's top-level block image in a paragraph with all it stored (R332)", () => {
-    const attrs = { src: SRC, alt: 'Sales chart', title: 'Q3' }
+    const attrs = { src: SRC, alt: 'Sales chart', title: 'Q3', caption: 'Revenue' }
     const doc = legacyDoc(yParagraph('one'), yAtom('image', attrs))
 
     const result = convert(stored(doc))
