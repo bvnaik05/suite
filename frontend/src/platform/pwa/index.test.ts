@@ -16,13 +16,22 @@ const fcm = vi.hoisted(() => ({
   handlers: [] as Array<(payload: object) => void>,
   calls: [] as string[],
   relayRequests: [] as string[],
+  // The apps each client was made for, and the subscriptions it made for them.
+  apps: [] as string[][],
 }))
 vi.mock('@/platform/pwa/frappe-push-notification', () => ({
   default: class {
     constructor(
       readonly projectName: string,
       readonly relayURL: string,
-    ) {}
+      readonly apps: string[],
+    ) {
+      fcm.apps.push(apps)
+    }
+    // The relay hears of the apps the token is not subscribed for yet.
+    async syncApps() {
+      fcm.calls.push(`subscribe ${localStorage.getItem('firebase_token_mail')} for ${this.apps}`)
+    }
     async fetchWebConfig() {
       fcm.relayRequests.push(`${this.relayURL}/api/method/notification_relay.api.get_config`)
       if (fcm.config instanceof Error) throw fcm.config
@@ -67,6 +76,7 @@ beforeEach(() => {
   fcm.handlers = []
   fcm.calls = []
   fcm.relayRequests = []
+  fcm.apps = []
   window.push_relay_server_url = 'https://relay.test'
   showNotification = vi.fn(async () => {})
   register = vi.fn(async () => ({
@@ -244,17 +254,36 @@ describe('Suite PWA', () => {
 
     await session.logout()
 
-    expect(fcm.calls).toEqual(['unsubscribe token-a'])
+    expect(fcm.calls).toEqual(['subscribe token-a for mail,calendar', 'unsubscribe token-a'])
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull()
+  })
+
+  it('subscribes a browser tab for every app, and an installed app for itself', async () => {
+    localStorage.setItem(TOKEN_KEY, 'token-a')
+    path.value = '/home'
+    await install('authenticated', 'a@suite.test')
+    expect(fcm.apps).toEqual([['mail', 'calendar']])
+
+    vi.resetModules()
+    fcm.apps = []
+    fcm.calls = []
+    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true })
+    path.value = '/calendar'
+    await install('authenticated', 'a@suite.test')
+    Reflect.deleteProperty(navigator, 'standalone')
+    expect(fcm.apps).toEqual([['calendar']])
+    expect(fcm.calls).toEqual(['subscribe token-a for calendar'])
   })
 
   it("drops another user's token at sign-in when the logout did not go through the platform", async () => {
     localStorage.setItem(TOKEN_KEY, 'token-a')
     await install('authenticated', 'a@suite.test')
-    expect(fcm.calls).toEqual([])
+    // A's token is A's: it is kept, and subscribed for every app.
+    expect(fcm.calls).toEqual(['subscribe token-a for mail,calendar'])
 
     // User A leaves through a logout that runs no platform cleanup; user B signs in.
     vi.resetModules()
+    fcm.calls = []
     await install('authenticated', 'b@suite.test')
 
     expect(fcm.calls).toEqual(['forget token-a'])

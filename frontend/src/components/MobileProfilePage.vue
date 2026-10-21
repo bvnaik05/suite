@@ -61,8 +61,27 @@
 
       <!-- Where the offer to install lives once its banner is dismissed: never inside the
 			     installed app, nor where this app cannot be installed. -->
-      <MobileSettingsCard v-if="installOffer.how.value && appName">
+      <!-- This device's notifications, and where the offer to install lives once its banner is
+			     dismissed: never inside the installed app, nor where this app cannot be installed. -->
+      <MobileSettingsCard v-if="(installOffer.how.value && appName) || push.available.value">
         <MobileSettingsRow
+          v-if="push.available.value"
+          :icon="Bell"
+          :label="__('Notifications on this device')"
+          :chevron="false"
+          @click="toggleNotifications"
+        >
+          <template #trailing>
+            <Switch
+              :model-value="push.enabled.value"
+              :disabled="switching"
+              @click.stop
+              @update:model-value="toggleNotifications"
+            />
+          </template>
+        </MobileSettingsRow>
+        <MobileSettingsRow
+          v-if="installOffer.how.value && appName"
           :icon="Download"
           :label="__('Install {0}', [appName])"
           :chevron="false"
@@ -98,14 +117,15 @@
 </template>
 
 <script setup lang="ts">
-import { Avatar, Dialog } from 'frappe-ui'
-import { Check, ChevronRight, Download, LogOut } from 'lucide-vue-next'
+import { Avatar, Dialog, Switch } from 'frappe-ui'
+import { Bell, Check, ChevronRight, Download, LogOut } from 'lucide-vue-next'
 import { computed, inject, onMounted, ref } from 'vue'
 
 // The two shells are mail's: a settings card and its rows. They carry no mail in them.
 import MobileSettingsCard from '@/apps/mail/components/mobile/MobileSettingsCard.vue'
 import MobileSettingsRow from '@/apps/mail/components/mobile/MobileSettingsRow.vue'
-import { useInstallOffer } from '@/platform/pwa'
+import { toast } from '@/platform/feedback'
+import { useDevicePush, useInstallOffer } from '@/platform/pwa'
 import type { SettingsTabId } from '@/shell/settings/settings'
 import SettingsList from '@/shell/settings/SettingsList.vue'
 import { openSettings, useSettingsGroups } from '@/shell/settings/useSettingsDialog'
@@ -130,6 +150,22 @@ onMounted(() => void settings.load())
 
 const showLogoutConfirm = ref(false)
 const installOffer = useInstallOffer()
+
+const push = useDevicePush()
+const switching = ref(false)
+const toggleNotifications = async () => {
+  if (switching.value) return
+  switching.value = true
+  try {
+    if (push.enabled.value) await push.disable()
+    else if (!(await push.enable()))
+      toast.error(__('Notifications are blocked for this site in the browser settings.'))
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error))
+  } finally {
+    switching.value = false
+  }
+}
 
 const fullName = computed(() => user?.data?.full_name ?? '')
 // The login id, not the active account: the card is who you are signed in as, and the

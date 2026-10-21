@@ -1,4 +1,4 @@
-import { shallowRef, watch } from 'vue'
+import { computed, readonly, ref, shallowRef, watch } from 'vue'
 
 import type { Session } from '@/platform/session'
 
@@ -48,23 +48,89 @@ export function installPwa(
     },
     { immediate: true },
   )
-  let client: Promise<PushClient | null> | null = null
   watch(
     session.status,
     (status) => {
-      if (client || status !== 'authenticated') return
-      client = registerPushServiceWorker(session.user.value?.id ?? null)
+      if (pushClient || status !== 'authenticated') return
+      pushClient = registerPushServiceWorker(session.user.value?.id ?? null, pushApps())
     },
     { immediate: true },
   )
   session.onLogout(
     async () => {
-      const push = await client
+      const push = await pushClient
       await push?.disableNotification()
+      pushEnabled.value = false
       localStorage.removeItem(PUSH_OWNER_KEY)
     },
     { whileSignedIn: true },
   )
+}
+
+let pushClient: Promise<PushClient | null> | null = null
+const pushEnabled = ref(false)
+
+/**
+ * The apps this device is notified for: an installed app, its own; a browser tab, or the one
+ * Suite app, every app (see suite.suite_core.push).
+ */
+function pushApps(): string[] {
+  if (standalone() && currentApp.value !== 'suite') return [currentApp.value]
+  return installableApps.map((app) => app.id)
+}
+
+const NOTIFY_ASKED_KEY = 'suite_notify_asked'
+
+/**
+ * Turning this device's notifications on and off, from an app's Profile, and the ask an installed
+ * app makes once, the first time it opens: an iPhone lets a page ask only from a tap, so the ask is
+ * a button rather than the browser's prompt on load.
+ */
+export function useDevicePush() {
+  const available = computed(
+    () => !!pushRelayURL() && 'Notification' in window && 'serviceWorker' in navigator,
+  )
+  const askOpen = computed(
+    () =>
+      available.value &&
+      standalone() &&
+      currentApp.value !== 'suite' &&
+      !pushEnabled.value &&
+      Notification.permission === 'default' &&
+      !asked.value.includes(currentApp.value),
+  )
+  const enable = async (): Promise<boolean> => {
+    const push = await pushClient
+    if (!push) return false
+    const { permission_granted } = await push.enableNotification()
+    pushEnabled.value = permission_granted
+    dismissAsk()
+    return permission_granted
+  }
+  const disable = async () => {
+    await (await pushClient)?.disableNotification()
+    pushEnabled.value = false
+  }
+  const dismissAsk = () => {
+    if (asked.value.includes(currentApp.value)) return
+    asked.value = [...asked.value, currentApp.value]
+    try {
+      localStorage.setItem(NOTIFY_ASKED_KEY, JSON.stringify(asked.value))
+    } catch {
+      // Storage can be unavailable (private mode); the ask comes back with the next visit.
+    }
+  }
+  return { available, enabled: readonly(pushEnabled), askOpen, enable, disable, dismissAsk }
+}
+
+const asked = ref<string[]>(readAsked())
+function readAsked(): string[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(NOTIFY_ASKED_KEY) ?? '[]') as unknown
+    return Array.isArray(list) ? list.filter((app): app is string => typeof app === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -136,13 +202,16 @@ function pushRelayURL(): string | null {
  * relay. Fail-safe: a failure logs and leaves the page as it is. `firebase`
  * loads on demand, outside the shell chunk.
  */
-async function registerPushServiceWorker(user: string | null): Promise<PushClient | null> {
+async function registerPushServiceWorker(
+  user: string | null,
+  apps: string[],
+): Promise<PushClient | null> {
   try {
     const relayURL = pushRelayURL()
     if (!relayURL || !('serviceWorker' in navigator)) return null
 
     const { default: FrappePushNotification } = await import('./frappe-push-notification')
-    const client = new FrappePushNotification(PUSH_PROJECT, relayURL)
+    const client = new FrappePushNotification(PUSH_PROJECT, relayURL, apps)
 
     let url = PUSH_SERVICE_WORKER_URL
     let config: unknown = ''
@@ -159,6 +228,10 @@ async function registerPushServiceWorker(user: string | null): Promise<PushClien
     client.onMessage((payload) => void registration.showNotification(...pushNotification(payload)))
     await client.initialize(registration)
     await claimPushToken(client, user)
+    // A device already notified is subscribed for this page's apps too: one installed since, or a
+    // token from before subscriptions were per app.
+    if (client.isNotificationEnabled()) await client.syncApps()
+    pushEnabled.value = client.isNotificationEnabled()
     return client
   } catch (error) {
     console.error('Failed to register service worker', error)
