@@ -81,13 +81,9 @@
         @open="(tab) => openSettings(tab.id as SettingsTabId)"
       />
 
-      <!-- Where the offer to install lives once its banner is dismissed: never inside the
-			     installed app, nor where this app cannot be installed. -->
-      <!-- This device's notifications, and where the offer to install lives once its banner is
-			     dismissed: never inside the installed app, nor where this app cannot be installed. -->
-      <MobileSettingsCard v-if="(installOffer.how.value && appName) || push.available.value">
+      <!-- This device's notifications. -->
+      <MobileSettingsCard v-if="push.available.value">
         <MobileSettingsRow
-          v-if="push.available.value"
           :icon="Bell"
           :label="__('Notifications on this device')"
           :chevron="false"
@@ -102,13 +98,6 @@
             />
           </template>
         </MobileSettingsRow>
-        <MobileSettingsRow
-          v-if="installOffer.how.value && appName"
-          :icon="Download"
-          :label="__('Install {0}', [appName])"
-          :chevron="false"
-          @click="installOffer.install()"
-        />
       </MobileSettingsCard>
 
       <!-- Its own card: the destructive row is kept apart from the rest. -->
@@ -140,14 +129,14 @@
 
 <script setup lang="ts">
 import { Avatar, Dialog, Switch } from 'frappe-ui'
-import { Bell, Check, ChevronRight, Download, LogOut } from 'lucide-vue-next'
+import { Bell, Check, ChevronRight, LogOut } from 'lucide-vue-next'
 import { computed, inject, onMounted, ref } from 'vue'
 
 // The two shells are mail's: a settings card and its rows. They carry no mail in them.
 import MobileSettingsCard from '@/apps/mail/components/mobile/MobileSettingsCard.vue'
 import MobileSettingsRow from '@/apps/mail/components/mobile/MobileSettingsRow.vue'
 import { toast } from '@/platform/feedback'
-import { useDevicePush, useInstallOffer } from '@/platform/pwa'
+import { useDevicePush } from '@/platform/pwa'
 import type { SettingsTabId } from '@/shell/settings/settings'
 import SettingsList from '@/shell/settings/SettingsList.vue'
 import { openSettings, useSettingsGroups } from '@/shell/settings/useSettingsDialog'
@@ -160,8 +149,6 @@ const props = defineProps<{
   /** Offers every account at once above the accounts, and whether that is what is showing. */
   allAccounts?: { active: boolean }
   logout: { submit: () => void }
-  /** The app's name, for the offer to install it as an app of its own. */
-  appName?: string
 }>()
 
 const emit = defineEmits<{ switchAccount: [accountId: string]; switchToAll: [] }>()
@@ -177,7 +164,6 @@ const settings = useSettingsGroups()
 onMounted(() => void settings.load())
 
 const showLogoutConfirm = ref(false)
-const installOffer = useInstallOffer()
 
 const push = useDevicePush()
 const switching = ref(false)

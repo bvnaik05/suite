@@ -1,9 +1,9 @@
 <template>
   <!-- The offer to install the app whose page this is, as a slim strip just above the bottom bar:
        in the page's flow, so it covers nothing, and only where the bottom bar is. Shown once per
-       app and device until dismissed; after that the offer lives in the app's Profile, which can
-       open it again (see platform/pwa/install). Inside the one Suite app installed before the
-       split, a note in the same place says once that Mail and Calendar are apps of their own. -->
+       app and device until dismissed (see platform/pwa/install). Inside the one Suite app
+       installed before the split, a note in the same place says once that Mail and Calendar are
+       apps of their own. -->
   <!-- Inside an installed app, the first time it opens: whether to be notified. A button, not the
        browser's prompt on load: an iPhone lets a page ask only from a tap. -->
   <div

@@ -14,7 +14,6 @@
     always-show-accounts
     :all-accounts="{ active: showingAll }"
     :logout
-    :app-name="__('Mail')"
     @switch-account="onSwitchAccount"
     @switch-to-all="switchToAll"
   >
