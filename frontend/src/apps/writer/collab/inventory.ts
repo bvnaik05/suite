@@ -235,7 +235,7 @@ interface StylePiece {
   name: string | null
   value: string
   priority: string
-  longhands: [string, string][]
+  longhands: [string, string, string][]
 }
 
 // jsdom lists a shorthand beside its longhands without always keeping it in step, so only longhands count
@@ -257,9 +257,10 @@ function parsedPiece(scratch: CSSStyleDeclaration, text: string): StylePiece {
   scratch.cssText = piece
   const value = scratch.getPropertyValue(name)
   const priority = scratch.getPropertyPriority(name)
-  const listed = [...scratch].map((property): [string, string] => [
+  const listed = [...scratch].map((property): [string, string, string] => [
     property,
     scratch.getPropertyValue(property),
+    scratch.getPropertyPriority(property),
   ])
   const longhands = listed.filter(([property, held]) => isLonghand(scratch, property, held))
   return { piece, name, value, priority, longhands }
@@ -272,14 +273,11 @@ function isLost({ piece, name, value, priority }: StylePiece) {
   return !!piece && (!name || !value || (isImportant && priority !== 'important'))
 }
 
-// Each longhand a piece lists is set in order with the piece's priority, unless the rebuild already
-// holds that longhand !important and the piece isn't
+// Each longhand a piece lists is set in order with the priority its parse gave it, unless the rebuild
+// already holds that longhand !important and this one isn't
 function rebuiltStyle(element: HTMLElement, pieces: StylePiece[]) {
   const rebuilt = element.ownerDocument.createElement('div').style
-  const inOrder = pieces.flatMap(({ priority, longhands }) =>
-    longhands.map(([name, value]) => ({ name, value, priority })),
-  )
-  for (const { name, value, priority } of inOrder) {
+  for (const [name, value, priority] of pieces.flatMap(({ longhands }) => longhands)) {
     if (priority || rebuilt.getPropertyPriority(name) !== 'important') {
       rebuilt.setProperty(name, value, priority)
     }

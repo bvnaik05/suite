@@ -255,9 +255,16 @@ describe('what the parse keeps of the raw style text', () => {
   it.each([
     'color: red !important; color: blue',
     'font-weight: bold !important; font: 12px Arial !important',
-  ])('keeps an !important a later piece leaves in place: %s', (style) => {
+  ])('keeps an !important the later pieces resolve as set in order: %s', (style) => {
     expect(rawOf(`<p style="${style}">x</p>`).isKept).toBe(true)
   })
+
+  it.each(['border: 1px solid red !important', 'border: 1px solid red !important; color: blue'])(
+    'keeps an !important shorthand whose longhands the parse leaves unprioritised: %s',
+    (style) => {
+      expect(rawOf(`<p style="${style}">x</p>`).isKept).toBe(true)
+    },
+  )
 
   it.each([
     'margin: 0; margin-left: 4px',
