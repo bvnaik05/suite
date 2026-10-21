@@ -124,7 +124,7 @@ jobs:
   e2e:
     needs: author_check
     if: needs.author_check.outputs.trusted == 'true'
-    runs-on: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || 'suite-e2e-meet' }}
+    runs-on: ubuntu-latest
     # Historical durations keep each self-contained group near the same runtime.
     strategy:
       fail-fast: false
