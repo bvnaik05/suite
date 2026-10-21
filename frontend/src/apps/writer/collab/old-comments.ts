@@ -13,6 +13,7 @@ import {
 import { encodeAnchor } from '@/apps/writer/collab/anchors'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { isPlainObject, OVERLAP_SUFFIX } from '@/apps/writer/collab/inventory'
+import { readOldThreads } from '@/apps/writer/collab/old-threads'
 import { quoteBetween } from '@/apps/writer/collab/places'
 
 // The old comment mark, which excludes itself, so the binding keeps it under its own name
@@ -23,8 +24,8 @@ const COMMENT_KEY = 'comment'
 const ANNOTATION_KEY = 'annotation'
 const ANNOTATIONS_ROOT = 'docAnnotations'
 
-// Drive's comment marks in HTML, holding a whole thread or an annotation id
-export const OLD_THREAD_TAGS = 'span[data-comment], span[data-annotation-id]'
+// Drive's later comment mark in HTML, holding an annotation id
+export const ANNOTATION_TAG = 'span[data-annotation-id]'
 
 interface Run {
   type: XmlElement | XmlFragment | XmlText
@@ -60,11 +61,21 @@ function threadId(attrs: unknown): string | undefined {
   return undefined
 }
 
+// Drive's 2023 comment mark, holding its whole thread as JSON text
+function threadText(attrs: unknown): string | undefined {
+  if (!isPlainObject(attrs) || Object.keys(attrs).length !== 1) {
+    return undefined
+  }
+
+  const { comment } = attrs
+  return typeof comment === 'string' ? comment : undefined
+}
+
 function markName(key: string) {
   return key.replace(OVERLAP_SUFFIX, '')
 }
 
-// An annotation, or a comment mark with no thread id, as Drive's earlier one that held its whole thread
+// An annotation, or a comment mark with no thread id
 function isUnreadableMark([key, attrs]: [string, unknown]) {
   const name = markName(key)
   return name === ANNOTATION_KEY || (name === COMMENT_KEY && threadId(attrs) === undefined)
@@ -107,12 +118,14 @@ export function unreadableThreads(old: Doc) {
   return found
 }
 
-function textRuns(text: XmlText) {
+type IdOf = (attrs: unknown) => string | undefined
+
+function textRuns(text: XmlText, idOf: IdOf) {
   const runs: [string, Run][] = []
   let from = 0
   for (const { insert, attributes } of text.toDelta() as Insert[]) {
     const to = from + insert.length
-    const id = threadId(attributes?.[COMMENT_KEY])
+    const id = idOf(attributes?.[COMMENT_KEY])
     if (id !== undefined) {
       runs.push([id, { type: text, from, to }])
     }
@@ -129,12 +142,13 @@ function atomRuns(
   child: unknown,
   index: number,
   schema: Schema,
+  idOf: IdOf,
 ): [string, Run][] {
   if (!(child instanceof XmlElement && schema.nodes[child.nodeName]?.isInline)) {
     return []
   }
 
-  const id = threadId(child.getAttribute(COMMENT_KEY))
+  const id = idOf(child.getAttribute(COMMENT_KEY))
   if (id === undefined) {
     return []
   }
@@ -146,9 +160,10 @@ function addCommentRuns(
   type: XmlElement | XmlFragment | XmlText | XmlHook,
   schema: Schema,
   runs: [string, Run][],
+  idOf: IdOf,
 ) {
   if (type instanceof XmlText) {
-    runs.push(...textRuns(type))
+    runs.push(...textRuns(type, idOf))
     return
   }
 
@@ -157,15 +172,38 @@ function addCommentRuns(
   }
 
   for (const [index, child] of type.toArray().entries()) {
-    runs.push(...atomRuns(type, child, index, schema))
-    addCommentRuns(child, schema, runs)
+    runs.push(...atomRuns(type, child, index, schema, idOf))
+    addCommentRuns(child, schema, runs, idOf)
   }
 }
 
-function commentRuns(body: XmlFragment, schema: Schema) {
+function commentRuns(body: XmlFragment, schema: Schema, idOf: IdOf = threadId) {
   const runs: [string, Run][] = []
-  addCommentRuns(body, schema, runs)
+  addCommentRuns(body, schema, runs, idOf)
   return runs
+}
+
+/**
+ * Puts the key of its thread on each of Drive's 2023 comment marks in `body`, so it reads as a
+ * comment; the threads, or null when one can't be read
+ */
+export function markOldThreads(body: XmlFragment, schema: Schema) {
+  const runs = commentRuns(body, schema, threadText)
+  const read = readOldThreads(runs.map(([text]) => text))
+  if (!read) {
+    return null
+  }
+
+  for (const [text, { type, from, to, atom }] of runs) {
+    const mark = { commentId: read.keyOf.get(text) }
+    if (atom) {
+      atom.setAttribute(COMMENT_KEY, mark as never)
+    } else if (type instanceof XmlText) {
+      type.format(from, to - from, { [COMMENT_KEY]: mark })
+    }
+  }
+
+  return read
 }
 
 // Where the editor shows `position`, or null when it can't

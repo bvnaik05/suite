@@ -42,8 +42,9 @@ import {
   type LegacyRead,
 } from '@/apps/writer/collab/legacy-read'
 import {
+  ANNOTATION_TAG,
   dropCommentMarks,
-  OLD_THREAD_TAGS,
+  markOldThreads,
   oldCommentAnchors,
   unreadableThreads,
 } from '@/apps/writer/collab/old-comments'
@@ -64,6 +65,7 @@ import {
   moveSpanHighlights,
   nameOldDriveHighlights,
 } from '@/apps/writer/collab/old-styles'
+import { readOldThreads, type OldComment } from '@/apps/writer/collab/old-threads'
 import { DRIVE_HEADING_LINE_HEIGHT, INDENTED_BLOCKS } from '@/apps/writer/extensions/block-layout'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
@@ -86,6 +88,13 @@ export type Dropped =
   | { kind: 'empty-yjs' }
   | { kind: 'noise'; name: string }
 
+/** A thread Drive kept only in its 2023 comment marks, under a key its far copies name */
+export interface OldThread {
+  key: string
+  anchor: string
+  comments: OldComment[]
+}
+
 export type Converted =
   | {
       kind: 'converted'
@@ -93,6 +102,7 @@ export type Converted =
       dropped: Dropped[]
       from: 'yjs' | 'html'
       anchors: Record<string, string>
+      threads: OldThread[]
     }
   | { kind: 'failed'; reason: 'too_large' | 'check' | 'unreadable-yjs' }
 
@@ -307,8 +317,9 @@ function droppedFloats(body: XmlFragment): Dropped[] {
 // holding only its hint, left out of the source, so a lost part with content fails; and the extras
 // the result may hold, being the filler the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
-  const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
+  const threads = markOldThreads(body, schema)
+  const hasUnreadableThreads = !threads || unreadableThreads(old).length > 0
   const media = mediaSources(body)
   const isOldMediaKept = isOldMediaMappable(body)
   const floats = droppedFloats(body)
@@ -328,6 +339,7 @@ function fromYjs(old: Doc) {
     node,
     dropped: [...setAside.map(droppedPart), ...pendingDrop(old)],
     hasUnreadableThreads,
+    threads: threads?.threads ?? [],
     check: (fresh: XmlFragment): Dropped[] | null => {
       const isKept =
         lost.every(isDroppable) &&
@@ -342,7 +354,7 @@ function fromYjs(old: Doc) {
         return null
       }
 
-      return [...uploadIds, ...floats, ...mentionData]
+      return [...uploadIds, ...floats, ...mentionData, ...droppedImages(threads)]
     },
   }
 }
@@ -465,12 +477,12 @@ function droppedHtmlFloats(body: HTMLElement) {
 // The HTML the editor reads, its old media mapped and see-through colours cleared in place;
 // written back from the parse only when that, moving a span's background or naming an old Drive
 // highlight changed it. Text goes first, so a mark whose text colour is see-through can unwrap
-function readableHtml(body: HTMLElement, html: string) {
+function readableHtml(body: HTMLElement, html: string, isMarked: boolean) {
   const isCleared = [clearSeeThroughText(body), clearSeeThroughHighlights(body)].includes(true)
   const isMapped = mapOldMedia(body)
   const readable = body.cloneNode(true) as HTMLElement
   const isMoved = moveSpanHighlights(readable)
-  if (!nameOldDriveHighlights(readable) && !isMoved && !isMapped && !isCleared) {
+  if (!nameOldDriveHighlights(readable) && !isMoved && !isMapped && !isCleared && !isMarked) {
     return html
   }
 
@@ -509,6 +521,33 @@ function dropMentionAuthors(body: HTMLElement) {
   return ['author']
 }
 
+// Drive's 2023 comment marks in HTML, read as comments under their thread's key; null when one
+// can't be read or also holds a thread id
+function markHtmlThreads(body: HTMLElement) {
+  const spans = [...body.querySelectorAll('span[data-comment]')]
+  const texts = spans.map((span) => span.getAttribute('data-comment')!)
+  const threads = readOldThreads(texts)
+  if (!threads || spans.some((span) => span.hasAttribute('data-comment-id'))) {
+    return null
+  }
+
+  for (const [index, span] of spans.entries()) {
+    span.setAttribute('data-comment-id', threads.keyOf.get(texts[index])!)
+    span.removeAttribute('data-comment')
+  }
+
+  return threads
+}
+
+// The pictures of the people who wrote Drive's 2023 comments, which the names stand for
+function droppedImages(threads: ReturnType<typeof readOldThreads>): Dropped[] {
+  if (!threads?.hasImages) {
+    return []
+  }
+
+  return [{ kind: 'noise', name: 'userImage' }]
+}
+
 // The fresh body as the editor draws it
 function drawn(fresh: XmlFragment) {
   const { content } = yXmlFragmentToProseMirrorRootNode(fresh, schema)
@@ -534,11 +573,13 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
 // whitespace the parser folds isn't compared
 function fromHtml(html: string) {
   const { body } = new DOMParser().parseFromString(html, 'text/html')
-  const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)
+  const threads = markHtmlThreads(body)
+  const hasUnreadableThreads = !threads || !!body.querySelector(ANNOTATION_TAG)
   // Before the defaults go, since dropping one rewrites the style text from the parse
   const raw = rawStyles(body)
   const floats = droppedHtmlFloats(body)
-  const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html), extensions))
+  const isMarked = !!threads?.threads.length
+  const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html, isMarked), extensions))
   const uploadMarks = dropUploadMarks(body)
   const mentionAuthors = dropMentionAuthors(body)
   dropDriveHtmlDefaults(body)
@@ -547,6 +588,7 @@ function fromHtml(html: string) {
     node,
     dropped: [] as Dropped[],
     hasUnreadableThreads,
+    threads: threads?.threads ?? [],
     check: (fresh: XmlFragment): Dropped[] | null => {
       const result = drawn(fresh)
       if (!raw.isKept || unkept(source, domInventory(result, atomNameOf)).length) {
@@ -560,7 +602,7 @@ function fromHtml(html: string) {
         ...floats,
         ...droppedNoise(body, result),
       ]
-      return names.map((name): Dropped => ({ kind: 'noise', name }))
+      return [...names.map((name): Dropped => ({ kind: 'noise', name })), ...droppedImages(threads)]
     },
   }
 }
@@ -619,7 +661,7 @@ function read(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
 }
 
 function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
-  const { node, dropped, hasUnreadableThreads, check, from } = read(choice)
+  const { node, dropped, hasUnreadableThreads, threads, check, from } = read(choice)
   if (hasUnreadableThreads) {
     return null
   }
@@ -634,14 +676,16 @@ function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
   }
 
   const comments = moveComments(body)
-  if (!comments.isMoved) {
+  const keys = new Set(threads.map(({ key }) => key))
+  if (!comments.isMoved || ![...keys].every((key) => Object.hasOwn(comments.anchors, key))) {
     return null
   }
 
   return {
     fresh,
     from,
-    anchors: comments.anchors,
+    anchors: Object.fromEntries(Object.entries(comments.anchors).filter(([id]) => !keys.has(id))),
+    threads: threads.map((thread) => ({ ...thread, anchor: comments.anchors[thread.key] })),
     dropped: [...dropped, ...noise, ...comments.dropped],
   }
 }
@@ -669,6 +713,6 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
     return { kind: 'failed', reason: 'too_large' }
   }
 
-  const { dropped, from, anchors } = checked
-  return { kind: 'converted', state, dropped, from, anchors }
+  const { dropped, from, anchors, threads } = checked
+  return { kind: 'converted', state, dropped, from, anchors, threads }
 }

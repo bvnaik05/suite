@@ -6,7 +6,6 @@ import { BODY_FIELD } from '@/apps/writer/collab/field'
 import {
   bodyOf,
   convert,
-  DRIVE_THREAD,
   legacyDoc,
   MAX_STATE,
   openConverted,
@@ -27,10 +26,6 @@ import { placeThread } from '@/apps/writer/collab/places'
 
 describe('convertLegacy', () => {
   it.each([
-    {
-      name: 'a Drive thread kept in its comment mark',
-      mark: { comment: { comment: DRIVE_THREAD } },
-    },
     { name: 'an annotation', mark: { annotation: { annotationID: 'a1' } } },
     { name: 'an overlapping annotation', mark: { 'annotation--Ab+/9xY=': { annotationID: 'a2' } } },
     { name: 'a comment with no id', mark: { comment: { commentId: null } } },
@@ -72,35 +67,10 @@ describe('convertLegacy', () => {
     expect(convertLegacy(stored(doc), MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
-  it.each([
-    { name: 'a Drive thread kept in its comment mark', span: `data-comment='${DRIVE_THREAD}'` },
-    { name: 'an annotation', span: 'data-annotation-id="a1"' },
-  ])('refuses HTML holding $name', ({ span }) => {
-    const legacy = { content: null, html: `<p><span ${span}>see</span></p>`, collab: 0 }
+  it('refuses HTML holding an annotation', () => {
+    const html = '<p><span data-annotation-id="a1">see</span></p>'
 
-    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
-  })
-
-  it('refuses the HTML read past a Yjs body holding nothing when it holds a Drive thread', () => {
-    const html = `<p><span data-comment='${DRIVE_THREAD}'>see</span></p>`
-    const legacy = { ...stored(legacyDoc(yElement('paragraph'))), html }
-
-    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
-  })
-
-  it('refuses a Yjs body holding a Drive thread on a mention', () => {
-    const mention = yAtom('mention', { id: 'x', label: 'Ann' })
-    mention.setAttribute('comment', { comment: DRIVE_THREAD } as never)
-    const legacy = stored(legacyDoc(yElement('paragraph', new XmlText('hi '), mention)))
-
-    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
-  })
-
-  it('refuses a Drive thread split across runs by bold', () => {
-    const thread = { comment: { comment: DRIVE_THREAD } }
-    const runs = yRuns(['one ', thread], ['two', { ...thread, bold: {} }], [' three', thread])
-
-    expect(convertLegacy(stored(legacyDoc(runs)), MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
