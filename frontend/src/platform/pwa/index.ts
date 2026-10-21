@@ -1,7 +1,8 @@
-import { readonly, shallowRef, watch } from 'vue'
+import { shallowRef, watch } from 'vue'
 
 import type { Session } from '@/platform/session'
 
+import { onIos, standalone, startInstallOffer } from './install'
 import { pushNotification } from './notification'
 import SPLASH_DEVICES from './splash-devices.json'
 
@@ -37,6 +38,7 @@ export function installPwa(
   routes: PwaRoutes,
 ): void {
   installableApps = routes.apps
+  startInstallOffer(currentApp)
   watch(
     () => pwaAppAt(routes.path(), routes.apps),
     (app) => {
@@ -85,8 +87,7 @@ let installableApps: readonly InstallableApp[] = []
 // The app whose manifest the page linked when it loaded.
 let loadedApp: string | null = null
 
-/** The app whose manifest the page links now: an installable app's id, or `suite`. */
-export const linkedPwaApp = readonly(currentApp)
+export { useInstallOffer, type InstallOffer } from './install'
 
 /** The app a page installs as: the installable app it belongs to, or the Suite. */
 export function pwaAppAt(path: string, apps: readonly InstallableApp[]): string {
@@ -101,17 +102,8 @@ export function pwaAppAt(path: string, apps: readonly InstallableApp[]): string 
  * under Mail's icon. Every other browser follows the link, and an installed app installs nothing.
  */
 export function pageLoadNeededFor(path: string): boolean {
-  if (!loadedApp || !onIosBrowser()) return false
+  if (!loadedApp || !onIos() || standalone()) return false
   return pwaAppAt(path, installableApps) !== loadedApp
-}
-
-/** Safari, or any browser on iOS (all are WebKit), outside an app on the home screen. */
-function onIosBrowser(): boolean {
-  const { userAgent, maxTouchPoints } = navigator
-  // iPadOS asks for desktop pages as a Mac; only its touch screen tells it apart.
-  const ios =
-    /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1)
-  return ios && !(navigator as Navigator & { standalone?: boolean }).standalone
 }
 
 /**
