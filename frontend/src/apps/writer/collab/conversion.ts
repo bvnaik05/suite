@@ -707,7 +707,7 @@ function opensAsTab(state: Uint8Array, anchors: string[]) {
     editor.view.dispatch(editor.state.tr)
     return (
       equalSnapshots(before, snapshot(doc)) &&
-      !ySyncPluginKey.getState(editor.state)?.binding.isFrozen &&
+      ySyncPluginKey.getState(editor.state)?.binding?.isFrozen === false &&
       anchors.every((anchor) => placeThread(editor.state, anchor).kind === 'text')
     )
   } finally {

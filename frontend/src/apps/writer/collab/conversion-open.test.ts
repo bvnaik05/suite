@@ -1,4 +1,4 @@
-import type { Editor } from '@tiptap/core'
+import { Editor } from '@tiptap/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyUpdate, Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
@@ -17,6 +17,7 @@ import {
   yMarked,
   yParagraph,
 } from '@/apps/writer/collab/legacy-fixtures'
+import { writerSchema } from '@/apps/writer/schema'
 
 type Open = (doc: Doc) => Editor
 
@@ -94,6 +95,25 @@ describe('convertLegacy', () => {
 
   it('refuses a body a tab would open frozen', () => {
     opener.open = withUnbuildable
+    const legacy = stored(legacyDoc(yParagraph('one')))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a body when the tab check throws', () => {
+    opener.open = () => {
+      throw new Error('no tab')
+    }
+
+    const legacy = stored(legacyDoc(yParagraph('one')))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a body when the tab opens with no sync binding', () => {
+    opener.open = () =>
+      new Editor({ element: document.createElement('div'), extensions: writerSchema() })
+
     const legacy = stored(legacyDoc(yParagraph('one')))
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
