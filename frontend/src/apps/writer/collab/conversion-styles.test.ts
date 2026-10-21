@@ -156,7 +156,7 @@ describe('convertLegacy', () => {
     const indent = 'style="margin-left: 0px!important;"'
     const html = `<p ${indent}>one</p><h2 ${indent}>Two</h2>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const blocks = bodyOf(result.state).content.map((block: JSONContent) => [
       block.type,
@@ -178,7 +178,7 @@ describe('convertLegacy', () => {
       `<p style="${indent}">one</p><h2 style="${indent} line-height: 150%">Two</h2>` +
       '<h3 style="line-height: 100%">Three</h3>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     expect(blockLayout(result.state)).toEqual([
       ['p', '24px', 'important', ''],
@@ -191,7 +191,7 @@ describe('convertLegacy', () => {
   it('keeps HTML alignment on paragraphs and headings', () => {
     const html = '<p style="text-align: center">one</p><h2 style="text-align: justify">Two</h2>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     expect(alignments(result.state)).toEqual({
       stored: ['center', 'justify'],
@@ -210,7 +210,7 @@ describe('convertLegacy', () => {
       html: '<p><span style="color: hsl(0, 70%, 50%)">red</span></p>',
     },
   ])('refuses HTML $name', ({ html }) => {
-    const legacy = { content: null, html, collab: 0 }
+    const legacy = { content: null, html, collab: 0, ycomments: null }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
@@ -248,7 +248,7 @@ describe('convertLegacy', () => {
   it('reads a line height on an HTML span as the text style line height', () => {
     const html = '<p><span style="line-height: 1.5">tall</span></p>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(content).toEqual([
@@ -470,7 +470,7 @@ describe('convertLegacy', () => {
   it("refuses an HTML font family holding a ';' inside its quotes", () => {
     const html = `<p><span style="font-family: 'a; color: red'">word</span></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -493,7 +493,7 @@ describe('convertLegacy', () => {
       '<span style="color: #1F272E">ink</span></p>',
     ].join('')
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -506,7 +506,7 @@ describe('convertLegacy', () => {
   it("refuses Drive's ink inside a coloured span, which would draw in that colour", () => {
     const html = `<p><span style="color: #dc2626">a<span ${INK}>b</span></span></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -515,7 +515,7 @@ describe('convertLegacy', () => {
   it("drops Drive's ink inside its ink", () => {
     const html = `<p><span ${INK}>a<span ${INK}>b</span></span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([['ab', []]])
@@ -524,7 +524,7 @@ describe('convertLegacy', () => {
   it("drops Drive's ink inside a highlight", () => {
     const html = `<p><mark style="background-color: #fef08a">a<span ${INK}>b</span></mark></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     const yellow = [['namedHighlight', 'yellow']]
@@ -538,7 +538,7 @@ describe('convertLegacy', () => {
     const highlight = 'data-color="#fef08a" style="background-color: #fef08a; color: inherit"'
     const html = `<p><mark ${highlight}>a<span ${INK}>b</span></mark></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     const yellow = [['namedHighlight', 'yellow']]
@@ -551,7 +551,7 @@ describe('convertLegacy', () => {
   it("drops Drive's ink inside a span whose colour is inherit", () => {
     const html = `<p><span style="color: inherit">a<span ${INK}>b</span></span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([['ab', []]])
@@ -561,7 +561,7 @@ describe('convertLegacy', () => {
     const red = 'style="color: #dc2626"'
     const html = `<p><span ${red}>a<strong><span ${INK}>b</span></strong></span></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -571,7 +571,7 @@ describe('convertLegacy', () => {
     const red = 'style="color: #dc2626 !important; color: inherit"'
     const html = `<p><span ${red}>a<span ${INK}>b</span></span></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -584,17 +584,19 @@ describe('convertLegacy on the raw HTML (R439)', () => {
     (style) => {
       const html = `<p>a<span style="${style}">b</span></p>`
 
-      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
-        kind: 'failed',
-        reason: 'check',
-      })
+      expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual(
+        {
+          kind: 'failed',
+          reason: 'check',
+        },
+      )
     },
   )
 
   it("refuses a font shorthand whose other longhands the editor doesn't keep", () => {
     const html = '<p>a<span style="font: 12px Arial; font-size: 20px">b</span></p>'
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -603,7 +605,7 @@ describe('convertLegacy on the raw HTML (R439)', () => {
   it("refuses a class the editor doesn't draw", () => {
     const html = '<p class="MsoNormal">one</p>'
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -613,7 +615,7 @@ describe('convertLegacy on the raw HTML (R439)', () => {
     const word = 'style="mso-spacerun: yes"'
     const html = `<p style="mso-line-height-rule: exactly"><span ${word}>a</span> <span ${word}>b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [block] = bodyOf(result.state).content
     expect(block.content.map(({ text }: JSONContent) => text).join('')).toBe('a b')
@@ -624,7 +626,12 @@ describe('convertLegacy on the raw HTML (R439)', () => {
   })
 
   it('converts a spellcheck, recording it', () => {
-    const result = convert({ content: null, html: '<p spellcheck="false">one</p>', collab: 0 })
+    const result = convert({
+      content: null,
+      html: '<p spellcheck="false">one</p>',
+      collab: 0,
+      ycomments: null,
+    })
 
     expect(result.dropped).toEqual([{ kind: 'noise', name: 'spellcheck' }])
   })
@@ -632,7 +639,7 @@ describe('convertLegacy on the raw HTML (R439)', () => {
   it('records an image loading hint the editor draws as its own loading="false"', () => {
     const html = `<p><img src="${SRC}" loading="lazy"></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     expect(result.dropped).toEqual([{ kind: 'noise', name: 'loading' }])
   })
@@ -644,7 +651,7 @@ describe('convertLegacy on old HTML spans', () => {
   it("keeps a span's background as the highlight on the same characters", () => {
     const html = `<p>a<span style="${YELLOW}">b</span>c</p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -658,7 +665,7 @@ describe('convertLegacy on old HTML spans', () => {
   it("keeps a span's colour as the text colour and its background as the highlight", () => {
     const html = `<p><span style="color: #dc2626; ${YELLOW}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -675,7 +682,7 @@ describe('convertLegacy on old HTML spans', () => {
   it('keeps nested spans as one text style holding both', () => {
     const html = '<p><span style="color: #dc2626"><span style="font-size: 18px">b</span></span></p>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     const style = { color: 'red', fontSize: '18px' }
@@ -686,7 +693,7 @@ describe('convertLegacy on old HTML spans', () => {
     const html =
       '<p><span style="font-size: 12px"><span style="font-size: 18px">b</span></span></p>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     const style = { fontSize: '18px' }
@@ -696,7 +703,7 @@ describe('convertLegacy on old HTML spans', () => {
   it("keeps an inner span's background as the highlight under the outer span's size", () => {
     const html = `<p><span style="font-size: 18px"><span style="${YELLOW}">b</span></span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(content[0].marks).toEqual([
@@ -711,17 +718,19 @@ describe('convertLegacy on old HTML spans', () => {
       const inner = `<span style="font-size: ${size}">b</span>`
       const html = `<p><span style="font-size: 18px">${inner}</span></p>`
 
-      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
-        kind: 'failed',
-        reason: 'check',
-      })
+      expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual(
+        {
+          kind: 'failed',
+          reason: 'check',
+        },
+      )
     },
   )
 
   it.each(['transparent', ''])('refuses a span background of "%s"', (value) => {
     const html = `<p>a<span style="background-color: ${value}">b</span></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -730,7 +739,7 @@ describe('convertLegacy on old HTML spans', () => {
   it('keeps a span background of inherit as no highlight, which it sets none of', () => {
     const html = '<p>a<span style="background-color: inherit">b</span></p>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     const types = content.flatMap(({ marks = [] }: JSONContent) => marks.map(({ type }) => type))
@@ -760,7 +769,7 @@ describe("convertLegacy on old Drive's highlight colours (R523)", () => {
   it.each(FORMS)('keeps an HTML span background $value as $name', ({ name, value }) => {
     const html = `<p>a<span style="background-color: ${value}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -774,7 +783,7 @@ describe("convertLegacy on old Drive's highlight colours (R523)", () => {
     const mark = `<mark data-color="${value}" style="background-color: ${value}; color: inherit">`
     const html = `<p>a${mark}b</mark></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -814,10 +823,12 @@ describe('convertLegacy on nested spans resetting a style (R525)', () => {
       const inner = `<span style="${property}: ${reset}">b</span>`
       const html = `<p><span style="${property}: ${outer}">a${inner}</span></p>`
 
-      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
-        kind: 'failed',
-        reason: 'check',
-      })
+      expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual(
+        {
+          kind: 'failed',
+          reason: 'check',
+        },
+      )
     },
   )
 })
@@ -840,7 +851,7 @@ describe("convertLegacy on old Drive's text colours", () => {
   it.each(FORMS)('keeps an HTML span colour $value as $name', ({ name, value }) => {
     const html = `<p>a<span style="color: ${value}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -867,7 +878,7 @@ describe("convertLegacy on old Drive's highlights with a percent alpha (R531)", 
   it.each(OPAQUE)('keeps an HTML span background %s as yellow', (value) => {
     const html = `<p>a<span style="background-color: ${value}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -880,7 +891,7 @@ describe("convertLegacy on old Drive's highlights with a percent alpha (R531)", 
     const mark = `<mark data-color="${value}" style="background-color: ${value}; color: inherit">`
     const html = `<p>a${mark}b</mark></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -916,7 +927,7 @@ describe("convertLegacy on old Drive's highlights with a percent alpha (R531)", 
   it('keeps an HTML span background in 8-digit hex as yellow', () => {
     const html = `<p>a<span style="background-color: ${EIGHT_DIGITS}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -932,7 +943,7 @@ describe('convertLegacy on highlight colours no one could see (R533)', () => {
   it.each(SEE_THROUGH)('keeps an HTML span background %s as no highlight', (value) => {
     const html = `<p>a<span style="background-color: ${value}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -946,7 +957,7 @@ describe('convertLegacy on highlight colours no one could see (R533)', () => {
     const mark = `<mark data-color="${value}" style="background-color: ${value}; color: inherit">`
     const html = `<p>a${mark}b</mark></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([['ab', []]])
@@ -957,7 +968,7 @@ describe('convertLegacy on highlight colours no one could see (R533)', () => {
     const mark = '<mark style="background-color: rgba(254, 249, 195, 0)" title="t">'
     const html = `<p>a${mark}b</mark></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -989,7 +1000,7 @@ describe("convertLegacy on old Drive's yellow at half alpha", () => {
   it('keeps an HTML span background by distance, not as yellow', () => {
     const html = `<p>a<span style="background-color: ${HALF}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -1026,10 +1037,12 @@ describe('convertLegacy on a highlight whose colours disagree (R534, R535)', () 
       const style = `background-color: ${background}; color: inherit`
       const html = `<p>a<mark data-color="${dataColor}" style="${style}">b</mark></p>`
 
-      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
-        kind: 'failed',
-        reason: 'check',
-      })
+      expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual(
+        {
+          kind: 'failed',
+          reason: 'check',
+        },
+      )
     },
   )
 
@@ -1039,7 +1052,7 @@ describe('convertLegacy on a highlight whose colours disagree (R534, R535)', () 
       const style = `background-color: ${background}; color: inherit`
       const html = `<p>a<mark data-color="${dataColor}" style="${style}">b</mark></p>`
 
-      const result = convert({ content: null, html, collab: 0 })
+      const result = convert({ content: null, html, collab: 0, ycomments: null })
 
       const [{ content }] = bodyOf(result.state).content
       expect(drawnColours(content)).toEqual([
@@ -1054,7 +1067,7 @@ describe('convertLegacy on a highlight whose colours disagree (R534, R535)', () 
     const style = 'background-color: inherit; color: inherit'
     const html = `<p>a<mark data-color="inherit" style="${style}">b</mark></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -1064,7 +1077,7 @@ describe('convertLegacy on a highlight whose colours disagree (R534, R535)', () 
     const mark = `<mark style="background-color: ${SEE_THROUGH}; display: inherit">`
     const html = `<p>a${mark}b</mark></p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -1081,7 +1094,7 @@ describe('convertLegacy on a highlight alpha outside 0 to 1 (R536)', () => {
   it.each(ALPHAS)('keeps an HTML span background $value as $drawn', ({ value, drawn }) => {
     const html = `<p>a<span style="background-color: ${value}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -1106,7 +1119,7 @@ describe('convertLegacy on text colours no one could see (R537)', () => {
   it.each(SEE_THROUGH)('keeps an HTML span colour %s as no colour', (value) => {
     const html = `<p>a<span style="color: ${value}">b</span></p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([
@@ -1119,7 +1132,7 @@ describe('convertLegacy on text colours no one could see (R537)', () => {
   it('keeps a see-through paragraph colour as no colour (R539)', () => {
     const html = '<p style="color: rgba(220, 38, 38, 0)">ab</p>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const [{ content }] = bodyOf(result.state).content
     expect(drawnColours(content)).toEqual([['ab', []]])
@@ -1176,7 +1189,12 @@ describe('convertLegacy on table cell styles', () => {
   ]
 
   it.each(KEPT)('keeps an HTML cell styled "%s"', (style, name, kept) => {
-    const result = convert({ content: null, html: htmlCell(`style="${style}"`), collab: 0 })
+    const result = convert({
+      content: null,
+      html: htmlCell(`style="${style}"`),
+      collab: 0,
+      ycomments: null,
+    })
 
     expect(cellOf(result.state).attrs).toMatchObject({ backgroundColor: name, style: kept })
     expect(result.dropped).toEqual([])
@@ -1205,7 +1223,7 @@ describe('convertLegacy on table cell styles', () => {
   ])('refuses an HTML cell styled "%s", which a cell does not keep', (style) => {
     const html = htmlCell(`style="${style}"`)
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -1233,6 +1251,7 @@ describe('convertLegacy on table cell styles', () => {
       content: null,
       html: htmlCell('colspan="2" colwidth="100"'),
       collab: 0,
+      ycomments: null,
     })
 
     expect(cellOf(result.state).attrs).toMatchObject({ colspan: 2, colwidth: [100] })

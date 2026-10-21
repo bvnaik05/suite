@@ -33,7 +33,7 @@ function thread(uuid: string, ...comments: object[]) {
 }
 
 function html(body: string) {
-  return { content: null, html: body, collab: 0 }
+  return { content: null, html: body, collab: 0, ycomments: null }
 }
 
 // Each paragraph's words under a 2023 comment mark, as the old editor saved them

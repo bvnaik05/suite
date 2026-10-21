@@ -414,7 +414,7 @@ describe('convertLegacy', () => {
     const other = legacyDoc(yParagraph('kept'))
     const content = toBase64(mergeUpdates([encodeStateAsUpdate(other), later]))
 
-    const result = convert({ content, html: '', collab: 1 })
+    const result = convert({ content, html: '', collab: 1, ycomments: null })
 
     expect(bodyOf(result.state)).toEqual(page(words('kept')))
     expect(result.dropped).toEqual([{ kind: 'pending', text: ' second', parts: [] }])
@@ -428,7 +428,7 @@ describe('convertLegacy', () => {
     const other = legacyDoc(yParagraph('kept'))
     const content = toBase64(mergeUpdates([encodeStateAsUpdate(other), later]))
 
-    const result = convert({ content, html: '', collab: 1 })
+    const result = convert({ content, html: '', collab: 1, ycomments: null })
 
     expect(result.dropped).toEqual([{ kind: 'pending', text: '', parts: ['pageBreak'] }])
   })
@@ -460,7 +460,7 @@ describe('convertLegacy', () => {
   ])(
     'converts from the HTML, recording nothing, when a collaborative row stores $name Yjs bytes',
     ({ content }) => {
-      const result = convert({ content, html: '<p>fresh</p>', collab: 1 })
+      const result = convert({ content, html: '<p>fresh</p>', collab: 1, ycomments: null })
 
       expect(bodyOf(result.state)).toEqual(page(words('fresh')))
       expect([result.from, result.dropped]).toEqual(['html', []])
@@ -471,7 +471,7 @@ describe('convertLegacy', () => {
     { name: 'Yjs cannot read', content: btoa('\u0005broken') },
     { name: 'are not base64', content: 'not base64!' },
   ])('refuses, rather than reading the HTML, stored bytes that $name (R434)', ({ content }) => {
-    const legacy = { content, html: '<p>fresh</p>', collab: 1 }
+    const legacy = { content, html: '<p>fresh</p>', collab: 1, ycomments: null }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'unreadable-yjs' })
   })
@@ -481,6 +481,7 @@ describe('convertLegacy', () => {
       content: toBase64(encodeStateAsUpdate(new Doc())),
       html: '<p>typed later</p>',
       collab: 1,
+      ycomments: null,
     }
 
     const result = convert(legacy)
@@ -553,7 +554,7 @@ describe('convertLegacy', () => {
     const other = legacyDoc(yElement('paragraph'))
     const content = toBase64(mergeUpdates([encodeStateAsUpdate(other), later]))
 
-    const result = convert({ content, html: '<p>typed later</p>', collab: 1 })
+    const result = convert({ content, html: '<p>typed later</p>', collab: 1, ycomments: null })
 
     expect(bodyOf(result.state)).toEqual(page(words('typed later')))
     expect(result.dropped).toEqual([
@@ -588,7 +589,7 @@ describe('convertLegacy', () => {
     )
     const first = convert(stored(doc))
 
-    const second = convert({ content: toBase64(first.state), html: '', collab: 1 })
+    const second = convert({ content: toBase64(first.state), html: '', collab: 1, ycomments: null })
 
     expect(bodyOf(second.state)).toEqual(bodyOf(first.state))
     expect(second.dropped).toEqual([])
@@ -601,7 +602,12 @@ describe('convertLegacy', () => {
   })
 
   it('refuses a body that would lose text it does not record', () => {
-    const legacy = { content: null, html: '<p>kept</p><script>gone()</script>', collab: 0 }
+    const legacy = {
+      content: null,
+      html: '<p>kept</p><script>gone()</script>',
+      collab: 0,
+      ycomments: null,
+    }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
@@ -617,7 +623,12 @@ describe('convertLegacy', () => {
 
   it('refuses, rather than throwing, an old body the editor cannot read', () => {
     // Relies on jsdom having no innerText, which frappe-ui's tag rule reads for a tag with no label
-    const legacy = { content: null, html: '<p><span class="tag-item">#plan</span></p>', collab: 0 }
+    const legacy = {
+      content: null,
+      html: '<p><span class="tag-item">#plan</span></p>',
+      collab: 0,
+      ycomments: null,
+    }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
@@ -625,7 +636,7 @@ describe('convertLegacy', () => {
   it('keeps a mention saved in the HTML, its words matching its label', () => {
     const mention =
       '<span class="mention" data-type="mention" data-id="x" data-label="Ann">@Ann</span>'
-    const legacy = { content: null, html: `<p>hi ${mention}</p>`, collab: 0 }
+    const legacy = { content: null, html: `<p>hi ${mention}</p>`, collab: 0, ycomments: null }
 
     const result = convert(legacy)
 
@@ -724,7 +735,7 @@ describe('convertLegacy', () => {
       '<span class="mention" data-type="mention" data-id="y" data-label="Bo" data-author="a@b.c">@Bo</span>'
     const html = `<p>${ann} ${bo}</p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     expect([bodyOf(result.state), result.dropped]).toEqual([
       page(
@@ -741,7 +752,7 @@ describe('convertLegacy', () => {
   it("keeps Drive's HTML page break, its id and look going since the editor draws the same", () => {
     const html = `<p>one</p><div ${DRIVE_PAGE_BREAK} data-page-break="true"></div><p>two</p>`
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     expect([bodyOf(result.state), result.dropped]).toEqual([
       page(words('one'), { type: 'pageBreak' }, words('two')),
@@ -764,7 +775,7 @@ describe('convertLegacy', () => {
   ])('refuses an HTML page break holding $name', ({ attributes }) => {
     const html = `<p>one</p><div ${attributes} data-page-break="true"></div><p>two</p>`
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -775,14 +786,19 @@ describe('convertLegacy', () => {
     { name: 'a paragraph', html: '<p data-author="a@b.c">hi</p>' },
     { name: 'a link', html: '<p><a href="/a" data-author="a@b.c">hi</a></p>' },
   ])('refuses an author on $name, only mentions dropping theirs', ({ html }) => {
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
   })
 
   it('keeps a heading holding a non-breaking space and a line break', () => {
-    const legacy = { content: null, html: '<h2>Big&nbsp;plan<br>today</h2>', collab: 0 }
+    const legacy = {
+      content: null,
+      html: '<h2>Big&nbsp;plan<br>today</h2>',
+      collab: 0,
+      ycomments: null,
+    }
 
     const result = convert(legacy)
 
@@ -795,7 +811,12 @@ describe('convertLegacy', () => {
   })
 
   it('keeps an image saved in the HTML', () => {
-    const legacy = { content: null, html: `<p>one</p><p><img src="${SRC}"></p>`, collab: 0 }
+    const legacy = {
+      content: null,
+      html: `<p>one</p><p><img src="${SRC}"></p>`,
+      collab: 0,
+      ycomments: null,
+    }
 
     const result = convert(legacy)
 
@@ -806,13 +827,23 @@ describe('convertLegacy', () => {
 
   it('refuses HTML whose parse leaves out an image, which changes no text', () => {
     vi.mocked(generateJSON).mockImplementationOnce(() => ({ type: 'doc', content: [words('one')] }))
-    const legacy = { content: null, html: `<p>one</p><p><img src="${SRC}"></p>`, collab: 0 }
+    const legacy = {
+      content: null,
+      html: `<p>one</p><p><img src="${SRC}"></p>`,
+      collab: 0,
+      ycomments: null,
+    }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
   it('refuses HTML holding media the editor has no place for', () => {
-    const legacy = { content: null, html: '<p>a</p><iframe src="x"></iframe>', collab: 0 }
+    const legacy = {
+      content: null,
+      html: '<p>a</p><iframe src="x"></iframe>',
+      collab: 0,
+      ycomments: null,
+    }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
@@ -828,7 +859,7 @@ describe('convertLegacy', () => {
     },
     { name: 'video fallback', html: `<video src="/v.mp4">Can't play</video>` },
   ])("refuses HTML whose $name holds what the editor wouldn't draw", ({ html }) => {
-    const legacy = { content: null, html, collab: 0 }
+    const legacy = { content: null, html, collab: 0, ycomments: null }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
@@ -836,7 +867,7 @@ describe('convertLegacy', () => {
   it('keeps a Drive video whose source repeats its src', () => {
     const html = '<video src="/v.mp4" controls><source src="/v.mp4" type="video/mp4"></video>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const media = bodyOf(result.state).content.map(({ type, attrs }: JSONContent) => [
       type,
@@ -848,7 +879,12 @@ describe('convertLegacy', () => {
   it("draws the old editor's alignment over its float, recording the float once", () => {
     const layout = 'dataalign="center" datafloat="right"'
     const image = `<img src="${SRC}" media-type="img" width="100%" height="auto" ${layout}>`
-    const result = convert({ content: null, html: `<p>${image}</p><p>${image}</p>`, collab: 0 })
+    const result = convert({
+      content: null,
+      html: `<p>${image}</p><p>${image}</p>`,
+      collab: 0,
+      ycomments: null,
+    })
 
     const element = document.createElement('div')
     element.innerHTML = openConverted(result.state).getHTML()
@@ -882,7 +918,7 @@ describe('convertLegacy', () => {
       drawn: { tag: 'video', align: 'left', float: null, width: '100%', height: 'auto' },
     },
   ])("draws the old editor's resizable media as it showed it: $name", ({ html, drawn }) => {
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const element = document.createElement('div')
     element.innerHTML = openConverted(result.state).getHTML()
@@ -915,7 +951,7 @@ describe('convertLegacy', () => {
       html: `<p><img src="${SRC}" media-type="img" datafloat="center"></p>`,
     },
   ])('refuses old resizable media the mapping leaves alone: $name', ({ html }) => {
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -933,7 +969,7 @@ describe('convertLegacy', () => {
       html: '<video src="/v.mp4" controls uploadid="upload-1" error="true"></video>',
     },
   ])('records the upload marks frappe-ui never read back from HTML on a $tag', ({ src, html }) => {
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const element = document.createElement('div')
     element.innerHTML = openConverted(result.state).getHTML()
@@ -954,7 +990,7 @@ describe('convertLegacy', () => {
     },
     { name: 'one on a span', html: '<p><span uploadid="upload-1">x</span></p>' },
   ])('still refuses beside the upload marks: $name', ({ html }) => {
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -963,7 +999,7 @@ describe('convertLegacy', () => {
   it('keeps an attachment saved in the HTML with its name', () => {
     const html = '<p><a data-attachment href="/f.pdf" data-file-name="r.pdf">r.pdf</a></p>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     const attachment = { type: 'attachment', attrs: { src: '/f.pdf', fileName: 'r.pdf' } }
     expect(bodyOf(result.state)).toEqual(page(paragraph(attachment)))
@@ -971,13 +1007,18 @@ describe('convertLegacy', () => {
 
   it('refuses HTML holding a table of contents, which the editor has no node for', () => {
     const toc = '<div data-type="toc-node"><ol><li>Intro</li></ol></div>'
-    const legacy = { content: null, html: `${toc}<h2>Intro</h2>`, collab: 0 }
+    const legacy = { content: null, html: `${toc}<h2>Intro</h2>`, collab: 0, ycomments: null }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
   it('keeps an HTML link, which gains a target and rel', () => {
-    const result = convert({ content: null, html: '<p><a href="/a">go</a></p>', collab: 0 })
+    const result = convert({
+      content: null,
+      html: '<p><a href="/a">go</a></p>',
+      collab: 0,
+      ycomments: null,
+    })
 
     const [{ content }] = bodyOf(result.state).content
     expect(content[0].marks[0].attrs.href).toBe('/a')
@@ -995,7 +1036,7 @@ describe('convertLegacy', () => {
     const html = '<p><a href="/a" target="_blank" rel="noopener noreferrer nofollow">go</a></p>'
     const yjs = stored(legacyDoc(yMarked('go', { link: { href: '/a', ...drive, class: null } })))
 
-    const results = [{ content: null, html, collab: 0 }, yjs].map(convert)
+    const results = [{ content: null, html, collab: 0, ycomments: null }, yjs].map(convert)
 
     for (const { state, dropped } of results) {
       const [{ content }] = bodyOf(state).content

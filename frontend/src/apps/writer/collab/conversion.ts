@@ -47,10 +47,17 @@ import {
 } from '@/apps/writer/collab/legacy-read'
 import {
   ANNOTATION_TAG,
+  bodyUnits,
   dropCommentMarks,
+  listedComments,
+  markedIds,
   markOldThreads,
   oldCommentAnchors,
+  oldRanges,
+  rangeAnchors,
   unreadableThreads,
+  wordAnchors,
+  type ListedComment,
 } from '@/apps/writer/collab/old-comments'
 import {
   convertOldMedia,
@@ -83,14 +90,15 @@ const schema = getSchema(extensions)
 /**
  * What the conversion couldn't carry over: Drive's table of contents, rebuilt from the headings, a
  * part holding nothing, a change Yjs held back, the words of an old comment's copy away from its
- * anchor, a Yjs body holding nothing, read past for the HTML, or a property or attribute on the noise
- * list.
+ * anchor, the place of an old comment whose words are gone, a Yjs body holding nothing, read past
+ * for the HTML, or a property or attribute on the noise list.
  */
 export type Dropped =
   | { kind: 'toc-hint' }
   | { kind: 'empty'; name: string }
   | { kind: 'pending'; text: string; parts: string[] }
   | { kind: 'comment-copy'; id: string; text: string }
+  | { kind: 'comment-deleted'; id: string }
   | { kind: 'empty-yjs' }
   | { kind: 'noise'; name: string }
 
@@ -365,6 +373,28 @@ function fromYjs(old: Doc) {
   }
 }
 
+// The units each listed comment covers in the old body, read before anything rewrites it, then
+// placed on the same units of the fresh body; a mark wins over its listing
+function placeRanges(old: Doc, comments: ListedComment[]) {
+  const body = old.getXmlFragment(BODY_FIELD)
+  const marked = markedIds(body, schema)
+  const listed = comments.filter(({ id }) => !marked.has(id))
+  if (!listed.length) {
+    return { marked, placeListed: () => ({ anchors: {}, deleted: [] }) }
+  }
+
+  const units = bodyUnits(body, schema)
+  const ranges = oldRanges(old, units, listed)
+  function placeListed(fresh: XmlFragment) {
+    const freshUnits = bodyUnits(fresh, schema)
+    const anchors =
+      ranges && rangeAnchors(fresh, schema, { old: units, fresh: freshUnits }, ranges.ranges)
+    return anchors && { anchors, deleted: ranges.deleted }
+  }
+
+  return { marked, placeListed }
+}
+
 const atomRules = Object.values(schema.nodes)
   .filter((type) => isAtomName(type.name))
   .flatMap((type) => (type.spec.parseDOM ?? []).map((rule) => ({ rule, name: type.name })))
@@ -527,6 +557,14 @@ function dropMentionAuthors(body: HTMLElement) {
   return ['author']
 }
 
+// The ids of the comment marks in HTML, read before the 2023 marks take their keys
+function markedHtmlIds(body: HTMLElement) {
+  const ids = [...body.querySelectorAll('[data-comment-id]')].map((element) =>
+    element.getAttribute('data-comment-id')!,
+  )
+  return new Set(ids.filter((id) => id.trim()))
+}
+
 // Drive's 2023 comment marks in HTML, read as comments under their thread's key; null when one
 // can't be read or also holds a thread id
 function markHtmlThreads(body: HTMLElement) {
@@ -579,6 +617,7 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
 // whitespace the parser folds isn't compared
 function fromHtml(html: string) {
   const { body } = new DOMParser().parseFromString(html, 'text/html')
+  const marked = markedHtmlIds(body)
   const threads = markHtmlThreads(body)
   const hasUnreadableThreads = !threads || !!body.querySelector(ANNOTATION_TAG)
   // Before the defaults go, since dropping one rewrites the style text from the parse
@@ -595,6 +634,7 @@ function fromHtml(html: string) {
     dropped: [] as Dropped[],
     hasUnreadableThreads,
     threads: threads?.threads ?? [],
+    marked,
     check: (fresh: XmlFragment): Dropped[] | null => {
       const result = drawn(fresh)
       if (!raw.isKept || unkept(source, domInventory(result, atomNameOf)).length) {
@@ -654,46 +694,89 @@ function moveComments(body: XmlFragment) {
   return { isMoved, anchors, dropped }
 }
 
-function read(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
+// An HTML read whose listed comments are found by their words; a mark wins over its listing
+function withWordAnchors(parsed: ReturnType<typeof fromHtml>, comments: ListedComment[]) {
+  const listed = comments.filter(({ id }) => !parsed.marked.has(id))
+  return {
+    ...parsed,
+    placeListed: (fresh: XmlFragment) => wordAnchors(fresh, schema, listed),
+    from: 'html' as const,
+  }
+}
+
+function read(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>, comments: ListedComment[]) {
   if (choice.case === 'yjs') {
-    return { ...fromYjs(choice.old), from: 'yjs' as const }
+    // Before fromYjs rewrites the old body
+    const listed = placeRanges(choice.old, comments)
+    return { ...fromYjs(choice.old), ...listed, from: 'yjs' as const }
   }
 
   if (choice.case === 'empty-yjs') {
-    return { ...fromHtmlOverYjs(choice.old, choice.html), from: 'html' as const }
+    return withWordAnchors(fromHtmlOverYjs(choice.old, choice.html), comments)
   }
 
-  return { ...fromHtml(choice.html), from: 'html' as const }
+  return withWordAnchors(fromHtml(choice.html), comments)
 }
 
-function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
-  const { node, dropped, hasUnreadableThreads, threads, check, from } = read(choice)
+type ReadComments = Pick<ReturnType<typeof read>, 'threads' | 'marked' | 'placeListed'>
+
+function deletedComment(id: string): Dropped {
+  return { kind: 'comment-deleted', id }
+}
+
+// Every old comment, marked or listed, is anchored or recorded once as deleted; a listed comment
+// may not take a 2023 thread's key, and each 2023 thread must be anchored
+function placeComments(body: XmlFragment, listed: ListedComment[], comments: ReadComments) {
+  const { threads, marked, placeListed } = comments
+  const moved = moveComments(body)
+  const keys = new Set(threads.map(({ key }) => key))
+  const isKeyed =
+    [...keys].every((key) => Object.hasOwn(moved.anchors, key)) &&
+    !listed.some(({ id }) => keys.has(id))
+  const placed = moved.isMoved && isKeyed && placeListed(body)
+  if (!placed) {
+    return null
+  }
+
+  const deleted = [...marked].filter((id) => !Object.hasOwn(moved.anchors, id))
+  const records = [...deleted, ...placed.deleted].map(deletedComment)
+  const marks = Object.entries(moved.anchors).filter(([id]) => !keys.has(id))
+  return {
+    anchors: { ...Object.fromEntries(marks), ...placed.anchors },
+    threads: threads.map((thread) => ({ ...thread, anchor: moved.anchors[thread.key] })),
+    dropped: [...moved.dropped, ...records],
+  }
+}
+
+// The converted node as a fresh collaborative body, its headings given ids
+function freshBody(node: PMNode) {
+  const fresh = new Doc()
+  prosemirrorToYXmlFragment(withHeadingIds(node), fresh.getXmlFragment(BODY_FIELD))
+  return fresh
+}
+
+function checkedBody(
+  choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>,
+  listed: ListedComment[],
+) {
+  const { node, dropped, hasUnreadableThreads, check, from, ...comments } = read(choice, listed)
   if (hasUnreadableThreads) {
     return null
   }
 
-  const converted = withHeadingIds(node)
-  const fresh = new Doc()
+  const fresh = freshBody(node)
   const body = fresh.getXmlFragment(BODY_FIELD)
-  prosemirrorToYXmlFragment(converted, body)
   const noise = check(body)
   if (!noise || breaksStyle(body)) {
     return null
   }
 
-  const comments = moveComments(body)
-  const keys = new Set(threads.map(({ key }) => key))
-  if (!comments.isMoved || ![...keys].every((key) => Object.hasOwn(comments.anchors, key))) {
+  const placed = placeComments(body, listed, comments)
+  if (!placed) {
     return null
   }
 
-  return {
-    fresh,
-    from,
-    anchors: Object.fromEntries(Object.entries(comments.anchors).filter(([id]) => !keys.has(id))),
-    threads: threads.map((thread) => ({ ...thread, anchor: comments.anchors[thread.key] })),
-    dropped: [...dropped, ...noise, ...comments.dropped],
-  }
+  return { fresh, from, ...placed, dropped: [...dropped, ...noise, ...placed.dropped] }
 }
 
 // A tab opening the state must write nothing to it, show all of it and show each thread on its words
@@ -724,7 +807,8 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
       return { kind: 'failed', reason: choice.case }
     }
 
-    checked = checkedBody(choice)
+    const listed = listedComments(legacy.ycomments)
+    checked = listed && checkedBody(choice, listed)
   } catch {
     checked = null
   }

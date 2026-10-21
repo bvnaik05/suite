@@ -3,9 +3,20 @@ import Document from '@tiptap/extension-document'
 import Heading from '@tiptap/extension-heading'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
-import { yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
+import {
+  absolutePositionToRelativePosition,
+  initProseMirrorDoc,
+  yXmlFragmentToProsemirrorJSON,
+} from '@tiptap/y-tiptap'
 import { afterEach } from 'vitest'
-import { applyUpdate, Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
+import {
+  applyUpdate,
+  Doc,
+  encodeRelativePosition,
+  encodeStateAsUpdate,
+  XmlElement,
+  XmlText,
+} from 'yjs'
 
 import { convertLegacy } from '@/apps/writer/collab/conversion'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
@@ -108,7 +119,43 @@ export function legacyDoc(...blocks: XmlElement[]) {
 }
 
 export function stored(doc: Doc): LegacyBody {
-  return { content: toBase64(encodeStateAsUpdate(doc)), html: '', collab: 1 }
+  return { content: toBase64(encodeStateAsUpdate(doc)), html: '', collab: 1, ycomments: null }
+}
+
+// An old comment as Writer kept it beside the body, each end where the old editor put it in `doc`
+export function oldComment(doc: Doc, id: string, from: number, to: number) {
+  const body = doc.getXmlFragment(BODY_FIELD)
+  const { mapping, meta } = initProseMirrorDoc(body, schema)
+  function end(place: number) {
+    return encodeRelativePosition(
+      absolutePositionToRelativePosition(place, body, mapping, meta.hidden),
+    )
+  }
+
+  return { ...htmlComment(id, ''), anchor: { from: end(from), to: end(to) } }
+}
+
+// An old comment on a document saved as HTML, found again by its words
+export function htmlComment(id: string, anchorText: string) {
+  return {
+    id,
+    new: false,
+    creation: 1700000000000,
+    owner: 'ann@example.com',
+    replies: [],
+    anchorText,
+  }
+}
+
+// Old Writer's list of comments, by key, as the row stores it
+export function yComments(entries: Record<string, object>) {
+  const doc = new Doc()
+  const comments = doc.getMap('comments')
+  for (const [key, entry] of Object.entries(entries)) {
+    comments.set(key, entry)
+  }
+
+  return toBase64(encodeStateAsUpdate(doc))
 }
 
 export function convert(legacy: LegacyBody) {

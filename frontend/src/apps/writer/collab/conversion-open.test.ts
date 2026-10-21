@@ -10,9 +10,11 @@ import {
   DRIVE_THREAD,
   legacyDoc,
   MAX_STATE,
+  oldComment,
   openConverted,
   shown,
   stored,
+  yComments,
   yElement,
   yMarked,
   yParagraph,
@@ -125,6 +127,14 @@ describe('convertLegacy', () => {
   ])('refuses a body where a tab would not show $name on its words', ({ mark }) => {
     opener.open = withoutFirstWords
     const legacy = stored(legacyDoc(yMarked('see', mark), yParagraph('two')))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a body where a tab would not show a comment kept beside it on its words', () => {
+    opener.open = withoutFirstWords
+    const doc = legacyDoc(yParagraph('see'), yParagraph('two'))
+    const legacy = { ...stored(doc), ycomments: yComments({ c1: oldComment(doc, 'c1', 1, 4) }) }
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })

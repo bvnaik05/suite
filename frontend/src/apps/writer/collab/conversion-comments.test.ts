@@ -70,7 +70,7 @@ describe('convertLegacy', () => {
   it('refuses HTML holding an annotation', () => {
     const html = '<p><span data-annotation-id="a1">see</span></p>'
 
-    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
       kind: 'failed',
       reason: 'check',
     })
@@ -79,7 +79,12 @@ describe('convertLegacy', () => {
   it('converts comments that carry their thread ids, in Yjs, as a lone overlapping copy read by its mark name and in HTML', () => {
     const yjs = stored(legacyDoc(yMarked('see', { comment: { commentId: 'c1' } })))
     const overlap = stored(legacyDoc(yMarked('see', { 'comment--a+/=bC9z': { commentId: 'c2' } })))
-    const html = { content: null, html: '<p><span data-comment-id="c1">see</span></p>', collab: 0 }
+    const html = {
+      content: null,
+      html: '<p><span data-comment-id="c1">see</span></p>',
+      collab: 0,
+      ycomments: null,
+    }
 
     const results = [yjs, overlap, html].map(convert)
 
@@ -120,7 +125,7 @@ describe('convertLegacy', () => {
   it('anchors an old comment saved in the HTML on its words', () => {
     const html = '<p>one <span data-comment-id="c1">two</span> three</p>'
 
-    const result = convert({ content: null, html, collab: 0 })
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
 
     expect(shown(openConverted(result.state), result.anchors.c1)).toEqual({
       from: 5,
@@ -227,6 +232,7 @@ describe('convertLegacy', () => {
         content: null,
         html: '<p><span data-comment-id="__proto__">see</span></p>',
         collab: 0,
+        ycomments: null,
       },
     },
   ])('refuses a comment whose id names the prototype, from $name', ({ legacy }) => {

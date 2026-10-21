@@ -11,6 +11,7 @@ export interface LegacyBody {
   content: string | null
   html: string | null
   collab: number
+  ycomments: string | null
 }
 
 export function isContent(type: AbstractType<unknown>) {
