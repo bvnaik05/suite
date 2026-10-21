@@ -4,6 +4,7 @@ import { Doc, encodeStateAsUpdate, encodeStateVector, mergeUpdates, XmlElement, 
 
 import { convertLegacy } from '@/apps/writer/collab/conversion'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { addInnerText } from '@/apps/writer/collab/headless-dom'
 import {
   bodyOf,
   convert,
@@ -622,7 +623,16 @@ describe('convertLegacy', () => {
   })
 
   it('refuses, rather than throwing, an old body the editor cannot read', () => {
-    // Relies on jsdom having no innerText, which frappe-ui's tag rule reads for a tag with no label
+    vi.mocked(generateJSON).mockImplementationOnce(() => {
+      throw new TypeError('unreadable')
+    })
+    const legacy = { content: null, html: '<p>one</p>', collab: 0, ycomments: null }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('keeps a tag saved in the HTML with no label, reading its label from its words', () => {
+    addInnerText(window)
     const legacy = {
       content: null,
       html: '<p><span class="tag-item">#plan</span></p>',
@@ -630,7 +640,11 @@ describe('convertLegacy', () => {
       ycomments: null,
     }
 
-    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    const result = convert(legacy)
+
+    const tag = { type: 'tagItem', attrs: { tagId: null, tagLabel: 'plan' } }
+    expect(bodyOf(result.state)).toEqual(page(paragraph(tag)))
+    expect(result.dropped).toEqual([])
   })
 
   it('keeps a mention saved in the HTML, its words matching its label', () => {
