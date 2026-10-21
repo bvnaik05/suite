@@ -83,6 +83,7 @@ class TestConverter(UnitTestCase):
     def test_runs_on_node_22_13_and_newer_where_the_checker_needs_24(self):
         for version, converter_runs, checker_runs in (
             ("v22.12.0", False, False),
+            ("v22.9.0", False, False),
             ("v22.13.0", True, False),
             ("v23.0.0", True, False),
             ("v24.0.0", True, True),

@@ -6,7 +6,7 @@ import type { LegacyBody } from '@/apps/writer/collab/legacy-read'
 
 type ConverterInput = { legacy: LegacyBody; maxState: number } | Record<string, never>
 
-// jsdom loads no resources and runs no scripts unless asked to; each window name is read only when
+// The editor parses old HTML into a document that loads nothing; each window name is read only when
 // used, since some, like localStorage, throw on the blank page's origin
 const { window } = new JSDOM('')
 for (const name of Object.getOwnPropertyNames(window)) {
