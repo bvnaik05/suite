@@ -658,12 +658,7 @@ function read(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
   return { ...fromHtml(choice.html), from: 'html' as const }
 }
 
-function checkedBody(legacy: LegacyBody) {
-  const choice = readLegacy(legacy)
-  if (choice.case === 'unreadable-yjs') {
-    return choice.case
-  }
-
+function checkedBody(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
   const { node, dropped, hasUnreadableThreads, isKept, from } = read(choice)
   if (hasUnreadableThreads) {
     return null
@@ -689,13 +684,14 @@ function checkedBody(legacy: LegacyBody) {
 export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
   let checked: ReturnType<typeof checkedBody>
   try {
-    checked = checkedBody(legacy)
+    const choice = readLegacy(legacy)
+    if (choice.case === 'unreadable-yjs') {
+      return { kind: 'failed', reason: choice.case }
+    }
+
+    checked = checkedBody(choice)
   } catch {
     checked = null
-  }
-
-  if (checked === 'unreadable-yjs') {
-    return { kind: 'failed', reason: checked }
   }
 
   if (!checked) {

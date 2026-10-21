@@ -20,7 +20,8 @@ export function isContent(type: AbstractType<unknown>) {
 
   return (
     type instanceof XmlElement &&
-    (isAtomName(type.nodeName) || Object.keys(type.getAttributes()).length > 0)
+    (isAtomName(type.nodeName) ||
+      Object.values(type.getAttributes()).some((value) => value != null))
   )
 }
 
@@ -31,7 +32,9 @@ export function isHintOnlyToc(part: AbstractType<unknown>) {
   return (
     part instanceof XmlElement &&
     part.nodeName === OLD_TOC &&
-    Object.keys(part.getAttributes()).every((key) => key === 'placeholder') &&
+    Object.entries(part.getAttributes()).every(
+      ([key, value]) => key === 'placeholder' || value == null,
+    ) &&
     !!part.createTreeWalker(isContent).next().done
   )
 }

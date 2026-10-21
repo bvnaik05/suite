@@ -28,6 +28,9 @@ import {
 } from '@/apps/writer/collab/legacy-fixtures'
 import { convertOldMedia } from '@/apps/writer/collab/old-media'
 
+// Yjs types attributes as strings, but the binding stores null for an attribute it leaves unset
+const UNSET = null as unknown as string
+
 vi.mock('@tiptap/core', async (importOriginal) => {
   const original = await importOriginal<typeof import('@tiptap/core')>()
   return { ...original, generateJSON: vi.fn(original.generateJSON) }
@@ -104,6 +107,17 @@ describe('convertLegacy', () => {
     expect(result.dropped).toEqual([{ kind: 'toc-hint' }])
   })
 
+  it("drops Drive's table of contents holding a null attribute beside its hint and records it (R484)", () => {
+    const toc = yAtom('tocNode', { placeholder: 'Table of Contents' })
+    toc.setAttribute('title', UNSET)
+    const doc = legacyDoc(yParagraph('one'), toc, yParagraph('two'))
+
+    const result = convert(stored(doc))
+
+    expect(bodyOf(result.state)).toEqual(page(words('one'), words('two')))
+    expect(result.dropped).toEqual([{ kind: 'toc-hint' }])
+  })
+
   it.each([
     {
       name: 'another attribute',
@@ -161,10 +175,30 @@ describe('convertLegacy', () => {
     ])
   })
 
+  it('converts a body holding a part the editor cannot hold whose only attribute is null, and records it (R484)', () => {
+    const callout = new XmlElement('callout')
+    callout.setAttribute('kind', UNSET)
+    const doc = legacyDoc(yParagraph('one'), callout)
+
+    const result = convert(stored(doc))
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      page(words('one')),
+      [{ kind: 'empty', name: 'callout' }],
+    ])
+  })
+
   it('refuses a part the editor cannot hold that holds text (R316)', () => {
     const legacy = stored(legacyDoc(yParagraph('one'), yElement('callout', yParagraph('note'))))
 
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses text the editor has no place for, with no part around it (R484)', () => {
+    const doc = legacyDoc(yParagraph('one'))
+    doc.getXmlFragment(BODY_FIELD).insert(1, [new XmlText('stray')])
+
+    expect(convertLegacy(stored(doc), MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
   it.each([
