@@ -133,13 +133,13 @@ jobs:
         env:
           CI: "Yes"
 
-      - name: Run focused migration checks
+      - name: Run focused base regression checks
         working-directory: /home/runner/frappe-bench
         run: |
           mkdir -p "$GITHUB_WORKSPACE/test-results/backend"
           bench --site test_site set-config allow_tests true
           status=0
-          for module in suite.drive.tests.test_build_storage suite.drive.patches.build.tests.test_content_mapping; do
+          for module in suite.suite_core.test_suite_email suite.composition.tests.test_suite_email suite.tests.test_architecture suite.drive.tests.test_grants suite.mail.tests.test_suite_cloud_client suite.mail.tests.test_suite_cloud_directory suite.mail.tests.test_suite_cloud_gating; do
             bench --site test_site run-tests --module "$module" --junit-xml-output "$GITHUB_WORKSPACE/test-results/backend/$module.xml" || status=1
           done
           exit "$status"
