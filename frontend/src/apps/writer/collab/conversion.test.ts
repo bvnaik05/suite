@@ -770,6 +770,17 @@ describe('convertLegacy', () => {
     })
   })
 
+  it.each([
+    { name: 'a span', html: '<p><span data-author="a@b.c">hi</span></p>' },
+    { name: 'a paragraph', html: '<p data-author="a@b.c">hi</p>' },
+    { name: 'a link', html: '<p><a href="/a" data-author="a@b.c">hi</a></p>' },
+  ])('refuses an author on $name, only mentions dropping theirs', ({ html }) => {
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('keeps a heading holding a non-breaking space and a line break', () => {
     const legacy = { content: null, html: '<h2>Big&nbsp;plan<br>today</h2>', collab: 0 }
 
