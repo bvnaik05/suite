@@ -3,11 +3,13 @@ import { Extension } from '@tiptap/core'
 const PIXELS = /^(-?\d+)px$/
 
 // Drive's default heading line height, which it never drew
-const DRIVE_HEADING_LINE_HEIGHT = '100%'
+export const DRIVE_HEADING_LINE_HEIGHT = '100%'
 
+// Drive wrote an indent only as a px margin with priority; a pasted web margin isn't one
 function parseIndent(element: HTMLElement) {
   const found = PIXELS.exec(element.style.marginLeft)
-  if (!found || Number(found[1]) === 0) {
+  const isDrives = element.style.getPropertyPriority('margin-left') === 'important'
+  if (!found || !isDrives || Number(found[1]) === 0) {
     return null
   }
 

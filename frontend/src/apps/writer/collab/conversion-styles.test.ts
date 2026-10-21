@@ -29,6 +29,15 @@ function blockLayout(state: Uint8Array) {
   })
 }
 
+// Each block's alignment, as stored and as the editor draws it
+function alignments(state: Uint8Array) {
+  const held = bodyOf(state).content.map((block: JSONContent) => block.attrs?.textAlign)
+  const drawn = [...openConverted(state).view.dom.children].map(
+    (element) => (element as HTMLElement).style.textAlign,
+  )
+  return { stored: held, drawn }
+}
+
 describe('convertLegacy', () => {
   it('refuses a Yjs body whose link holds an attribute the link mark lacks', () => {
     const legacy = stored(legacyDoc(yMarked('go', { link: { href: '/a', tracking: 'x1' } })))
@@ -51,7 +60,7 @@ describe('convertLegacy', () => {
     block.setAttribute('indent', 0 as never)
     block.setAttribute('lineHeight', '100%')
     const heading = yHeading('Two')
-    heading.setAttribute('indent', '0')
+    heading.setAttribute('indent', 0 as never)
     heading.setAttribute('lineHeight', '100%')
 
     const result = convert(stored(legacyDoc(block, heading)))
@@ -84,6 +93,62 @@ describe('convertLegacy', () => {
       ['p', '24px', 'important', ''],
       ['h2', '48px', 'important', '150%'],
     ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps a negative indent and one past the widest Drive offered', () => {
+    const block = yParagraph('one')
+    block.setAttribute('indent', -24 as never)
+    const heading = yHeading('Two')
+    heading.setAttribute('indent', 264 as never)
+
+    const result = convert(stored(legacyDoc(block, heading)))
+
+    expect(blockLayout(result.state)).toEqual([
+      ['p', '-24px', 'important', ''],
+      ['h2', '264px', 'important', ''],
+    ])
+  })
+
+  it.each([
+    { name: 'a text zero indent', build: yParagraph, indent: '0' },
+    { name: 'an indent in px', build: yParagraph, indent: '24px' },
+    { name: 'an indent as text', build: yHeading, indent: '24' },
+    { name: 'a fractional indent', build: yHeading, indent: 24.5 },
+  ])('refuses a Yjs body holding $name', ({ build, indent }) => {
+    const block = build('one')
+    block.setAttribute('indent', indent as never)
+
+    expect(convertLegacy(stored(legacyDoc(block)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('refuses a Yjs list item holding a zero indent Drive never wrote there', () => {
+    const item = yElement('listItem', yParagraph('one'))
+    item.setAttribute('indent', 0 as never)
+
+    expect(convertLegacy(stored(legacyDoc(yElement('bulletList', item))), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it("keeps Drive's Yjs alignment on paragraphs and headings", () => {
+    const centred = yParagraph('one')
+    centred.setAttribute('textAlign', 'center')
+    const heading = yHeading('Two')
+    heading.setAttribute('textAlign', 'right')
+    const left = yParagraph('three')
+    left.setAttribute('textAlign', 'left')
+
+    const result = convert(stored(legacyDoc(centred, heading, left)))
+
+    expect(alignments(result.state)).toEqual({
+      stored: ['center', 'right', 'left'],
+      drawn: ['center', 'right', 'left'],
+    })
     expect(result.dropped).toEqual([])
   })
 
@@ -120,6 +185,18 @@ describe('convertLegacy', () => {
       ['h2', '24px', 'important', '150%'],
       ['h3', '', '', ''],
     ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps HTML alignment on paragraphs and headings', () => {
+    const html = '<p style="text-align: center">one</p><h2 style="text-align: justify">Two</h2>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    expect(alignments(result.state)).toEqual({
+      stored: ['center', 'justify'],
+      drawn: ['center', 'justify'],
+    })
     expect(result.dropped).toEqual([])
   })
 

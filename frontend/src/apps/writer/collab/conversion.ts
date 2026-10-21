@@ -54,6 +54,7 @@ import {
   isOldMediaMappable,
   oldLayout,
 } from '@/apps/writer/collab/old-media'
+import { DRIVE_HEADING_LINE_HEIGHT } from '@/apps/writer/extensions/block-layout'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
 
@@ -190,20 +191,34 @@ function mediaSources(body: XmlFragment) {
   return JSON.stringify(media.map((element) => element.getAttribute('src')))
 }
 
-// Drive stored its indent and heading line height at defaults it never drew
-const DEFAULT_INDENTS = new Set<unknown>([0, '0'])
+// The blocks Drive stored an indent on
+const INDENTED = new Set(['paragraph', 'heading'])
 
+function elementsOf(body: XmlFragment) {
+  return [...body.createTreeWalker((type) => type instanceof XmlElement)] as XmlElement[]
+}
+
+// Drive stored its indent and heading line height at defaults it never drew
 function dropDriveDefaults(body: XmlFragment) {
-  const elements = [...body.createTreeWalker((type) => type instanceof XmlElement)] as XmlElement[]
-  for (const element of elements) {
-    if (DEFAULT_INDENTS.has(element.getAttribute('indent'))) {
+  for (const element of elementsOf(body)) {
+    const indent: unknown = element.getAttribute('indent')
+    if (INDENTED.has(element.nodeName) && indent === 0) {
       element.removeAttribute('indent')
     }
 
-    if (element.nodeName === 'heading' && element.getAttribute('lineHeight') === '100%') {
+    const lineHeight = element.getAttribute('lineHeight')
+    if (element.nodeName === 'heading' && lineHeight === DRIVE_HEADING_LINE_HEIGHT) {
       element.removeAttribute('lineHeight')
     }
   }
+}
+
+// Drive stored an indent only as a whole number of pixels
+function hasWholeIndents(body: XmlFragment) {
+  return elementsOf(body).every((element) => {
+    const indent: unknown = element.getAttribute('indent')
+    return indent == null || Number.isInteger(indent)
+  })
 }
 
 // frappe-ui left its upload id on uploaded media, which opens the caption field where it's drawn
@@ -583,6 +598,7 @@ function fromYjs(old: Doc) {
   const floats = droppedFloats(body)
   convertOldMedia(body)
   dropDriveDefaults(body)
+  const isIndentKept = hasWholeIndents(body)
   const uploadIds = dropUploadIds(body)
   const isColourMapped = mapOldColours(body)
   const { node, hidden, lost } = placeFragment(body, schema)
@@ -597,6 +613,7 @@ function fromYjs(old: Doc) {
       const isKept =
         lost.every(isDroppable) &&
         isColourMapped &&
+        isIndentKept &&
         isMediaKept &&
         isOldMediaKept &&
         !unkept(source, inventory(fresh)).length
@@ -639,9 +656,9 @@ function hasColouredAncestor(element: HTMLElement) {
   return false
 }
 
-// Drive stored its indent on every block, its heading line height and its ink on default text,
-// all at their defaults; a highlight also kept its colour in data-color, which the editor reads
-// from the style, and a video repeated its src in a source
+// Drive stored its indent on paragraphs and headings, its heading line height and its ink on
+// default text, all at their defaults; a highlight also kept its colour in data-color, which the
+// editor reads from the style, and a video repeated its src in a source
 function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const block of body.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')) {
     if (block.style.getPropertyValue('margin-left') === '0px') {
@@ -650,7 +667,7 @@ function dropDriveHtmlDefaults(body: HTMLElement) {
   }
 
   for (const heading of body.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')) {
-    if (heading.style.getPropertyValue('line-height') === '100%') {
+    if (heading.style.getPropertyValue('line-height') === DRIVE_HEADING_LINE_HEIGHT) {
       heading.style.removeProperty('line-height')
     }
   }
