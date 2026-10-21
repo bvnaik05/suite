@@ -534,3 +534,107 @@ describe('convertLegacy on the raw HTML (R439)', () => {
     expect(result.dropped).toEqual([{ kind: 'noise', name: 'loading' }])
   })
 })
+
+describe('convertLegacy on old HTML spans', () => {
+  const YELLOW = 'background-color: #fef08a'
+
+  it("keeps a span's background as the highlight on the same characters", () => {
+    const html = `<p>a<span style="${YELLOW}">b</span>c</p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['namedHighlight', 'yellow']]],
+      ['c', []],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it("keeps a span's colour as the text colour and its background as the highlight", () => {
+    const html = `<p><span style="color: #dc2626; ${YELLOW}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      [
+        'b',
+        [
+          ['textStyle', 'red'],
+          ['namedHighlight', 'yellow'],
+        ],
+      ],
+    ])
+  })
+
+  it('keeps nested spans as one text style holding both', () => {
+    const html = '<p><span style="color: #dc2626"><span style="font-size: 18px">b</span></span></p>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    const style = { color: 'red', fontSize: '18px' }
+    expect(content[0].marks).toEqual([{ type: 'textStyle', attrs: expect.objectContaining(style) }])
+  })
+
+  it("keeps the inner span's size where nested spans both set one", () => {
+    const html =
+      '<p><span style="font-size: 12px"><span style="font-size: 18px">b</span></span></p>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    const style = { fontSize: '18px' }
+    expect(content[0].marks).toEqual([{ type: 'textStyle', attrs: expect.objectContaining(style) }])
+  })
+
+  it("keeps an inner span's background as the highlight under the outer span's size", () => {
+    const html = `<p><span style="font-size: 18px"><span style="${YELLOW}">b</span></span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(content[0].marks).toEqual([
+      { type: 'textStyle', attrs: expect.objectContaining({ fontSize: '18px' }) },
+      { type: 'namedHighlight', attrs: { color: 'yellow' } },
+    ])
+  })
+
+  it.each(['0.5em', '150%', 'smaller', 'larger'])(
+    'refuses a relative font size %s inside a span setting a size',
+    (size) => {
+      const inner = `<span style="font-size: ${size}">b</span>`
+      const html = `<p><span style="font-size: 18px">${inner}</span></p>`
+
+      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+        kind: 'failed',
+        reason: 'check',
+      })
+    },
+  )
+
+  it.each(['transparent', ''])('refuses a span background of "%s"', (value) => {
+    const html = `<p>a<span style="background-color: ${value}">b</span></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('keeps a span background of inherit as no highlight, which it sets none of', () => {
+    const html = '<p>a<span style="background-color: inherit">b</span></p>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    const types = content.flatMap(({ marks = [] }: JSONContent) => marks.map(({ type }) => type))
+    expect([content.map(({ text }: JSONContent) => text).join(''), types]).toEqual([
+      'ab',
+      ['textStyle'],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+})

@@ -130,6 +130,9 @@ const BOOLEAN_ATTRIBUTES = new Map([
 // Class and style are compared by their parts, and noise not at all
 const UNCOMPARED_ATTRIBUTES = new Set(['class', 'style', ...NOISE_ATTRIBUTES])
 
+// A font size relative to the size around it
+const RELATIVE_SIZE = /\d(?:em|ex|ch|%)|^(?:smaller|larger)\b/i
+
 type AtomName = (element: Element) => string | undefined
 
 function withPriority(value: string, priority: string) {
@@ -183,12 +186,69 @@ function attributesOf(element: Element): Entry[] {
 }
 
 function withFormat(formats: Entry[], element: Element) {
-  const entries = attributesOf(element)
-  if (element.localName === 'span' && !entries.length) {
+  if (element.localName === 'span') {
+    return withSpan(formats, element)
+  }
+
+  return [...formats, [element.localName, Object.fromEntries(attributesOf(element))] as Entry]
+}
+
+// The editor draws a span's background as the highlight, a mark of its own, and nested spans as one
+function withSpan(formats: Entry[], element: Element) {
+  const { 'background-color': background, ...style } = styleOf(element)
+  const span = Object.fromEntries(attributesOf(element).filter(([name]) => name !== 'style'))
+  if (Object.keys(style).length) {
+    span.style = style
+  }
+
+  const lit = withHighlight(formats, background)
+  if (!Object.keys(span).length) {
+    return lit
+  }
+
+  return withFolded(lit, span)
+}
+
+function withHighlight(formats: Entry[], background: unknown) {
+  if (background === undefined) {
     return formats
   }
 
-  return [...formats, [element.localName, Object.fromEntries(entries)] as Entry]
+  return [...formats, ['mark', { style: { 'background-color': background } }] as Entry]
+}
+
+type Attributes = Record<string, unknown>
+
+// Nested spans fold unless they name the same attribute, both set a colour, which counts by being
+// there, or the inner size is relative to the outer
+function isFoldable(outer: Attributes, inner: Attributes) {
+  const outerStyle = (outer.style ?? {}) as Attributes
+  const innerStyle = (inner.style ?? {}) as Attributes
+  const isShared = Object.keys(inner).some((name) => name !== 'style' && name in outer)
+  const isRecoloured = Object.keys(innerStyle).some(
+    (name) => COLOUR_PROPS.has(name) && name in outerStyle,
+  )
+  const isRelative =
+    'font-size' in outerStyle && RELATIVE_SIZE.test(String(innerStyle['font-size'] ?? ''))
+  return !isShared && !isRecoloured && !isRelative
+}
+
+// A span inside another folds into it, the inner span winning each style property
+function withFolded(formats: Entry[], span: Attributes) {
+  const at = formats.map(([name]) => name).lastIndexOf('span')
+  const outer = formats[at]?.[1] as Attributes | undefined
+  if (!outer || !isFoldable(outer, span)) {
+    return [...formats, ['span', span] as Entry]
+  }
+
+  const folded = { ...outer, ...span }
+  if (outer.style && span.style) {
+    folded.style = { ...(outer.style as Attributes), ...(span.style as Attributes) }
+  }
+
+  const result = [...formats]
+  result[at] = ['span', folded]
+  return result
 }
 
 // The parser folds ASCII whitespace, so it isn't compared; a non-breaking space is kept

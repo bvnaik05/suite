@@ -655,13 +655,35 @@ function mapOldMedia(body: HTMLElement) {
   return olds.length > 0
 }
 
-// The HTML the editor reads, written back from the parse only when it holds old media
+// The editor reads a highlight only from a mark, so a span's background moves onto a mark around
+// what the span holds; inherit sets none, and would draw a bare mark
+function moveSpanHighlights(body: HTMLElement) {
+  const spans = [...body.querySelectorAll<HTMLElement>('span')].filter(
+    (span) => !['', 'inherit'].includes(span.style.getPropertyValue('background-color')),
+  )
+  for (const span of spans) {
+    const { style } = span
+    const mark = body.ownerDocument.createElement('mark')
+    const value = style.getPropertyValue('background-color')
+    mark.style.setProperty('background-color', value, style.getPropertyPriority('background-color'))
+    style.removeProperty('background-color')
+    mark.append(...span.childNodes)
+    span.append(mark)
+  }
+
+  return spans.length > 0
+}
+
+// The HTML the editor reads, its old media mapped in place; written back from the parse only when
+// that or moving a span's background changed it
 function readableHtml(body: HTMLElement, html: string) {
-  if (!mapOldMedia(body)) {
+  const isMapped = mapOldMedia(body)
+  const readable = body.cloneNode(true) as HTMLElement
+  if (!moveSpanHighlights(readable) && !isMapped) {
     return html
   }
 
-  return body.innerHTML
+  return readable.innerHTML
 }
 
 // frappe-ui wrote its upload marks on media but forced them to null when reading HTML, so no

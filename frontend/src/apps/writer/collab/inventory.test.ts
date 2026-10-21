@@ -243,6 +243,91 @@ describe('what drawn HTML keeps of the old HTML', () => {
     ])
   })
 
+  it("reads a span's background as the highlight on the same characters", () => {
+    const source = '<p>a<span style="background-color: #fef9c3">b</span></p>'
+    const lit = '<mark style="background-color: var(--prose-highlight-yellow)">'
+
+    expect(unkeptHtml(source, `<p>a${lit}b</mark></p>`)).toEqual([])
+    expect(unkeptHtml(source, `<p>${lit}a</mark>b</p>`)).toEqual(['formatting at 1'])
+    expect(unkeptHtml(source, '<p>ab</p>')).toEqual(['formatting at 1'])
+  })
+
+  it("reads a span's background apart from its other styles", () => {
+    const source = '<span style="color: #dc2626; background-color: #fef9c3">b</span>'
+    const lit = '<mark style="background-color: var(--prose-highlight-yellow)">b</mark>'
+    const red = 'style="color: var(--prose-color-red)"'
+
+    expect(unkeptHtml(source, `<span ${red}>${lit}</span>`)).toEqual([])
+    expect(unkeptHtml(source, lit)).toEqual(['formatting at 0'])
+    expect(unkeptHtml(source, `<span ${red}>b</span>`)).toEqual(['formatting at 0'])
+  })
+
+  it('folds nested spans into one style per character, property by property', () => {
+    const nested = '<span style="color: red"><span style="font-size: 18px">b</span></span>'
+
+    expect(unkeptHtml(nested, '<span style="font-size: 18px; color: red">b</span>')).toEqual([])
+    expect(unkeptHtml(nested, '<span style="font-size: 18px">b</span>')).toEqual([
+      'formatting at 0',
+    ])
+    expect(unkeptHtml(nested, '<span style="color: red">b</span>')).toEqual(['formatting at 0'])
+  })
+
+  it('lets the inner span win a property both nested spans set', () => {
+    const nested = '<span style="font-size: 12px"><span style="font-size: 18px">b</span></span>'
+
+    expect(unkeptHtml(nested, '<span style="font-size: 18px">b</span>')).toEqual([])
+    expect(unkeptHtml(nested, '<span style="font-size: 12px">b</span>')).toEqual([
+      'formatting at 0',
+    ])
+  })
+
+  it('folds each character on its own, the outer style alone around the inner span', () => {
+    const nested = '<span style="color: red">x<span style="font-size: 18px">y</span>z</span>'
+    const split = [
+      '<span style="color: red">x</span>',
+      '<span style="color: red; font-size: 18px">y</span>',
+      '<span style="color: red">z</span>',
+    ].join('')
+
+    expect(unkeptHtml(nested, split)).toEqual([])
+    expect(unkeptHtml(nested, '<span style="color: red">xyz</span>')).toEqual(['formatting at 1'])
+  })
+
+  it.each(['0.5em', '150%', 'smaller', 'larger'])(
+    'keeps a relative font size %s apart from the size around it, so a single span misses it',
+    (size) => {
+      const inner = `<span style="font-size: ${size}">b</span>`
+
+      expect(unkeptHtml(`<span style="font-size: 18px">${inner}</span>`, inner)).toEqual([
+        'formatting at 0',
+      ])
+    },
+  )
+
+  it('folds a root-relative font size, which the size around it never changes', () => {
+    const nested = '<span style="font-size: 18px"><span style="font-size: 1.5rem">b</span></span>'
+
+    expect(unkeptHtml(nested, '<span style="font-size: 1.5rem">b</span>')).toEqual([])
+  })
+
+  it('folds a relative font size under a span setting no size', () => {
+    const nested = '<span style="color: red"><span style="font-size: 0.5em">b</span></span>'
+
+    expect(unkeptHtml(nested, '<span style="color: red; font-size: 0.5em">b</span>')).toEqual([])
+  })
+
+  it('keeps nested spans apart when both set a colour, which counts by being there', () => {
+    const nested = '<span style="color: red"><span style="color: blue">b</span></span>'
+
+    expect(unkeptHtml(nested, '<span style="color: blue">b</span>')).toEqual(['formatting at 0'])
+  })
+
+  it('keeps nested spans apart when both name the same attribute', () => {
+    const nested = '<span data-x="1"><span data-x="2">b</span></span>'
+
+    expect(unkeptHtml(nested, '<span data-x="2">b</span>')).toEqual(['formatting at 0'])
+  })
+
   it('leaves out the whitespace the parser folds', () => {
     expect(unkeptHtml('<p>a b\n\tc</p>', '<p>abc</p>')).toEqual([])
   })
