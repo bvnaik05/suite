@@ -47,7 +47,7 @@ import {
   oldCommentAnchors,
   unreadableThreads,
 } from '@/apps/writer/collab/old-comments'
-import { convertOldMedia } from '@/apps/writer/collab/old-media'
+import { convertOldMedia, oldLayout } from '@/apps/writer/collab/old-media'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
 
@@ -599,6 +599,54 @@ function dropDriveHtmlDefaults(body: HTMLElement) {
   }
 }
 
+// The old editor's resizable media, whose kind agrees with its tag and whose layout is under its own names
+const UNNAMED = ':not([data-align]):not([data-float])'
+const OLD_MEDIA = `img[media-type="img"]${UNNAMED}, video[media-type="video"]${UNNAMED}`
+
+// Old resizable media laid out as the old editor showed it, under the names the editor reads; its
+// kind goes, since the tag says it, so a kind that disagrees or a layout under both names fails the check
+function mapOldMedia(body: HTMLElement) {
+  const olds = [...body.querySelectorAll(OLD_MEDIA)]
+  for (const old of olds) {
+    const { align, float } = oldLayout(old.getAttribute('dataalign'), old.getAttribute('datafloat'))
+    old.setAttribute('data-align', align)
+    if (float) {
+      old.setAttribute('data-float', float)
+    }
+
+    for (const name of ['media-type', 'dataalign', 'datafloat']) {
+      old.removeAttribute(name)
+    }
+  }
+
+  return olds.length > 0
+}
+
+// The HTML the editor reads, written back from the parse only when it holds old media
+function readableHtml(body: HTMLElement, html: string) {
+  if (!mapOldMedia(body)) {
+    return html
+  }
+
+  return body.innerHTML
+}
+
+// frappe-ui wrote its upload marks on media but forced them to null when reading HTML, so no
+// reader drew them
+const UPLOAD_MARKS = ['uploadid', 'error']
+
+function dropUploadMarks(body: HTMLElement) {
+  const media = [...body.querySelectorAll('img, video')]
+  const names = UPLOAD_MARKS.filter((name) => media.some((element) => element.hasAttribute(name)))
+  for (const element of media) {
+    for (const name of names) {
+      element.removeAttribute(name)
+    }
+  }
+
+  return names
+}
+
 // The fresh body as the editor draws it
 function drawn(fresh: XmlFragment) {
   const { content } = yXmlFragmentToProseMirrorRootNode(fresh, schema)
@@ -617,15 +665,17 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
   })
 }
 
-// The check compares the old HTML, Drive's defaults dropped, with the fresh body as the editor draws
-// it; every property the raw style text names must survive the parse, bar the noise list, and the
-// whitespace the parser folds isn't compared
+// The check compares the old HTML, its old media mapped, frappe-ui's upload marks dropped (recorded)
+// and Drive's defaults dropped, with the fresh body as the editor draws it; every property the raw
+// style text names must survive the parse, bar the noise list, and the whitespace the parser folds
+// isn't compared
 function fromHtml(html: string) {
-  const node = schema.nodeFromJSON(generateJSON(html, extensions))
   const { body } = new DOMParser().parseFromString(html, 'text/html')
   const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)
   // Before the defaults go, since dropping one rewrites the style text from the parse
   const raw = rawStyles(body)
+  const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html), extensions))
+  const uploadMarks = dropUploadMarks(body)
   dropDriveHtmlDefaults(body)
   const source = domInventory(body, atomNameOf)
   return {
@@ -638,7 +688,7 @@ function fromHtml(html: string) {
         return null
       }
 
-      const names = [...raw.noise, ...droppedNoise(body, result)]
+      const names = [...raw.noise, ...uploadMarks, ...droppedNoise(body, result)]
       return names.map((name): Dropped => ({ kind: 'noise', name }))
     },
   }

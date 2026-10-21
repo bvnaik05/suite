@@ -46,9 +46,24 @@ function pixels(value: unknown) {
   return null
 }
 
-// Laid out as the old editor showed it (alignment over float, neither means left); a size in
-// percent or 'auto' has no pixel form, so the editor measures the media instead. The old editor
-// stored an image's resized height as NaN, so a pixel width stands on its own
+/** Old media laid out as the old editor showed it: alignment over float, neither means left. */
+export function oldLayout(
+  dataAlign: unknown,
+  dataFloat: unknown,
+): { align: string; float?: string } {
+  if (ALIGNMENTS.includes(dataAlign as string)) {
+    return { align: dataAlign as string }
+  }
+
+  if (FLOATS.includes(dataFloat as string)) {
+    return { align: 'left', float: dataFloat as string }
+  }
+
+  return { align: 'left' }
+}
+
+// A size in percent or 'auto' has no pixel form, so the editor measures the media instead. The old
+// editor stored an image's resized height as NaN, so a pixel width stands on its own
 function mediaAttributes(old: XmlElement) {
   const stored = old.getAttributes() as Record<string, unknown>
   const attributes: Record<string, unknown> = { align: 'left' }
@@ -58,12 +73,7 @@ function mediaAttributes(old: XmlElement) {
     }
   }
 
-  if (ALIGNMENTS.includes(stored.dataAlign as string)) {
-    attributes.align = stored.dataAlign
-  } else if (FLOATS.includes(stored.dataFloat as string)) {
-    attributes.float = stored.dataFloat
-  }
-
+  Object.assign(attributes, oldLayout(stored.dataAlign, stored.dataFloat))
   const width = pixels(stored.width)
   const height = pixels(stored.height)
   if (width !== null) {

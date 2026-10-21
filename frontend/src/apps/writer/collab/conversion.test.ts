@@ -12,6 +12,7 @@ import {
   legacyDoc,
   MAX_STATE,
   oldMedia,
+  openConverted,
   opened,
   page,
   paragraph,
@@ -549,6 +550,98 @@ describe('convertLegacy', () => {
       attrs?.src,
     ])
     expect(media).toEqual([['video', '/v.mp4']])
+  })
+
+  it.each([
+    {
+      name: 'an alignment, over a float',
+      html: `<p><img src="${SRC}" media-type="img" width="100%" height="auto" dataalign="center" datafloat="right"></p>`,
+      drawn: { tag: 'img', align: 'center', float: null, width: '100%', height: 'auto' },
+    },
+    {
+      name: 'a float with no alignment',
+      html: `<p><img src="${SRC}" media-type="img" datafloat="right"></p>`,
+      drawn: { tag: 'img', align: 'left', float: 'right', width: null, height: null },
+    },
+    {
+      name: 'neither, at the left',
+      html: `<p><img src="${SRC}" media-type="img"></p>`,
+      drawn: { tag: 'img', align: 'left', float: null, width: null, height: null },
+    },
+    {
+      name: 'a video with neither, at the left',
+      html: '<video src="/v.mp4" controls="true" media-type="video" width="100%" height="auto"></video>',
+      drawn: { tag: 'video', align: 'left', float: null, width: '100%', height: 'auto' },
+    },
+  ])("draws the old editor's resizable media as it showed it: $name", ({ html, drawn }) => {
+    const result = convert({ content: null, html, collab: 0 })
+
+    const element = document.createElement('div')
+    element.innerHTML = openConverted(result.state).getHTML()
+    const media = [...element.querySelectorAll('img, video')].map((shown) => ({
+      tag: shown.localName,
+      align: shown.getAttribute('data-align'),
+      float: shown.getAttribute('data-float'),
+      width: shown.getAttribute('width'),
+      height: shown.getAttribute('height'),
+    }))
+    expect([media, result.dropped]).toEqual([[drawn], []])
+  })
+
+  it.each([
+    { name: 'an image marked a video', html: `<p><img src="${SRC}" media-type="video"></p>` },
+    {
+      name: 'a video marked an image',
+      html: '<video src="/v.mp4" controls media-type="img"></video>',
+    },
+    {
+      name: 'an alignment under both names',
+      html: `<p><img src="${SRC}" media-type="img" dataalign="center" data-align="right"></p>`,
+    },
+  ])('refuses old resizable media the mapping leaves alone: $name', ({ html }) => {
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it.each([
+    {
+      tag: 'img',
+      src: SRC,
+      html: `<p><img src="${SRC}" uploadid="upload-1" error="Failed to upload image"></p>`,
+    },
+    {
+      tag: 'video',
+      src: '/v.mp4',
+      html: '<video src="/v.mp4" controls uploadid="upload-1" error="true"></video>',
+    },
+  ])('records the upload marks frappe-ui never read back from HTML on a $tag', ({ src, html }) => {
+    const result = convert({ content: null, html, collab: 0 })
+
+    const element = document.createElement('div')
+    element.innerHTML = openConverted(result.state).getHTML()
+    const [shown] = element.querySelectorAll('img, video')
+    expect([shown.getAttribute('src'), result.dropped]).toEqual([
+      src,
+      [
+        { kind: 'noise', name: 'uploadid' },
+        { kind: 'noise', name: 'error' },
+      ],
+    ])
+  })
+
+  it.each([
+    {
+      name: 'a third attribute beside them',
+      html: `<p><img src="${SRC}" uploadid="upload-1" error="true" data-foo="1"></p>`,
+    },
+    { name: 'one on a span', html: '<p><span uploadid="upload-1">x</span></p>' },
+  ])('still refuses beside the upload marks: $name', ({ html }) => {
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
   })
 
   it('keeps an attachment saved in the HTML with its name', () => {
