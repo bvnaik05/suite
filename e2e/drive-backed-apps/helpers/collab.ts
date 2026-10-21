@@ -48,7 +48,7 @@ async function callTestHook<T>(testApi: APIRequestContext, name: string, node: s
 }
 
 /** Turn collaboration on for the site and give `node` a collab log. Call before the document opens. */
-function enableCollab(testApi: APIRequestContext, node: string) {
+export function enableCollab(testApi: APIRequestContext, node: string) {
 	return callTestHook<CollabState>(testApi, "enable_collab", node);
 }
 

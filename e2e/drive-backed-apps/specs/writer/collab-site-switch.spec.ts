@@ -1,5 +1,12 @@
 import { expect, test } from "../../fixtures/test";
-import { disableCollab, expectSaved, openForCollab, serverBlocks, typeParagraph } from "../../helpers/collab";
+import {
+	disableCollab,
+	enableCollab,
+	expectSaved,
+	openForCollab,
+	serverBlocks,
+	typeParagraph,
+} from "../../helpers/collab";
 import { discardNode } from "../../helpers/drive";
 import {
 	createWriterDocument,
@@ -10,6 +17,9 @@ import {
 
 // These switch collaboration off for the whole site, so their project runs after every other test
 test.describe("Writer collaboration", () => {
+	// The tests share a site-wide switch
+	test.describe.configure({ mode: "serial" });
+
 	let node = "";
 	let title = "";
 
@@ -19,8 +29,12 @@ test.describe("Writer collaboration", () => {
 		await openForCollab(testApi, owner.page.request, node, collaborator.user.user);
 	});
 
-	test.afterEach(async ({ owner }) => {
-		await discardNode(owner.context.request, node);
+	test.afterEach(async ({ owner, testApi }) => {
+		try {
+			await enableCollab(testApi, node);
+		} finally {
+			await discardNode(owner.context.request, node);
+		}
 	});
 
 	test("switching Writer's collaboration off stops a tab and keeps its unsent edits as a recovery copy", async ({
