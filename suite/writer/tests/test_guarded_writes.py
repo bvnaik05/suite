@@ -5,6 +5,9 @@ A document with a log keeps its body, comments and collab flag through the log, 
 saves go through `validate`, which refuses too. The scan lists each function that writes
 the row directly; a new one fails until it is listed here with why it can't write over a
 logged document.
+
+The scan reads one file at a time, so it misses a doctype passed in a variable and a qb
+table that came from another file or a function argument.
 """
 
 import ast
@@ -14,7 +17,9 @@ from pathlib import Path
 
 SUITE_ROOT = Path(__file__).resolve().parents[2]
 ROW_CALLS = frozenset({"set_value", "new_doc", "delete_doc"})
-ROW_UPDATE = re.compile(r"UPDATE\s+`tab(Writer Document|\{spec\.doctype\})`")
+ROW_SQL = re.compile(
+    r"(UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+`tab(Writer Document|\{spec\.doctype\})`", re.IGNORECASE
+)
 WRITER = "suite/writer/"
 WRITER_DOCUMENT = "suite/writer/doctype/writer_document/"
 
@@ -48,18 +53,55 @@ def call_name(call: ast.Call) -> str:
     return getattr(call.func, "id", "")
 
 
+def is_row(node: ast.expr, path: str) -> bool:
+    if isinstance(node, ast.Constant):
+        return node.value == "Writer Document"
+
+    return isinstance(node, ast.Name) and node.id == "DOCTYPE" and path.startswith(WRITER)
+
+
 def names_row(call: ast.Call, path: str) -> bool:
-    if not call.args:
+    return bool(call.args) and is_row(call.args[0], path)
+
+
+def is_row_table(node: ast.expr | None, path: str, tables: set[str]) -> bool:
+    if isinstance(node, ast.Name) and node.id in tables:
+        return True
+
+    if not isinstance(node, ast.Call) or not node.args:
         return False
 
-    first = call.args[0]
-    if isinstance(first, ast.Constant):
-        return first.value == "Writer Document"
+    if call_name(node) == "Table":
+        first = node.args[0]
+        return isinstance(first, ast.Constant) and first.value == "tabWriter Document"
 
-    return isinstance(first, ast.Name) and first.id == "DOCTYPE" and path.startswith(WRITER)
+    return call_name(node) == "DocType" and is_row(node.args[0], path)
 
 
-def writes_row(call: ast.Call, path: str) -> bool:
+def on_qb(call: ast.Call) -> bool:
+    receiver = getattr(call.func, "value", None)
+    return getattr(receiver, "attr", getattr(receiver, "id", None)) == "qb"
+
+
+def qb_table(node: ast.AST, method: str) -> ast.expr | None:
+    if isinstance(node, ast.Call) and node.args and call_name(node) == method and on_qb(node):
+        return node.args[0]
+
+    return None
+
+
+def qb_writes_row(call: ast.Call, path: str, tables: set[str]) -> bool:
+    name = call_name(call)
+    if name in {"update", "into"}:
+        return is_row_table(qb_table(call, name), path, tables)
+
+    if name != "delete" or not isinstance(call.func, ast.Attribute):
+        return False
+
+    return any(is_row_table(qb_table(node, "from_"), path, tables) for node in ast.walk(call.func.value))
+
+
+def writes_row(call: ast.Call, path: str, tables: set[str]) -> bool:
     name = call_name(call)
     if name == "db_set":
         return path.startswith(WRITER_DOCUMENT)
@@ -68,9 +110,9 @@ def writes_row(call: ast.Call, path: str) -> bool:
         return names_row(call, path)
 
     if name == "sql" and call.args:
-        return bool(ROW_UPDATE.search(ast.unparse(call.args[0])))
+        return bool(ROW_SQL.search(ast.unparse(call.args[0])))
 
-    return False
+    return qb_writes_row(call, path, tables)
 
 
 class RowWriters(ast.NodeVisitor):
@@ -80,6 +122,7 @@ class RowWriters(ast.NodeVisitor):
         self.path = path
         self.scope: list[str] = []
         self.found: set[str] = set()
+        self.tables: set[str] = set()
 
     def visit_scope(self, node):
         self.scope.append(node.name)
@@ -89,8 +132,14 @@ class RowWriters(ast.NodeVisitor):
     visit_ClassDef = visit_scope
     visit_FunctionDef = visit_scope
 
+    def visit_Assign(self, node: ast.Assign):
+        if is_row_table(node.value, self.path, self.tables):
+            self.tables |= {target.id for target in node.targets if isinstance(target, ast.Name)}
+
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call):
-        if writes_row(node, self.path):
+        if writes_row(node, self.path, self.tables):
             where = ".".join(self.scope)
             self.found.add(f"{self.path}:{where}")
 
@@ -121,12 +170,35 @@ class Shadow:
 def by_sql(name):
     frappe.db.sql("UPDATE `tabWriter Document` SET html = '' WHERE name = %s", name)
 
+def by_lowercase_sql(name):
+    frappe.db.sql("update `tabWriter Document` set ycomments = null where name = %s", name)
+
+def by_lowercase_delete(name):
+    frappe.db.sql("delete from `tabWriter Document` where name = %s", name)
+
+def by_qb_update(name):
+    table = frappe.qb.DocType("Writer Document")
+    frappe.qb.update(table).set(table.ycomments, None).where(table.name == name).run()
+
+def by_qb_delete(name):
+    frappe.qb.from_(Table("tabWriter Document")).delete().run()
+
+def by_qb_insert(name):
+    frappe.qb.into(frappe.qb.DocType(DOCTYPE)).insert(name).run()
+
+def reads_by_qb(name):
+    frappe.qb.from_(frappe.qb.DocType("Writer Document")).select("*").run()
+
 def by_doctype(name):
     frappe.db.set_value(DOCTYPE, name, "collab", 0)
 
 def elsewhere(name):
     frappe.db.set_value("Writer Settings", name, "theme", "")
+    frappe.qb.update(frappe.qb.DocType("Writer Settings")).set("theme", "").run()
 """
+
+# The SYNTHETIC writers that name the row outright, so they count in any app's file
+NAMED_ROW_WRITERS = ("by_sql", "by_lowercase_sql", "by_lowercase_delete", "by_qb_update", "by_qb_delete")
 
 
 def synthetic_writers(path: str) -> set[str]:
@@ -141,11 +213,10 @@ class TestGuardedWrites(unittest.TestCase):
 
     def test_direct_writes_to_the_row_are_detected(self):
         path = "suite/writer/shadow.py"
-        self.assertEqual(
-            synthetic_writers(path),
-            {f"{path}:Shadow.by_value", f"{path}:by_sql", f"{path}:by_doctype"},
-        )
+        names = ("Shadow.by_value", *NAMED_ROW_WRITERS, "by_qb_insert", "by_doctype")
+        self.assertEqual(synthetic_writers(path), {f"{path}:{name}" for name in names})
 
     def test_another_app_s_doctype_constant_is_not_the_row(self):
         path = "suite/sheets/shadow.py"
-        self.assertEqual(synthetic_writers(path), {f"{path}:Shadow.by_value", f"{path}:by_sql"})
+        names = ("Shadow.by_value", *NAMED_ROW_WRITERS)
+        self.assertEqual(synthetic_writers(path), {f"{path}:{name}" for name in names})

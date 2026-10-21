@@ -404,7 +404,7 @@ class BuildContentCase(IntegrationTestCase):
 
     # -- one deck, one writer document, one sheet
 
-    def writer_fixture(self, *, comments=None, versions=()) -> str:
+    def writer_fixture(self, *, comments=None, versions=(), collab=1) -> str:
         """A file-backed Writer document, its versions, and its comments."""
         docname = self.prefix + "wdoc"
         node = self.content_pair(docname, "Writer Document", title="Notes")
@@ -413,7 +413,7 @@ class BuildContentCase(IntegrationTestCase):
             docname,
             content="AAA=",
             html=f"<p>{self.prefix}</p>",
-            collab=1,
+            collab=collab,
             ycomments=comments,
         )
         for suffix, snapshot, title, manual, creation in versions:
@@ -956,6 +956,12 @@ class TestCleanupKeepsComments(BuildContentCase):
     """Writer's conversion places old comments from `ycomments`, so Cleanup leaves it."""
 
     def test_old_comment_places_survive_cleanup(self):
+        self.assert_comments_survive_cleanup(collab=1)
+
+    def test_old_comment_places_of_an_html_document_survive_cleanup(self):
+        self.assert_comments_survive_cleanup(collab=0)
+
+    def assert_comments_survive_cleanup(self, *, collab):
         thread = self.prefix + "th"
         comments = writer_comments(
             {
@@ -969,7 +975,7 @@ class TestCleanupKeepsComments(BuildContentCase):
                 }
             }
         )
-        self.writer_fixture(comments=comments)
+        self.writer_fixture(comments=comments, collab=collab)
         convert_history_and_comments(self.environment())
         content = WriterRowsOnly()
 
