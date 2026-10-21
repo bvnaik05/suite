@@ -859,3 +859,151 @@ describe("convertLegacy on old Drive's text colours", () => {
     expect(drawnColours(content)).toEqual([['lit', [['textStyle', name]]]])
   })
 })
+
+describe("convertLegacy on old Drive's highlights with a percent alpha (R531)", () => {
+  const OPAQUE = ['rgba(254, 249, 195, 100%)', 'rgb(254 249 195 / 100%)']
+  const EIGHT_DIGITS = '#fef9c3ff'
+
+  it.each(OPAQUE)('keeps an HTML span background %s as yellow', (value) => {
+    const html = `<p>a<span style="background-color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['namedHighlight', 'yellow']]],
+    ])
+  })
+
+  it.each(OPAQUE)("keeps Drive's HTML highlight %s as yellow", (value) => {
+    const mark = `<mark data-color="${value}" style="background-color: ${value}; color: inherit">`
+    const html = `<p>a${mark}b</mark></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['namedHighlight', 'yellow']]],
+    ])
+  })
+
+  it.each(OPAQUE)('keeps an old Yjs highlight %s as yellow', (value) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { namedHighlight: { color: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', [['namedHighlight', 'yellow']]]])
+  })
+
+  it.each(OPAQUE)('keeps an old Yjs background colour %s as yellow', (value) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', [['namedHighlight', 'yellow']]]])
+  })
+
+  it('refuses an old Yjs highlight in 8-digit hex', () => {
+    const legacy = stored(legacyDoc(yMarked('lit', { namedHighlight: { color: EIGHT_DIGITS } })))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('keeps an HTML span background in 8-digit hex as yellow', () => {
+    const html = `<p>a<span style="background-color: ${EIGHT_DIGITS}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['namedHighlight', 'yellow']]],
+    ])
+  })
+})
+
+describe('convertLegacy on highlight colours no one could see (R533)', () => {
+  const SEE_THROUGH = ['rgba(254, 249, 195, 0)', 'rgba(220, 38, 38, 0)', 'rgb(254 249 195 / 0%)']
+
+  it.each(SEE_THROUGH)('keeps an HTML span background %s as no highlight', (value) => {
+    const html = `<p>a<span style="background-color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', []],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it.each(SEE_THROUGH)("keeps Drive's HTML highlight %s as no highlight", (value) => {
+    const mark = `<mark data-color="${value}" style="background-color: ${value}; color: inherit">`
+    const html = `<p>a${mark}b</mark></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['ab', []]])
+    expect(result.dropped).toEqual([])
+  })
+
+  it('refuses a see-through HTML highlight holding more than its colour', () => {
+    const mark = '<mark style="background-color: rgba(254, 249, 195, 0)" title="t">'
+    const html = `<p>a${mark}b</mark></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it.each(SEE_THROUGH)('keeps an old Yjs highlight %s as no highlight', (value) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { namedHighlight: { color: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', []]])
+  })
+
+  it.each(SEE_THROUGH)('keeps an old Yjs background colour %s as no highlight', (value) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', []]])
+  })
+})
+
+describe("convertLegacy on old Drive's yellow at half alpha", () => {
+  // A see-through tone isn't the one old Drive's picker drew, so it goes by distance
+  const HALF = 'rgba(254, 249, 195, 0.5)'
+
+  it('keeps an HTML span background by distance, not as yellow', () => {
+    const html = `<p>a<span style="background-color: ${HALF}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['namedHighlight', 'orange']]],
+    ])
+  })
+
+  it('keeps an old Yjs highlight by distance, not as yellow', () => {
+    const legacy = stored(legacyDoc(yMarked('lit', { namedHighlight: { color: HALF } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', [['namedHighlight', 'orange']]]])
+  })
+})

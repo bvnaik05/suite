@@ -54,7 +54,7 @@ import {
   isOldMediaMappable,
   oldLayout,
 } from '@/apps/writer/collab/old-media'
-import { DRIVE_HEADING_LINE_HEIGHT } from '@/apps/writer/extensions/block-layout'
+import { DRIVE_HEADING_LINE_HEIGHT, INDENTED_BLOCKS } from '@/apps/writer/extensions/block-layout'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
 
@@ -191,8 +191,7 @@ function mediaSources(body: XmlFragment) {
   return JSON.stringify(media.map((element) => element.getAttribute('src')))
 }
 
-// The blocks Drive stored an indent on
-const INDENTED = new Set(['paragraph', 'heading'])
+const INDENTED = new Set(INDENTED_BLOCKS)
 
 function elementsOf(body: XmlFragment) {
   return [...body.createTreeWalker((type) => type instanceof XmlElement)] as XmlElement[]
@@ -361,7 +360,17 @@ function rgbOf(value: string): (Rgb & { alpha: number }) | null {
     return null
   }
 
-  return { red, green, blue, alpha: parseFloat(slashed ?? parts[CHANNELS] ?? '1') }
+  return { red, green, blue, alpha: alphaOf(slashed ?? parts[CHANNELS] ?? '1') }
+}
+
+// An alpha as a fraction, from a number or a percentage
+function alphaOf(alpha: string) {
+  const amount = parseFloat(alpha)
+  if (alpha.trim().endsWith('%')) {
+    return amount / PERCENT
+  }
+
+  return amount
 }
 
 // A channel as frappe-ui's color-parse reads it, a number or a percentage, rounded into a byte
@@ -763,13 +772,45 @@ function nameOldDriveHighlights(body: HTMLElement) {
   return isNamed
 }
 
-// The HTML the editor reads, its old media mapped in place; written back from the parse only when
-// that, moving a span's background or naming an old Drive highlight changed it
+function isSeeThrough(element: HTMLElement) {
+  const colour = element.style.getPropertyValue('background-color')
+  return rgbOf(colour || (element.getAttribute('data-color') ?? ''))?.alpha === 0
+}
+
+// A mark that holds nothing but its colour, Drive's inherited text colour aside
+function isBareMark(mark: HTMLElement) {
+  const names = [...mark.style].filter((name) => mark.style.getPropertyValue(name) !== 'inherit')
+  const attributes = [...mark.attributes].filter(({ name }) => name !== 'style')
+  return !names.length && !attributes.length
+}
+
+// A background no one could see shows no highlight, as on the Yjs path, so it goes in place; a
+// mark left with other attributes stays and fails the check
+function clearSeeThroughHighlights(body: HTMLElement) {
+  const cleared = [...body.querySelectorAll<HTMLElement>('span, mark')].filter(isSeeThrough)
+  for (const element of cleared) {
+    element.style.removeProperty('background-color')
+    if (element.localName === 'mark') {
+      element.removeAttribute('data-color')
+    }
+
+    if (element.localName === 'mark' && isBareMark(element)) {
+      element.replaceWith(...element.childNodes)
+    }
+  }
+
+  return cleared.length > 0
+}
+
+// The HTML the editor reads, its old media mapped and see-through highlights cleared in place;
+// written back from the parse only when that, moving a span's background or naming an old Drive
+// highlight changed it
 function readableHtml(body: HTMLElement, html: string) {
+  const isCleared = clearSeeThroughHighlights(body)
   const isMapped = mapOldMedia(body)
   const readable = body.cloneNode(true) as HTMLElement
   const isMoved = moveSpanHighlights(readable)
-  if (!nameOldDriveHighlights(readable) && !isMoved && !isMapped) {
+  if (!nameOldDriveHighlights(readable) && !isMoved && !isMapped && !isCleared) {
     return html
   }
 
@@ -810,10 +851,11 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
   })
 }
 
-// The check compares the old HTML, its old media mapped and a float beside an alignment dropped
-// (recorded), frappe-ui's upload marks dropped (recorded) and Drive's defaults dropped, with the
-// fresh body as the editor draws it; every property the raw style text names must survive the
-// parse, bar the noise list, and the whitespace the parser folds isn't compared
+// The check compares the old HTML, its old media mapped, its see-through highlights cleared and a
+// float beside an alignment dropped (recorded), frappe-ui's upload marks dropped (recorded) and
+// Drive's defaults dropped, with the fresh body as the editor draws it; every property the raw
+// style text names must survive the parse, bar the noise list, and the whitespace the parser
+// folds isn't compared
 function fromHtml(html: string) {
   const { body } = new DOMParser().parseFromString(html, 'text/html')
   const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)

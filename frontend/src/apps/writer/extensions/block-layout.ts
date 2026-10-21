@@ -2,6 +2,9 @@ import { Extension } from '@tiptap/core'
 
 const PIXELS = /^(-?\d+)px$/
 
+// The blocks Drive stored an indent on
+export const INDENTED_BLOCKS = ['paragraph', 'heading']
+
 // Drive's default heading line height, which it never drew
 export const DRIVE_HEADING_LINE_HEIGHT = '100%'
 
@@ -48,7 +51,7 @@ export const BlockLayout = Extension.create({
   addGlobalAttributes() {
     return [
       {
-        types: ['paragraph', 'heading'],
+        types: INDENTED_BLOCKS,
         attributes: {
           indent: { default: null, parseHTML: parseIndent, renderHTML: renderIndent },
         },
