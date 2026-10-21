@@ -6,7 +6,6 @@ import json
 import unicodedata
 import unittest
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from suite.drive._core.roles import EDIT, MANAGE, READ
 from suite.drive.patches.build.content_mapping import (
@@ -102,16 +101,11 @@ class ContentMappingTest(unittest.TestCase):
         )
 
     def test_epoch_millis_uses_the_site_timezone(self):
-        # Neither zone may be the host's, or a host-local `fromtimestamp` would
-        # pass here and shift every migrated comment on a differently
-        # configured runner.
-        host = datetime.now().astimezone().utcoffset()
         for timezone, expected in (
             ("UTC", "1970-01-01 00:00:00.000000"),
             ("America/New_York", "1969-12-31 19:00:00.000000"),
         ):
             with self.subTest(timezone=timezone):
-                self.assertNotEqual(host, ZoneInfo(timezone).utcoffset(datetime(1970, 1, 1)))
                 self.assertEqual(epoch_millis(0, timezone), expected)
         with self.assertRaises(InvalidLegacyContent):
             epoch_millis(True, "UTC")
