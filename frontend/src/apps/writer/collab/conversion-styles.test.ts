@@ -645,6 +645,55 @@ describe('convertLegacy on the raw HTML (R439)', () => {
   })
 })
 
+describe("convertLegacy on old HTML's other tags for the editor's marks (R577)", () => {
+  it('draws bold, italic and strike as strong, em and s', () => {
+    const html = '<p><strong>a</strong><em>b</em><s>c</s></p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const element = document.createElement('div')
+    element.innerHTML = openConverted(result.state).getHTML()
+    const tags = [...element.querySelectorAll('p *')].map(({ localName }) => localName)
+    expect(tags).toEqual(['strong', 'em', 's'])
+  })
+
+  it.each([
+    ['b', 'bold'],
+    ['i', 'italic'],
+    ['del', 'strike'],
+    ['strike', 'strike'],
+  ])('converts <%s> as the %s mark', (tag, mark) => {
+    const html = `<p><${tag}>a</${tag}></p>`
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [block] = bodyOf(result.state).content
+    expect([block.content, result.dropped]).toEqual([
+      [{ type: 'text', text: 'a', marks: [{ type: mark }] }],
+      [],
+    ])
+  })
+
+  it('refuses a <b> set to normal weight, which the editor draws plain', () => {
+    const html = '<p><b style="font-weight: normal">a</b></p>'
+
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('keeps both the bold and the link of a <b> holding a link', () => {
+    const html = '<p><b><a href="https://x.test">a</a></b></p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [block] = bodyOf(result.state).content
+    const marks = block.content[0].marks.map(({ type }: JSONContent) => type)
+    expect(marks.toSorted()).toEqual(['bold', 'link'])
+  })
+})
+
 describe('convertLegacy on old HTML spans', () => {
   const YELLOW = 'background-color: #fef08a'
 

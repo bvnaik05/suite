@@ -109,6 +109,15 @@ const FORMATTING_TAGS = new Set([
   'u',
 ])
 
+// Tags the editor reads as its own marks, named by the tag it draws them with, which
+// conversion-styles.test.ts checks against the editor
+const DRAWN_AS = new Map([
+  ['b', 'strong'],
+  ['i', 'em'],
+  ['del', 's'],
+  ['strike', 's'],
+])
+
 // The editor snaps a colour to its palette, so a colour counts by being there
 const COLOUR_PROPS = new Set(['color', 'background-color'])
 
@@ -194,7 +203,8 @@ function withFormat(formats: Entry[], element: Element) {
     return withSpan(formats, element)
   }
 
-  return [...formats, [element.localName, Object.fromEntries(attributesOf(element))] as Entry]
+  const name = DRAWN_AS.get(element.localName) ?? element.localName
+  return [...formats, [name, Object.fromEntries(attributesOf(element))] as Entry]
 }
 
 // The editor draws a span's background as the highlight, a mark of its own, and nested spans as one
