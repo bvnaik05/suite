@@ -333,6 +333,7 @@ scheduler_events = {
 # ============================================================================
 before_install = "suite.composition.lifecycle.before_install"
 after_install = "suite.composition.lifecycle.after_install"
+before_migrate = "suite.composition.lifecycle.before_migrate"
 after_migrate = "suite.composition.lifecycle.after_migrate"
 after_app_install = "suite.composition.lifecycle.after_app_install"
 extend_bootinfo = "suite.composition.lifecycle.extend_bootinfo"

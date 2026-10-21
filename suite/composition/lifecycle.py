@@ -67,6 +67,12 @@ def after_install():
     _run("slides.seed_system_templates", seed_system_templates)
 
 
+def before_migrate() -> None:
+    """Rebuild the module map from disk, so a module added since the process started is synced."""
+    frappe.cache.delete_value("app_modules")
+    frappe.setup_module_map()
+
+
 def after_migrate():
     from suite.content import ensure_tables as ensure_content_tables
     from suite.content.editors import editors as content_editors
