@@ -22,6 +22,10 @@ class TestWriterDocumentCopies(DriveCallbackCase):
         parent = frappe.db.get_value("Drive Node", node, "parent_node")
         copied = drive.copy(node, parent)
         frappe.db.commit()
+        self.addCleanup(self.delete_document, copied)
+        for media in frappe.get_all("Drive Node", {"parent_node": copied, "kind": "file"}, pluck="name"):
+            self.addCleanup(self.delete_document, media)
+
         self.addCleanup(self.delete_log, copied)
         return copied
 
