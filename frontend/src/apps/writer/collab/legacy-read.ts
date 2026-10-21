@@ -68,12 +68,7 @@ export function isAtomName(name: string) {
   return !!type && type.isLeaf && !type.isText && name !== 'hardBreak'
 }
 
-function decoded(content: string | null) {
-  // A collaborative body with no Yjs state stored
-  if (!content) {
-    return null
-  }
-
+function decoded(content: string) {
   const old = new Doc()
   try {
     applyUpdate(
@@ -81,7 +76,6 @@ function decoded(content: string | null) {
       Uint8Array.from(atob(content), (char) => char.charCodeAt(0)),
     )
   } catch {
-    // Bytes Yjs can't read leave the HTML
     return null
   }
 
@@ -90,24 +84,29 @@ function decoded(content: string | null) {
 
 export const MEDIA = new Set(['resizableMedia', 'image', 'video'])
 
-/** The store an old document is read from: its Yjs body, or its HTML, past a Yjs body holding nothing. */
+/** What an old document's Yjs store holds: a body, a body holding nothing, no bytes, or bytes Yjs can't read. */
 export type LegacyRead =
-  { from: 'yjs'; old: Doc } | { from: 'html'; html: string; emptyYjs: Doc | null }
+  | { case: 'yjs'; old: Doc }
+  | { case: 'empty-yjs'; old: Doc; html: string }
+  | { case: 'no-yjs'; html: string }
+  | { case: 'unreadable-yjs'; html: string }
 
-/** Which of an old document's stores the conversion and the read-only view read. */
+/** Which of an old document's stores holds its body. */
 export function readLegacy(legacy: LegacyBody): LegacyRead {
   const html = legacy.html ?? ''
-  // A body saved without collaboration has only its HTML
-  if (legacy.collab !== 0) {
-    const old = decoded(legacy.content)
-    if (old && holdsNothing(old.getXmlFragment(BODY_FIELD))) {
-      return { from: 'html', html, emptyYjs: old }
-    }
-
-    if (old) {
-      return { from: 'yjs', old }
-    }
+  // A body saved without collaboration, or with no Yjs bytes stored, has only its HTML
+  if (legacy.collab === 0 || !legacy.content) {
+    return { case: 'no-yjs', html }
   }
 
-  return { from: 'html', html, emptyYjs: null }
+  const old = decoded(legacy.content)
+  if (!old) {
+    return { case: 'unreadable-yjs', html }
+  }
+
+  if (holdsNothing(old.getXmlFragment(BODY_FIELD))) {
+    return { case: 'empty-yjs', old, html }
+  }
+
+  return { case: 'yjs', old }
 }

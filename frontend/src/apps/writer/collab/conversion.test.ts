@@ -101,7 +101,7 @@ describe('convertLegacy', () => {
     const result = convert(stored(doc))
 
     expect(bodyOf(result.state)).toEqual(page(words('one'), words('two')))
-    expect(result.dropped).toEqual([{ kind: 'node', name: 'tocNode', text: '' }])
+    expect(result.dropped).toEqual([{ kind: 'toc-hint' }])
   })
 
   it.each([
@@ -139,12 +139,26 @@ describe('convertLegacy', () => {
     expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
   })
 
-  it('converts a body holding an empty list, which the editor hides', () => {
+  it('converts a body holding an empty list, which the editor hides, and records it', () => {
     const doc = legacyDoc(yParagraph('one'), new XmlElement('bulletList'))
 
     const result = convert(stored(doc))
 
-    expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one')), []])
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      page(words('one')),
+      [{ kind: 'empty', name: 'bulletList' }],
+    ])
+  })
+
+  it('converts a body holding an empty part the editor cannot hold, and records it (R438)', () => {
+    const doc = legacyDoc(yParagraph('one'), new XmlElement('callout'))
+
+    const result = convert(stored(doc))
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      page(words('one')),
+      [{ kind: 'empty', name: 'callout' }],
+    ])
   })
 
   it('refuses a part the editor cannot hold that holds text (R316)', () => {
@@ -241,13 +255,39 @@ describe('convertLegacy', () => {
     expect(result.from).toBe('html')
   })
 
-  it('converts from the HTML when the stored Yjs bytes cannot be read', () => {
-    const legacy = { content: btoa('\u0005broken'), html: '<p>fresh</p>', collab: 1 }
+  it.each([
+    { name: 'no', content: null },
+    { name: 'empty', content: '' },
+  ])(
+    'converts from the HTML, recording nothing, when a collaborative row stores $name Yjs bytes',
+    ({ content }) => {
+      const result = convert({ content, html: '<p>fresh</p>', collab: 1 })
+
+      expect(bodyOf(result.state)).toEqual(page(words('fresh')))
+      expect([result.from, result.dropped]).toEqual(['html', []])
+    },
+  )
+
+  it.each([
+    { name: 'Yjs cannot read', content: btoa('\u0005broken') },
+    { name: 'are not base64', content: 'not base64!' },
+  ])('refuses, rather than reading the HTML, stored bytes that $name (R434)', ({ content }) => {
+    const legacy = { content, html: '<p>fresh</p>', collab: 1 }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'unreadable-yjs' })
+  })
+
+  it('converts from the HTML when the stored Yjs document holds no changes, and records it', () => {
+    const legacy = {
+      content: toBase64(encodeStateAsUpdate(new Doc())),
+      html: '<p>typed later</p>',
+      collab: 1,
+    }
 
     const result = convert(legacy)
 
-    expect(bodyOf(result.state)).toEqual(page(words('fresh')))
-    expect(result.from).toBe('html')
+    expect(bodyOf(result.state)).toEqual(page(words('typed later')))
+    expect([result.from, result.dropped]).toEqual(['html', [{ kind: 'empty-yjs' }]])
   })
 
   it('converts from the HTML when the Yjs body holds no words or parts, and records it (R317)', () => {

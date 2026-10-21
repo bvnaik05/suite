@@ -21,7 +21,6 @@ import {
   XmlText,
   type AbstractStruct,
   type AbstractType,
-  type XmlHook,
 } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
@@ -33,6 +32,7 @@ import {
   MEDIA,
   readLegacy,
   type LegacyBody,
+  type LegacyRead,
 } from '@/apps/writer/collab/legacy-read'
 import {
   dropCommentMarks,
@@ -48,12 +48,13 @@ const extensions = writerSchema()
 const schema = getSchema(extensions)
 
 /**
- * What the conversion couldn't carry over: a part the editor can't hold, a change Yjs held back,
- * the words of an old comment's copy away from its anchor, or a Yjs body holding nothing, read
- * past for the HTML.
+ * What the conversion couldn't carry over: Drive's table of contents, rebuilt from the headings, a
+ * part holding nothing, a change Yjs held back, the words of an old comment's copy away from its
+ * anchor, or a Yjs body holding nothing, read past for the HTML.
  */
 export type Dropped =
-  | { kind: 'node'; name: string; text: string }
+  | { kind: 'toc-hint' }
+  | { kind: 'empty'; name: string }
   | { kind: 'pending'; text: string; parts: string[] }
   | { kind: 'comment-copy'; id: string; text: string }
   | { kind: 'empty-yjs' }
@@ -66,23 +67,7 @@ export type Converted =
       from: 'yjs' | 'html'
       anchors: Record<string, string>
     }
-  | { kind: 'failed'; reason: 'too_large' | 'check' }
-
-function insertedText({ insert }: { insert: unknown }) {
-  return typeof insert === 'string' ? insert : ''
-}
-
-function textOf(type: AbstractType<unknown> | XmlFragment | XmlText | XmlHook): string {
-  if (type instanceof XmlText) {
-    return type.toDelta().map(insertedText).join('')
-  }
-
-  if (type instanceof XmlElement || type instanceof XmlFragment) {
-    return type.toArray().map(textOf).join('')
-  }
-
-  return ''
-}
+  | { kind: 'failed'; reason: 'too_large' | 'check' | 'unreadable-yjs' }
 
 function insertedString(struct: AbstractStruct) {
   if (struct instanceof Item && struct.content instanceof ContentString) {
@@ -160,8 +145,12 @@ function isDroppable(part: AbstractType<unknown>) {
   return isHintOnlyToc(part) || !holdsContent(part)
 }
 
-function lostParts(lost: AbstractType<unknown>[]): Dropped[] {
-  return lost.map((type) => ({ kind: 'node', name: nameOf(type), text: textOf(type) }))
+function droppedPart(part: AbstractType<unknown>): Dropped {
+  if (isHintOnlyToc(part)) {
+    return { kind: 'toc-hint' }
+  }
+
+  return { kind: 'empty', name: nameOf(part) }
 }
 
 // The id each heading's anchor already has when drawn, so links to it keep working
@@ -521,13 +510,17 @@ function fromYjs(old: Doc) {
   const isColourMapped = mapOldColours(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(body) === media
-  const source = inventory(body, new Set([...hidden, ...lost.filter(isDroppable)]))
+  const setAside = [...hidden, ...lost.filter(isDroppable)]
+  const source = inventory(body, new Set(setAside))
   return {
     node,
-    dropped: [...lostParts(lost), ...pendingDrop(old)],
+    dropped: [...setAside.map(droppedPart), ...pendingDrop(old)],
     hasUnreadableThreads,
     isKept: (fresh: XmlFragment) =>
-      isColourMapped && isMediaKept && !unkept(source, inventory(fresh)).length,
+      lost.every(isDroppable) &&
+      isColourMapped &&
+      isMediaKept &&
+      !unkept(source, inventory(fresh)).length,
   }
 }
 
@@ -653,21 +646,25 @@ function moveComments(body: XmlFragment) {
   return { isMoved, anchors, dropped }
 }
 
-function read(legacy: LegacyBody) {
-  const choice = readLegacy(legacy)
-  if (choice.from === 'yjs') {
-    return { ...fromYjs(choice.old), from: choice.from }
+function read(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>) {
+  if (choice.case === 'yjs') {
+    return { ...fromYjs(choice.old), from: 'yjs' as const }
   }
 
-  if (choice.emptyYjs) {
-    return { ...fromHtmlOverYjs(choice.emptyYjs, choice.html), from: choice.from }
+  if (choice.case === 'empty-yjs') {
+    return { ...fromHtmlOverYjs(choice.old, choice.html), from: 'html' as const }
   }
 
-  return { ...fromHtml(choice.html), from: choice.from }
+  return { ...fromHtml(choice.html), from: 'html' as const }
 }
 
 function checkedBody(legacy: LegacyBody) {
-  const { node, dropped, hasUnreadableThreads, isKept, from } = read(legacy)
+  const choice = readLegacy(legacy)
+  if (choice.case === 'unreadable-yjs') {
+    return choice.case
+  }
+
+  const { node, dropped, hasUnreadableThreads, isKept, from } = read(choice)
   if (hasUnreadableThreads) {
     return null
   }
@@ -695,6 +692,10 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
     checked = checkedBody(legacy)
   } catch {
     checked = null
+  }
+
+  if (checked === 'unreadable-yjs') {
+    return { kind: 'failed', reason: checked }
   }
 
   if (!checked) {
