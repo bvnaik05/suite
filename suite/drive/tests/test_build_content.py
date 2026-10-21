@@ -17,6 +17,7 @@ import json
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import frappe
 import pycrdt
@@ -50,6 +51,9 @@ from suite.drive.patches.build.slide_journal import SlideBody, SlidePreimageJour
 from suite.drive.patches.build.slides import convert_slides_and_templates
 from suite.drive.patches.build.state import BuildState, GrantConversion, TreeConversion
 from suite.drive.patches.build.tests import legacy_schema
+from suite.drive.patches.cleanup.ports import SiteContentRows
+from suite.drive.patches.cleanup.removal import RETAINED_DOCTYPES_STEP_4, phase_content_history
+from suite.drive.patches.cleanup.tests.fakes import FakeSchema, cleanup_environment
 
 # One fixed stamp for every source row and for `env.now()`. A fixture with a
 # clock has no exact expected value for the rows Build authors itself.
@@ -930,6 +934,55 @@ class TestMigratedComments(BuildContentCase):
         self.assertEqual(comment.author_name, "Cell User")
         self.assertEqual(json.loads(comment.mentions), ["m@example.invalid"])
         self.assertEqual(comment.creation, get_datetime(epoch_millis(3_000, timezone)))
+
+
+class WriterRowsOnly(SiteContentRows):
+    """The real Writer side, with the scans over every Sheet and DocShare on the test site recorded instead."""
+
+    def __init__(self):
+        self.files = None
+        self.slides_media: dict[str, str] = {}
+        self.strip_calls = 0
+
+    def governed_docshares_remaining(self) -> frozenset[str]:
+        return frozenset()
+
+    def strip_sheet_comments(self, *, batch_size: int) -> int:
+        self.strip_calls += 1
+        return 0
+
+
+class TestCleanupKeepsComments(BuildContentCase):
+    """Writer's conversion places old comments from `ycomments`, so Cleanup leaves it."""
+
+    def test_old_comment_places_survive_cleanup(self):
+        thread = self.prefix + "th"
+        comments = writer_comments(
+            {
+                thread: {
+                    "id": thread,
+                    "text": "First",
+                    "owner": self.owner,
+                    "creation": 1_000,
+                    "mentions": [],
+                    "replies": [],
+                }
+            }
+        )
+        self.writer_fixture(comments=comments)
+        convert_history_and_comments(self.environment())
+        content = WriterRowsOnly()
+
+        with TemporaryDirectory() as tmp:
+            phase_content_history(
+                cleanup_environment(
+                    Path(tmp), content=content, schema=FakeSchema(doctypes=set(RETAINED_DOCTYPES_STEP_4))
+                )
+            )
+
+        self.assertEqual(frappe.db.get_value("Writer Document", self.prefix + "wdoc", "ycomments"), comments)
+        self.assertTrue(frappe.db.exists("Drive Comment Thread", thread))
+        self.assertEqual(content.strip_calls, 1)
 
 
 class TestContentLinksAndSources(BuildContentCase):

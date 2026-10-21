@@ -4756,8 +4756,8 @@ Then, in order:
   becomes required.
 - Check that no `DocShare` row remains on a governed doctype (Build deleted
   them); drop `Writer Version`, `Writer Doc Version`, `Writer Template`, and
-  `Sheet Snapshot`; clear `ycomments`; strip cell comments from
-  `sheets_data`.
+  `Sheet Snapshot`; keep `ycomments` (Writer's conversion places old comments
+  from it, then clears it); strip cell comments from `sheets_data`.
 - Drop the title and trashed columns on content doctypes; `user_folder` and
   `quota` on `Drive Settings`; `quota`, `root_folder`, `thumbnail_prefix`,
   `flat` and the S3 fields on `Drive Disk Settings`; `storage_owner` on

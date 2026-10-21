@@ -377,11 +377,10 @@ class TestPhaseContentHistory(unittest.TestCase):
     def _step_four_schema(self):
         return FakeSchema(doctypes=set(RETAINED_DOCTYPES_STEP_4))
 
-    def test_ycomments_and_sheet_comments_are_cleared(self):
-        content = FakeContent(ycomments=2, sheets_with_comments=5)
+    def test_sheet_comments_are_stripped_and_ycomments_left(self):
+        content = FakeContent(sheets_with_comments=5)
         schema = self._step_four_schema()
         result = phase_content_history(cleanup_environment(self.path, content=content, schema=schema))
-        self.assertEqual(result.ycomments_cleared, 2)
         self.assertEqual(result.sheet_comments_stripped, 5)
         self.assertEqual(result.doctypes_dropped, 4)
         self.assertEqual(schema.doctypes, set())

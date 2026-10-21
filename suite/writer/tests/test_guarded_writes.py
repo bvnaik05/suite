@@ -36,7 +36,6 @@ KNOWN_WRITERS = {
     "suite/writer/patches/move_bodies_into_rows.py:move_checkpoint": THE_LOG,
     "suite/writer/patches/move_bodies_into_rows.py:empty_row": THE_LOG,
     "suite/drive/patches/build/ports.py:SiteContentTarget.update_writer_body": "migration build, run before any log",
-    "suite/drive/patches/cleanup/ports.py:SiteContentRows.clear_writer_ycomments": "migration cleanup of comments Drive took over",
     "suite/writer/content/e2e_api.py:enable_collab": "a test hook",
     "suite/writer/content/e2e_api.py:make_legacy": "a test hook",
 }

@@ -187,9 +187,6 @@ class ContentRows(Protocol):
         asked, not only `Sheet`: satellites take their rights from the
         document's node too."""
 
-    def clear_writer_ycomments(self) -> int:
-        """Blank `Writer Document.ycomments` on every row that still carries it."""
-
     def strip_sheet_comments(self, *, batch_size: int) -> int:
         """Strip the `comments` key out of `Sheet.sheets_data`'s decoded JSON,
         paged `batch_size` rows at a time. Leaves everything else in the
@@ -564,14 +561,6 @@ class SiteContentRows:
             for doctype in governed_doctypes()
             if frappe.db.exists("DocShare", {"share_doctype": doctype})
         )
-
-    def clear_writer_ycomments(self) -> int:
-        import frappe
-
-        names = frappe.get_all("Writer Document", filters={"ycomments": ["is", "set"]}, pluck="name")
-        for name in names:
-            frappe.db.set_value("Writer Document", name, "ycomments", None, update_modified=False)
-        return len(names)
 
     def strip_sheet_comments(self, *, batch_size: int) -> int:
         """Strip only the top-level `comments` key the sheets frontend's own
