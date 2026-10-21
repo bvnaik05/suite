@@ -133,6 +133,10 @@ const UNCOMPARED_ATTRIBUTES = new Set(['class', 'style', ...NOISE_ATTRIBUTES])
 // A font size relative to the size around it
 const RELATIVE_SIZE = /\d(?:em|ex|ch|%)|^(?:smaller|larger)\b/i
 
+// The properties a span can reset to what's around it, and the values that reset them
+const RESETTABLE = ['font-size', 'font-family', 'line-height']
+const RESET = /^(?:inherit|unset|revert)\b/i
+
 type AtomName = (element: Element) => string | undefined
 
 function withPriority(value: string, priority: string) {
@@ -220,7 +224,8 @@ function withHighlight(formats: Entry[], background: unknown) {
 type Attributes = Record<string, unknown>
 
 // Nested spans fold unless they name the same attribute, both set a colour, which counts by being
-// there, or the inner size is relative to the outer
+// there, the inner size is relative to the outer, or the inner resets an outer size, font or line
+// height, which the editor would reset to the paragraph's
 function isFoldable(outer: Attributes, inner: Attributes) {
   const outerStyle = (outer.style ?? {}) as Attributes
   const innerStyle = (inner.style ?? {}) as Attributes
@@ -230,7 +235,10 @@ function isFoldable(outer: Attributes, inner: Attributes) {
   )
   const isRelative =
     'font-size' in outerStyle && RELATIVE_SIZE.test(String(innerStyle['font-size'] ?? ''))
-  return !isShared && !isRecoloured && !isRelative
+  const isReset = RESETTABLE.some(
+    (name) => name in outerStyle && RESET.test(String(innerStyle[name] ?? '')),
+  )
+  return !isShared && !isRecoloured && !isRelative && !isReset
 }
 
 // A span inside another folds into it, the inner span winning each style property

@@ -366,9 +366,36 @@ function squaredDistance(from: Rgb, to: Rgb) {
   return red * red + green * green + blue * blue
 }
 
-// The palette name an old colour keeps its look as, '' when it looks like none: the one the editor
-// reads, or for a tone it reads as none, gray or no colour by whichever is nearer; null when it
-// can't be read or holds more than a colour
+// Old Drive's highlight picker, from its DocMenuAndInfoBar: the editor reads these tones as their
+// names only from these hexes, and matches any other form of them to a different tone
+const OLD_DRIVE_HIGHLIGHTS = [
+  ['yellow', '#fef9c3'],
+  ['orange', '#ffedd5'],
+  ['red', '#fee2e2'],
+  ['green', '#dcfce7'],
+  ['blue', '#D3E9FC'],
+  ['purple', '#f3e8ff'],
+  ['pink', '#fce7f3'],
+]
+
+function isColour(hex: string, rgb: Rgb) {
+  const colour = rgbOf(hex)
+  return colour !== null && squaredDistance(colour, rgb) === 0
+}
+
+// The name of a highlight colour from old Drive's picker, in any form; null for any other colour
+function oldDriveName(property: ColourProperty, rgb: ReturnType<typeof rgbOf>) {
+  if (property !== 'background-color' || rgb?.alpha !== 1) {
+    return null
+  }
+
+  const found = OLD_DRIVE_HIGHLIGHTS.find(([, hex]) => isColour(hex, rgb))
+  return found?.[0] ?? null
+}
+
+// The palette name an old colour keeps its look as, '' when it looks like none: old Drive's own,
+// the one the editor reads, or for a tone it reads as none, gray or no colour by whichever is
+// nearer; null when it can't be read or holds more than a colour
 function oldPaletteName(property: ColourProperty, value: string): string | null {
   if (value.includes(';')) {
     return null
@@ -384,7 +411,7 @@ function oldPaletteName(property: ColourProperty, value: string): string | null 
     return null
   }
 
-  const name = paletteName(property, value)
+  const name = oldDriveName(property, rgb) ?? paletteName(property, value)
   if (typeof name === 'string' && name) {
     return name
   }
@@ -702,12 +729,30 @@ function droppedHtmlFloats(body: HTMLElement) {
   return ['datafloat']
 }
 
+// The editor reads old Drive's highlights by name only from their hexes, so any form of one is
+// written as the variable the editor draws that name with
+function nameOldDriveHighlights(body: HTMLElement) {
+  const { variable } = COLOUR_READS['background-color']
+  let isNamed = false
+  for (const { style } of body.querySelectorAll<HTMLElement>('mark')) {
+    const name = oldDriveName('background-color', rgbOf(style.getPropertyValue('background-color')))
+    if (name) {
+      const priority = style.getPropertyPriority('background-color')
+      style.setProperty('background-color', `var(--${variable}-${name})`, priority)
+      isNamed = true
+    }
+  }
+
+  return isNamed
+}
+
 // The HTML the editor reads, its old media mapped in place; written back from the parse only when
-// that or moving a span's background changed it
+// that, moving a span's background or naming an old Drive highlight changed it
 function readableHtml(body: HTMLElement, html: string) {
   const isMapped = mapOldMedia(body)
   const readable = body.cloneNode(true) as HTMLElement
-  if (!moveSpanHighlights(readable) && !isMapped) {
+  const isMoved = moveSpanHighlights(readable)
+  if (!nameOldDriveHighlights(readable) && !isMoved && !isMapped) {
     return html
   }
 

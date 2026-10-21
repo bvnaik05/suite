@@ -664,3 +664,83 @@ describe('convertLegacy on old HTML spans', () => {
     expect(result.dropped).toEqual([])
   })
 })
+
+describe("convertLegacy on old Drive's highlight colours (R523)", () => {
+  // Old Drive's highlight picker, from its DocMenuAndInfoBar
+  const OLD_HIGHLIGHTS = [
+    ['yellow', '#fef9c3', 'rgb(254, 249, 195)'],
+    ['orange', '#ffedd5', 'rgb(255, 237, 213)'],
+    ['red', '#fee2e2', 'rgb(254, 226, 226)'],
+    ['green', '#dcfce7', 'rgb(220, 252, 231)'],
+    ['blue', '#D3E9FC', 'rgb(211, 233, 252)'],
+    ['purple', '#f3e8ff', 'rgb(243, 232, 255)'],
+    ['pink', '#fce7f3', 'rgb(252, 231, 243)'],
+  ]
+  const FORMS = OLD_HIGHLIGHTS.flatMap(([name, hex, rgb]) =>
+    [hex, rgb, rgb.replaceAll(' ', '')].map((value) => ({ name, value })),
+  )
+
+  it.each(FORMS)('keeps an HTML span background $value as $name', ({ name, value }) => {
+    const html = `<p>a<span style="background-color: ${value}">b</span></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['namedHighlight', name]]],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it.each(FORMS)("keeps Drive's HTML highlight $value as $name", ({ name, value }) => {
+    const mark = `<mark data-color="${value}" style="background-color: ${value}; color: inherit">`
+    const html = `<p>a${mark}b</mark></p>`
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['namedHighlight', name]]],
+    ])
+  })
+
+  it.each(FORMS)('keeps an old Yjs highlight $value as $name', ({ name, value }) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { namedHighlight: { color: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', [['namedHighlight', name]]]])
+  })
+
+  it.each(FORMS)('keeps an old Yjs background colour $value as $name', ({ name, value }) => {
+    const legacy = stored(legacyDoc(yMarked('lit', { textStyle: { backgroundColor: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['lit', [['namedHighlight', name]]]])
+  })
+})
+
+describe('convertLegacy on nested spans resetting a style (R525)', () => {
+  const OUTER = { 'font-size': '18px', 'font-family': 'Arial', 'line-height': '1.5' }
+  const RESETS = Object.entries(OUTER).flatMap(([property, outer]) =>
+    ['inherit', 'unset', 'revert'].map((reset) => ({ property, outer, reset })),
+  )
+
+  it.each(RESETS)(
+    'refuses an inner $property: $reset under $outer',
+    ({ property, outer, reset }) => {
+      const inner = `<span style="${property}: ${reset}">b</span>`
+      const html = `<p><span style="${property}: ${outer}">a${inner}</span></p>`
+
+      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+        kind: 'failed',
+        reason: 'check',
+      })
+    },
+  )
+})
