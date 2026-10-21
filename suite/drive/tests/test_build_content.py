@@ -1022,8 +1022,14 @@ class TestCleanupKeepsComments(BuildContentCase):
             stripped = SiteContentRows().strip_sheet_comments(batch_size=10)
 
         self.assertEqual(stripped, 1)
-        self.assertEqual(frappe.db.get_value("Writer Document", self.prefix + "wdoc", "ycomments"), comments)
+        writer = frappe.db.get_value(
+            "Writer Document", self.prefix + "wdoc", ["ycomments", "html", "content", "collab"], as_dict=True
+        )
+        self.assertEqual(
+            writer, {"ycomments": comments, "html": f"<p>{self.prefix}</p>", "content": "AAA=", "collab": 1}
+        )
         self.assertNotIn("comments", json.loads(frappe.db.get_value("Sheet", sheet, "sheets_data")))
+        self.assertEqual(frappe.db.get_value("Sheet", sheet, "modified"), get_datetime(STAMP))
 
 
 class TestContentLinksAndSources(BuildContentCase):
