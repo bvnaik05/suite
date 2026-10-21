@@ -6,7 +6,6 @@ import json
 import unicodedata
 import unittest
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from suite.drive._core.roles import EDIT, MANAGE, READ
 from suite.drive.patches.build.content_mapping import (
