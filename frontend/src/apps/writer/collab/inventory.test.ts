@@ -315,12 +315,12 @@ describe('what the parse keeps of the raw style text', () => {
       name: 'a border-image beside a colour',
       style: 'color: red; border-image: url(a.png) 30 stretch',
     },
+    {
+      name: 'a border-image source a later none resets',
+      style: 'border-image-source: url(a.png); border-image: none',
+    },
   ])('loses $name', ({ style }) => {
     expect(rawOf(`<p><span style="${style}">x</span></p>`).isKept).toBe(false)
-  })
-
-  it('keeps a border-image of none', () => {
-    expect(rawOf('<p><span style="border-image: none">x</span></p>').isKept).toBe(true)
   })
 
   it("reads past Word's own properties, naming each once", () => {
