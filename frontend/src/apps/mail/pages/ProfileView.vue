@@ -13,6 +13,7 @@
     :account-id="store.accountId"
     always-show-accounts
     :logout
+    :app-name="__('Mail')"
     @switch-account="switchAccount"
   >
     <!-- Same title row AND the same header box as the other tab destinations — this is

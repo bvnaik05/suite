@@ -59,6 +59,17 @@
         @open="(tab) => openSettings(tab.id as SettingsTabId)"
       />
 
+      <!-- Where the offer to install lives once its banner is dismissed: never inside the
+			     installed app, nor where this app cannot be installed. -->
+      <MobileSettingsCard v-if="installOffer.how.value && appName">
+        <MobileSettingsRow
+          :icon="Download"
+          :label="__('Install {0}', [appName])"
+          :chevron="false"
+          @click="installOffer.install()"
+        />
+      </MobileSettingsCard>
+
       <!-- Its own card: the destructive row is kept apart from the rest. -->
       <MobileSettingsCard>
         <MobileSettingsRow
@@ -88,12 +99,13 @@
 
 <script setup lang="ts">
 import { Avatar, Dialog } from 'frappe-ui'
-import { Check, ChevronRight, LogOut } from 'lucide-vue-next'
+import { Check, ChevronRight, Download, LogOut } from 'lucide-vue-next'
 import { computed, inject, onMounted, ref } from 'vue'
 
 // The two shells are mail's: a settings card and its rows. They carry no mail in them.
 import MobileSettingsCard from '@/apps/mail/components/mobile/MobileSettingsCard.vue'
 import MobileSettingsRow from '@/apps/mail/components/mobile/MobileSettingsRow.vue'
+import { useInstallOffer } from '@/platform/pwa'
 import type { SettingsTabId } from '@/shell/settings/settings'
 import SettingsList from '@/shell/settings/SettingsList.vue'
 import { openSettings, useSettingsGroups } from '@/shell/settings/useSettingsDialog'
@@ -104,6 +116,8 @@ defineProps<{
   /** Mail lists the one account too; the calendar only lists a choice. */
   alwaysShowAccounts?: boolean
   logout: { submit: () => void }
+  /** The app's name, for the offer to install it as an app of its own. */
+  appName?: string
 }>()
 
 const emit = defineEmits<{ switchAccount: [accountId: string] }>()
@@ -115,6 +129,7 @@ const settings = useSettingsGroups()
 onMounted(() => void settings.load())
 
 const showLogoutConfirm = ref(false)
+const installOffer = useInstallOffer()
 
 const fullName = computed(() => user?.data?.full_name ?? '')
 // The login id, not the active account: the card is who you are signed in as, and the

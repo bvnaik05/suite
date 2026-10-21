@@ -5,6 +5,7 @@
     :accounts
     :account-id="store.accountId"
     :logout
+    :app-name="__('Calendar')"
     @switch-account="switchAccount"
   />
 </template>
