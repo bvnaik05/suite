@@ -226,6 +226,14 @@ class TestChecker(UnitTestCase):
         bundled_yjs = json.loads(completed.stdout)["yjs"]
         self.assertEqual({bundled_yjs}, locked)
 
+    def test_the_bundle_refuses_a_request_cut_inside_its_last_row(self):
+        rows = typed_rows(append_node(paragraph("abc")), append_node(paragraph("def")))
+        request = checker.framed([b'{"mode": "judge"}', b"", *rows])
+        completed = subprocess.run(
+            checker.node_command(checker.usable_node(), BUNDLE), input=request[:-1], capture_output=True
+        )
+        self.assertEqual((completed.returncode, completed.stdout), (1, b""))
+
     def test_a_child_that_hangs_or_crashes_fails_loudly(self):
         folder = self.enterContext(tempfile.TemporaryDirectory())
         for name, source in (("hang", "setInterval(() => {}, 1000)"), ("crash", "process.exit(3)")):
