@@ -40,7 +40,7 @@ test.describe("Writer collaboration", () => {
 			),
 		).toBeVisible();
 		await expect(writerEditor(owner.page)).toHaveAttribute("contenteditable", "false");
-		await expect(owner.page.getByText("This device has unsaved work from")).toBeVisible();
+		await expect(owner.page.getByText("This device has unsaved work from")).toBeHidden();
 		const stored = await serverBlocks(testApi, node);
 		expect(stored).toContain("Saved line");
 		expect(stored).not.toContain("Typed after the switch");
@@ -65,14 +65,27 @@ test.describe("Writer collaboration", () => {
 
 		const kept = owner.page.getByRole("status").filter({ hasText: "This device has unsaved work from" });
 		const stopped = owner.page.getByRole("status").filter({ hasText: "This document now saves as you edit" });
+		await expect(kept).toBeHidden();
+		const stoppedHeight = (await stopped.boundingBox())!.height;
+
+		await owner.page.goto("/drive");
+		const notice = owner.page.getByRole("status").filter({ hasText: "couldn't be saved" });
+		await notice.getByRole("button", { name: "Review" }).click();
+		const row = owner.page.getByRole("row").filter({ hasText: title });
+		await row.getByText(title).click();
+		const viewing = owner.page.getByRole("status").filter({ hasText: "Viewing recovery copy from" });
+		await expect(viewing).toBeVisible();
+		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
+		await viewing.getByRole("button", { name: /^Actions for/ }).click();
+		await owner.page.getByRole("menuitem", { name: "Back to current" }).click();
+
 		const keptHeight = (await kept.boundingBox())!.height;
 		await kept.getByRole("button", { name: "View" }).click();
-		const viewing = owner.page.getByRole("status").filter({ hasText: "Viewing recovery copy from" });
 		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
 		// Strips with a button and without stand as tall as the editor toolbar
 		expect([
 			keptHeight,
-			(await stopped.boundingBox())!.height,
+			stoppedHeight,
 			(await viewing.boundingBox())!.height,
 		]).toEqual([toolbarHeight, toolbarHeight, toolbarHeight]);
 		await expect(kept).toBeHidden();
@@ -85,14 +98,6 @@ test.describe("Writer collaboration", () => {
 		await owner.page.getByRole("menuitem", { name: "Back to current" }).click();
 		await expect(owner.page.getByLabel("Recovery copy")).toBeHidden();
 		await expect(kept).toBeVisible();
-
-		await owner.page.goto("/drive");
-		const notice = owner.page.getByRole("status").filter({ hasText: "couldn't be saved" });
-		await notice.getByRole("button", { name: "Review" }).click();
-		const row = owner.page.getByRole("row").filter({ hasText: title });
-		await row.getByText(title).click();
-		await expect(viewing).toBeVisible();
-		await expect(owner.page.getByLabel("Recovery copy")).toContainText("Typed in the old editor");
 
 		await owner.page.goto("/drive/recovery");
 		await row.getByRole("button", { name: /^Actions for/ }).click();
