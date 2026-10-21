@@ -230,56 +230,12 @@ function propertyOf(piece: string) {
   return piece.slice(0, colon).trim().toLowerCase()
 }
 
-function stylePieces(element: HTMLElement) {
-  return (element.getAttribute('style') ?? '').split(';')
-}
-
-// A piece of raw style text is lost when it doesn't parse on its own with its !important; parsed alone,
-// since the whole text serialises a shorthand a later longhand overrides in part as ''
-function lostPiece(scratch: CSSStyleDeclaration, text: string) {
-  const piece = text.trim()
-  const name = propertyOf(piece)
-  if (!name) {
-    return piece || null
-  }
-
-  const isImportant = /!\s*important\s*$/i.test(piece)
-  scratch.cssText = piece
-  // A guard: jsdom never loses the priority of a piece that parses
-  if (
-    !scratch.getPropertyValue(name) ||
-    (isImportant && scratch.getPropertyPriority(name) !== 'important')
-  ) {
-    return piece
-  }
-
-  return null
-}
-
-function lostPieces(element: HTMLElement) {
-  const scratch = element.ownerDocument.createElement('div').style
-  return stylePieces(element)
-    .map((text) => lostPiece(scratch, text))
-    .filter((piece) => piece !== null)
-}
-
-// The pieces set in order: a later piece wins unless an earlier one is !important and it isn't
-function rebuiltStyle(element: HTMLElement) {
-  const scratch = element.ownerDocument.createElement('div').style
-  const rebuilt = element.ownerDocument.createElement('div').style
-  for (const piece of stylePieces(element)) {
-    const name = propertyOf(piece)
-    scratch.cssText = piece
-    if (
-      name &&
-      scratch.getPropertyValue(name) &&
-      (scratch.getPropertyPriority(name) || rebuilt.getPropertyPriority(name) !== 'important')
-    ) {
-      rebuilt.setProperty(name, scratch.getPropertyValue(name), scratch.getPropertyPriority(name))
-    }
-  }
-
-  return rebuilt
+interface StylePiece {
+  piece: string
+  name: string | null
+  value: string
+  priority: string
+  longhands: [string, string][]
 }
 
 // jsdom lists a shorthand beside its longhands without always keeping it in step, so only longhands count
@@ -289,11 +245,53 @@ function isLonghand(scratch: CSSStyleDeclaration, name: string, value: string) {
   return scratch.length === 1
 }
 
+// A piece of raw style text parsed alone, since the whole text serialises a shorthand a later longhand
+// overrides in part as ''
+function parsedPiece(scratch: CSSStyleDeclaration, text: string): StylePiece {
+  const piece = text.trim()
+  const name = propertyOf(piece)
+  if (!name) {
+    return { piece, name, value: '', priority: '', longhands: [] }
+  }
+
+  scratch.cssText = piece
+  const value = scratch.getPropertyValue(name)
+  const priority = scratch.getPropertyPriority(name)
+  const listed = [...scratch].map((property): [string, string] => [
+    property,
+    scratch.getPropertyValue(property),
+  ])
+  const longhands = listed.filter(([property, held]) => isLonghand(scratch, property, held))
+  return { piece, name, value, priority, longhands }
+}
+
+// A piece is lost when it names no property or doesn't parse on its own with its !important
+function isLost({ piece, name, value, priority }: StylePiece) {
+  const isImportant = /!\s*important\s*$/i.test(piece)
+  // A guard: jsdom never loses the priority of a piece that parses
+  return !!piece && (!name || !value || (isImportant && priority !== 'important'))
+}
+
+// Each longhand a piece lists is set in order with the piece's priority, unless the rebuild already
+// holds that longhand !important and the piece isn't
+function rebuiltStyle(element: HTMLElement, pieces: StylePiece[]) {
+  const rebuilt = element.ownerDocument.createElement('div').style
+  const inOrder = pieces.flatMap(({ priority, longhands }) =>
+    longhands.map(([name, value]) => ({ name, value, priority })),
+  )
+  for (const { name, value, priority } of inOrder) {
+    if (priority || rebuilt.getPropertyPriority(name) !== 'important') {
+      rebuilt.setProperty(name, value, priority)
+    }
+  }
+
+  return rebuilt
+}
+
 // Whether the parse read the pieces as set in order; a longhand after its shorthand, or a ';' in quotes, breaks it
-function isRebuilt(element: HTMLElement) {
+function isRebuilt(element: HTMLElement, scratch: CSSStyleDeclaration, pieces: StylePiece[]) {
   const { style } = element
-  const rebuilt = rebuiltStyle(element)
-  const scratch = element.ownerDocument.createElement('div').style
+  const rebuilt = rebuiltStyle(element, pieces)
   return [...new Set([...style, ...rebuilt])].every((name) => {
     const value = style.getPropertyValue(name)
     const isSame =
@@ -303,15 +301,27 @@ function isRebuilt(element: HTMLElement) {
   })
 }
 
+// The pieces of an element's raw style text the parse loses, and whether it read the rest in order
+function checkedStyle(element: HTMLElement) {
+  const scratch = element.ownerDocument.createElement('div').style
+  const pieces = (element.getAttribute('style') ?? '')
+    .split(';')
+    .map((text) => parsedPiece(scratch, text))
+  return {
+    lost: pieces.filter(isLost).map(({ piece }) => piece),
+    isRebuilt: isRebuilt(element, scratch, pieces),
+  }
+}
+
 /** Whether the parse kept every property the raw style text under `root` names, and the noise properties it read past. */
 export function rawStyles(root: ParentNode) {
-  const styled = [...root.querySelectorAll<HTMLElement>('[style]')]
-  const lost = styled.flatMap(lostPieces)
+  const checked = [...root.querySelectorAll<HTMLElement>('[style]')].map(checkedStyle)
+  const lost = checked.flatMap((style) => style.lost)
   const noise = lost
     .map(propertyOf)
     .filter((name): name is string => name !== null && NOISE_STYLE.test(name))
   return {
-    isKept: noise.length === lost.length && styled.every(isRebuilt),
+    isKept: noise.length === lost.length && checked.every((style) => style.isRebuilt),
     noise: [...new Set(noise)],
   }
 }

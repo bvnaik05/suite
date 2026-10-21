@@ -252,8 +252,11 @@ describe('what the parse keeps of the raw style text', () => {
     expect(rawOf(`<p style="${style}">x</p>`).isKept).toBe(true)
   })
 
-  it('keeps an !important a later piece without one leaves in place', () => {
-    expect(rawOf('<p style="color: red !important; color: blue">x</p>').isKept).toBe(true)
+  it.each([
+    'color: red !important; color: blue',
+    'font-weight: bold !important; font: 12px Arial !important',
+  ])('keeps an !important a later piece leaves in place: %s', (style) => {
+    expect(rawOf(`<p style="${style}">x</p>`).isKept).toBe(true)
   })
 
   it.each([
@@ -261,6 +264,9 @@ describe('what the parse keeps of the raw style text', () => {
     'font: 12px Arial; font-weight: bold',
     'font-family: Arial, "x;--y: z" junk',
     'font-family: "a;color: red;--x: y"',
+    'font-weight: bold !important; font: 12px Arial',
+    'background-color: red !important; background: blue',
+    'flex-grow: 2 !important; flex: 1',
   ])("loses what the parse doesn't read as the pieces set in order: %s", (style) => {
     expect(rawOf(`<p style='${style}'>x</p>`).isKept).toBe(false)
   })
