@@ -26,16 +26,14 @@ BUILTINS = {
 }
 
 
-def converted(html: str | None = None, content: str | None = None) -> dict:
+def converted(html: str | None = None, content: str | None = None):
     legacy = {"content": content, "html": html, "collab": int(bool(content)), "ycomments": None}
-    return checker.ask(
-        writer_content.CONVERTER_BUILD, {"legacy": legacy, "maxState": 1_000_000}, convert.NODE_MIN
-    )
+    return convert.convert(writer_content.CONVERTER_BUILD, writer_content.CONVERTER_VERSION, legacy)
 
 
-def body_of(answer: dict) -> str:
+def body_of(result: convert.Converted) -> str:
     doc = pycrdt.Doc()
-    doc.apply_update(base64.b64decode(answer["state"]))
+    doc.apply_update(result.state)
     return str(doc.get("default", type=pycrdt.XmlFragment))
 
 
@@ -97,12 +95,9 @@ class TestConverter(UnitTestCase):
         self.assertFalse(convert.bundle_ready(missing, writer_content.CONVERTER_VERSION))
 
     def test_converts_an_html_body_into_the_editor_state(self):
-        answer = converted(html="<p>Hello</p>")
-        self.assertEqual(
-            (answer["kind"], answer["from"], answer["dropped"], answer["version"]),
-            ("converted", "html", [], writer_content.CONVERTER_VERSION),
-        )
-        self.assertEqual(body_of(answer), "<paragraph>Hello</paragraph>")
+        result = converted(html="<p>Hello</p>")
+        self.assertEqual((result.source, result.dropped), ("html", []))
+        self.assertEqual(body_of(result), "<paragraph>Hello</paragraph>")
 
     def test_converts_an_old_yjs_body(self):
         old = pycrdt.Doc()
@@ -111,15 +106,15 @@ class TestConverter(UnitTestCase):
         )
         content = base64.b64encode(old.get_update()).decode()
 
-        answer = converted(content=content)
+        result = converted(content=content)
 
-        self.assertEqual((answer["kind"], answer["from"]), ("converted", "yjs"))
-        self.assertEqual(body_of(answer), "<paragraph>Hi</paragraph>")
+        self.assertEqual(result.source, "yjs")
+        self.assertEqual(body_of(result), "<paragraph>Hi</paragraph>")
 
     def test_reads_an_unlabelled_tag_from_its_words(self):
-        answer = converted(html='<p><span class="tag-item">#plan</span></p>')
-        self.assertEqual(answer["dropped"], [])
-        self.assertEqual(body_of(answer), '<paragraph><tagItem tagLabel="plan"></tagItem></paragraph>')
+        result = converted(html='<p><span class="tag-item">#plan</span></p>')
+        self.assertEqual(result.dropped, [])
+        self.assertEqual(body_of(result), '<paragraph><tagItem tagLabel="plan"></tagItem></paragraph>')
 
     def test_the_bundle_loads_only_the_node_modules_pinned_here(self):
         bundle_source = writer_content.CONVERTER_BUILD.read_text()
@@ -151,17 +146,17 @@ class TestConverter(UnitTestCase):
         _, port = listener.getsockname()
         url = f"http://127.0.0.1:{port}/x"
 
-        for name, html, kind in (
-            ("image", f'<p>a</p><img src="{url}">', "converted"),
+        for name, html, refusal in (
+            ("image", f'<p>a</p><img src="{url}">', None),
             # Before any text the parser puts these in the head, where the editor never looks
-            ("stylesheet in the head", f'<link rel="stylesheet" href="{url}"><p>a</p>', "converted"),
-            ("script in the head", f'<script src="{url}"></script><p>a</p>', "converted"),
-            ("stylesheet in the body", f'<p>a</p><link rel="stylesheet" href="{url}">', "failed"),
-            ("script in the body", f'<p>a</p><script src="{url}"></script>', "failed"),
+            ("stylesheet in the head", f'<link rel="stylesheet" href="{url}"><p>a</p>', None),
+            ("script in the head", f'<script src="{url}"></script><p>a</p>', None),
+            ("stylesheet in the body", f'<p>a</p><link rel="stylesheet" href="{url}">', "check"),
+            ("script in the body", f'<p>a</p><script src="{url}"></script>', "check"),
         ):
             with self.subTest(name):
-                answer = converted(html=html)
-                self.assertEqual((answer["kind"], connected(listener)), (kind, False))
+                result = converted(html=html)
+                self.assertEqual((getattr(result, "reason", None), connected(listener)), (refusal, False))
 
         # The same listener sees a child that does connect, so the checks above can fail
         folder = self.enterContext(tempfile.TemporaryDirectory())

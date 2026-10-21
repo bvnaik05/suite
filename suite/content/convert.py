@@ -11,17 +11,112 @@ compromised child.
 
 A bundle is used only when it holds the version the server expects, so one built before a version
 bump is refused.
+
+A conversion either converts or is refused with a reason: the converter's own (check, too_large,
+unreadable-yjs), or the child's failure (child_crash, child_timeout, bad_answer). `dropped` holds
+document text, the words of a pending edit or a comment's copy, so it goes only to the conversion's
+record, never to a log or report.
 """
 
+import base64
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
-from suite.content import checker
+from suite.content import capacity, checker
 
 # The oldest Node the converter runs on, the first whose --permission is stable; CI runs it there
 NODE_MIN = (22, 13)
+CONVERTER_REASONS = frozenset({"check", "too_large", "unreadable-yjs"})
+
+
+class ConverterChanged(Exception):
+    """The bundle holds another converter version than the run expects, so the run stops."""
+
+
+@dataclass(frozen=True)
+class Converted:
+    state: bytes
+    # "yjs" or "html", the part of the old body the state was made from
+    source: str
+    dropped: list[dict]
+    anchors: dict[str, str]
+    threads: list[dict]
+
+
+@dataclass(frozen=True)
+class Refused:
+    reason: str
 
 
 def bundle_ready(bundle: Path, version: str) -> bool:
-    """Whether `bundle` runs and holds converter `version`; False without a usable Node or the bundle."""
+    """Whether `bundle` holds converter `version`; False without Node or it, CheckerFailed if it fails."""
     answer = checker.ask(bundle, {}, NODE_MIN)
     return answer is not None and answer.get("version") == version
+
+
+def convert(
+    bundle: Path, version: str, legacy: dict, max_state: int = capacity.STATE_MAX
+) -> Converted | Refused | None:
+    """Convert the old body `legacy`; None without Node or the bundle, ConverterChanged on a new version."""
+    request = {"legacy": {**legacy, "collab": legacy["collab"] or 0}, "maxState": max_state}
+    try:
+        answer = checker.ask(bundle, request, NODE_MIN)
+    except checker.CheckerFailed as error:
+        return Refused(failure_reason(error.__cause__))
+
+    if answer is None:
+        return None
+
+    answered = answer.get("version")
+    if answered != version:
+        raise ConverterChanged(f"the bundle answered version {answered!r}, not {version!r}")
+
+    return read_answer(answer, max_state)
+
+
+def failure_reason(error: BaseException | None) -> str:
+    """Name what the child did, from the error checker.ask failed with."""
+    if isinstance(error, subprocess.TimeoutExpired):
+        return "child_timeout"
+
+    if isinstance(error, ValueError):
+        return "bad_answer"
+
+    return "child_crash"
+
+
+def read_answer(answer: dict, max_state: int) -> Converted | Refused:
+    """Read the converter's answer, refusing as bad_answer one of another shape."""
+    if answer.get("kind") == "failed" and answer.get("reason") in CONVERTER_REASONS:
+        return Refused(answer["reason"])
+
+    try:
+        state = base64.b64decode(answer["state"], validate=True)
+    except (KeyError, TypeError, ValueError):
+        return Refused("bad_answer")
+
+    converted = Converted(
+        state, answer.get("from"), answer.get("dropped"), answer.get("anchors"), answer.get("threads")
+    )
+    if answer.get("kind") != "converted" or len(state) > max_state or not is_well_formed(converted):
+        return Refused("bad_answer")
+
+    return converted
+
+
+def is_well_formed(converted: Converted) -> bool:
+    """Whether each part of `converted` has the type the converter writes."""
+    anchors = converted.anchors
+    return (
+        converted.source in {"yjs", "html"}
+        and is_list_of_objects(converted.dropped)
+        and is_list_of_objects(converted.threads)
+        and isinstance(anchors, dict)
+        and all(isinstance(key, str) and isinstance(value, str) for key, value in anchors.items())
+    )
+
+
+def is_list_of_objects(value: object) -> bool:
+    """Whether `value` is a list of JSON objects."""
+    return isinstance(value, list) and all(isinstance(item, dict) for item in value)
