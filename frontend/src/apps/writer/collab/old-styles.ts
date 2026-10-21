@@ -2,6 +2,7 @@ import { generateJSON, type JSONContent } from '@tiptap/core'
 import { XmlElement, XmlFragment, XmlText } from 'yjs'
 
 import {
+  isImportantBackground,
   isKeptCellStyle,
   parseCellBackground,
   parseCellStyle,
@@ -280,7 +281,8 @@ export function mapOldColours(body: XmlFragment) {
 const CELLS = new Set(['tableCell', 'tableHeader'])
 
 // A cell's style read the way pasted HTML is, its background as a highlight name when it's exactly
-// one; false when it holds a property a cell doesn't keep, or a background beside a name
+// one; false when it holds a property a cell doesn't keep, a background beside a name, or an
+// important background a name can't carry
 function mapCellStyle(cell: XmlElement) {
   const text: unknown = cell.getAttribute('style')
   if (text == null) {
@@ -295,6 +297,10 @@ function mapCellStyle(cell: XmlElement) {
   element.setAttribute('style', text)
   const hasName = cell.getAttribute('backgroundColor') != null
   if (hasName && element.style.getPropertyValue('background-color')) {
+    return false
+  }
+
+  if (isImportantBackground(text) && parseCellBackground(element)) {
     return false
   }
 

@@ -129,6 +129,13 @@ function renderCellStyle(attrs: Record<string, unknown>) {
   return { style }
 }
 
+// Read from the text, since jsdom drops the priority of a var() value
+export function isImportantBackground(text: string) {
+  return text
+    .split(';')
+    .some((piece) => propertyOf(piece) === BACKGROUND && /!\s*important\s*$/i.test(piece))
+}
+
 export function isKeptCellStyle(text: string) {
   return text
     .split(';')

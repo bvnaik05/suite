@@ -1166,6 +1166,7 @@ describe('convertLegacy on table cell styles', () => {
     ['background-color: hsl(10, 50%, 50%)', null, 'background-color: hsl(10, 50%, 50%);'],
     ['background-color: red', null, 'background-color: red;'],
     ['background-color: inherit', null, 'background-color: inherit;'],
+    ['background-color: #123456 !important', null, 'background-color: #123456 !important;'],
     ['background-color: rgba(254, 240, 138, 0)', null, 'background-color: rgba(254, 240, 138, 0);'],
     [
       'padding: 4px !important; vertical-align: top',
@@ -1197,17 +1198,18 @@ describe('convertLegacy on table cell styles', () => {
     })
   })
 
-  it.each(['border: 1px solid red; position: absolute', 'background: #123456'])(
-    'refuses an HTML cell styled "%s", which a cell does not keep',
-    (style) => {
-      const html = htmlCell(`style="${style}"`)
+  it.each([
+    'border: 1px solid red; position: absolute',
+    'background: #123456',
+    'background-color: #fef08a !important',
+  ])('refuses an HTML cell styled "%s", which a cell does not keep', (style) => {
+    const html = htmlCell(`style="${style}"`)
 
-      expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
-        kind: 'failed',
-        reason: 'check',
-      })
-    },
-  )
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
 
   it.each([
     { style: 'border: 1px solid red; position: absolute' },
@@ -1216,6 +1218,8 @@ describe('convertLegacy on table cell styles', () => {
     { style: { border: '1px solid red' } },
     { style: 'background-color: #123456', backgroundColor: 'blue' },
     { style: 'background-color: #fef08a', backgroundColor: 'yellow' },
+    { style: 'background-color: #fef08a !important' },
+    { style: 'background-color: var(--prose-highlight-blue) !important' },
   ])('refuses an old Yjs cell holding %o', (attributes) => {
     expect(convertLegacy(yTable(yCell('tableCell', attributes)), MAX_STATE)).toEqual({
       kind: 'failed',
