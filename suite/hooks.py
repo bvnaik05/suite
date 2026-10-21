@@ -276,6 +276,9 @@ user_invitation = {
     },
 }
 
+# Suite Core owns notification routing; Mail provides configured Suite Cloud delivery.
+suite_email_provider = "suite.mail"
+
 # Suite's onboarding replaces the built-in desk setup wizard
 setup_wizard_url = "/suite/setup"
 
