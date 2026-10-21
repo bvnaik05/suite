@@ -326,7 +326,7 @@ def entry_mentions(value: dict) -> list[str]:
 def comment_entry(
     value: object,
     *,
-    identity: str,
+    identity: object,
     owner_key: str,
     name_key: str | None,
     time_key: str,
