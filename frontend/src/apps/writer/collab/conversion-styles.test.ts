@@ -488,6 +488,15 @@ describe('convertLegacy on the raw HTML (R439)', () => {
     },
   )
 
+  it("refuses a font shorthand whose other longhands the editor doesn't keep", () => {
+    const html = '<p>a<span style="font: 12px Arial; font-size: 20px">b</span></p>'
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it("refuses a class the editor doesn't draw", () => {
     const html = '<p class="MsoNormal">one</p>'
 

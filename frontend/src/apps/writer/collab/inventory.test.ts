@@ -244,11 +244,36 @@ describe('what the parse keeps of the raw style text', () => {
   })
 
   it.each([
+    'border: none; border-bottom: solid windowtext 1.0pt',
+    'border: 1px solid red; border-top: none',
+    'border: 1px solid; border-left: 2px dashed',
+    'border: 1px solid; border-color: red blue',
+  ])('keeps a shorthand a later longhand overrides in part: %s', (style) => {
+    expect(rawOf(`<p style="${style}">x</p>`).isKept).toBe(true)
+  })
+
+  it('keeps an !important a later piece without one leaves in place', () => {
+    expect(rawOf('<p style="color: red !important; color: blue">x</p>').isKept).toBe(true)
+  })
+
+  it.each([
+    'margin: 0; margin-left: 4px',
+    'font: 12px Arial; font-weight: bold',
+    'font-family: Arial, "x;--y: z" junk',
+    'font-family: "a;color: red;--x: y"',
+  ])("loses what the parse doesn't read as the pieces set in order: %s", (style) => {
+    expect(rawOf(`<p style='${style}'>x</p>`).isKept).toBe(false)
+  })
+
+  it.each([
     { name: 'an unknown property', style: 'foo-bar: 1' },
     { name: 'a value the parse rejects', style: 'color: notacolour' },
     { name: 'a property in capitals', style: 'COLOR: red' },
     { name: 'a piece with no colon', style: 'color red' },
-    { name: 'a lost !important', style: 'color: notacolour !important; color: red' },
+    {
+      name: "an !important piece that doesn't parse on its own",
+      style: 'color: notacolour !important; color: red',
+    },
   ])('loses $name', ({ style }) => {
     expect(rawOf(`<p><span style="${style}">x</span></p>`).isKept).toBe(false)
   })
@@ -260,5 +285,9 @@ describe('what the parse keeps of the raw style text', () => {
       isKept: true,
       noise: ['mso-spacerun', 'mso-ansi-language'],
     })
+  })
+
+  it('loses a piece with no colon even when it starts like a Word property', () => {
+    expect(rawOf('<p><span style="mso-foo">x</span></p>').isKept).toBe(false)
   })
 })

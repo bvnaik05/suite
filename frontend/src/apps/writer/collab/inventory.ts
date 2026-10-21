@@ -221,42 +221,99 @@ export function domInventory(root: ParentNode, atomName: AtomName) {
   return found
 }
 
-// The property a piece of raw style text names that the parse lost: '' for a piece naming none,
-// null for an empty piece or a kept property
-function lostProperty(style: CSSStyleDeclaration, piece: string) {
-  if (!piece.trim()) {
+function propertyOf(piece: string) {
+  const colon = piece.indexOf(':')
+  if (colon < 0) {
     return null
   }
 
-  const colon = piece.indexOf(':')
-  if (colon < 0) {
-    return ''
+  return piece.slice(0, colon).trim().toLowerCase()
+}
+
+function stylePieces(element: HTMLElement) {
+  return (element.getAttribute('style') ?? '').split(';')
+}
+
+// A piece of raw style text is lost when it doesn't parse on its own with its !important; parsed alone,
+// since the whole text serialises a shorthand a later longhand overrides in part as ''
+function lostPiece(scratch: CSSStyleDeclaration, text: string) {
+  const piece = text.trim()
+  const name = propertyOf(piece)
+  if (!name) {
+    return piece || null
   }
 
-  const name = piece.slice(0, colon).trim().toLowerCase()
   const isImportant = /!\s*important\s*$/i.test(piece)
+  scratch.cssText = piece
+  // A guard: jsdom never loses the priority of a piece that parses
   if (
-    !style.getPropertyValue(name) ||
-    (isImportant && style.getPropertyPriority(name) !== 'important')
+    !scratch.getPropertyValue(name) ||
+    (isImportant && scratch.getPropertyPriority(name) !== 'important')
   ) {
-    return name
+    return piece
   }
 
   return null
 }
 
-function lostProperties(element: HTMLElement) {
-  return (element.getAttribute('style') ?? '')
-    .split(';')
-    .map((piece) => lostProperty(element.style, piece))
-    .filter((name) => name !== null)
+function lostPieces(element: HTMLElement) {
+  const scratch = element.ownerDocument.createElement('div').style
+  return stylePieces(element)
+    .map((text) => lostPiece(scratch, text))
+    .filter((piece) => piece !== null)
+}
+
+// The pieces set in order: a later piece wins unless an earlier one is !important and it isn't
+function rebuiltStyle(element: HTMLElement) {
+  const scratch = element.ownerDocument.createElement('div').style
+  const rebuilt = element.ownerDocument.createElement('div').style
+  for (const piece of stylePieces(element)) {
+    const name = propertyOf(piece)
+    scratch.cssText = piece
+    if (
+      name &&
+      scratch.getPropertyValue(name) &&
+      (scratch.getPropertyPriority(name) || rebuilt.getPropertyPriority(name) !== 'important')
+    ) {
+      rebuilt.setProperty(name, scratch.getPropertyValue(name), scratch.getPropertyPriority(name))
+    }
+  }
+
+  return rebuilt
+}
+
+// jsdom lists a shorthand beside its longhands without always keeping it in step, so only longhands count
+function isLonghand(scratch: CSSStyleDeclaration, name: string, value: string) {
+  scratch.cssText = ''
+  scratch.setProperty(name, value)
+  return scratch.length === 1
+}
+
+// Whether the parse read the pieces as set in order; a longhand after its shorthand, or a ';' in quotes, breaks it
+function isRebuilt(element: HTMLElement) {
+  const { style } = element
+  const rebuilt = rebuiltStyle(element)
+  const scratch = element.ownerDocument.createElement('div').style
+  return [...new Set([...style, ...rebuilt])].every((name) => {
+    const value = style.getPropertyValue(name)
+    const isSame =
+      value === rebuilt.getPropertyValue(name) &&
+      style.getPropertyPriority(name) === rebuilt.getPropertyPriority(name)
+    return isSame || !isLonghand(scratch, name, value || rebuilt.getPropertyValue(name))
+  })
 }
 
 /** Whether the parse kept every property the raw style text under `root` names, and the noise properties it read past. */
 export function rawStyles(root: ParentNode) {
-  const lost = [...root.querySelectorAll<HTMLElement>('[style]')].flatMap(lostProperties)
-  const noise = lost.filter((name) => NOISE_STYLE.test(name))
-  return { isKept: noise.length === lost.length, noise: [...new Set(noise)] }
+  const styled = [...root.querySelectorAll<HTMLElement>('[style]')]
+  const lost = styled.flatMap(lostPieces)
+  const noise = lost
+    .map(propertyOf)
+    .filter((name): name is string => name !== null && NOISE_STYLE.test(name))
+  return {
+    isKept: noise.length === lost.length && styled.every(isRebuilt),
+    noise: [...new Set(noise)],
+  }
 }
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
