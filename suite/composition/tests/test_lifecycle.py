@@ -12,7 +12,7 @@ class TestBeforeMigrate(unittest.TestCase):
         frappe.cache.delete_value("app_modules")
         frappe.setup_module_map()
 
-    def test_a_module_missing_from_the_cached_map_is_synced(self):
+    def test_a_module_missing_from_the_cached_map_is_mapped_from_disk(self):
         stale = {**frappe.local.app_modules, "suite": ["drive", "writer"]}
         frappe.cache.set_value("app_modules", stale)
         frappe.setup_module_map()
