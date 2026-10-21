@@ -190,7 +190,7 @@ function mediaSources(body: XmlFragment) {
   return JSON.stringify(media.map((element) => element.getAttribute('src')))
 }
 
-// Drive stored its indent and heading line height at their defaults, which this editor has no attribute for
+// Drive stored its indent and heading line height at defaults it never drew
 const DEFAULT_INDENTS = new Set<unknown>([0, '0'])
 
 function dropDriveDefaults(body: XmlFragment) {
@@ -612,13 +612,19 @@ function hasColouredAncestor(element: HTMLElement) {
   return false
 }
 
-// Drive stored its indent on every block and its ink on default text; a highlight also kept its
-// colour in data-color, which the editor reads from the style, and a video repeated its src in a
-// source
+// Drive stored its indent on every block, its heading line height and its ink on default text,
+// all at their defaults; a highlight also kept its colour in data-color, which the editor reads
+// from the style, and a video repeated its src in a source
 function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const block of body.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')) {
     if (block.style.getPropertyValue('margin-left') === '0px') {
       block.style.removeProperty('margin-left')
+    }
+  }
+
+  for (const heading of body.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')) {
+    if (heading.style.getPropertyValue('line-height') === '100%') {
+      heading.style.removeProperty('line-height')
     }
   }
 

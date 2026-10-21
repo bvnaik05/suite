@@ -20,6 +20,15 @@ import {
   yParagraph,
 } from '@/apps/writer/collab/legacy-fixtures'
 
+// Each block's tag, left margin with its priority, and line height, as the editor draws them
+function blockLayout(state: Uint8Array) {
+  return [...openConverted(state).view.dom.children].map((element) => {
+    const { style } = element as HTMLElement
+    const margin = style.getPropertyValue('margin-left')
+    return [element.localName, margin, style.getPropertyPriority('margin-left'), style.lineHeight]
+  })
+}
+
 describe('convertLegacy', () => {
   it('refuses a Yjs body whose link holds an attribute the link mark lacks', () => {
     const legacy = stored(legacyDoc(yMarked('go', { link: { href: '/a', tracking: 'x1' } })))
@@ -58,24 +67,24 @@ describe('convertLegacy', () => {
     ])
   })
 
-  it("refuses a block indented past Drive's default", () => {
+  it("keeps Drive's indent and heading line height, drawn as Drive drew them", () => {
     const block = yParagraph('one')
-    block.setAttribute('indent', 1 as never)
-
-    expect(convertLegacy(stored(legacyDoc(block)), MAX_STATE)).toEqual({
-      kind: 'failed',
-      reason: 'check',
-    })
-  })
-
-  it("refuses a heading whose line height isn't Drive's default", () => {
+    block.setAttribute('indent', 24 as never)
     const heading = yHeading('Two')
+    heading.setAttribute('indent', 48 as never)
     heading.setAttribute('lineHeight', '150%')
 
-    expect(convertLegacy(stored(legacyDoc(heading)), MAX_STATE)).toEqual({
-      kind: 'failed',
-      reason: 'check',
-    })
+    const result = convert(stored(legacyDoc(block, heading)))
+
+    expect(bodyOf(result.state).content.map((converted: JSONContent) => converted.attrs)).toEqual([
+      expect.objectContaining({ indent: 24, lineHeight: null }),
+      expect.objectContaining({ indent: 48, lineHeight: '150%' }),
+    ])
+    expect(blockLayout(result.state)).toEqual([
+      ['p', '24px', 'important', ''],
+      ['h2', '48px', 'important', '150%'],
+    ])
+    expect(result.dropped).toEqual([])
   })
 
   it("converts Drive's HTML blocks that hold its default indent (R331)", () => {
@@ -92,14 +101,31 @@ describe('convertLegacy', () => {
       ['paragraph', 'one'],
       ['heading', 'Two'],
     ])
+    expect(blockLayout(result.state)).toEqual([
+      ['p', '', '', ''],
+      ['h2', '', '', ''],
+    ])
+  })
+
+  it("keeps Drive's HTML indent and heading line height, bar its default line height", () => {
+    const indent = 'margin-left: 24px!important;'
+    const html =
+      `<p style="${indent}">one</p><h2 style="${indent} line-height: 150%">Two</h2>` +
+      '<h3 style="line-height: 100%">Three</h3>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    expect(blockLayout(result.state)).toEqual([
+      ['p', '24px', 'important', ''],
+      ['h2', '24px', 'important', '150%'],
+      ['h3', '', '', ''],
+    ])
+    expect(result.dropped).toEqual([])
   })
 
   it.each([
-    { name: "indented past Drive's default", html: '<p style="margin-left: 24px">one</p>' },
-    {
-      name: "with a heading line height the editor can't hold",
-      html: '<h1 style="line-height: 150%">Two</h1>',
-    },
+    { name: "indented without Drive's priority", html: '<p style="margin-left: 24px">one</p>' },
+    { name: "indented in a unit Drive didn't write", html: '<p style="margin-left: 2em">one</p>' },
     { name: 'holding formatting the editor has no mark for', html: '<p>x<sup>2</sup></p>' },
     { name: 'with a block attribute the editor drops', html: '<p dir="rtl">one</p>' },
     {

@@ -1,0 +1,62 @@
+import { Extension } from '@tiptap/core'
+
+const PIXELS = /^(-?\d+)px$/
+
+// Drive's default heading line height, which it never drew
+const DRIVE_HEADING_LINE_HEIGHT = '100%'
+
+function parseIndent(element: HTMLElement) {
+  const found = PIXELS.exec(element.style.marginLeft)
+  if (!found || Number(found[1]) === 0) {
+    return null
+  }
+
+  return Number(found[1])
+}
+
+function renderIndent(attrs: Record<string, unknown>) {
+  if (attrs.indent === null) {
+    return {}
+  }
+
+  return { style: `margin-left: ${attrs.indent}px!important;` }
+}
+
+function parseLineHeight(element: HTMLElement) {
+  const height = element.style.lineHeight
+  if (!height || height === DRIVE_HEADING_LINE_HEIGHT) {
+    return null
+  }
+
+  return height
+}
+
+function renderLineHeight(attrs: Record<string, unknown>) {
+  if (!attrs.lineHeight) {
+    return {}
+  }
+
+  return { style: `line-height: ${attrs.lineHeight}` }
+}
+
+// Drive's indent on paragraphs and headings, and its heading line height, drawn as Drive drew them
+export const BlockLayout = Extension.create({
+  name: 'blockLayout',
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['paragraph', 'heading'],
+        attributes: {
+          indent: { default: null, parseHTML: parseIndent, renderHTML: renderIndent },
+        },
+      },
+      {
+        types: ['heading'],
+        attributes: {
+          lineHeight: { default: null, parseHTML: parseLineHeight, renderHTML: renderLineHeight },
+        },
+      },
+    ]
+  },
+})

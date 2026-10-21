@@ -6,6 +6,7 @@ import { AddMarkStep, ReplaceAroundStep, ReplaceStep, type Step } from '@tiptap/
 import { builtMarks } from '@tiptap/y-tiptap'
 import { Code, CodeBlock, Heading, Image, ImageGroup, RichTextKit, Video } from 'frappe-ui/editor'
 
+import { BlockLayout } from '@/apps/writer/extensions/block-layout'
 import ExtendedParagraph from '@/apps/writer/extensions/extended-paragraph'
 import FontFamily from '@/apps/writer/extensions/font-family'
 import { FontSize } from '@/apps/writer/extensions/font-size'
@@ -283,6 +284,7 @@ export function writerSchema() {
     LineHeight,
     EmbedNode,
     ExtendedParagraph,
+    BlockLayout,
     PageBreakExtension,
     TabNode,
     OldComment,

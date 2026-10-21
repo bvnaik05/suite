@@ -12,6 +12,7 @@ import {
 import type { Ref } from 'vue'
 import type * as yjs from 'yjs'
 
+import { BlockLayout } from '@/apps/writer/extensions/block-layout'
 import CleanStyles from '@/apps/writer/extensions/clean-styles'
 import { CommentExtension } from '@/apps/writer/extensions/comments'
 import { CoreEditorExtension } from '@/apps/writer/extensions/core-editor'
@@ -72,6 +73,7 @@ const EDITING_EXTENSIONS: AnyExtension[] = [
   LineHeight,
   EmbedExtension,
   ExtendedParagraph,
+  BlockLayout,
   CoreEditorExtension,
   PageBreakExtension,
   CharacterCount,
