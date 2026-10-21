@@ -7,7 +7,6 @@ import {
   yXmlFragmentToProseMirrorRootNode,
 } from '@tiptap/y-tiptap'
 import {
-  applyUpdate,
   ContentDeleted,
   ContentEmbed,
   ContentFormat,
@@ -28,6 +27,14 @@ import {
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { domInventory, inventory, unkept, type Inventory } from '@/apps/writer/collab/inventory'
 import {
+  isAtomName,
+  isContent,
+  isHintOnlyToc,
+  MEDIA,
+  readLegacy,
+  type LegacyBody,
+} from '@/apps/writer/collab/legacy-read'
+import {
   dropCommentMarks,
   OLD_THREAD_TAGS,
   oldCommentAnchors,
@@ -39,13 +46,6 @@ import { writerSchema } from '@/apps/writer/schema'
 
 const extensions = writerSchema()
 const schema = getSchema(extensions)
-
-/** An old Writer document as its row stores it. */
-export interface LegacyBody {
-  content: string | null
-  html: string | null
-  collab: number
-}
 
 /**
  * What the conversion couldn't carry over: a part the editor can't hold, a change Yjs held back,
@@ -147,17 +147,6 @@ function pendingDrop(doc: Doc): Dropped[] {
   return [{ kind: 'pending', text, parts }]
 }
 
-function isContent(type: AbstractType<unknown>) {
-  if (type instanceof XmlText) {
-    return type.length > 0
-  }
-
-  return (
-    type instanceof XmlElement &&
-    (isAtomName(type.nodeName) || Object.keys(type.getAttributes()).length > 0)
-  )
-}
-
 // A lost part holds content when it, or anything in it, is text, an atom or a stored attribute
 function holdsContent(part: AbstractType<unknown>) {
   if (isContent(part)) {
@@ -167,46 +156,8 @@ function holdsContent(part: AbstractType<unknown>) {
   return part instanceof XmlElement && !part.createTreeWalker(isContent).next().done
 }
 
-// Drive's table of contents, drawn from the headings, stores only the hint it showed
-const OLD_TOC = 'tocNode'
-
-function isHintOnlyToc(part: AbstractType<unknown>) {
-  return (
-    part instanceof XmlElement &&
-    part.nodeName === OLD_TOC &&
-    Object.keys(part.getAttributes()).every((key) => key === 'placeholder') &&
-    !!part.createTreeWalker(isContent).next().done
-  )
-}
-
 function isDroppable(part: AbstractType<unknown>) {
   return isHintOnlyToc(part) || !holdsContent(part)
-}
-
-// Blocks that hold no words when empty, and the line break, which never does
-const WORDLESS = new Set(['paragraph', 'heading', 'hardBreak'])
-
-function isWordOrPart(type: AbstractType<unknown>) {
-  if (type instanceof XmlText) {
-    return type.length > 0
-  }
-
-  if (isHintOnlyToc(type)) {
-    return false
-  }
-
-  // An atom or media holds its data whatever stray children it has
-  return (
-    type instanceof XmlElement &&
-    (isAtomName(type.nodeName) ||
-      MEDIA.has(type.nodeName) ||
-      (!type.length && !WORDLESS.has(type.nodeName)))
-  )
-}
-
-// No words, embeds or parts; what empty blocks store, like a heading's level, isn't counted
-function holdsNothing(body: XmlFragment) {
-  return !!body.createTreeWalker(isWordOrPart).next().done
 }
 
 function lostParts(lost: AbstractType<unknown>[]): Dropped[] {
@@ -226,34 +177,6 @@ function withHeadingIds(node: PMNode) {
   })
   return transform.doc
 }
-
-// A line break the HTML parser had nowhere to put loses no words, so breaks aren't counted
-function isAtomName(name: string) {
-  const type = schema.nodes[name]
-  return !!type && type.isLeaf && !type.isText && name !== 'hardBreak'
-}
-
-function decoded(content: string | null) {
-  // A collaborative body with no Yjs state stored
-  if (!content) {
-    return null
-  }
-
-  const old = new Doc()
-  try {
-    applyUpdate(
-      old,
-      Uint8Array.from(atob(content), (char) => char.charCodeAt(0)),
-    )
-  } catch {
-    // Bytes Yjs can't read leave the HTML
-    return null
-  }
-
-  return old
-}
-
-const MEDIA = new Set(['resizableMedia', 'image', 'video'])
 
 // Where each image and video points, in order
 function mediaSources(body: XmlFragment) {
@@ -731,19 +654,16 @@ function moveComments(body: XmlFragment) {
 }
 
 function read(legacy: LegacyBody) {
-  // A body saved without collaboration has only its HTML
-  if (legacy.collab !== 0) {
-    const old = decoded(legacy.content)
-    if (old && holdsNothing(old.getXmlFragment(BODY_FIELD))) {
-      return { ...fromHtmlOverYjs(old, legacy.html ?? ''), from: 'html' as const }
-    }
-
-    if (old) {
-      return { ...fromYjs(old), from: 'yjs' as const }
-    }
+  const choice = readLegacy(legacy)
+  if (choice.from === 'yjs') {
+    return { ...fromYjs(choice.old), from: choice.from }
   }
 
-  return { ...fromHtml(legacy.html ?? ''), from: 'html' as const }
+  if (choice.emptyYjs) {
+    return { ...fromHtmlOverYjs(choice.emptyYjs, choice.html), from: choice.from }
+  }
+
+  return { ...fromHtml(choice.html), from: choice.from }
 }
 
 function checkedBody(legacy: LegacyBody) {
