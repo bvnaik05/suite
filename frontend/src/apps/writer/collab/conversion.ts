@@ -200,6 +200,27 @@ function dropDriveDefaults(body: XmlFragment) {
   }
 }
 
+// frappe-ui left its upload id on uploaded media, which opens the caption field where it's drawn
+function dropUploadIds(body: XmlFragment): Dropped[] {
+  const marked = [
+    ...body.createTreeWalker(
+      (type) =>
+        type instanceof XmlElement &&
+        MEDIA.has(type.nodeName) &&
+        type.getAttribute('uploadId') != null,
+    ),
+  ] as XmlElement[]
+  for (const element of marked) {
+    element.removeAttribute('uploadId')
+  }
+
+  if (!marked.length) {
+    return []
+  }
+
+  return [{ kind: 'noise', name: 'uploadId' }]
+}
+
 type Attributes = Record<string, unknown>
 
 interface Run {
@@ -505,17 +526,18 @@ function breaksStyle(body: XmlFragment) {
 }
 
 // The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
-// checked on its own by where the media points; Drive's defaults, dropped; old colours, read as
-// palette names, or the check fails; the parts the build set
-// aside holding nothing, hidden or lost (recorded), and Drive's table of contents holding only its
-// hint, left out of the source, so a lost part with content fails; and the extras the result may
-// hold, being the filler the build adds, declared defaults and heading ids
+// checked on its own by where the media points; Drive's defaults, dropped; frappe-ui's upload id on
+// media, dropped (recorded); old colours, read as palette names, or the check fails; the parts the
+// build set aside holding nothing, hidden or lost (recorded), and Drive's table of contents holding
+// only its hint, left out of the source, so a lost part with content fails; and the extras the
+// result may hold, being the filler the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
   const media = mediaSources(body)
   convertOldMedia(body)
   dropDriveDefaults(body)
+  const uploadIds = dropUploadIds(body)
   const isColourMapped = mapOldColours(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(body) === media
@@ -535,7 +557,7 @@ function fromYjs(old: Doc) {
         return null
       }
 
-      return []
+      return uploadIds
     },
   }
 }

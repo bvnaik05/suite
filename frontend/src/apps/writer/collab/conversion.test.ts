@@ -67,7 +67,7 @@ describe('convertLegacy', () => {
   })
 
   it("keeps Drive's top-level block image in a paragraph with all it stored (R332)", () => {
-    const attrs = { src: SRC, uploadId: 'u1', alt: 'Sales chart', title: 'Q3' }
+    const attrs = { src: SRC, alt: 'Sales chart', title: 'Q3' }
     const doc = legacyDoc(yParagraph('one'), yAtom('image', attrs))
 
     const result = convert(stored(doc))
@@ -97,6 +97,98 @@ describe('convertLegacy', () => {
 
     const video = { type: 'video', attrs: { src: '/files/demo.mp4' } }
     expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one'), video), []])
+  })
+
+  it("drops the upload id frappe-ui left on Drive's block image and records it", () => {
+    const attrs = { src: SRC, uploadId: 'u1', alt: 'Sales chart', title: 'Q3' }
+    const doc = legacyDoc(yParagraph('one'), yAtom('image', attrs))
+
+    const result = convert(stored(doc))
+
+    const image = {
+      type: 'image',
+      attrs: { src: SRC, alt: 'Sales chart', title: 'Q3', align: 'left' },
+    }
+    const body = page(words('one'), paragraph(image))
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      body,
+      [{ kind: 'noise', name: 'uploadId' }],
+    ])
+  })
+
+  it.each([
+    {
+      name: 'an image in a paragraph',
+      doc: () => legacyDoc(yElement('paragraph', yAtom('image', { src: SRC, uploadId: 'u1' }))),
+      body: page(paragraph({ type: 'image', attrs: { src: SRC } })),
+    },
+    {
+      name: 'a video',
+      doc: () => legacyDoc(yAtom('video', { src: '/files/demo.mp4', uploadId: 'u1' })),
+      body: page({ type: 'video', attrs: { src: '/files/demo.mp4' } }),
+    },
+    {
+      name: 'two images, recorded once',
+      doc: () =>
+        legacyDoc(
+          yElement('paragraph', yAtom('image', { src: SRC, uploadId: 'u1' })),
+          yElement('paragraph', yAtom('image', { src: SRC, uploadId: 'u2' })),
+        ),
+      body: page(
+        paragraph({ type: 'image', attrs: { src: SRC } }),
+        paragraph({ type: 'image', attrs: { src: SRC } }),
+      ),
+    },
+  ])('drops the upload id frappe-ui left on $name and records it', ({ doc, body }) => {
+    const result = convert(stored(doc()))
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      body,
+      [{ kind: 'noise', name: 'uploadId' }],
+    ])
+  })
+
+  it.each([
+    {
+      name: 'on an image',
+      doc: () =>
+        legacyDoc(
+          yElement('paragraph', yAtom('image', { src: SRC, error: 'Failed to upload image' })),
+        ),
+      body: page(
+        paragraph({ type: 'image', attrs: { src: SRC, error: 'Failed to upload image' } }),
+      ),
+      dropped: [],
+    },
+    {
+      name: 'on a video',
+      doc: () => legacyDoc(yAtom('video', { src: '/files/demo.mp4', error: 'true' })),
+      body: page({ type: 'video', attrs: { src: '/files/demo.mp4', error: 'true' } }),
+      dropped: [],
+    },
+    {
+      name: 'beside an upload id, which alone drops',
+      doc: () =>
+        legacyDoc(
+          yElement('paragraph', yAtom('image', { src: SRC, uploadId: 'u1', error: 'true' })),
+        ),
+      body: page(paragraph({ type: 'image', attrs: { src: SRC, error: 'true' } })),
+      dropped: [{ kind: 'noise', name: 'uploadId' }],
+    },
+  ])('keeps the upload error people saw $name', ({ doc, body, dropped }) => {
+    const result = convert(stored(doc()))
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([body, dropped])
+  })
+
+  it("leaves an upload id on a part that isn't media to the check, which refuses it", () => {
+    const part = yParagraph('one')
+    part.setAttribute('uploadId', 'u1')
+
+    expect(convertLegacy(stored(legacyDoc(part)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
   })
 
   it("drops Drive's table of contents with its stored hint and records it (R341)", () => {
