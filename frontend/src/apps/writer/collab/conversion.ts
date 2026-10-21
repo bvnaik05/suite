@@ -49,6 +49,7 @@ import {
 } from '@/apps/writer/collab/old-comments'
 import {
   convertOldMedia,
+  isFloatDropped,
   isOldLayout,
   isOldMediaMappable,
   oldLayout,
@@ -224,6 +225,15 @@ function dropUploadIds(body: XmlFragment): Dropped[] {
   }
 
   return [{ kind: 'noise', name: 'uploadId' }]
+}
+
+// The old editor showed old media's alignment over its float, so a float beside one goes
+function droppedFloats(body: XmlFragment): Dropped[] {
+  if (!isFloatDropped(body)) {
+    return []
+  }
+
+  return [{ kind: 'noise', name: 'dataFloat' }]
 }
 
 type Attributes = Record<string, unknown>
@@ -530,18 +540,20 @@ function breaksStyle(body: XmlFragment) {
   })
 }
 
-// The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
-// checked on its own by where the media points and by old media holding only what the old editor
-// wrote; Drive's defaults, dropped; frappe-ui's upload id on media, dropped (recorded); old
-// colours, read as palette names, or the check fails; the parts the build set aside holding nothing,
-// hidden or lost (recorded), and Drive's table of contents holding only its hint, left out of the
-// source, so a lost part with content fails; and the extras the result may hold, being the filler
-// the build adds, declared defaults and heading ids
+// The check compares the old body with the fresh one as Yjs holds both. Between them:
+// convertOldMedia, checked on its own by where the media points and by old media holding only what
+// the old editor wrote; a float beside an alignment, dropped (recorded); Drive's defaults, dropped;
+// frappe-ui's upload id on media, dropped (recorded); old colours, read as palette names, or the
+// check fails; the parts the build set aside holding nothing, hidden or lost (recorded), and
+// Drive's table of contents holding only its hint, left out of the source, so a lost part with
+// content fails; and the extras the result may hold, being the filler the build adds, declared
+// defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
   const media = mediaSources(body)
   const isOldMediaKept = isOldMediaMappable(body)
+  const floats = droppedFloats(body)
   convertOldMedia(body)
   dropDriveDefaults(body)
   const uploadIds = dropUploadIds(body)
@@ -565,7 +577,7 @@ function fromYjs(old: Doc) {
         return null
       }
 
-      return uploadIds
+      return [...uploadIds, ...floats]
     },
   }
 }
@@ -674,6 +686,16 @@ function moveSpanHighlights(body: HTMLElement) {
   return spans.length > 0
 }
 
+// The old editor showed old media's alignment over its float, so a float beside one goes
+function droppedHtmlFloats(body: HTMLElement) {
+  const olds = [...body.querySelectorAll(OLD_MEDIA)]
+  if (!olds.some((old) => old.hasAttribute('dataalign') && old.hasAttribute('datafloat'))) {
+    return []
+  }
+
+  return ['datafloat']
+}
+
 // The HTML the editor reads, its old media mapped in place; written back from the parse only when
 // that or moving a span's background changed it
 function readableHtml(body: HTMLElement, html: string) {
@@ -720,15 +742,16 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
   })
 }
 
-// The check compares the old HTML, its old media mapped, frappe-ui's upload marks dropped (recorded)
-// and Drive's defaults dropped, with the fresh body as the editor draws it; every property the raw
-// style text names must survive the parse, bar the noise list, and the whitespace the parser folds
-// isn't compared
+// The check compares the old HTML, its old media mapped and a float beside an alignment dropped
+// (recorded), frappe-ui's upload marks dropped (recorded) and Drive's defaults dropped, with the
+// fresh body as the editor draws it; every property the raw style text names must survive the
+// parse, bar the noise list, and the whitespace the parser folds isn't compared
 function fromHtml(html: string) {
   const { body } = new DOMParser().parseFromString(html, 'text/html')
   const hasUnreadableThreads = !!body.querySelector(OLD_THREAD_TAGS)
   // Before the defaults go, since dropping one rewrites the style text from the parse
   const raw = rawStyles(body)
+  const floats = droppedHtmlFloats(body)
   const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html), extensions))
   const uploadMarks = dropUploadMarks(body)
   dropDriveHtmlDefaults(body)
@@ -743,7 +766,7 @@ function fromHtml(html: string) {
         return null
       }
 
-      const names = [...raw.noise, ...uploadMarks, ...droppedNoise(body, result)]
+      const names = [...raw.noise, ...uploadMarks, ...floats, ...droppedNoise(body, result)]
       return names.map((name): Dropped => ({ kind: 'noise', name }))
     },
   }

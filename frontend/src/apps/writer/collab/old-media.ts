@@ -47,7 +47,7 @@ function isOldMedia(type: AbstractType<unknown>) {
 }
 
 function pixels(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return value
   }
 
@@ -81,7 +81,8 @@ export function oldLayout(
 }
 
 // A size in percent or 'auto' has no pixel form, so the editor measures the media instead. The old
-// editor stored an image's resized height as NaN, so a pixel width stands on its own
+// editor stored an image's resized height as a number that isn't finite, so a pixel width stands on
+// its own
 function mediaAttributes(old: XmlElement) {
   const stored = old.getAttributes() as Record<string, unknown>
   const attributes: Record<string, unknown> = { align: 'left' }
@@ -112,7 +113,8 @@ function isOldSize({ width, height }: Record<string, unknown>) {
     return pixels(width) !== null
   }
 
-  return isWidth && (height == null || height === 'auto' || Number.isNaN(height))
+  const isUnmeasured = typeof height === 'number' && !Number.isFinite(height)
+  return isWidth && (height == null || height === 'auto' || isUnmeasured)
 }
 
 function isMappable(old: XmlElement) {
@@ -127,12 +129,23 @@ function isMappable(old: XmlElement) {
   )
 }
 
+function resizableMedia(body: XmlFragment) {
+  const olds = body.createTreeWalker(
+    (type) => type instanceof XmlElement && type.nodeName === OLD_MEDIA,
+  )
+  return [...olds] as XmlElement[]
+}
+
 /** Whether all old resizable media under `body` holds only what the old editor wrote. */
 export function isOldMediaMappable(body: XmlFragment) {
-  const olds = [
-    ...body.createTreeWalker((type) => type instanceof XmlElement && type.nodeName === OLD_MEDIA),
-  ]
-  return olds.every((old) => isMappable(old as XmlElement))
+  return resizableMedia(body).every(isMappable)
+}
+
+/** Whether old resizable media under `body` sets both layouts, so its float isn't shown. */
+export function isFloatDropped(body: XmlFragment) {
+  return resizableMedia(body).some(
+    (old) => old.getAttribute('dataAlign') != null && old.getAttribute('dataFloat') != null,
+  )
 }
 
 function element(name: string, attributes: Record<string, unknown>, children: XmlElement[] = []) {

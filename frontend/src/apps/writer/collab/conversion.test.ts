@@ -188,6 +188,8 @@ describe('convertLegacy', () => {
     { name: 'a width neither pixels nor its default', stored: { width: '50%' } },
     { name: 'a height neither pixels nor its default', stored: { height: '20%' } },
     { name: 'a pixel height without a pixel width', stored: { width: '100%', height: 200 } },
+    { name: 'a negative pixel width', stored: { width: -5 } },
+    { name: 'a negative pixel height', stored: { width: 320, height: -5 } },
     { name: 'an attribute it never declared', stored: { foo: '1' } },
   ])("refuses the old editor's resizable media holding $name", ({ stored: attrs }) => {
     const doc = legacyDoc(yParagraph('one'), oldMedia({ src: SRC, 'media-type': 'img', ...attrs }))
@@ -210,6 +212,11 @@ describe('convertLegacy', () => {
       shown: paragraph({ type: 'image', attrs: { src: SRC, width: 420, align: 'left' } }),
     },
     {
+      name: 'a resized image with a height of Infinity',
+      attrs: { 'media-type': 'img', width: 420, height: Number.POSITIVE_INFINITY },
+      shown: paragraph({ type: 'image', attrs: { src: SRC, width: 420, align: 'left' } }),
+    },
+    {
       name: 'an image at its defaults',
       attrs: { 'media-type': 'img', width: '100%', height: 'auto' },
       shown: paragraph({ type: 'image', attrs: { src: SRC, align: 'left' } }),
@@ -228,6 +235,18 @@ describe('convertLegacy', () => {
     const result = convert(stored(legacyDoc(yParagraph('one'), oldMedia({ src: SRC, ...attrs }))))
 
     expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one'), shown), []])
+  })
+
+  it("keeps the old editor's alignment over its float, recording the float once", () => {
+    const both = { src: SRC, 'media-type': 'img', dataAlign: 'center', dataFloat: 'right' }
+    const doc = legacyDoc(yParagraph('one'), oldMedia(both), oldMedia(both))
+    const result = convert(stored(doc))
+
+    const shown = paragraph({ type: 'image', attrs: { src: SRC, align: 'center' } })
+    expect([bodyOf(result.state), result.dropped]).toEqual([
+      page(words('one'), shown, shown),
+      [{ kind: 'noise', name: 'dataFloat' }],
+    ])
   })
 
   it("leaves an upload id on a part that isn't media to the check, which refuses it", () => {
@@ -693,12 +712,27 @@ describe('convertLegacy', () => {
     expect(media).toEqual([['video', '/v.mp4']])
   })
 
+  it("draws the old editor's alignment over its float, recording the float once", () => {
+    const layout = 'dataalign="center" datafloat="right"'
+    const image = `<img src="${SRC}" media-type="img" width="100%" height="auto" ${layout}>`
+    const result = convert({ content: null, html: `<p>${image}</p><p>${image}</p>`, collab: 0 })
+
+    const element = document.createElement('div')
+    element.innerHTML = openConverted(result.state).getHTML()
+    const media = [...element.querySelectorAll('img')].map((shown) => ({
+      align: shown.getAttribute('data-align'),
+      float: shown.getAttribute('data-float'),
+      width: shown.getAttribute('width'),
+      height: shown.getAttribute('height'),
+    }))
+    const drawn = { align: 'center', float: null, width: '100%', height: 'auto' }
+    expect([media, result.dropped]).toEqual([
+      [drawn, drawn],
+      [{ kind: 'noise', name: 'datafloat' }],
+    ])
+  })
+
   it.each([
-    {
-      name: 'an alignment, over a float',
-      html: `<p><img src="${SRC}" media-type="img" width="100%" height="auto" dataalign="center" datafloat="right"></p>`,
-      drawn: { tag: 'img', align: 'center', float: null, width: '100%', height: 'auto' },
-    },
     {
       name: 'a float with no alignment',
       html: `<p><img src="${SRC}" media-type="img" datafloat="right"></p>`,
