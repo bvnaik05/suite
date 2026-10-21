@@ -15,7 +15,10 @@ import { HeadingAnchors } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
 
 const schema = getSchema(writerSchema())
-export const MAX_STATE = 4 * 1024 * 1024
+const KIB = 1024
+const MAX_STATE_MIB = 4
+const HEADING_LEVEL = 2
+export const MAX_STATE = MAX_STATE_MIB * KIB * KIB
 export const SRC = '/private/files/chart.png'
 // Drive's ink as it saved it on text left at its default
 export const INK = 'style="color: rgb(31, 39, 46)"'
@@ -62,7 +65,7 @@ export function yRuns(...pieces: [string, Record<string, unknown>?][]) {
 
 export function yHeading(text: string, id?: string) {
   const node = yElement('heading', new XmlText(text))
-  node.setAttribute('level', 2 as never)
+  node.setAttribute('level', HEADING_LEVEL as never)
   if (id) {
     node.setAttribute('data-toc-id', id)
   }

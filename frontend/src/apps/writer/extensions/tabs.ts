@@ -312,12 +312,7 @@ export const TabsExtension = TabNode.extend({
       focusTab: (tabId: string) => () => {
         setTimeout(() => {
           const { doc } = this.editor.state
-          let tab: TabMatch | null = findTab(doc, tabId)
-          if (tabId === FIRST_TAB_ID) {
-            const [firstBlock] = firstTabBlocks(doc)
-            tab = firstBlock
-          }
-
+          const tab = tabId === FIRST_TAB_ID ? firstTabBlocks(doc)[0] : findTab(doc, tabId)
           if (tab) this.editor.commands.focus(tab.pos + 1)
         }, 0)
         return true

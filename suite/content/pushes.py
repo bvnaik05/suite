@@ -17,6 +17,7 @@ import json
 import secrets
 from collections.abc import Iterator
 from datetime import datetime
+from typing import cast
 
 import frappe
 import pycrdt
@@ -440,7 +441,7 @@ def put_piece(app: str, doc_id: str, stage_id: str, piece: stage.Piece, user: st
     if session.closed:
         raise Refusal(409, "client_closed")
 
-    if piece.shape.purpose == "save" and int(session.acked_seq) >= piece.shape.seq_to:
+    if piece.shape.purpose == "save" and int(session.acked_seq) >= cast(int, piece.shape.seq_to):
         return {"dup": True}
 
     try:

@@ -9,10 +9,10 @@
       />
     </slot>
     <div class="flex flex-1 overflow-hidden">
-      <ToC v-if="editor" :editor :anchors :class="$slots.cover && 'invisible'" />
+      <ToC v-if="editor" :editor :anchors :class="hasCover() && 'invisible'" />
       <div class="relative flex flex-1 min-w-0">
         <div
-          v-show="!$slots.cover"
+          v-show="!hasCover()"
           id="editor-scroll-container"
           class="relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden md:border-l border-outline-gray-2"
         >
@@ -81,7 +81,7 @@
         </div>
         <slot name="cover" />
         <div
-          v-if="paintedComments?._map.size && !$slots.cover"
+          v-if="paintedComments?._map.size && !hasCover()"
           class="hidden md:block absolute top-4 right-4"
         >
           <Dropdown :options="commentFilterOptions" align="end">
@@ -96,7 +96,7 @@
       </div>
       <slot name="aside" />
     </div>
-    <ToCMobile v-if="editor && !$slots.cover" :editor />
+    <ToCMobile v-if="editor && !hasCover()" :editor />
   </div>
 </template>
 
@@ -115,7 +115,16 @@ import {
   EditorFixedMenu as TextEditorFixedMenu,
 } from 'frappe-ui/editor'
 import { v4 as uuidv4 } from 'uuid'
-import { computed, inject, onBeforeUnmount, provide, ref, useTemplateRef, watch } from 'vue'
+import {
+  computed,
+  inject,
+  onBeforeUnmount,
+  provide,
+  ref,
+  useSlots,
+  useTemplateRef,
+  watch,
+} from 'vue'
 import type { Doc, Map as YMap } from 'yjs'
 
 import { hasDefaultDocumentTitle } from '@/apps/drive'
@@ -179,6 +188,12 @@ const emit = defineEmits<{
 
 const showSettings = defineModel<boolean>('showSettings')
 const edited = defineModel<boolean>('edited')
+const slots = useSlots()
+
+function hasCover() {
+  return !!slots.cover
+}
+
 const root = useRootStore()
 
 const localContent = ref(props.rawContent ?? '')
@@ -366,8 +381,9 @@ function autorename() {
   const { $anchor } = instance.view.state.selection
   const inFirstBlock = $anchor.index(0) === 1 && $anchor.depth === 1
   if (!inFirstBlock) {
-    const inLastLine = $anchor.depth === 1 && instance.state.doc.childCount - 1 === $anchor.index(0)
-    if (inLastLine) {
+    const isInLastLine =
+      $anchor.depth === 1 && instance.state.doc.childCount - 1 === $anchor.index(0)
+    if (isInLastLine) {
       scrollParent.value!.scroll(0, scrollParent.value!.scrollHeight)
     }
     return

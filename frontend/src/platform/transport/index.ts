@@ -309,7 +309,7 @@ async function sendWithRetries(
     const canRetry = isQuery(prepared.operation) && attempt < settings.maxRetries
     const backoffMs = settings.retryBaseMs * RETRY_BACKOFF_FACTOR ** attempt
     const response = await fetchAttempt(settings, prepared, canRetry)
-    if (!response) {
+    if (response === null) {
       await delay(backoffMs, prepared.signal)
       continue
     }

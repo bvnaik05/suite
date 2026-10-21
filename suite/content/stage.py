@@ -11,6 +11,7 @@ import json
 import struct
 from dataclasses import astuple, dataclass, fields
 from datetime import datetime, timedelta
+from typing import cast
 
 import frappe
 
@@ -106,7 +107,7 @@ def split_header(body: bytes) -> tuple[object, bytes]:
 def checked_shape(header: object) -> Shape:
     """Check a piece's header and return the shape it gives its stage."""
     try:
-        sha_total = bytes.fromhex(header["sha_total"])
+        sha_total = bytes.fromhex(cast(dict, header)["sha_total"])
     except (ValueError, TypeError, KeyError):
         raise Malformed from None
 

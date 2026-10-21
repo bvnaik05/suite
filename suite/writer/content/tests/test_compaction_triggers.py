@@ -289,7 +289,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
         ):
             for _ in range(50):
                 # Each request starts with an empty local cache
-                frappe.local.cache = {}
+                frappe.local.cache: dict = {}
                 scheduling.request_compaction(writer_content.APP, "outage", "unused")
 
         self.assertEqual(frappe.db.count("Error Log", logged), 1)

@@ -157,9 +157,11 @@ export function stripTexts(root: Element) {
   return strips.map((strip) => strip.querySelector('p')?.textContent?.trim() ?? '')
 }
 
+const RECOVERY_READ_MS = 50
+
 // Lets the recovery strip finish reading the device's copies
 export async function settled() {
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await new Promise((resolve) => setTimeout(resolve, RECOVERY_READ_MS))
   await nextTick()
 }
 

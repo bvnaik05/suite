@@ -9,8 +9,9 @@ uncompacted.
 """
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import NamedTuple, cast
 
 import pycrdt
 
@@ -36,6 +37,12 @@ class Compacted:
     ms: int = 0
 
 
+class Fingerprint(NamedTuple):
+    content: str
+    vector: dict
+    deletes: dict
+
+
 def compacted_state(merged: bytes, parts: list[bytes], wanted_vector: dict) -> tuple[bytes, bool]:
     """Compact `parts`, merging in once what pycrdt leaves out of `merged`; true when it fell short."""
     doc = load_doc(parts)
@@ -51,7 +58,7 @@ def compacted_state(merged: bytes, parts: list[bytes], wanted_vector: dict) -> t
 def require_same_content(
     state: bytes,
     parts: list[bytes],
-    expected_fingerprint: tuple[str, dict, dict],
+    expected_fingerprint: Fingerprint,
     part_map: Mapping[str, type],
 ) -> None:
     """Raise `CompactionFailed` unless `state`, reloaded, re-encoded and given every part, still matches."""
@@ -65,7 +72,7 @@ def require_same_content(
     for part in parts:
         reloaded.apply_update(part)
 
-    if vector_and_deletes(reloaded) != expected_fingerprint[1:]:
+    if vector_and_deletes(reloaded) != (expected_fingerprint.vector, expected_fingerprint.deletes):
         raise CompactionFailed("not_contained")
 
 
@@ -91,7 +98,7 @@ def checked_compaction(parts: list[bytes], row_count: int, part_map: Mapping[str
 
     expected_fingerprint = fingerprint(load_doc([merged]), part_map)
     require_same_content(state, parts, expected_fingerprint, part_map)
-    report["clients"] = len(expected_fingerprint[1])
+    report["clients"] = len(expected_fingerprint.vector)
     return Compacted(state, integrated=True, report=report)
 
 
@@ -153,11 +160,11 @@ def load_doc(parts: list[bytes]) -> pycrdt.Doc:
     return doc
 
 
-def fingerprint(doc: pycrdt.Doc, part_map: Mapping[str, type]) -> tuple[str, dict, dict]:
+def fingerprint(doc: pycrdt.Doc, part_map: Mapping[str, type]) -> Fingerprint:
     """Return the document's content, state vector and delete set, to compare states by."""
     content = content_json(doc, part_map)
     vector, deletes = vector_and_deletes(doc)
-    return content, vector, deletes
+    return Fingerprint(content, vector, deletes)
 
 
 def content_json(
@@ -219,8 +226,8 @@ def read_clocks(reader: Reader) -> dict:
 def serialize(value: object, rewrite: Callable[[str], str] | None = None) -> object:
     """Turn a shared type into plain JSON values, with `rewrite` applied to its values."""
     if isinstance(value, pycrdt.XmlText):
-        serialized = {"text": text_delta(value.diff(), rewrite)}
-        attributes = dict(value.attributes)
+        serialized: dict[str, object] = {"text": text_delta(value.diff(), rewrite)}
+        attributes = attributes_of(value)
         if attributes:
             serialized["attrs"] = plain_value(attributes, rewrite)
 
@@ -229,7 +236,7 @@ def serialize(value: object, rewrite: Callable[[str], str] | None = None) -> obj
     if isinstance(value, pycrdt.XmlElement):
         return {
             "el": value.tag,
-            "attrs": plain_value(dict(value.attributes), rewrite),
+            "attrs": plain_value(attributes_of(value), rewrite),
             "kids": [serialize(child, rewrite) for child in value.children],
         }
 
@@ -246,6 +253,11 @@ def serialize(value: object, rewrite: Callable[[str], str] | None = None) -> obj
         return {"arr": [serialize(item, rewrite) for item in value]}
 
     return plain_value(value, rewrite)
+
+
+def attributes_of(node: pycrdt.XmlText | pycrdt.XmlElement) -> dict[str, object]:
+    """Read a node's attributes; pycrdt's view yields its pairs but isn't typed as iterable."""
+    return dict(cast("Iterable[tuple[str, object]]", node.attributes))
 
 
 def text_delta(diff: list[tuple[object, dict | None]], rewrite: Callable[[str], str] | None = None) -> list:

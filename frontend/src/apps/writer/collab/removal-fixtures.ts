@@ -14,6 +14,8 @@ import {
 } from '@/apps/writer/collab/test-support'
 import type { CollabRoom } from '@/platform/collab'
 
+const QQ_OFFSET = 2
+
 export function paragraph(...content: object[]) {
   return { type: 'paragraph', content }
 }
@@ -43,7 +45,7 @@ export function typeAt(tab: Tab, word: string, offset: number, content: string |
 export function typeQQ(tab: Tab, word: string) {
   tab.editor
     .chain()
-    .setTextSelection(inside(tab, word, 2))
+    .setTextSelection(inside(tab, word, QQ_OFFSET))
     .insertContent('QQ')
     .run()
 }

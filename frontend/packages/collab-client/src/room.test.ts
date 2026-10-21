@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as yjs from 'yjs'
 
 import { openRoom } from './open'
@@ -14,6 +14,10 @@ import {
 } from './test-support'
 
 describe('collab room', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'locks')
+  })
+
   it('a tab stops following a document a newer editor wrote to, and goes read-only', async () => {
     const server = fakeServer()
     const room = await join(server.endpoints())
@@ -124,13 +128,12 @@ describe('collab room', () => {
       return callback({ name, mode: 'exclusive' })
     }
 
-    vi.stubGlobal('navigator', { ...navigator, locks: { request } })
+    Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true })
     const kept = await device()
     const failingStore = Object.create(kept.store)
     failingStore.saveSession = () => Promise.reject(new DOMException('full', 'QuotaExceededError'))
 
     await join(fakeServer().endpoints(), { device: { store: failingStore, doc: 'D' } })
-    vi.unstubAllGlobals()
 
     expect(requested).toEqual([expect.stringMatching(/^suite-collab:D:[0-9a-f]+$/)])
   })

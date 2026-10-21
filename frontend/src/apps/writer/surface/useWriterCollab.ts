@@ -107,14 +107,10 @@ export function useWriterCollab(
   }
 
   function setOpenFailure(error: unknown) {
-    if (error instanceof CollabOpenError) {
-      openReason.value = error.reason
-    }
-
-    if (error instanceof CollabOpenError || error instanceof TransportError) {
-      openStatus.value = error.status
-    }
-
+    const hasReason = error instanceof CollabOpenError
+    const hasStatus = hasReason || error instanceof TransportError
+    openReason.value = hasReason ? error.reason : null
+    openStatus.value = hasStatus ? error.status : null
     mode.value = 'failed'
   }
 

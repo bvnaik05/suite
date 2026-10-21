@@ -233,6 +233,8 @@ export function openRows(host: Element) {
 }
 
 // "é" is two bytes, so these sit either side of Drive's 65,535-byte limit on a comment
-export const LONGEST = 'é'.repeat(32_767) + 'x'
-export const TOO_LONG = 'é'.repeat(32_768)
+const LONGEST_CHARS = 32_767
+const TOO_LONG_CHARS = 32_768
+export const LONGEST = 'é'.repeat(LONGEST_CHARS) + 'x'
+export const TOO_LONG = 'é'.repeat(TOO_LONG_CHARS)
 export const TOO_LONG_MESSAGE = 'This comment is too long. Shorten it and try again.'

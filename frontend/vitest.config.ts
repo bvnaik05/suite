@@ -39,12 +39,13 @@ export default defineConfig({
       '~icons/lucide/monitor-cog': path.resolve(__dirname, 'src/test/icon-stub.ts'),
       '~icons/lucide/star': path.resolve(__dirname, 'src/test/icon-stub.ts'),
       '~icons/lucide/trash': path.resolve(__dirname, 'src/test/icon-stub.ts'),
+      '~icons/lucide/message-square-quote': path.resolve(__dirname, 'src/test/icon-stub.ts'),
     },
   },
   test: {
     environment: 'jsdom',
     passWithNoTests: true,
-    setupFiles: ['fake-indexeddb/auto'],
+    setupFiles: ['src/test/setup.ts'],
     // The binding is linked in from frontend/packages, so Vite loads it; its
     // importers must load through Vite too or they get a second copy
     server: { deps: { inline: [/@tiptap\/extension-collaboration/] } },

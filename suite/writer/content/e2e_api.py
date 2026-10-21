@@ -1,6 +1,7 @@
 """Collab hooks for the Playwright suites: turn collaboration on, compact now, and read a log back."""
 
 import json
+from typing import cast
 
 import frappe
 import pycrdt
@@ -233,14 +234,14 @@ def start_code_and_bold(node: str) -> dict:
 def block_runs(node: str) -> list[list]:
     """Read each of `node`'s top-level blocks as runs of text and formatting, as the server holds them."""
     fragment = stored_fragment(node)
-    return [text_runs(block) for block in fragment.children]
+    return [text_runs(cast(pycrdt.XmlElement, block)) for block in fragment.children]
 
 
 def text_runs(block: pycrdt.XmlElement) -> list:
     """Join the runs of every text in `block`."""
     runs: list = []
     for text in block.children:
-        runs.extend([chunk, attributes or {}] for chunk, attributes in text.diff())
+        runs.extend([chunk, attributes or {}] for chunk, attributes in cast(pycrdt.XmlText, text).diff())
 
     return runs
 
@@ -312,7 +313,7 @@ def stored_fragment(node: str) -> pycrdt.XmlFragment:
     return loaded_doc.get("default", type=pycrdt.XmlFragment)
 
 
-def block_text(node: pycrdt.XmlText | pycrdt.XmlElement) -> str:
+def block_text(node: pycrdt.XmlText | pycrdt.XmlElement | pycrdt.XmlFragment) -> str:
     """Join the text below `node`."""
     if isinstance(node, pycrdt.XmlText):
         return "".join(chunk for chunk, _attributes in node.diff())

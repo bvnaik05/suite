@@ -17,6 +17,7 @@ export class Hub {
   private static hubs = new WeakMap<LiveSocket, Hub>()
   readonly members = new Set<HubMember>()
   private roomSetVersion = 0
+  private isOverCap = false
 
   static forSocket(socket: LiveSocket) {
     let hub = Hub.hubs.get(socket)
@@ -51,9 +52,12 @@ export class Hub {
   sendRoomSet() {
     const keys = [...this.members].flatMap((member) => member.currentKeys())
     const uniqueKeys = [...new Set(keys)]
-    if (uniqueKeys.length > ROOMS_MAX) {
+    const isOverCap = uniqueKeys.length > ROOMS_MAX
+    if (isOverCap && !this.isOverCap) {
       console.warn(`collab: ${uniqueKeys.length} rooms on one socket, only ${ROOMS_MAX} joined`)
     }
+
+    this.isOverCap = isOverCap
 
     const rooms = uniqueKeys.slice(0, ROOMS_MAX)
     const version = ++this.roomSetVersion

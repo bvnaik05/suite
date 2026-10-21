@@ -143,6 +143,13 @@ describe('transport', () => {
     expect(writeFetch).toHaveBeenCalledOnce()
   })
 
+  it('stops retrying a GET whose fetcher resolves nothing', async () => {
+    const fetcher = vi.fn(async () => undefined as unknown as Response)
+    const client = createTransport({ fetch: fetcher, maxRetries: 3, retryBaseMs: 0 })
+    await expect(client.request(getNode, { node: 'n1' })).rejects.toBeDefined()
+    expect(fetcher.mock.calls.length).toBeLessThanOrEqual(4)
+  })
+
   it('waits for Retry-After before retrying a rate-limited GET', async () => {
     vi.useFakeTimers()
     const fetcher = vi

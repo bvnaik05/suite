@@ -1,3 +1,4 @@
+import { toast } from 'frappe-ui'
 import { fromUint8Array } from 'js-base64'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Awareness } from 'y-protocols/awareness'
@@ -15,6 +16,7 @@ import {
   resetSurface,
   settled,
   stripTexts,
+  type EditorElement,
 } from './writer-surface-fixtures'
 
 vi.hoisted(() => {
@@ -176,5 +178,34 @@ describe('Writer surface', () => {
 
     await vi.waitFor(() => expect(stripTexts(refused)).toEqual([REFUSED_KEPT]))
     await discardCopies()
+  })
+
+  it('tells the person a paste is too large to add in one go', async () => {
+    realEditors.isOn = true
+    const room = liveRoom()
+    const presence = { awareness: new Awareness(room.doc), peers: [], onChange: () => () => {} }
+    const limits = {
+      fragment: 1000,
+      edit_max: 100,
+      state_max: 10_000,
+      state_bytes: 0,
+      tail_bound: 0,
+    }
+    Object.assign(room, { presence })
+    room.status = { ...room.status, restoreRev: 0, limits, isAtLimit: false }
+    const error = vi.spyOn(toast, 'error')
+    const root = await openedSurface()
+
+    const element = root.querySelector<EditorElement>('[data-editor] .ProseMirror')!
+    const clipboard = new Map([['text/plain', 'x'.repeat(200)]])
+    const clipboardData = { getData: (type: string) => clipboard.get(type) ?? '' }
+    const paste = Object.assign(new Event('paste', { bubbles: true, cancelable: true }), {
+      clipboardData,
+    })
+    element.dispatchEvent(paste)
+
+    expect(error).toHaveBeenCalledWith(
+      'This is too large to add in one go. Add it in smaller parts.',
+    )
   })
 })

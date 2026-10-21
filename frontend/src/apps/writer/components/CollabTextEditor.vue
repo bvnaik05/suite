@@ -130,7 +130,7 @@ function commentOnSelection() {
   }
 }
 
-async function handleSave(_manual: boolean, _html: string | null, done?: () => void) {
+async function handleSave(isManual: boolean, _html: string | null, done?: () => void) {
   await withinTenSeconds(props.room.flush())
   if (props.room.status.saveState === 'clean') {
     done?.()

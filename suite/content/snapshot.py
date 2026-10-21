@@ -14,6 +14,7 @@ import hashlib
 import json
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import frappe
 
@@ -69,7 +70,7 @@ def isolation_level() -> str | None:
     for name in ("transaction_isolation", "tx_isolation"):
         level = load_system_variable(name)
         if level is not None:
-            return level
+            return cast(str, level)
 
     return None
 

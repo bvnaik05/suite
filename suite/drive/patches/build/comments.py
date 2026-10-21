@@ -2,6 +2,7 @@
 
 import base64
 import json
+from collections.abc import Callable
 
 import pycrdt
 
@@ -179,13 +180,13 @@ def _writer_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
             raise InvalidLegacyContent("Writer comment replies are not a list")
         entries = [value, *replies]
         # `identity` is read off the entry below, so the shape check cannot wait
-        # for `_entry`: a string reply would raise `AttributeError`, which
+        # for `comment_entry`: a string reply would raise `AttributeError`, which
         # `history.py` does not catch, and one malformed reply would end the run
         # with a traceback instead of a recorded refusal.
         if any(not isinstance(entry, dict) for entry in entries):
             raise InvalidLegacyContent("Writer comment or reply is not an object")
         normalized = [
-            _entry(
+            comment_entry(
                 entry,
                 identity=entry.get("id"),
                 owner_key="owner",
@@ -253,7 +254,8 @@ def _sheet_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
                 for index, value in enumerate(raw_thread["thread"]):
                     if not isinstance(value, dict):
                         raise InvalidLegacyContent("Sheet comment thread contains a non-object entry")
-                    entry = _entry(
+
+                    entry = comment_entry(
                         value,
                         identity=derived_name("drive-sheet-comment/1", thread_id, index),
                         owner_key="author",
@@ -321,7 +323,17 @@ def entry_mentions(value: dict) -> list[str]:
     return mention_ids
 
 
-def _entry(value, *, identity, owner_key, name_key, time_key, fallback, timezone) -> dict:
+def comment_entry(
+    value: object,
+    *,
+    identity: str,
+    owner_key: str,
+    name_key: str | None,
+    time_key: str,
+    fallback: Callable[[], tuple[str, str]],
+    timezone: str,
+) -> dict:
+    """Normalize one legacy comment or reply into the entry a Drive thread row holds."""
     if not isinstance(value, dict):
         raise InvalidLegacyContent("comment entry is not an object")
 
