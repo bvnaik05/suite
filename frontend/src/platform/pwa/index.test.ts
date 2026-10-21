@@ -52,6 +52,12 @@ vi.mock('@/platform/pwa/frappe-push-notification', () => ({
       fcm.calls.push(`unsubscribe ${localStorage.getItem('firebase_token_mail')}`)
       localStorage.removeItem('firebase_token_mail')
     }
+    // Notifications turned on here: a new token, subscribed.
+    async enableNotification() {
+      localStorage.setItem('firebase_token_mail', 'token-new')
+      fcm.calls.push('subscribe token-new')
+      return { permission_granted: true }
+    }
     // Firebase drops the token; the server is not told.
     async forgetToken() {
       fcm.calls.push(`forget ${localStorage.getItem('firebase_token_mail')}`)
@@ -287,6 +293,20 @@ describe('Suite PWA', () => {
     await install('authenticated', 'b@suite.test')
 
     expect(fcm.calls).toEqual(['forget token-a'])
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull()
+  })
+
+  it('drops a token turned on in this browser when the next user signs in', async () => {
+    await install('authenticated', 'a@suite.test')
+    const { useDevicePush } = await import('@/platform/pwa')
+    expect(await useDevicePush().enable()).toBe(true)
+
+    // User A leaves through a logout that runs no platform cleanup; user B signs in.
+    vi.resetModules()
+    fcm.calls = []
+    await install('authenticated', 'b@suite.test')
+
+    expect(fcm.calls).toEqual(['forget token-new'])
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull()
   })
 

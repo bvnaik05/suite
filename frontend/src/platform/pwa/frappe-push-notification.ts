@@ -193,12 +193,21 @@ class FrappePushNotification {
   /**
    * Subscribes this device's token for any of `apps` it is not subscribed for yet: an app
    * installed after notifications were turned on, or a token from before subscriptions were per
-   * app, which the relay knew as Mail's.
+   * app, which the relay knew as Mail's. That older token, found inside another app installed on
+   * its own, lets Mail go: there it would bring Mail's notifications into Calendar.
    */
   async syncApps(): Promise<void> {
     const token = this.token ?? localStorage.getItem(`firebase_token_${this.projectName}`)
     if (!token) return
-    const registered = this.registeredApps()
+    let registered = this.registeredApps()
+    const stray =
+      localStorage.getItem(this.appsKey) === null
+        ? registered.filter((app) => !this.apps.includes(app))
+        : []
+    if (stray.length && (await this.unregisterTokenHandler(token, stray))) {
+      registered = registered.filter((app) => !stray.includes(app))
+      this.saveRegisteredApps(registered)
+    }
     const missing = this.apps.filter((app) => !registered.includes(app))
     if (!missing.length) return
     if (await this.registerTokenHandler(token, missing))

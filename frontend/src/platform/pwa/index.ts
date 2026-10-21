@@ -38,6 +38,7 @@ export function installPwa(
   routes: PwaRoutes,
 ): void {
   installableApps = routes.apps
+  signedInUser = () => session.user.value?.id ?? null
   startInstallOffer(currentApp)
   watch(
     () => pwaAppAt(routes.path(), routes.apps),
@@ -68,6 +69,7 @@ export function installPwa(
 }
 
 let pushClient: Promise<PushClient | null> | null = null
+let signedInUser: () => string | null = () => null
 const pushEnabled = ref(false)
 
 /**
@@ -104,6 +106,9 @@ export function useDevicePush() {
     if (!push) return false
     const { permission_granted } = await push.enableNotification()
     pushEnabled.value = permission_granted
+    // The token is this user's: a sign-in by someone else drops it (see claimPushToken).
+    const user = signedInUser()
+    if (permission_granted && user) localStorage.setItem(PUSH_OWNER_KEY, user)
     dismissAsk()
     return permission_granted
   }
