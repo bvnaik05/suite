@@ -11,6 +11,18 @@ const OLD_MEDIA = 'resizableMedia'
 const OLD_IMAGE = 'image'
 const ALIGNMENTS = ['left', 'center', 'right']
 const FLOATS = ['left', 'right']
+// All the old editor's resizable media ever declared
+const OLD_MEDIA_KEYS = new Set([
+  'src',
+  'media-type',
+  'alt',
+  'title',
+  'width',
+  'height',
+  'dataAlign',
+  'dataFloat',
+])
+const OLD_MEDIA_KINDS = ['img', 'video']
 // A list item opens with a paragraph, so a video can't come first
 const LIST_ITEMS = ['listItem', 'taskItem']
 
@@ -44,6 +56,12 @@ function pixels(value: unknown) {
   }
 
   return null
+}
+
+/** Whether old media's layout is one the old editor wrote, each name unset or among its values. */
+export function isOldLayout(dataAlign: unknown, dataFloat: unknown) {
+  const isAlignment = dataAlign == null || ALIGNMENTS.includes(dataAlign as string)
+  return isAlignment && (dataFloat == null || FLOATS.includes(dataFloat as string))
 }
 
 /** Old media laid out as the old editor showed it: alignment over float, neither means left. */
@@ -85,6 +103,36 @@ function mediaAttributes(old: XmlElement) {
   }
 
   return attributes
+}
+
+// A size the old editor wrote: unset, its default or pixels; a pixel height needs a pixel width
+function isOldSize({ width, height }: Record<string, unknown>) {
+  const isWidth = width == null || width === '100%' || pixels(width) !== null
+  if (pixels(height) !== null) {
+    return pixels(width) !== null
+  }
+
+  return isWidth && (height == null || height === 'auto' || Number.isNaN(height))
+}
+
+function isMappable(old: XmlElement) {
+  const stored = old.getAttributes() as Record<string, unknown>
+  const keys = Object.keys(stored).filter((key) => stored[key] != null)
+  const kind = stored['media-type']
+  return (
+    keys.every((key) => OLD_MEDIA_KEYS.has(key)) &&
+    (kind == null || OLD_MEDIA_KINDS.includes(kind as string)) &&
+    isOldLayout(stored.dataAlign, stored.dataFloat) &&
+    isOldSize(stored)
+  )
+}
+
+/** Whether all old resizable media under `body` holds only what the old editor wrote. */
+export function isOldMediaMappable(body: XmlFragment) {
+  const olds = [
+    ...body.createTreeWalker((type) => type instanceof XmlElement && type.nodeName === OLD_MEDIA),
+  ]
+  return olds.every((old) => isMappable(old as XmlElement))
 }
 
 function element(name: string, attributes: Record<string, unknown>, children: XmlElement[] = []) {

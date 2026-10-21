@@ -181,6 +181,55 @@ describe('convertLegacy', () => {
     expect([bodyOf(result.state), result.dropped]).toEqual([body, dropped])
   })
 
+  it.each([
+    { name: 'a kind it never wrote', stored: { 'media-type': 'audio' } },
+    { name: 'an alignment outside its three', stored: { dataAlign: 'justify' } },
+    { name: 'a float outside its two', stored: { dataFloat: 'center' } },
+    { name: 'a width neither pixels nor its default', stored: { width: '50%' } },
+    { name: 'a height neither pixels nor its default', stored: { height: '20%' } },
+    { name: 'a pixel height without a pixel width', stored: { width: '100%', height: 200 } },
+    { name: 'an attribute it never declared', stored: { foo: '1' } },
+  ])("refuses the old editor's resizable media holding $name", ({ stored: attrs }) => {
+    const doc = legacyDoc(yParagraph('one'), oldMedia({ src: SRC, 'media-type': 'img', ...attrs }))
+
+    expect(convertLegacy(stored(doc), MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it.each([
+    {
+      name: 'a resized image',
+      attrs: { 'media-type': 'img', width: 320, height: 180, dataAlign: 'right' },
+      shown: paragraph({
+        type: 'image',
+        attrs: { src: SRC, width: 320, height: 180, align: 'right' },
+      }),
+    },
+    {
+      name: 'a resized image with a height of NaN',
+      attrs: { 'media-type': 'img', width: 420, height: Number.NaN },
+      shown: paragraph({ type: 'image', attrs: { src: SRC, width: 420, align: 'left' } }),
+    },
+    {
+      name: 'an image at its defaults',
+      attrs: { 'media-type': 'img', width: '100%', height: 'auto' },
+      shown: paragraph({ type: 'image', attrs: { src: SRC, align: 'left' } }),
+    },
+    {
+      name: 'a video',
+      attrs: { 'media-type': 'video', width: '100%', height: 'auto', dataFloat: 'left' },
+      shown: { type: 'video', attrs: { src: SRC, align: 'left', float: 'left' } },
+    },
+    {
+      name: 'no kind, as an image',
+      attrs: {},
+      shown: paragraph({ type: 'image', attrs: { src: SRC, align: 'left' } }),
+    },
+  ])("keeps the old editor's resizable media: $name", ({ attrs, shown }) => {
+    const result = convert(stored(legacyDoc(yParagraph('one'), oldMedia({ src: SRC, ...attrs }))))
+
+    expect([bodyOf(result.state), result.dropped]).toEqual([page(words('one'), shown), []])
+  })
+
   it("leaves an upload id on a part that isn't media to the check, which refuses it", () => {
     const part = yParagraph('one')
     part.setAttribute('uploadId', 'u1')
@@ -689,6 +738,14 @@ describe('convertLegacy', () => {
     {
       name: 'an alignment under both names',
       html: `<p><img src="${SRC}" media-type="img" dataalign="center" data-align="right"></p>`,
+    },
+    {
+      name: 'an alignment the old editor never wrote',
+      html: `<p><img src="${SRC}" media-type="img" dataalign="justify"></p>`,
+    },
+    {
+      name: 'a float the old editor never wrote',
+      html: `<p><img src="${SRC}" media-type="img" datafloat="center"></p>`,
     },
   ])('refuses old resizable media the mapping leaves alone: $name', ({ html }) => {
     expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({

@@ -47,7 +47,12 @@ import {
   oldCommentAnchors,
   unreadableThreads,
 } from '@/apps/writer/collab/old-comments'
-import { convertOldMedia, oldLayout } from '@/apps/writer/collab/old-media'
+import {
+  convertOldMedia,
+  isOldLayout,
+  isOldMediaMappable,
+  oldLayout,
+} from '@/apps/writer/collab/old-media'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
 import { writerSchema } from '@/apps/writer/schema'
 
@@ -526,15 +531,17 @@ function breaksStyle(body: XmlFragment) {
 }
 
 // The check compares the old body with the fresh one as Yjs holds both. Between them: convertOldMedia,
-// checked on its own by where the media points; Drive's defaults, dropped; frappe-ui's upload id on
-// media, dropped (recorded); old colours, read as palette names, or the check fails; the parts the
-// build set aside holding nothing, hidden or lost (recorded), and Drive's table of contents holding
-// only its hint, left out of the source, so a lost part with content fails; and the extras the
-// result may hold, being the filler the build adds, declared defaults and heading ids
+// checked on its own by where the media points and by old media holding only what the old editor
+// wrote; Drive's defaults, dropped; frappe-ui's upload id on media, dropped (recorded); old
+// colours, read as palette names, or the check fails; the parts the build set aside holding nothing,
+// hidden or lost (recorded), and Drive's table of contents holding only its hint, left out of the
+// source, so a lost part with content fails; and the extras the result may hold, being the filler
+// the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const hasUnreadableThreads = unreadableThreads(old).length > 0
   const body = old.getXmlFragment(BODY_FIELD)
   const media = mediaSources(body)
+  const isOldMediaKept = isOldMediaMappable(body)
   convertOldMedia(body)
   dropDriveDefaults(body)
   const uploadIds = dropUploadIds(body)
@@ -552,6 +559,7 @@ function fromYjs(old: Doc) {
         lost.every(isDroppable) &&
         isColourMapped &&
         isMediaKept &&
+        isOldMediaKept &&
         !unkept(source, inventory(fresh)).length
       if (!isKept) {
         return null
@@ -626,9 +634,12 @@ const UNNAMED = ':not([data-align]):not([data-float])'
 const OLD_MEDIA = `img[media-type="img"]${UNNAMED}, video[media-type="video"]${UNNAMED}`
 
 // Old resizable media laid out as the old editor showed it, under the names the editor reads; its
-// kind goes, since the tag says it, so a kind that disagrees or a layout under both names fails the check
+// kind goes, since the tag says it, so a disagreeing kind, a layout under both names or a layout
+// the old editor never wrote fails the check
 function mapOldMedia(body: HTMLElement) {
-  const olds = [...body.querySelectorAll(OLD_MEDIA)]
+  const olds = [...body.querySelectorAll(OLD_MEDIA)].filter((old) =>
+    isOldLayout(old.getAttribute('dataalign'), old.getAttribute('datafloat')),
+  )
   for (const old of olds) {
     const { align, float } = oldLayout(old.getAttribute('dataalign'), old.getAttribute('datafloat'))
     old.setAttribute('data-align', align)

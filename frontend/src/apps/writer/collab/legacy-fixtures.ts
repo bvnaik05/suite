@@ -88,10 +88,10 @@ export function withChildren(node: XmlElement, ...children: (XmlElement | XmlTex
   return node
 }
 
-export function oldMedia(attributes: Record<string, string>) {
+export function oldMedia(attributes: Record<string, unknown>) {
   const node = new XmlElement('resizableMedia')
   for (const [key, value] of Object.entries(attributes)) {
-    node.setAttribute(key, value)
+    node.setAttribute(key, value as string)
   }
 
   return node
