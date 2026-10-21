@@ -1295,6 +1295,55 @@ describe('convertLegacy on table cell styles', () => {
     })
   })
 
+  // frappe-ui's old table menu drew a width in the default border colour, #EDEDED; Writer's default
+  // border colour is outline-gray-2
+  it.each([
+    [{ borderWidth: '0px' }, 'border-width: 0px;'],
+    [{ borderWidth: '1px' }, 'border-width: 1px;'],
+    [{ borderWidth: '2.5px' }, 'border-width: 2.5px;'],
+    [{ borderColor: 'transparent' }, 'border: 2px solid transparent;'],
+    [{ borderColor: 'gray' }, 'border: 2px solid #999999;'],
+    [{ borderColor: 'gray', borderWidth: '1px' }, 'border: 2px solid #999999; border-width: 1px;'],
+  ])('keeps an old Yjs cell border %o as the border it drew', (attributes, style) => {
+    for (const name of ['tableCell', 'tableHeader']) {
+      const result = convert(yTable(yCell(name, attributes)))
+
+      const { attrs } = cellOf(result.state)
+      expect(attrs.style).toBe(style)
+      expect(attrs).not.toHaveProperty('borderWidth')
+      expect(attrs).not.toHaveProperty('borderColor')
+      expect(result.dropped).toEqual([])
+    }
+  })
+
+  it('keeps an old Yjs cell background beside its border', () => {
+    const result = convert(
+      yTable(yCell('tableCell', { backgroundColor: 'yellow', borderWidth: '2px' })),
+    )
+
+    expect(cellOf(result.state).attrs).toMatchObject({
+      backgroundColor: 'yellow',
+      style: 'border-width: 2px;',
+    })
+  })
+
+  it.each([
+    { borderColor: 'red' },
+    { borderColor: 'Gray' },
+    { borderColor: '#999999' },
+    { borderWidth: '1em' },
+    { borderWidth: '1' },
+    { borderWidth: 1 },
+    { borderWidth: '-1px' },
+    { borderColor: 'red', borderWidth: '1px' },
+    { borderWidth: '1px', style: 'padding: 4px' },
+  ])('refuses an old Yjs cell border %o it could not have drawn', (attributes) => {
+    expect(convertLegacy(yTable(yCell('tableCell', attributes)), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('keeps an HTML merged cell whose width is shorter than its span, as stored', () => {
     const result = convert({
       content: null,

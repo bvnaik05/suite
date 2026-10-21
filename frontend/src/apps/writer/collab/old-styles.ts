@@ -280,10 +280,61 @@ export function mapOldColours(body: XmlFragment) {
 
 const CELLS = new Set(['tableCell', 'tableHeader'])
 
+// The border frappe-ui's old table menu drew for each border colour name stored
+const OLD_BORDERS = new Map([
+  ['transparent', 'border: 2px solid transparent'],
+  ['gray', 'border: 2px solid #999999'],
+])
+
+// The cell style an old border colour name and width drew, the width over the name's; null for a
+// name or width it couldn't have drawn
+function oldBorderStyle(color: unknown, width: unknown) {
+  const isName = color == null || OLD_BORDERS.has(color as string)
+  const isWidth = width == null || (typeof width === 'string' && /^\d+(\.\d+)?px$/.test(width))
+  if (!isName || !isWidth) {
+    return null
+  }
+
+  const pieces = []
+  if (color != null) {
+    pieces.push(OLD_BORDERS.get(color as string))
+  }
+
+  if (width != null) {
+    pieces.push(`border-width: ${width}`)
+  }
+
+  return pieces.join('; ')
+}
+
+// An old border name and width moved onto the cell style; false beside a style, since the editor
+// that stored them had none
+function mapCellBorder(cell: XmlElement) {
+  const color: unknown = cell.getAttribute('borderColor')
+  const width: unknown = cell.getAttribute('borderWidth')
+  if (color == null && width == null) {
+    return true
+  }
+
+  const style = oldBorderStyle(color, width)
+  if (style == null || cell.getAttribute('style') != null) {
+    return false
+  }
+
+  cell.removeAttribute('borderColor')
+  cell.removeAttribute('borderWidth')
+  cell.setAttribute('style', style)
+  return true
+}
+
 // A cell's style read the way pasted HTML is, its background as a highlight name when it's exactly
 // one; false when it holds a property a cell doesn't keep, a background beside a name, or an
 // important background a name can't carry
 function mapCellStyle(cell: XmlElement) {
+  if (!mapCellBorder(cell)) {
+    return false
+  }
+
   const text: unknown = cell.getAttribute('style')
   if (text == null) {
     return true
