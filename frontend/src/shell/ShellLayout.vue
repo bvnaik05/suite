@@ -65,7 +65,9 @@
           <!-- The offer to install, just above the bottom bar: in the flow, so it covers nothing,
                and only where the bar is. -->
           <InstallPrompt :app="activeArea?.installable ? activeArea : undefined" />
+          <component :is="activeArea.phoneNav" v-if="activeArea?.phoneNav" />
           <MobileNav
+            v-else
             :areas="areas"
             :active-area="activeArea?.id"
             @open-account="accountSheetOpen = true"
