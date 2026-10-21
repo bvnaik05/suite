@@ -1562,3 +1562,143 @@ describe('convertLegacy on table cell styles', () => {
     expect(cellOf(result.state).attrs).toMatchObject({ colspan: 2, colwidth: [100] })
   })
 })
+
+describe("convertLegacy on old Drive's class sets", () => {
+  function list(classes: string) {
+    return `<ul><li class="${classes}"><p>one</p></li></ul>`
+  }
+
+  function task(classes: string) {
+    return `<ul data-type="taskList"><li data-type="taskItem" data-checked="false" class="${classes}"><p>one</p></li></ul>`
+  }
+
+  function tasks(classes: string) {
+    return `<ul data-type="taskList" class="${classes}"><li data-type="taskItem" data-checked="false"><p>one</p></li></ul>`
+  }
+
+  function block(tag: string) {
+    return (classes: string) => `<${tag} class="${classes}">one</${tag}>`
+  }
+
+  function items(tag: string) {
+    return (classes: string) => `<${tag} class="${classes}"><li><p>one</p></li></${tag}>`
+  }
+
+  function quote(classes: string) {
+    return `<blockquote class="${classes}"><p>one</p></blockquote>`
+  }
+
+  function pre(classes: string) {
+    return `<pre class="${classes}"><code>one</code></pre>`
+  }
+
+  function code(classes: string) {
+    return `<p><code class="${classes}">one</code></p>`
+  }
+
+  // Each set as old Drive's DocEditor/TextEditor.vue wrote it
+  const SETS: [string, (classes: string) => string, string][] = [
+    ['listItem, 81496fa39:313', list, 'prose-list-item'],
+    ['taskItem, d495bcef8:342', task, 'my-task-item'],
+    ['paragraph, 8b59604c7:450', block('p'), 'legacy'],
+    ['paragraph, 44ba54162^:450', block('p'), 'not-prose'],
+    ['paragraph, d3dbf0f92:449', block('p'), 'legacy-p'],
+    ['heading 1, 8b59604c7:456', block('h1'), 'legacy'],
+    ['heading 2, 8b59604c7:456', block('h2'), 'legacy'],
+    ['heading 3, 8b59604c7:456', block('h3'), 'legacy'],
+    ['heading 4, 8b59604c7:456', block('h4'), 'legacy'],
+    ['heading 5, 8b59604c7:456', block('h5'), 'legacy'],
+    ['heading 1, d081e381d:310', block('h1'), 'not-prose'],
+    ['heading 2, d081e381d:310', block('h2'), 'not-prose'],
+    ['heading 3, d081e381d:310', block('h3'), 'not-prose'],
+    ['heading 4, 637c3281d:316', block('h4'), 'not-prose'],
+    ['heading 1, 802065431:351', block('h1'), 'not-prose leading-7'],
+    ['heading 2, 802065431:351', block('h2'), 'not-prose leading-7'],
+    ['heading 3, 802065431:351', block('h3'), 'not-prose leading-7'],
+    ['heading 4, 802065431:351', block('h4'), 'not-prose leading-7'],
+    ['bulletList, d081e381d:327', items('ul'), 'not-prose'],
+    ['orderedList, d081e381d:334', items('ol'), 'not-prose'],
+    ['taskList, d495bcef8:337', tasks, 'not-prose'],
+    [
+      'blockquote, f5936ffea:408',
+      quote,
+      'prose-quoteless text-black border-l-2 pl-2 border-gray-400 text-[0.9em]',
+    ],
+    [
+      'codeBlock, c52d39e28:393',
+      pre,
+      'not-prose my-5 px-4 py-2 text-[0.9em] font-mono text-black bg-gray-50 rounded border border-gray-300 overflow-x-auto',
+    ],
+    [
+      'codeBlock, f5936ffea:402',
+      pre,
+      'not-prose my-5 px-4 pt-4 pb-2 text-[0.9em] font-mono text-black bg-gray-50 rounded border border-gray-300 overflow-x-scroll',
+    ],
+    [
+      'code, f5936ffea:414',
+      code,
+      'not-prose px-px font-mono bg-gray-50 text-[0.85em] rounded-sm border border-gray-300',
+    ],
+  ]
+
+  it.each(SETS)('converts the %s set, recording the class', (_, html, classes) => {
+    const result = convert({ content: null, html: html(classes), collab: 0, ycomments: null })
+
+    expect(result.dropped).toEqual([{ kind: 'noise', name: 'class' }])
+  })
+
+  it.each(SETS)('refuses the %s set with a token more', (_, html, classes) => {
+    const legacy = {
+      content: null,
+      html: html(`${classes} text-red-500`),
+      collab: 0,
+      ycomments: null,
+    }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it.each(SETS.filter(([, , classes]) => classes.includes(' ')))(
+    'refuses the %s set with a token less',
+    (_, html, classes) => {
+      const fewer = classes.split(' ').slice(1).join(' ')
+      const legacy = { content: null, html: html(fewer), collab: 0, ycomments: null }
+
+      expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    },
+  )
+
+  it('converts a set written in another order', () => {
+    const html = pre(
+      'overflow-x-auto border-gray-300 border rounded bg-gray-50 text-black font-mono text-[0.9em] py-2 px-4 my-5 not-prose',
+    )
+
+    expect(convert({ content: null, html, collab: 0, ycomments: null }).dropped).toEqual([
+      { kind: 'noise', name: 'class' },
+    ])
+  })
+
+  it.each([
+    ['a list item set on a paragraph', block('p')('prose-list-item')],
+    ['a heading set on a paragraph', block('p')('not-prose leading-7')],
+    [
+      "a blockquote set only Drive's read-only preview drew",
+      quote('prose-quoteless text-black border-l-2 pl-2 border-outline-gray-3 text-[0.9em]'),
+    ],
+    ['a paragraph set on a list item', list('legacy')],
+    ['a heading 1 to 4 set on a fifth heading', block('h5')('not-prose')],
+    ['a list set on a list item', list('not-prose')],
+  ])('refuses %s', (_, html) => {
+    const legacy = { content: null, html, collab: 0, ycomments: null }
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('records the class once for many sets', () => {
+    const html = [block('p')('legacy'), block('h1')('legacy'), list('prose-list-item')].join('')
+
+    expect(convert({ content: null, html, collab: 0, ycomments: null }).dropped).toEqual([
+      { kind: 'noise', name: 'class' },
+    ])
+  })
+})

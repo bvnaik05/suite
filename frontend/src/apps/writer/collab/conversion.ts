@@ -557,6 +557,53 @@ function dropMentionAuthors(body: HTMLElement) {
   return ['author']
 }
 
+// The class sets old Drive's editor wrote on its nodes and never read back, each whole set by its
+// commit and line in DocEditor/TextEditor.vue
+const DRIVE_CLASSES: Record<string, string[]> = {
+  // listItem 81496fa39:313, taskItem d495bcef8:342
+  li: ['prose-list-item', 'my-task-item'],
+  // paragraph 8b59604c7:450, 44ba54162^:450, d3dbf0f92:449
+  p: ['legacy', 'not-prose', 'legacy-p'],
+  // heading not-prose on levels 1 to 3 d081e381d:310 and 1 to 4 637c3281d:316, not-prose leading-7
+  // on levels 1 to 4 802065431:351, legacy on levels 1 to 5 8b59604c7:456
+  ...Object.fromEntries(
+    ['h1', 'h2', 'h3', 'h4'].map((tag) => [tag, ['not-prose', 'not-prose leading-7', 'legacy']]),
+  ),
+  h5: ['legacy'],
+  // bulletList d081e381d:327, orderedList d081e381d:334, taskList d495bcef8:337
+  ul: ['not-prose'],
+  ol: ['not-prose'],
+  // blockquote f5936ffea:408
+  blockquote: ['prose-quoteless text-black border-l-2 pl-2 border-gray-400 text-[0.9em]'],
+  // codeBlock c52d39e28:393, f5936ffea:402
+  pre: [
+    'not-prose my-5 px-4 py-2 text-[0.9em] font-mono text-black bg-gray-50 rounded border border-gray-300 overflow-x-auto',
+    'not-prose my-5 px-4 pt-4 pb-2 text-[0.9em] font-mono text-black bg-gray-50 rounded border border-gray-300 overflow-x-scroll',
+  ],
+  // code f5936ffea:414
+  code: ['not-prose px-px font-mono bg-gray-50 text-[0.85em] rounded-sm border border-gray-300'],
+}
+
+function isDriveClass(element: Element) {
+  const tokens = [...element.classList].sort().join(' ')
+  return (DRIVE_CLASSES[element.localName] ?? []).some(
+    (classes) => classes.split(' ').sort().join(' ') === tokens,
+  )
+}
+
+function dropDriveClasses(body: HTMLElement) {
+  const elements = [...body.querySelectorAll('[class]')].filter(isDriveClass)
+  for (const element of elements) {
+    element.removeAttribute('class')
+  }
+
+  if (!elements.length) {
+    return []
+  }
+
+  return ['class']
+}
+
 // The ids of the comment marks in HTML, read before the 2023 marks take their keys
 function markedHtmlIds(body: HTMLElement) {
   const ids = [...body.querySelectorAll('[data-comment-id]')].map((element) =>
@@ -611,8 +658,8 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
 }
 
 // The check compares the old HTML, its old media mapped, its colours and empty fonts read and a
-// float beside an alignment dropped (recorded), frappe-ui's upload marks and Drive's mention author
-// dropped (recorded) and Drive's defaults dropped, with the fresh body as the editor draws it;
+// float beside an alignment dropped (recorded), frappe-ui's upload marks, Drive's mention author
+// and its class sets dropped (recorded) and Drive's defaults dropped, with the fresh body as the editor draws it;
 // every property the raw style text names must survive the parse, bar the noise list, and the
 // whitespace the parser folds isn't compared
 function fromHtml(html: string) {
@@ -627,6 +674,7 @@ function fromHtml(html: string) {
   const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html, isMarked), extensions))
   const uploadMarks = dropUploadMarks(body)
   const mentionAuthors = dropMentionAuthors(body)
+  const driveClasses = dropDriveClasses(body)
   dropDriveHtmlDefaults(body)
   const source = domInventory(body, atomNameOf)
   return {
@@ -645,6 +693,7 @@ function fromHtml(html: string) {
         ...raw.noise,
         ...uploadMarks,
         ...mentionAuthors,
+        ...driveClasses,
         ...floats,
         ...droppedNoise(body, result),
       ]
