@@ -1,3 +1,5 @@
+// frappe-ui's colour subset only: 6-digit hex, rgb() or rgba(); #fff, hsl() and names read as null
+
 export interface Rgb {
   red: number
   green: number
@@ -61,12 +63,8 @@ export function squaredDistance(from: Rgb, to: Rgb) {
   return red * red + green * green + blue * blue
 }
 
-// Whether two colours are the same one, as written or by channels and alpha
+// Whether two colours are the same one by channels and alpha
 export function isSameColour(one: string, other: string) {
-  if (one.trim().toLowerCase() === other.trim().toLowerCase()) {
-    return true
-  }
-
   const [first, second] = [rgbOf(one), rgbOf(other)]
   return !!first && !!second && squaredDistance(first, second) === 0 && first.alpha === second.alpha
 }

@@ -1050,6 +1050,16 @@ describe('convertLegacy on a highlight whose colours disagree (R534, R535)', () 
     },
   )
 
+  it('refuses an HTML highlight inherit with data-color inherit, which no colour matches (R538)', () => {
+    const style = 'background-color: inherit; color: inherit'
+    const html = `<p>a<mark data-color="inherit" style="${style}">b</mark></p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0 }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it('refuses a see-through HTML highlight with another inherited style', () => {
     const mark = `<mark style="background-color: ${SEE_THROUGH}; display: inherit">`
     const html = `<p>a${mark}b</mark></p>`
@@ -1103,6 +1113,16 @@ describe('convertLegacy on text colours no one could see (R537)', () => {
       ['a', []],
       ['b', []],
     ])
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps a see-through paragraph colour as no colour (R539)', () => {
+    const html = '<p style="color: rgba(220, 38, 38, 0)">ab</p>'
+
+    const result = convert({ content: null, html, collab: 0 })
+
+    const [{ content }] = bodyOf(result.state).content
+    expect(drawnColours(content)).toEqual([['ab', []]])
     expect(result.dropped).toEqual([])
   })
 
