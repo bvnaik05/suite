@@ -75,8 +75,15 @@ export function useInstallOffer(): InstallOffer {
     () => !!how.value && (!dismissed.value.has(app.value) || stepsAsked.value),
   )
   const install = () => {
-    if (how.value === 'steps') stepsAsked.value = true
-    else void prompt.value?.event.prompt()
+    if (how.value === 'steps') {
+      stepsAsked.value = true
+      return
+    }
+    // A prompt shows once: used, it is let go, and Install is offered again only when the
+    // browser offers again (a later visit, if this one was declined).
+    const used = prompt.value
+    prompt.value = null
+    void used?.event.prompt()
   }
   const dismiss = () => {
     stepsAsked.value = false

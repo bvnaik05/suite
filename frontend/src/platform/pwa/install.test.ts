@@ -52,6 +52,11 @@ describe('the offer to install an app of its own', () => {
 
     offer.install()
     expect(prompt).toHaveBeenCalled()
+    // Declined or not, that prompt is spent: nothing offers Install until the browser does again.
+    expect(offer.how.value).toBe(null)
+    expect(offer.bannerOpen.value).toBe(false)
+    browserOffers()
+    expect(offer.how.value).toBe('prompt')
   })
 
   it('is offered once: dismissed, it stays dismissed on the device, for that app only', async () => {
