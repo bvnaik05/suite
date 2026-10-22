@@ -1,4 +1,6 @@
 import base64
+import json
+from collections.abc import Iterator
 from typing import NotRequired, TypedDict
 
 import frappe
@@ -8,7 +10,7 @@ from suite import drive
 from suite.content import convert
 from suite.writer import comments
 from suite.writer import content as writer_content
-from suite.writer.drive import DOCTYPE, _read_bounded, _version_payload
+from suite.writer.drive import DOCTYPE, VERSION_SCHEMA, _read_bounded, _version_payload
 
 # To be moved to mimemapper
 QUICK_MAP = {
@@ -52,6 +54,47 @@ def save_comments(doc: str, data: str):
 class VersionConversion(TypedDict):
     state: NotRequired[str]
     reason: NotRequired[str]
+
+
+class OldBody(TypedDict):
+    content: NotRequired[str]
+
+
+@frappe.whitelist(allow_guest=True, methods=["GET"])
+def old_body(node: str) -> OldBody:
+    """Answer the Yjs body of the latest `writer-document/1` version, the one conversion kept."""
+    drive.check(node, drive.READ)
+    payloads = (version_object(node, seq) for seq in version_seqs(node))
+    payload = next((found for found in payloads if found.get("schema") == VERSION_SCHEMA), {})
+    body: OldBody = {}
+    if payload.get("content"):
+        body["content"] = payload["content"]
+
+    return body
+
+
+def version_seqs(node: str) -> Iterator[int]:
+    """Yield the node's version numbers, newest first, a page at a time."""
+    cursor = None
+    while True:
+        page = drive.list_versions(node, cursor=cursor)
+        yield from (row["seq"] for row in page["rows"])
+        cursor = page["next_cursor"]
+        if not cursor:
+            return
+
+
+def version_object(node: str, seq: int) -> dict:
+    """Read version `seq` as its JSON object; an HTML version reads as an empty one."""
+    try:
+        payload = json.loads(_read_bounded(drive.read_version(node, seq)))
+    except ValueError:
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    return payload
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

@@ -94,6 +94,10 @@
           },
           "conversion": {
             "$ref": "#/$defs/ConversionStatus"
+          },
+          "content_modified": {
+            "title": "Content Modified",
+            "type": "string"
           }
         },
         "required": [
@@ -244,6 +248,45 @@
       },
       "output": {
         "type": "null"
+      },
+      "errors": [],
+      "entity": null,
+      "nodeParams": [],
+      "stream": false,
+      "bytes": false
+    },
+    {
+      "id": "old_body",
+      "kind": "query",
+      "publicName": "documents.oldBody",
+      "page": null,
+      "envelope": "data",
+      "method": "GET",
+      "path": "/api/v2/method/suite.writer.api.docs.old_body",
+      "pathParams": [],
+      "query": {
+        "properties": {
+          "node": {
+            "title": "Node",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node"
+        ],
+        "title": "OldBodyQuery",
+        "type": "object"
+      },
+      "body": null,
+      "output": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "title": "OldBody",
+        "type": "object"
       },
       "errors": [],
       "entity": null,

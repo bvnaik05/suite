@@ -7,6 +7,8 @@ import type {
   ConvertVersionOutput,
   DocumentInput,
   DocumentOutput,
+  OldBodyInput,
+  OldBodyOutput,
   SaveCommentsInput,
   SaveCommentsOutput,
   SaveDocInput,
@@ -61,6 +63,7 @@ export const operationDocument: Validators<DocumentInput, DocumentOutput> = {
             title: 'Settings',
           },
           conversion: { $ref: '#/$defs/ConversionStatus' },
+          content_modified: { title: 'Content Modified', type: 'string' },
         },
         required: ['name'],
         title: 'WriterRow',
@@ -151,6 +154,33 @@ export const operationSaveComments: Validators<SaveCommentsInput, SaveCommentsOu
   },
   validateOutput(value: unknown): asserts value is SaveCommentsOutput {
     assertSchema(value, { type: 'null' }, 'save_comments output')
+  },
+}
+
+export const operationOldBody: Validators<OldBodyInput, OldBodyOutput> = {
+  validateInput(value: unknown): asserts value is OldBodyInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { node: { title: 'Node', type: 'string' } },
+        required: ['node'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'old_body input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is OldBodyOutput {
+    assertSchema(
+      value,
+      {
+        properties: { content: { title: 'Content', type: 'string' } },
+        title: 'OldBody',
+        type: 'object',
+      },
+      'old_body output',
+    )
   },
 }
 

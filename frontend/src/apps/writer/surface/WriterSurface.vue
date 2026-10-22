@@ -39,6 +39,7 @@ import {
   savedAtLabel,
   type RecoveryCopy,
 } from '@/apps/writer/recovery/copies'
+import { keepDeviceCopies } from '@/apps/writer/recovery/deviceCopies'
 import RecoveryBanner from '@/apps/writer/recovery/RecoveryBanner.vue'
 import RecoveryCopyActions from '@/apps/writer/recovery/RecoveryCopyActions.vue'
 import RecoveryPreview from '@/apps/writer/recovery/RecoveryPreview.vue'
@@ -608,6 +609,24 @@ function retainRecovery(): boolean {
 }
 
 watch(copiesKept, () => recoveryBanner.value?.refresh())
+
+// The old editor's unsaved work on this device, once the row is read
+watch(
+  () => documentResource.doc?.name,
+  async () => {
+    const row = documentResource.doc
+    if (!row) {
+      return
+    }
+
+    try {
+      await keepDeviceCopies(props.session, row)
+    } finally {
+      void recoveryBanner.value?.refresh()
+    }
+  },
+  { immediate: true },
+)
 
 async function downloadChanges(html: string | undefined) {
   // What the editor held when editing access was lost, which a later rebuild replaces
