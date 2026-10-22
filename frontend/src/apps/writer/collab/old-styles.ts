@@ -176,6 +176,33 @@ function textColourFormat(color: unknown): Attributes | null {
   return { color: name || null }
 }
 
+// An old font family whose ';' ends it, read as the editor reads the family before it; nothing
+// when it holds no such ';', an open quote, a line break or a family the editor can't read
+function fontFamilyFormat(fontFamily: unknown): Attributes {
+  if (typeof fontFamily !== 'string') {
+    return {}
+  }
+
+  const end = fontFamily.indexOf(';')
+  if (
+    end < 0 ||
+    fontFamily.slice(end + 1).trim() ||
+    unclosedQuote(fontFamily) ||
+    /[\n\r\f]/.test(fontFamily.slice(0, end))
+  ) {
+    return {}
+  }
+
+  const element = document.createElement('span')
+  element.style.setProperty('font-family', fontFamily.slice(0, end))
+  const family = element.style.fontFamily.replace(/['"]+/g, '')
+  if (!family && fontFamily.slice(0, end).trim()) {
+    return {}
+  }
+
+  return { fontFamily: family || null }
+}
+
 // The palette name an old highlight colour keeps its look as, '' when there is none; null when it
 // can't be read
 function highlightName(value: unknown): string | null {
@@ -221,7 +248,7 @@ function paletteFormat({ textStyle, namedHighlight }: Attributes): Attributes | 
     return null
   }
 
-  const style = { ...rest, ...colour }
+  const style = { ...rest, ...fontFamilyFormat(rest.fontFamily), ...colour }
   const isUnset = Object.values(style).every((value) => value == null)
   return { ...highlight, textStyle: isUnset ? null : style }
 }

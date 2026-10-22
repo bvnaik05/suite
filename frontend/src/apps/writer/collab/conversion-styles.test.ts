@@ -504,6 +504,39 @@ describe('convertLegacy', () => {
     expect(content[0].marks).toEqual([{ type: 'textStyle', attrs: expect.objectContaining(style) }])
   })
 
+  it.each([
+    ['Inter;', 'Inter'],
+    ['"Open Sans", serif; ', 'Open Sans, serif'],
+  ])("converts a Yjs font family %j ending in a ';' as the family before it", (value, family) => {
+    const legacy = stored(legacyDoc(yMarked('word', { textStyle: { fontFamily: value } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect([content[0].marks, result.dropped]).toEqual([
+      [{ type: 'textStyle', attrs: expect.objectContaining({ fontFamily: family }) }],
+      [],
+    ])
+  })
+
+  it("converts a Yjs font family that is only a ';' as no font", () => {
+    const legacy = stored(legacyDoc(yMarked('word', { textStyle: { fontFamily: ';' } })))
+
+    const result = convert(legacy)
+
+    const [{ content }] = bodyOf(result.state).content
+    expect([content[0].marks, result.dropped]).toEqual([undefined, []])
+  })
+
+  it.each(['Inter; x', '"Inter;', 'Inter !important;', 'foo(;', '"In\nter;'])(
+    "refuses a Yjs font family %j that doesn't read as drawn before its ';'",
+    (value) => {
+      const legacy = stored(legacyDoc(yMarked('word', { textStyle: { fontFamily: value } })))
+
+      expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+    },
+  )
+
   it("keeps Drive's HTML text colour and highlight as palette colours, and its ink as none", () => {
     const highlight = 'data-color="#fef9c3" style="background-color: #fef9c3; color: inherit"'
     const html = [

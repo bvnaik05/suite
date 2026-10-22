@@ -362,10 +362,11 @@ function droppedFloats(body: XmlFragment): Dropped[] {
 // a mark stored as true where the mark holds no attributes, read as that mark; frappe-ui's upload
 // id on media, dropped (recorded); Drive's mention author and type, dropped (recorded); an atom key
 // Writer doesn't declare, or the check fails; old colours, read as palette names, or the check
-// fails; cell styles, read as pasted HTML is, or the check fails; the parts the build set aside
-// holding nothing, hidden or lost (recorded), and Drive's table of contents holding only its hint,
-// left out of the source, so a lost part with content fails; and the extras the result may hold,
-// being the filler the build adds, declared defaults and heading ids
+// fails; a font family ending in a ';', read before it; cell styles, read as pasted HTML is, or the
+// check fails; the parts the build set aside holding nothing, hidden or lost (recorded), and
+// Drive's table of contents holding only its hint, left out of the source, so a lost part with
+// content fails; and the extras the result may hold, being the filler the build adds, declared
+// defaults and heading ids
 function fromYjs(old: Doc) {
   const body = old.getXmlFragment(BODY_FIELD)
   const threads = markOldThreads(body, schema)
