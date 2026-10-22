@@ -2,8 +2,9 @@
 
 `convert_document` runs the converter on the row as it reads it, and `install_conversion` installs
 the answer in one transaction under the row's lock. Every check runs before the first write, and a
-refusal writes only its record. The record keeps `dropped`, which holds document text, so it goes
-nowhere else.
+refusal writes only its record. A record with no outcome is committed before the converter runs, so a
+worker that dies on a body leaves it, and a later run records that body `crashed`. The record keeps
+`dropped`, which holds document text, so it goes nowhere else.
 """
 
 import base64
@@ -11,7 +12,7 @@ import hashlib
 import json
 from collections.abc import Collection
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import frappe
 import pycrdt
@@ -28,6 +29,8 @@ DOCTYPE = "Writer Document"
 FIELDS = ("content", "html", "collab", "ycomments")
 # How many times a row that changes under the converter is read again before the next run takes it
 ATTEMPTS = 3
+# An attempt this old with no outcome is one whose worker died on it, past the job's 1500 s timeout
+STALE_ATTEMPT = timedelta(seconds=1500)
 CHANGED = "changed"
 LOGGED = "logged"
 
@@ -55,9 +58,11 @@ def convert_document(node: str) -> str | None:
         if old is None:
             return None
 
-        converted = convert.convert(
-            writer_content.CONVERTER_BUILD, writer_content.CONVERTER_VERSION, old.legacy
-        )
+        held = held_attempt(node, old.fingerprint)
+        if held is not None:
+            return crashed_outcome(node, old.fingerprint, held, started)
+
+        converted = run_converter(node, old, started)
         if converted is None:
             return None
 
@@ -67,10 +72,80 @@ def convert_document(node: str) -> str | None:
             return converted.reason
 
         outcome = install_conversion(node, old, converted, started)
-        if outcome != CHANGED:
+        if outcome not in {CHANGED, LOGGED}:
+            return outcome
+
+        drop_attempt(node, old.fingerprint)
+        if outcome == LOGGED:
             return outcome
 
     return None
+
+
+def crashed_outcome(node: str, fingerprint: str, held: frappe._dict, now: datetime) -> str | None:
+    """Record a held attempt with no outcome that is past its job's timeout as `crashed`; skip any other."""
+    if held.outcome is not None or now - held.started <= STALE_ATTEMPT:
+        return None
+
+    record(node, fingerprint, held.started, "crashed")
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    return "crashed"
+
+
+def run_converter(
+    node: str, old: OldDocument, started: datetime
+) -> convert.Converted | convert.Refused | None:
+    """Run the converter on `old` after committing its attempt, which goes again when it answers nothing."""
+    start_attempt(node, old.fingerprint, started)
+    try:
+        converted = convert.convert(
+            writer_content.CONVERTER_BUILD, writer_content.CONVERTER_VERSION, old.legacy
+        )
+    except convert.ConverterChanged:
+        drop_attempt(node, old.fingerprint)
+        raise
+
+    if converted is None:
+        drop_attempt(node, old.fingerprint)
+
+    return converted
+
+
+def held_attempt(node: str, fingerprint: str) -> frappe._dict | None:
+    """Load this body's record under this converter, when a run has already started on it."""
+    conversion_table = table(writer_content.APP, "conversion")
+    rows = frappe.db.sql(
+        f"""SELECT `started`, `outcome` FROM `{conversion_table}`
+        WHERE `node` = %s AND `fingerprint` = %s AND `converter_version` = %s""",
+        (node, fingerprint, writer_content.CONVERTER_VERSION),
+        as_dict=True,
+    )
+    if not rows:
+        return None
+
+    return rows[0]
+
+
+def start_attempt(node: str, fingerprint: str, started: datetime) -> None:
+    """Commit a record with no outcome before the converter runs, so a worker that dies on it leaves a trace."""
+    conversion_table = table(writer_content.APP, "conversion")
+    frappe.db.sql(
+        f"""INSERT INTO `{conversion_table}` (`node`, `fingerprint`, `converter_version`, `started`)
+        VALUES (%s, %s, %s, %s)""",
+        (node, fingerprint, writer_content.CONVERTER_VERSION, started),
+    )
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+def drop_attempt(node: str, fingerprint: str) -> None:
+    """Delete an attempt that ended with no outcome, so the next run starts it afresh."""
+    conversion_table = table(writer_content.APP, "conversion")
+    frappe.db.sql(
+        f"""DELETE FROM `{conversion_table}` WHERE `node` = %s AND `fingerprint` = %s
+        AND `converter_version` = %s AND `outcome` IS NULL""",
+        (node, fingerprint, writer_content.CONVERTER_VERSION),
+    )
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
 def read_old(node: str, *, lock: bool = False) -> OldDocument | None:

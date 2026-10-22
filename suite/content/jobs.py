@@ -2,7 +2,7 @@
 
 import frappe
 
-from suite.content import checkpoints, copies, log, scheduling, stage, suspect, touches, trimming
+from suite.content import checkpoints, convert, copies, log, scheduling, stage, suspect, touches, trimming
 from suite.content.editors import editors, spec_of
 
 COMPACT = "suite.content.jobs.compact"
@@ -10,6 +10,7 @@ JUDGE = "suite.content.jobs.judge"
 DELETE_PURGED = "suite.content.jobs.delete_purged"
 TRIM = "suite.content.jobs.trim"
 CHECK_RENDER = "suite.content.jobs.check_render"
+CONVERT = "suite.content.jobs.convert_pending"
 
 
 def delete_purged(app: str, doc_id: str) -> None:
@@ -40,6 +41,29 @@ def trim_logs() -> None:
             deduplicate=True,
             app=app,
         )
+
+
+def queue_conversion() -> None:
+    """Every few minutes: one conversion job for each app with old documents to convert."""
+    for app, spec in editors().items():
+        if spec.conversion is None:
+            continue
+
+        frappe.enqueue(
+            CONVERT,
+            queue="long",
+            timeout=convert.TIMEOUT,
+            job_id=f"suite-convert-{app}",
+            deduplicate=True,
+            app=app,
+        )
+
+
+def convert_pending(app: str) -> None:
+    """Convert the app's documents that have no log yet, as its queued job."""
+    conversion = spec_of(app).conversion
+    if conversion is not None:
+        convert.run_pending(app, conversion)
 
 
 def judge(app: str, doc_id: str) -> None:

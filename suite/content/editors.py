@@ -30,12 +30,24 @@ class MediaReferences:
 
 
 @dataclass(frozen=True)
+class Conversion:
+    """How an app's old documents become collaborative: `build` is the Node converter, which holds
+    `version`, and `convert_document(node)` converts one, answering its outcome, or None to leave it to the
+    next run."""
+
+    build: Path
+    version: str
+    convert_document: Callable[[str], str | None]
+
+
+@dataclass(frozen=True)
 class EditorSpec:
     """One app's plug-in. `app` is also its table prefix; `doctype` is its Drive content type and the
     doctype whose row holds each document's latest checked body, base64, in `body_field`; `part_map` names
     every root type it writes; `checker_build` is the Node bundle that judges suspect documents and checks
     what trimming deletes. `readable_copy` and `media` are None for an app whose documents keep no HTML
-    copy or use no Drive files. `always_on` keeps the app's collaboration from being turned off."""
+    copy or use no Drive files. `always_on` keeps the app's collaboration from being turned off.
+    `conversion` is None for an app with no old documents to convert."""
 
     app: str
     doctype: str
@@ -46,6 +58,7 @@ class EditorSpec:
     readable_copy: HtmlCopy | None
     media: MediaReferences | None
     always_on: bool = False
+    conversion: Conversion | None = None
 
 
 # Short enough that every table name the layer makes from it fits MariaDB's 64 characters
@@ -125,8 +138,20 @@ def wrong_declarations(spec: EditorSpec) -> list[str]:
         "checker_build": isinstance(spec.checker_build, Path),
         "readable_copy": copy_right(spec.readable_copy),
         "media": media_right(spec.media),
+        "conversion": conversion_right(spec.conversion),
     }
     return [field for field, ok in right.items() if not ok]
+
+
+def conversion_right(conversion: object) -> bool:
+    """Whether an editor's `conversion` is None or a whole Conversion."""
+    return conversion is None or (
+        isinstance(conversion, Conversion)
+        and isinstance(conversion.build, Path)
+        and isinstance(conversion.version, str)
+        and bool(conversion.version)
+        and callable(conversion.convert_document)
+    )
 
 
 def spec_of(app: str) -> EditorSpec:

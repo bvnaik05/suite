@@ -10,7 +10,7 @@ and checks access through Drive. The scheduler and the queue run
 
 from suite.content.copies import readable_copy
 from suite.content.copies import wanted as copy_wanted
-from suite.content.editors import EditorSpec, HtmlCopy, MediaReferences
+from suite.content.editors import Conversion, EditorSpec, HtmlCopy, MediaReferences
 from suite.content.ingest import EditorSchema
 from suite.content.live import rooms
 from suite.content.log import (
@@ -61,6 +61,7 @@ from suite.content.wire import (
 __all__ = [
     "PROTOCOL_VERSION",
     "ChainBroken",
+    "Conversion",
     "EditorSchema",
     "EditorSpec",
     "HtmlCopy",

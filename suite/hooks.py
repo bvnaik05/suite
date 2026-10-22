@@ -314,6 +314,7 @@ scheduler_events = {
     ],
     "all": [
         "suite.content.jobs.sweep",
+        "suite.content.jobs.queue_conversion",
     ],
     "cron": {
         "* * * * *": [

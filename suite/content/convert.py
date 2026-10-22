@@ -16,18 +16,31 @@ A conversion either converts or is refused with a reason: the converter's own (c
 unreadable-yjs), or the child's failure (child_crash, child_timeout, bad_answer). `dropped` holds
 document text, the words of a pending edit or a comment's copy, so it goes only to the conversion's
 record, never to a log or report.
+
+`run_pending` is the scheduled job's loop: it pages through the app's documents that have no log, newest
+first, and hands each to the app's `convert_document`, which owns everything about one document.
 """
 
 import base64
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import frappe
+
+from suite import drive
 from suite.content import capacity, checker
+from suite.content.editors import Conversion, spec_of
+from suite.content.tables import table
 
 # The oldest Node the converter runs on, the first whose --permission is stable; CI runs it there
 NODE_MIN = (22, 13)
 CONVERTER_REASONS = frozenset({"check", "too_large", "unreadable-yjs"})
+PAGE = 25
+# No new child starts after this; with the child's 120 s cap a run ends well inside the queue's 1500 s
+RUN_FOR = 600
+TIMEOUT = 1500
 
 
 class ConverterChanged(Exception):
@@ -49,6 +62,82 @@ class Converted:
 @dataclass(frozen=True)
 class Refused:
     reason: str
+
+
+def run_pending(app: str, conversion: Conversion) -> None:
+    """Convert the app's documents that have no log, page by page, until none is left or time runs out."""
+    try:
+        ready = bundle_ready(conversion.build, conversion.version)
+    except checker.CheckerFailed:
+        ready = False
+
+    if not ready:
+        log_reason(app, "no Node, or no converter bundle of this version")
+        return
+
+    deadline = time.monotonic() + RUN_FOR
+    after = None
+    while True:
+        page = pending_page(app, after)
+        if not page:
+            return
+
+        if not convert_page(app, conversion, page, deadline):
+            return
+
+        after = page[-1]
+
+
+def convert_page(app: str, conversion: Conversion, page: list[frappe._dict], deadline: float) -> bool:
+    """Convert each document on `page`; False once time runs out or the converter changes."""
+    for row in page:
+        if time.monotonic() > deadline:
+            return False
+
+        try:
+            conversion.convert_document(row.node)
+        except ConverterChanged as changed:
+            log_reason(app, str(changed))
+            return False
+
+    return True
+
+
+def pending_page(app: str, after: frappe._dict | None) -> list[frappe._dict]:
+    """Load the next page of the app's documents with no live log, newest first, after the row `after`."""
+    doctype = spec_of(app).doctype
+    node_field = drive.node_field(doctype)
+    doc_table = table(app, "doc")
+    since = ""
+    values: tuple = ()
+    if after is not None:
+        since = "AND (`row`.`modified` < %s OR (`row`.`modified` = %s AND `row`.`name` > %s))"
+        values = (after.modified, after.modified, after.name)
+
+    return frappe.db.sql(
+        f"""SELECT `row`.`name`, `row`.`modified`, `row`.`{node_field}` AS `node`
+        FROM `tab{doctype}` `row`
+        LEFT JOIN `{doc_table}` `doc` ON `doc`.`node` = `row`.`{node_field}` AND `doc`.`mode` != 'purged'
+        WHERE `row`.`{node_field}` IS NOT NULL AND `doc`.`id` IS NULL {since}
+        ORDER BY `row`.`modified` DESC, `row`.`name` ASC
+        LIMIT {PAGE}""",
+        values,
+        as_dict=True,
+    )
+
+
+def log_reason(app: str, reason: str) -> None:
+    """Log why the app's conversion didn't run, once an hour for each reason."""
+    key = f"suite-convert-{app}-{reason}"
+    if frappe.cache.get_value(key):
+        return
+
+    frappe.cache.set_value(key, 1, expires_in_sec=3600)
+    frappe.log_error(
+        title=f"Collab conversion: {app} did not run",
+        message=reason,
+        reference_doctype="Suite Collab Settings",
+    )
 
 
 def bundle_ready(bundle: Path, version: str) -> bool:
