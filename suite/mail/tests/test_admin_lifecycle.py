@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -24,6 +25,15 @@ from suite.mail.http.invites import send_invite, update_invite
 from suite.suite_core.account_state import read, require_temporary_valid, write
 from suite.suite_core.administration import update_user
 from suite.tests.utils import ensure_user
+
+
+def start_session(user: str) -> None:
+    sessions = frappe.qb.DocType("Sessions")
+    (
+        frappe.qb.into(sessions)
+        .columns(sessions.user, sessions.sid, sessions.sessiondata, sessions.status)
+        .insert(user, uuid4().hex, "{}", "Active")
+    ).run()
 
 
 class Provider:
@@ -273,6 +283,21 @@ class TestAdminLifecycle(IntegrationTestCase):
         self.assertEqual(frappe.db.get_value("User", first["user"], "enabled"), 1)
         self.assertEqual(frappe.db.get_value("User", second["user"], "enabled"), 0)
         self.assertTrue(disable_members([first["user"]])[0]["success"])
+
+    def test_disabling_ends_only_that_users_sessions_and_keeps_their_mailbox(self):
+        disabled = self.create()["user"]
+        self.username += "-second"
+        kept = self.create()["user"]
+        for user in (disabled, kept):
+            start_session(user)
+        self.provider.accounts[self.address]["enabled"] = True
+
+        self.assertTrue(disable_members([disabled])[0]["success"])
+
+        self.assertEqual(frappe.db.count("Sessions", {"user": disabled}), 0)
+        self.assertEqual(frappe.db.count("Sessions", {"user": kept}), 1)
+        self.assertFalse(self.provider.accounts[self.address]["enabled"])
+        self.assertIn(self.address, self.provider.accounts)
 
     def test_bulk_reactivation_preserves_disabled_failed_setup_and_enables_ready_users(self):
         first = self.create()

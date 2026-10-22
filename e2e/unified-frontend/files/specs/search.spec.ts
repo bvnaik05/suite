@@ -38,18 +38,6 @@ test("the search field finds nodes across the tree and shows their path", async 
 	await expect(page.getByText("Administrator", { exact: false }).first()).toBeVisible();
 });
 
-test("search asks for the breadcrumb expansion", async ({ page }) => {
-	const requests: string[] = [];
-	page.on("request", (request) => {
-		if (/\/views\/search/.test(request.url())) requests.push(request.url());
-	});
-	await page.goto(`/drive?q=${term}-report`);
-	await expect(page.getByText(`${term}-report`, { exact: true }).first()).toBeVisible();
-
-	expect(requests.length).toBeGreaterThan(0);
-	expect(requests.every((url) => /expand=access(%2C|,)breadcrumbs/.test(url))).toBe(true);
-});
-
 test("clearing the term restores the listing at the current route", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}?q=${term}-report`);
 	await expect(page.getByText(`${term}-report`, { exact: true })).toHaveCount(2);

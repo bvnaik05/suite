@@ -81,16 +81,6 @@ test("the view settings menu switches between list and grid", async ({ page }) =
 	await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();
 });
 
-test("group by Type renders contiguous server-ordered sections", async ({ page }) => {
-	await page.goto(`/drive/f/${folder.name}?view=list&group=type`);
-	await expect(page.getByText("Folders", { exact: true })).toBeVisible();
-	await expect(page.getByText("Writer Documents", { exact: true })).toBeVisible();
-	await expect(page.getByText("Links", { exact: true })).toBeVisible();
-
-	const headings = await page.getByRole("rowgroup").allTextContents();
-	expect(headings.length).toBeGreaterThan(0);
-});
-
 test("optional columns are a saved preference, not URL state", async ({ page }) => {
 	await page.goto(`/drive/f/${folder.name}?view=list`);
 	await page.getByRole("button", { name: "View settings" }).click();

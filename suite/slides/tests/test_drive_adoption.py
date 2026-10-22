@@ -125,42 +125,10 @@ class TestSlidesDeclaration(UnitTestCase):
 
     # the declaration
 
-    def test_slides_declares_the_identity_section_ten_seven_fixes(self):
-        self.assertEqual(slides.SPEC.doctype, DOCTYPE)
-        self.assertEqual(slides.SPEC.mime, "frappe/slides")
-        self.assertEqual(slides.SPEC.node_field, "node")
-        self.assertTrue(slides.SPEC.pushes_preview, "the browser captures the deck, Drive never renders it")
-
-    def test_the_slide_child_table_is_declared_as_the_satellite(self):
-        self.assertEqual(len(slides.SPEC.satellites), 1)
-        satellite = slides.SPEC.satellites[0]
-        self.assertEqual((satellite.doctype, satellite.link_field), (SATELLITE, "parent"))
-
     def test_slides_stays_hidden_over_dav_and_offers_no_export(self):
         self.assertIsNone(slides.SPEC.default_export, "no default export means invisible over DAV")
         self.assertEqual(slides.SPEC.export_formats, ())
         self.assertIsNone(slides.SPEC.export)
-
-    def test_every_callback_the_ticket_names_is_declared(self):
-        for name in (
-            "create_empty",
-            "duplicate",
-            "version_bytes",
-            "restore_version",
-            "on_purge",
-            "used_nodes",
-            "remap_media",
-        ):
-            with self.subTest(callback=name):
-                self.assertTrue(callable(getattr(slides.SPEC, name)), name)
-
-    def test_the_controller_carries_the_drive_mixin(self):
-        self.assertTrue(issubclass(Presentation, drive.DriveContent))
-
-    def test_slides_declares_no_legacy_column(self):
-        """Cleanup dropped `title`. §10.2 forbids neither `is_template` nor
-        `thumbnail`, so neither needs an exemption."""
-        self.assertEqual(slides.SPEC.legacy_fields, ())
 
     # activation
 

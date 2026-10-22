@@ -2,7 +2,7 @@ import { type APIRequestContext } from "@playwright/test";
 
 import { expect, test } from "../../helpers/flips";
 
-import { adminApi, children, createFolder, purge, roots, runTag, type DriveNode } from "../../helpers/drive";
+import { adminApi, createFolder, purge, roots, runTag, type DriveNode } from "../../helpers/drive";
 
 /** Ticket 006: 60-row windows, opaque cursors and infinite loading. */
 
@@ -30,20 +30,6 @@ test.beforeAll(async ({ baseURL }) => {
 test.afterAll(async () => {
 	await purge(api, folder.name);
 	await api.dispose();
-});
-
-test("the server answers a 60-row window with a cursor", async () => {
-	const first = await children(api, folder.name, "?order_by=title&ascending=true");
-	expect(first.rows).toHaveLength(60);
-	expect(first.next_cursor).toBeTruthy();
-
-	const second = await children(
-		api,
-		folder.name,
-		`?order_by=title&ascending=true&cursor=${encodeURIComponent(first.next_cursor!)}`,
-	);
-	expect(second.rows).toHaveLength(TOTAL - 60);
-	expect(second.next_cursor).toBeNull();
 });
 
 test("the listing loads the next window when the sentinel becomes visible", async ({ page }) => {

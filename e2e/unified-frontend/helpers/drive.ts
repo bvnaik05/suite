@@ -126,6 +126,11 @@ export async function patchNode(api: APIRequestContext, node: string, patch: Rec
 	await data(api, "patch", `${DRIVE}/nodes/${node}`, patch);
 }
 
+/** Gives `principal` `role` on `node` (10 is Read). */
+export async function grantRole(api: APIRequestContext, node: string, principal: string, role: number): Promise<void> {
+	await data(api, "put", `${DRIVE}/nodes/${node}/grants/${encodeURIComponent(principal)}`, { role });
+}
+
 export function listView(
 	api: APIRequestContext,
 	view: string,

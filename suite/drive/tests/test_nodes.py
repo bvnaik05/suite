@@ -504,6 +504,27 @@ class TestNodeLifecycle(IntegrationTestCase):
         rows = frappe.get_all("Drive Node", filters={"name": ["in", (source, file_node)]}, fields=["root"])
         self.assertEqual({row.root for row in rows}, {self.other_root.name})
 
+    def test_a_copy_charges_the_destination_for_the_head_only_not_the_source_versions(self):
+        source = create_folder(self.admin, self.root.name, "Source")
+        file_node = self._file(source, content=b"12345")
+        frappe.get_doc(
+            {
+                "doctype": "Drive Node Version",
+                "node": file_node,
+                "seq": 1,
+                "kind": "auto",
+                "actor": "Administrator",
+                "size": 5,
+                "blob": frappe.db.get_value("Drive Node", file_node, "blob"),
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.set_value("Drive Root", self.root.name, "used_bytes", 10)
+
+        copy(self.admin, source, self.other_root.name)
+
+        self.assertEqual(frappe.db.get_value("Drive Root", self.other_root.name, "used_bytes"), 5)
+        self.assertEqual(frappe.db.get_value("Drive Root", self.root.name, "used_bytes"), 10)
+
     def test_nested_trash_restore_preserves_earlier_independent_stamp(self):
         outer = create_folder(self.admin, self.root.name, "Outer")
         inner = create_folder(self.admin, outer, "Inner")

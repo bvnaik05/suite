@@ -233,6 +233,20 @@ class TestGrantWorkflows(_GrantFixture):
             with self.subTest(label=label):
                 self._assert_no_mutation(operation, exception)
 
+    def test_a_public_folder_publishes_its_descendants_until_a_nearer_public_deny(self):
+        child = self._child(self.folder.name, "Child")
+        grand = self._child(child.name, "Grand")
+        sibling = self._child(self.folder.name, "Sibling")
+        grant(self.folder.name, "$PUBLIC", READ, self.admin)
+        grant(child.name, "$PUBLIC", NONE, self.admin)
+        guest = Principals("Guest", (), ("$PUBLIC",))
+
+        require(self.folder, READ, guest)
+        require(sibling, READ, guest)
+        for hidden in (child, grand):
+            with self.subTest(node=hidden.title), self.assertRaises(DriveNotFound):
+                require(hidden, READ, guest)
+
     def test_missing_group_is_a_validation_error(self):
         self._assert_no_mutation(
             lambda: grant(self.folder.name, "$GROUP:missing-grant-group", READ, self.admin),

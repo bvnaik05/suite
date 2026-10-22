@@ -1,8 +1,4 @@
-import { execFileSync } from "node:child_process";
-
 import { request, type APIRequestContext, type Locator, type Page } from "@playwright/test";
-
-import { loginViaApi } from "../../../shared/auth";
 
 import { expect, test } from "../../helpers/flips";
 
@@ -17,32 +13,12 @@ import {
 	uploadFile,
 	type DriveNode,
 } from "../../helpers/drive";
+import { PERSON, personContext } from "../../helpers/person";
 import { MOBILE_VIEWPORT } from "../../helpers/shell";
 
 /** Stage 9: the Drive share dialog (unified spec §7), opened from a /d/ surface. */
 
 test.describe.configure({ mode: "serial" });
-
-// A System User that exists on the test site. Grants to it send no email: the
-// bench runs no worker, and the address is not a real mailbox.
-const PERSON = "backfill-owner@example.com";
-const PERSON_PASSWORD = "ShareJourney!2026";
-
-/** Gives PERSON a password through the bench interpreter, so a journey can sign in as a non-admin. */
-function setPersonPassword() {
-	const bench = process.env.BENCH_PATH ?? "/home/faris/benches/suite-bench";
-	const site = process.env.BENCH_SITE ?? "slides.localhost";
-	const program = [
-		"import frappe",
-		"from frappe.utils.password import update_password",
-		`frappe.init(site=${JSON.stringify(site)})`,
-		"frappe.connect()",
-		`update_password(${JSON.stringify(PERSON)}, ${JSON.stringify(PERSON_PASSWORD)})`,
-		"frappe.db.commit()",
-		"frappe.destroy()",
-	].join("\n");
-	execFileSync(`${bench}/env/bin/python`, ["-c", program], { cwd: `${bench}/sites` });
-}
 
 interface Grant {
 	name?: string;
@@ -249,10 +225,7 @@ test("a manager who lowers their own access is asked first, and the row loses Sh
 	const folder = await createFolder(api, home.name, "handover");
 	await putGrant(home.name, PERSON, { role: 10 });
 	await putGrant(folder.name, PERSON, { role: 50 });
-	setPersonPassword();
-	const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
-	await context.addInitScript((value) => Object.assign(window, value), flips);
-	await loginViaApi(context.request, { email: PERSON, password: PERSON_PASSWORD });
+	const context = await personContext(browser, baseURL!, flips);
 	const page = await context.newPage();
 
 	await page.goto(`/drive/f/${home.name}?view=list`);
