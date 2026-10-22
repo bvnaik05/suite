@@ -472,6 +472,7 @@ class TestCommentWorkflows(IntegrationTestCase):
             "threads that are not a list": ({thread: "new"}, None),
             "a thread that is not an object": ({thread: "new"}, ["kept"]),
             "an empty anchor": ({thread: "new"}, [{**old(), "anchor": ""}]),
+            "a new anchor too long": ({thread: "new"}, [{**old(), "anchor": "a" * 256}]),
             "a thread with no comments": ({thread: "new"}, [{"anchor": "kept", "comments": []}]),
             "comments that are not a list": ({thread: "new"}, [{"anchor": "kept", "comments": 7}]),
             "a comment that is not an object": ({thread: "new"}, [{"anchor": "kept", "comments": ["Old"]}]),
