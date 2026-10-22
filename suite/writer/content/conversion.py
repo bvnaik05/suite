@@ -181,6 +181,10 @@ def read_old(node: str, *, lock: bool = False) -> OldDocument | None:
     if row is None:
         return None
 
+    if lock:
+        # Lock the node with no plain read before it, which would take a snapshot missing a thread made meanwhile
+        frappe.db.sql("SELECT `name` FROM `tabDrive Node` WHERE `name` = %s FOR UPDATE", (node,))
+
     legacy = {name: row[name] for name in FIELDS}
     return OldDocument(row.name, legacy, fingerprint_of(legacy), drive.comment_threads(node))
 
