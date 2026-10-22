@@ -5,15 +5,18 @@ import json
 
 import frappe
 import pycrdt
+from frappe.storage.blob import put_blob
 
 from suite import drive
 from suite.content import logged
+from suite.drive._core.access import grant
 from suite.drive._core.principals import Principals
-from suite.drive._core.versions import restore_version
+from suite.drive._core.versions import _insert_version, restore_version
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
+from suite.writer.api import docs
 from suite.writer.content.tests.drive_callback_case import DriveCallbackCase, embed, version_of
-from suite.writer.content.tests.support import WRITER
+from suite.writer.content.tests.support import OUTSIDER, READER, WRITER
 
 
 class TestWriterDriveVersions(DriveCallbackCase):
@@ -161,3 +164,56 @@ class TestWriterDriveVersions(DriveCallbackCase):
             restore(b"\xff")
 
         self.assertEqual(row(), before)
+
+    def old_document_with_versions(self, *bodies: str) -> str:
+        node = self.new_document()
+        self.delete_log(node)
+        docname = self.docname_of(node)
+        for body in bodies:
+            frappe.db.set_value("Writer Document", docname, {"content": body, "html": "", "collab": 1})
+            drive.take_version(node)
+            frappe.db.commit()
+
+        return node
+
+    def add_html_version(self, node: str):
+        blob = put_blob(io.BytesIO(b"<p>legacy</p>"), is_private=True)
+        writer = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        _insert_version(
+            frappe._dict(name=node), writer, blob=blob.name, size=int(blob.file_size), kind="auto", label=None
+        )
+        frappe.db.commit()
+
+    def test_the_old_body_is_the_latest_row_version_past_newer_html_ones(self):
+        node = self.old_document_with_versions("b2xkZXI=", "bmV3ZXI=")
+        self.add_html_version(node)
+
+        self.assertEqual(docs.old_body(node), {"content": "bmV3ZXI="})
+
+    def test_a_reader_gets_the_old_body(self):
+        node = self.old_document_with_versions("b2xkZXI=")
+        grant(node, READER, drive.READ, Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)))
+        frappe.db.commit()
+        frappe.set_user(READER)
+
+        self.assertEqual(docs.old_body(node), {"content": "b2xkZXI="})
+
+    def test_someone_without_access_gets_no_old_body(self):
+        node = self.old_document_with_versions("b2xkZXI=")
+        frappe.set_user(OUTSIDER)
+
+        with self.assertRaises(drive.DriveNotFound):
+            docs.old_body(node)
+
+    def test_there_is_no_old_body_without_a_row_version(self):
+        never_versioned = self.new_document()
+        logged_only = self.new_document()
+        self.type_into(logged_only, ["one"])
+        drive.take_version(logged_only)
+        frappe.db.commit()
+        html_only = self.new_document()
+        self.add_html_version(html_only)
+
+        answers = [docs.old_body(node) for node in (never_versioned, logged_only, html_only)]
+
+        self.assertEqual(answers, [{}, {}, {}])
