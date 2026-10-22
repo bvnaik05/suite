@@ -1305,6 +1305,81 @@ describe('convertLegacy on pasted HTML span colours, read as on the Yjs path', (
   })
 })
 
+describe('convertLegacy on an HTML font family whose quote never closes', () => {
+  function runs(html: string) {
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+    const [{ content }] = bodyOf(result.state).content
+    expect(result.dropped).toEqual([])
+    return content.map(({ text, marks = [] }: JSONContent) => [
+      text,
+      Object.fromEntries(
+        marks.flatMap(({ attrs = {} }) => Object.entries(attrs).filter(([, value]) => value)),
+      ),
+    ])
+  }
+
+  function refused(style: string) {
+    const html = `<p>a<span style="${style}">b</span></p>`
+    return convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)
+  }
+
+  // Headless Chromium reads it as one family name to the end: no size (16px under 16px), a fallback face
+  it('reads the declarations after it as never drawn, and the family as none', () => {
+    const style = 'font-family: "; font-size: 12pt; color: var(--prose-color-blue)'
+
+    expect(runs(`<p>a<span style='${style}'>b</span></p>`)).toEqual([['ab', {}]])
+  })
+
+  it('keeps the declarations before it', () => {
+    const style = 'color: var(--prose-color-red); font-family: "; font-size: 12pt'
+
+    expect(runs(`<p>a<span style='${style}'>b</span></p>`)).toEqual([
+      ['a', {}],
+      ['b', { color: 'red' }],
+    ])
+  })
+
+  it('reads past an escaped quote inside it', () => {
+    const style = 'font-family: "x\\"; font-size: 12pt'
+
+    expect(runs(`<p>a<span style='${style}'>b</span></p>`)).toEqual([['ab', {}]])
+  })
+
+  it('refuses a quote that closes later in the style text', () => {
+    expect(refused('font-family: &quot;; x: &quot;y')).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('refuses a family that names itself to the end of the style text', () => {
+    expect(refused('font-family: &quot;Arial')).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('reads a line end as ending the quote before a later one opens', () => {
+    const style = 'font-family: &quot;x\n; color: var(--prose-color-red); y: &quot;a&quot;'
+
+    expect(refused(style)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
+  it('keeps a family whose comment holds a quote', () => {
+    const style = "font-family: Inter /* don't */; color: var(--prose-color-red)"
+
+    expect(runs(`<p>a<span style="${style}">b</span></p>`)).toEqual([
+      ['a', {}],
+      ['b', { fontFamily: 'Inter', color: 'red' }],
+    ])
+  })
+
+  it('refuses one broken by a line end, which CSS reads another way', () => {
+    expect(refused('font-family: &quot;x\nfont-size: 12pt')).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
+  it('refuses an unclosed quote in another property', () => {
+    expect(refused('color: &quot;; font-size: 12pt')).toEqual({ kind: 'failed', reason: 'check' })
+  })
+})
+
 describe('convertLegacy on pasted HTML colours beside a priority or a drawn parent (R601-R605)', () => {
   function refused(html: string) {
     return convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)

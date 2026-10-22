@@ -70,6 +70,7 @@ import {
   breaksStyle,
   DRIVE_INK,
   dropEmptyFonts,
+  dropUnclosedFonts,
   mapOldCellStyles,
   mapOldColours,
   moveSpanHighlights,
@@ -513,14 +514,14 @@ function droppedHtmlFloats(body: HTMLElement) {
 }
 
 // The HTML the editor reads, its old media mapped and its colours and empty fonts read in place as
-// on the Yjs path; written back from the parse only when that or moving a span's background changed
-// it. Text goes first, so a mark whose text colour is see-through can unwrap
-function readableHtml(body: HTMLElement, html: string, isMarked: boolean) {
+// on the Yjs path; written back from the parse only when that, moving a span's background or the
+// caller changed it. Text goes first, so a mark whose text colour is see-through can unwrap
+function readableHtml(body: HTMLElement, html: string, isRewritten: boolean) {
   const reads = [readOldTextColours(body), readOldHighlights(body), dropEmptyFonts(body)]
   const isMapped = mapOldMedia(body)
   const readable = body.cloneNode(true) as HTMLElement
   const isMoved = moveSpanHighlights(readable)
-  if (!reads.includes(true) && !isMoved && !isMapped && !isMarked) {
+  if (!reads.includes(true) && !isMoved && !isMapped && !isRewritten) {
     return html
   }
 
@@ -659,7 +660,7 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
   })
 }
 
-// The check compares the old HTML, its old media mapped, its colours and empty fonts read and a
+// The check compares the old HTML, its old media mapped, its colours and fonts read and a
 // float beside an alignment dropped (recorded), frappe-ui's upload marks, Drive's mention author
 // and its class sets dropped (recorded) and Drive's defaults dropped, with the fresh body as the editor draws it;
 // every property the raw style text names must survive the parse, bar the noise list, and the
@@ -669,11 +670,12 @@ function fromHtml(html: string) {
   const marked = markedHtmlIds(body)
   const threads = markHtmlThreads(body)
   const hasUnreadableThreads = !threads || !!body.querySelector(ANNOTATION_TAG)
+  const isFontRead = dropUnclosedFonts(body)
   // Before the defaults go, since dropping one rewrites the style text from the parse
   const raw = rawStyles(body)
   const floats = droppedHtmlFloats(body)
-  const isMarked = !!threads?.threads.length
-  const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html, isMarked), extensions))
+  const isRewritten = !!threads?.threads.length || isFontRead
+  const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html, isRewritten), extensions))
   const uploadMarks = dropUploadMarks(body)
   const mentionAuthors = dropMentionAuthors(body)
   const driveClasses = dropDriveClasses(body)

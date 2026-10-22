@@ -577,3 +577,57 @@ export function dropEmptyFonts(body: HTMLElement) {
 
   return empty.length > 0
 }
+
+// Where the quote left open at the end of style text starts, and where the declaration holding it
+// starts; null when every quote closes, a comment may hide one, or the open text may name a family
+function unclosedQuote(text: string) {
+  if (text.includes('/*')) {
+    return null
+  }
+
+  let open = -1
+  let start = 0
+  for (let at = 0; at < text.length; at += 1) {
+    const char = text[at]
+    if (char === '\\') {
+      at += 1
+    } else if (open < 0 && (char === '"' || char === "'")) {
+      open = at
+    } else if (open >= 0 && (char === text[open] || /[\n\r\f]/.test(char))) {
+      open = -1
+    } else if (open < 0 && char === ';') {
+      start = at + 1
+    }
+  }
+
+  const rest = text.slice(open + 1)
+  if (open < 0 || (rest.trim() && !rest.includes(';'))) {
+    return null
+  }
+
+  return { open, start }
+}
+
+// A font family whose quote never closes runs to the end of the style text as one family name, so
+// the declarations after it were never drawn and the family drew the browser's fallback face
+export function dropUnclosedFonts(body: HTMLElement) {
+  let isRead = false
+  for (const span of body.querySelectorAll<HTMLElement>('span[style]')) {
+    const text = span.getAttribute('style')!
+    const quote = unclosedQuote(text)
+    if (!quote || !/^\s*font-family\s*:/i.test(text.slice(quote.start, quote.open))) {
+      continue
+    }
+
+    const kept = text.slice(0, quote.start).trim()
+    if (kept) {
+      span.setAttribute('style', kept)
+    } else {
+      span.removeAttribute('style')
+    }
+
+    isRead = true
+  }
+
+  return isRead
+}
