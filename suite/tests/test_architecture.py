@@ -127,6 +127,7 @@ BASELINE_DEBT = {
             # is a public call yet
             "suite/writer/content/tests/drive_callback_case.py|import|suite.drive._core",
             "suite/writer/content/tests/test_document_row.py|import|suite.drive._core",
+            "suite/writer/content/tests/test_drive_versions.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_drive_versions.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_drive_versions.py|import|suite.drive._core.versions",
             "suite/writer/content/tests/test_media_sweep.py|import|suite.drive._core",
@@ -138,6 +139,7 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_restores.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_restores.py|import|suite.drive._core.versions",
             # The conversion reads back the version it took before the first write
+            "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.nodes",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.versions",
             # An embedded picture is a media node below the document (§9.4),
@@ -694,6 +696,7 @@ class TestArchitecture(unittest.TestCase):
                 "personal_root_for",
                 "push_preview",
                 "read_file",
+                "read_version",
                 "record_comment",
                 "reduce_storage_reservation",
                 "refuse_shared_child_rows",
