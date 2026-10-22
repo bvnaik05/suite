@@ -200,7 +200,30 @@ describe('convertLegacy', () => {
     expect(result.dropped).toEqual([])
   })
 
+  it('converts HTML blocks aligned to start as the default alignment', () => {
+    const html = '<p style="text-align: start">one</p><h2 style="text-align: start">Two</h2>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    expect(alignments(result.state)).toEqual({ stored: [null, null], drawn: ['', ''] })
+    expect(result.dropped).toEqual([])
+  })
+
+  it('keeps the indent beside a start alignment', () => {
+    const html = '<p style="margin-left: 24px!important; text-align: start">one</p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    expect(blockLayout(result.state)).toEqual([['p', '24px', 'important', '']])
+    expect(result.dropped).toEqual([])
+  })
+
   it.each([
+    { name: 'aligned to end', html: '<p style="text-align: end">one</p>' },
+    {
+      name: "aligned to start and indented without Drive's priority",
+      html: '<p style="text-align: start; margin-left: 24px">one</p>',
+    },
     { name: "indented without Drive's priority", html: '<p style="margin-left: 24px">one</p>' },
     { name: "indented in a unit Drive didn't write", html: '<p style="margin-left: 2em">one</p>' },
     { name: 'holding formatting the editor has no mark for', html: '<p>x<sup>2</sup></p>' },

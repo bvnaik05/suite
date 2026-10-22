@@ -430,14 +430,18 @@ const DRIVE_PAGE_BREAK_ID = 'page-break-div'
 const DRIVE_PAGE_BREAK_STYLE =
   'page-break-after: always; border: 2px dashed lightgray; margin: 25px 0px;'
 
-// Drive stored its indent on paragraphs and headings, its heading line height and its ink on
-// default text, all at their defaults; a highlight also kept its colour in data-color, which the
+// Drive stored its indent and start alignment on paragraphs and headings, its heading line height
+// and its ink on default text, all at their defaults; a highlight also kept its colour in data-color, which the
 // editor reads from the style, so it goes only when it's the same colour; a video repeated its src
 // in a source; and a page break held Drive's id and look, which go only when written exactly so
 function dropDriveHtmlDefaults(body: HTMLElement) {
   for (const block of body.querySelectorAll<HTMLElement>('p, h1, h2, h3, h4, h5, h6')) {
     if (block.style.getPropertyValue('margin-left') === '0px') {
       block.style.removeProperty('margin-left')
+    }
+
+    if (block.style.getPropertyValue('text-align') === 'start') {
+      block.style.removeProperty('text-align')
     }
   }
 
