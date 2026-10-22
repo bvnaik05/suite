@@ -1,5 +1,7 @@
 /** Owns one browser endpoint's SFU lifecycle from setup through cleanup. */
 
+import { randomId } from '@/platform/random-id'
+
 import type { User } from '../../composables/useCurrentUser'
 import { isUnknownRecord, type JoinRoomMediaState, type JoinUserData } from '../../types'
 import type { ConsumerEntry } from '../media/ConsumerManager'
@@ -203,7 +205,7 @@ export class ParticipantConnection {
   private e2eeReadyForLifecycle = false
   private lastAuthToken: string | null = null
   private activeEscalation: Promise<boolean> | null = null
-  private readonly connectionId = crypto.randomUUID()
+  private readonly connectionId = randomId()
   private localProducerBytes = new Map<string, number>()
   private _state: ParticipantConnectionState = 'stopped'
   private static readonly INITIAL_RETRY_DELAY_MS = 1000

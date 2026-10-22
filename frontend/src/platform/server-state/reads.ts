@@ -2,6 +2,7 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { reactive, shallowRef, type ShallowRef } from 'vue'
 
+import { randomId } from '@/platform/random-id'
 import type { Realtime } from '@/platform/realtime'
 import type { EntityDeclaration, Operation, RequestContext, Transport } from '@/platform/transport'
 
@@ -38,7 +39,7 @@ interface OptimisticRead {
 }
 
 export class Reads {
-  readonly partition: ShallowRef<string> = shallowRef(crypto.randomUUID())
+  readonly partition: ShallowRef<string> = shallowRef(randomId())
   private readonly records = new Map<string, ReadRecord>()
   private readonly flights = new Map<string, Flight>()
   private revision = 0
@@ -387,7 +388,7 @@ export class Reads {
     this.pageRefreshes.clear()
     this.entities.clear()
     this.revision += 1
-    this.partition.value = partition ?? crypto.randomUUID()
+    this.partition.value = partition ?? randomId()
   }
 
   dispose(): void {

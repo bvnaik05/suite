@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 
 import { api, client } from '@/api'
+import { randomId } from '@/platform/random-id'
 
 import { base64ToBytes, bytesToBase64, ENGINE_VERSION } from '../../core/snapshot-codec'
 import {
@@ -269,7 +270,7 @@ export function usePersistence({
       args = {
         title,
         sheets_data: payload,
-        request_id: crypto.randomUUID(),
+        request_id: randomId(),
         ...(name
           ? {
               name,
