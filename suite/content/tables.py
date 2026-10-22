@@ -7,7 +7,7 @@ keyed on the control row's id, never on the Drive node.
 import frappe
 
 TABLE_OPTIONS = "ENGINE=InnoDB ROW_FORMAT=DYNAMIC CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-KINDS = ("doc", "update", "session", "checkpoint", "stage", "recovery", "projection", "copy")
+KINDS = ("doc", "update", "session", "checkpoint", "stage", "recovery", "projection", "copy", "conversion")
 
 
 def table(app: str, kind: str) -> str:
@@ -265,6 +265,25 @@ def ensure_copy_table(app: str) -> None:
     )
 
 
+def ensure_conversion_table(app: str) -> None:
+    """Create the table that records each conversion of an old document, keyed on its node."""
+    conversion_table = table(app, "conversion")
+    # `dropped` holds document text, so it is read only by this record's own checks
+    frappe.db.sql_ddl(
+        f"""CREATE TABLE IF NOT EXISTS `{conversion_table}` (
+            `node` varchar(140) NOT NULL,
+            `fingerprint` char(64) NOT NULL,
+            `converter_version` varchar(20) NOT NULL,
+            `started` datetime(6) NOT NULL,
+            `finished` datetime(6) NULL,
+            `outcome` varchar(20) NULL,
+            `reason` varchar(40) NULL,
+            `dropped` json NULL,
+            PRIMARY KEY (`node`, `fingerprint`, `converter_version`)
+        ) {TABLE_OPTIONS}"""
+    )
+
+
 def ensure_tables(app: str) -> None:
     """Create the product's tables if they are missing. Safe to run on every migrate."""
     ensure_doc_table(app)
@@ -275,3 +294,4 @@ def ensure_tables(app: str) -> None:
     ensure_recovery_table(app)
     ensure_projection_table(app)
     ensure_copy_table(app)
+    ensure_conversion_table(app)

@@ -148,6 +148,9 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_touches.py|import|suite.drive._core.versions",
             "suite/writer/content/tests/test_restores.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_restores.py|import|suite.drive._core.versions",
+            # The conversion reads back the version it took before the first write
+            "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.principals",
+            "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.versions",
             # An embedded picture is a media node below the document (§9.4),
             # so the fixture builds roots and nodes and reads Drive's own
             # upload path; there is no upload fixture above it yet.
@@ -174,6 +177,17 @@ BASELINE_DEBT = {
         # The sweep spares media younger than its grace period, so the case
         # backdates one media node's `creation` to make it eligible
         ("suite/writer/content/tests/drive_callback_case.py|drive-table-write|Drive Node",),
+    ),
+    **_debt(
+        "Suite Writer",
+        "Remove when Build's comment port is gone, with the conversion of what it ported.",
+        # The conversion finds each old comment on the Drive thread Build ported
+        # under its id, or renamed as Build renames it; no Drive call names a thread
+        (
+            "suite/writer/content/tests/test_conversion.py|drive-table-write|Drive Comment",
+            "suite/writer/content/tests/test_conversion.py|drive-table-write|Drive Comment Thread",
+            "suite/writer/content/tests/test_conversion.py|import|suite.drive.patches.build.content_mapping",
+        ),
     ),
     **_debt(
         "Suite Slides",

@@ -178,6 +178,9 @@ def remap(app: str, node: str, mapping: dict[str, str]) -> bool:
 
 def purge(app: str, node: str) -> None:
     """Mark `node`'s log purged in Drive's transaction, for a job to delete its rows once that commits."""
+    # A refused conversion leaves a record and no log, so the record goes by node
+    conversion_table = tables.table(app, "conversion")
+    frappe.db.sql(f"DELETE FROM `{conversion_table}` WHERE `node` = %s", node)
     doc_id = log.mark_purged(app, node)
     if doc_id:
         scheduling.enqueue(

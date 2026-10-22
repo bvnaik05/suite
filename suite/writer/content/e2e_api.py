@@ -278,7 +278,8 @@ def log_id(node: str) -> str:
 def log_rows(log: str) -> dict:
     """How many rows each collab table holds for the log `log`, its control row included."""
     counts: dict[str, int] = {}
-    for kind in KINDS:
+    # The conversion record is the node's, not the log's
+    for kind in (kind for kind in KINDS if kind != "conversion"):
         key_column = "id" if kind == "doc" else "doc_id"
         kind_table = table(writer_content.APP, kind)
         ((row_count,),) = frappe.db.sql(
