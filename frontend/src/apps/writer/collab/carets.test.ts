@@ -4,7 +4,7 @@ import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { absolutePositionToRelativePosition, ySyncPluginKey } from '@tiptap/y-tiptap'
+import { absolutePositionToRelativePosition, yCursorPlugin, ySyncPluginKey } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import * as yjs from 'yjs'
@@ -343,6 +343,64 @@ describe('Writer carets', () => {
     expect(selected).toEqual([['ell', beaColour.light.solid]])
     expect(caret).toBe(beaColour.light.solid)
     expect(shadedSelections(editor)).toEqual([])
+  })
+
+  it('draws every caret, flag and selection only in the person’s own colour set', async () => {
+    searchUsers.mockResolvedValue([])
+    const { editor, awareness } = openEditor()
+    const peerSays = remotePeer(awareness)
+    peerSays({ user: { id: BEA.user }, cursor: caretAt(editor, 2, 5) })
+    await tick()
+
+    const { light, dark } = beaColour
+    const beaSet = {
+      '--peer-light': light.solid,
+      '--peer-light-tint': light.tint,
+      '--peer-light-ink': light.ink,
+      '--peer-light-selection': light.selection,
+      '--peer-dark': dark.solid,
+      '--peer-dark-tint': dark.tint,
+      '--peer-dark-ink': dark.ink,
+      '--peer-dark-selection': dark.selection,
+    }
+    const painted = [
+      ...editor.view.dom.querySelectorAll<HTMLElement>(
+        '.collaboration-carets__caret, .collaboration-carets__selection',
+      ),
+    ]
+    const labels = [
+      ...editor.view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__label'),
+    ]
+
+    expect(
+      painted.filter((element) => element.matches('.collaboration-carets__caret')),
+    ).toHaveLength(1)
+    expect(
+      painted.filter((element) => element.matches('.collaboration-carets__selection')),
+    ).toHaveLength(1)
+    for (const element of painted) {
+      expect(element.classList).toContain('peer-colour')
+      for (const [property, value] of Object.entries(beaSet)) {
+        expect(element.style.getPropertyValue(property), property).toBe(value)
+      }
+    }
+
+    expect(labels).toHaveLength(1)
+    expect(labels.map((label) => label.getAttribute('style'))).toEqual([null])
+  })
+
+  it('has no caret or selection look of its own to fall back on', () => {
+    const awareness = new Awareness(new yjs.Doc())
+    function cursorBuilder() {
+      return document.createElement('span')
+    }
+
+    // @ts-expect-error both builders are required
+    expect(() => yCursorPlugin(awareness)).toThrow('yCursorPlugin needs opts.cursorBuilder')
+    // @ts-expect-error both builders are required
+    expect(() => yCursorPlugin(awareness, { cursorBuilder })).toThrow(
+      'yCursorPlugin needs opts.selectionBuilder',
+    )
   })
 
   it('repaints a person’s caret and selection when an earlier arrival with their colour joins', async () => {

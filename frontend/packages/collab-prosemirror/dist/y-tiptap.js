@@ -2499,37 +2499,13 @@ const defaultAwarenessStateFilter = (
 ) => currentClientId !== userClientId;
 
 /**
- * Default generator for a cursor element
+ * Carets and selections are drawn only by the caller's builders
  *
- * @param {any} user user data
- * @return {HTMLElement}
+ * @param {string} option
+ * @return {never}
  */
-const defaultCursorBuilder = (user) => {
-  const cursor = document.createElement('span');
-  cursor.classList.add('ProseMirror-yjs-cursor');
-  cursor.setAttribute('style', `border-color: ${user.color}`);
-  const userDiv = document.createElement('div');
-  userDiv.setAttribute('style', `background-color: ${user.color}`);
-  userDiv.insertBefore(document.createTextNode(user.name), null);
-  const nonbreakingSpace1 = document.createTextNode('\u2060');
-  const nonbreakingSpace2 = document.createTextNode('\u2060');
-  cursor.insertBefore(nonbreakingSpace1, null);
-  cursor.insertBefore(userDiv, null);
-  cursor.insertBefore(nonbreakingSpace2, null);
-  return cursor
-};
-
-/**
- * Default generator for the selection attributes
- *
- * @param {any} user user data
- * @return {import('prosemirror-view').DecorationAttrs}
- */
-const defaultSelectionBuilder = (user) => {
-  return {
-    style: `background-color: ${user.color}70`,
-    class: 'ProseMirror-yjs-selection'
-  }
+const requireBuilder = (option) => {
+  throw new Error(`yCursorPlugin needs opts.${option}`)
 };
 
 const rxValidColor = /^#[0-9a-fA-F]{6}$/;
@@ -2627,8 +2603,8 @@ const createDecorations = (
  * @param {Awareness} awareness
  * @param {object} opts
  * @param {function(any, any, any):boolean} [opts.awarenessStateFilter]
- * @param {(user: any, clientId: number) => HTMLElement} [opts.cursorBuilder]
- * @param {(user: any, clientId: number) => import('prosemirror-view').DecorationAttrs} [opts.selectionBuilder]
+ * @param {(user: any, clientId: number) => HTMLElement} opts.cursorBuilder
+ * @param {(user: any, clientId: number) => import('prosemirror-view').DecorationAttrs} opts.selectionBuilder
  * @param {function(any):any} [opts.getSelection]
  * @param {string} [cursorStateField] By default all editor bindings use the awareness 'cursor' field to propagate cursor information.
  * @return {any}
@@ -2637,8 +2613,8 @@ const yCursorPlugin = (
   awareness,
   {
     awarenessStateFilter = defaultAwarenessStateFilter,
-    cursorBuilder = defaultCursorBuilder,
-    selectionBuilder = defaultSelectionBuilder,
+    cursorBuilder = requireBuilder('cursorBuilder'),
+    selectionBuilder = requireBuilder('selectionBuilder'),
     getSelection = (state) => state.selection
   } = {},
   cursorStateField = 'cursor'
@@ -2875,4 +2851,4 @@ const yUndoPlugin = ({ protectedNodes = defaultProtectedNodes, trackedOrigins = 
   }
 });
 
-export { ProsemirrorBinding, absolutePositionToRelativePosition, builtMarks, createDecorations, defaultAwarenessStateFilter, defaultCursorBuilder, defaultDeleteFilter, defaultProtectedNodes, defaultSelectionBuilder, getRelativeSelection, initProseMirrorDoc, isVisible, placeFragment, prosemirrorJSONToYDoc, prosemirrorJSONToYXmlFragment, prosemirrorToYDoc, prosemirrorToYXmlFragment, redo, relativePositionToAbsolutePosition, setMeta, undo, updateYFragment, yCursorPlugin, yCursorPluginKey, yDocToProsemirror, yDocToProsemirrorJSON, ySyncPlugin, ySyncPluginKey, yUndoPlugin, yUndoPluginKey, yXmlFragmentToProseMirrorFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProsemirror, yXmlFragmentToProsemirrorJSON };
+export { ProsemirrorBinding, absolutePositionToRelativePosition, builtMarks, createDecorations, defaultAwarenessStateFilter, defaultDeleteFilter, defaultProtectedNodes, getRelativeSelection, initProseMirrorDoc, isVisible, placeFragment, prosemirrorJSONToYDoc, prosemirrorJSONToYXmlFragment, prosemirrorToYDoc, prosemirrorToYXmlFragment, redo, relativePositionToAbsolutePosition, setMeta, undo, updateYFragment, yCursorPlugin, yCursorPluginKey, yDocToProsemirror, yDocToProsemirrorJSON, ySyncPlugin, ySyncPluginKey, yUndoPlugin, yUndoPluginKey, yXmlFragmentToProseMirrorFragment, yXmlFragmentToProseMirrorRootNode, yXmlFragmentToProsemirror, yXmlFragmentToProsemirrorJSON };
