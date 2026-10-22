@@ -260,6 +260,7 @@ class TestConversion(DriveCallbackCase):
         with patch.object(convert, "convert", side_effect=converting), patch.object(frappe.db, "sql", sql):
             self.assertEqual(conversion.convert_document(node), "converted")
 
+        self.assertIsNotNone(commenter.ident)
         self.assertFalse(commenter.is_alive())
         self.assertEqual(errors, [])
         [(_outcome, _reason, dropped)] = self.records(node)
