@@ -107,7 +107,7 @@ def run_converter(
         converted = convert.convert(
             writer_content.CONVERTER_BUILD, writer_content.CONVERTER_VERSION, old.legacy
         )
-    except convert.ConverterChanged:
+    except Exception:
         drop_attempt(node, old.fingerprint)
         raise
 
@@ -200,6 +200,7 @@ def install_conversion(node: str, old: OldDocument, converted: convert.Converted
         return refused.outcome
     except Exception:
         frappe.db.rollback()
+        drop_attempt(node, old.fingerprint)
         raise
 
     if dropped is None:

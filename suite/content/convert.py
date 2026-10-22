@@ -99,6 +99,9 @@ def convert_page(app: str, conversion: Conversion, page: list[frappe._dict], dea
         except ConverterChanged as changed:
             log_reason(app, str(changed))
             return False
+        except Exception as error:
+            frappe.db.rollback()
+            log_reason(app, f"{row.node}: {type(error).__name__}")
 
     return True
 

@@ -3,6 +3,7 @@ import dataclasses
 import json
 import os
 import threading
+import time
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -577,6 +578,37 @@ class TestConversion(DriveCallbackCase):
 
         self.assertEqual(len(self.run_on([], each=changed)), 1)
         self.assertEqual(self.reasons_logged(reason), logged + 1)
+
+    def test_logs_a_converter_crash_by_type_once_an_hour_and_converts_the_rest_of_the_page(self):
+        crashing = self.old_document("<p>Crash text</p>")
+        self.addCleanup(self.delete_document, crashing)
+        [other] = self.old_documents(1)
+        self.forget_logged(f"{crashing}: RuntimeError")
+        writer = spec_of(writer_content.APP).conversion
+        page = [frappe._dict(node=crashing), frappe._dict(node=other)]
+        since = frappe.utils.now_datetime()
+
+        def crash_on_first(bundle, version, legacy, *args, **kwargs):
+            if "Crash text" in (legacy["html"] or ""):
+                raise RuntimeError(legacy["html"])
+
+            return REAL_CONVERT(bundle, version, legacy, *args, **kwargs)
+
+        def new_logs() -> list[str]:
+            filters = {"method": "Collab conversion: writer did not run", "creation": (">=", since)}
+            return frappe.get_all("Error Log", filters, pluck="error")
+
+        with patch.object(convert, "convert", side_effect=crash_on_first):
+            self.assertTrue(convert.convert_page(writer_content.APP, writer, page, time.monotonic() + 600))
+            self.assertIsNotNone(log.find(writer_content.APP, other))
+            self.assertEqual(self.records(crashing), ())
+            [logged] = new_logs()
+
+            convert.convert_page(writer_content.APP, writer, page[:1], time.monotonic() + 600)
+
+        self.assertIn("RuntimeError", logged)
+        self.assertNotIn("Crash text", logged)
+        self.assertEqual(new_logs(), [logged])
 
     def test_without_node_or_the_bundle_writes_nothing_and_logs_once_an_hour(self):
         reason = "no Node, or no converter bundle of this version"
