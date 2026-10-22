@@ -5,7 +5,10 @@ from typing import NotRequired, TypedDict
 import frappe
 
 from suite.composition.http import Route
+from suite.content import log
+from suite.writer import content as writer_content
 from suite.writer.api.docs import save_comments
+from suite.writer.content.conversion import ConversionStatus, conversion_status
 from suite.writer.doctype.writer_document.writer_document import WriterDocument
 
 
@@ -16,6 +19,7 @@ class WriterRow(TypedDict):
     html: NotRequired[str | None]
     ycomments: NotRequired[str | None]
     settings: NotRequired[str | dict[str, object] | None]
+    conversion: NotRequired[ConversionStatus]
 
 
 class SaveBody(TypedDict):
@@ -39,7 +43,11 @@ class SaveSettings(TypedDict):
 def document(name: str) -> WriterRow:
     doc = frappe.get_doc("Writer Document", name)
     doc.check_permission("read")
-    return doc.as_dict()
+    row = doc.as_dict()
+    if doc.node and not log.find(writer_content.APP, doc.node):
+        row["conversion"] = conversion_status(doc.node)
+
+    return row
 
 
 save_doc = WriterDocument.save_doc

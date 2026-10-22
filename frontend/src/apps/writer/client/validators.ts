@@ -33,6 +33,17 @@ export const operationDocument: Validators<DocumentInput, DocumentOutput> = {
     assertSchema(
       value,
       {
+        $defs: {
+          ConversionStatus: {
+            properties: {
+              state: { title: 'State', type: 'string' },
+              reason: { title: 'Reason', type: 'string' },
+            },
+            required: ['state'],
+            title: 'ConversionStatus',
+            type: 'object',
+          },
+        },
         properties: {
           name: { title: 'Name', type: 'string' },
           collab: { title: 'Collab', type: 'integer' },
@@ -47,6 +58,7 @@ export const operationDocument: Validators<DocumentInput, DocumentOutput> = {
             ],
             title: 'Settings',
           },
+          conversion: { $ref: '#/$defs/ConversionStatus' },
         },
         required: ['name'],
         title: 'WriterRow',

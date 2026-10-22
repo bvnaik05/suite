@@ -1,6 +1,8 @@
 // Generated from src/apps/writer/client/contract.json. Do not edit.
 import type { MutationRef, PageRef, QueryRef } from '@/platform/transport'
 
+export type DocumentOutputConversionStatus = { state: string; reason?: string }
+
 export type DocumentInput = { name: string }
 
 export type DocumentOutput = {
@@ -10,6 +12,7 @@ export type DocumentOutput = {
   html?: string | null
   ycomments?: string | null
   settings?: string | { [key: string]: unknown } | null
+  conversion?: DocumentOutputConversionStatus
 }
 
 export type DocumentError = never

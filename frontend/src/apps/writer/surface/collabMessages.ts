@@ -317,6 +317,27 @@ export function frozenBanner(keepOpen = ''): Banner {
   return { text: FROZEN_MESSAGE, canReload: true }
 }
 
+const UNREADABLE_LINE = " Its saved body couldn't be read, so this is its last saved copy."
+
+// An old document the next conversion run makes collaborative, read-only until then
+export function upgradingBanner(isUnreadable: boolean): Banner {
+  const unreadable = isUnreadable ? UNREADABLE_LINE : ''
+  return {
+    text: `This document is being upgraded for editing together. It is read-only until then.${unreadable}`,
+  }
+}
+
+// An old document the converter refused; `reason` only reaches System Managers
+export function notUpgradedBanner(reason: string | null, isUnreadable: boolean): Banner {
+  const unreadable = isUnreadable ? UNREADABLE_LINE : ''
+  let text = "This document couldn't be upgraded, so it stays read-only."
+  if (reason) {
+    text += ` Reason: ${reason}.`
+  }
+
+  return { text: `${text}${unreadable}` }
+}
+
 // The old editor's whole-body save, refused once the document saves as it is edited
 export function refusedSaveBanner(isRecoveryKept: boolean): Banner {
   const recovery = isRecoveryKept ? ' Unsent changes were kept as a recovery copy.' : ''

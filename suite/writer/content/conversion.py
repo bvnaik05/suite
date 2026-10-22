@@ -13,6 +13,7 @@ import json
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import NotRequired, TypedDict
 
 import frappe
 import pycrdt
@@ -41,6 +42,11 @@ class OldDocument:
     legacy: dict = field(repr=False)
     fingerprint: str
     threads: list[dict] = field(repr=False)
+
+
+class ConversionStatus(TypedDict):
+    state: str
+    reason: NotRequired[str]
 
 
 class ConversionRefused(Exception):
@@ -115,7 +121,7 @@ def held_attempt(node: str, fingerprint: str) -> frappe._dict | None:
     """Load this body's record under this converter, when a run has already started on it."""
     conversion_table = table(writer_content.APP, "conversion")
     rows = frappe.db.sql(
-        f"""SELECT `started`, `outcome` FROM `{conversion_table}`
+        f"""SELECT `started`, `outcome`, `reason` FROM `{conversion_table}`
         WHERE `node` = %s AND `fingerprint` = %s AND `converter_version` = %s""",
         (node, fingerprint, writer_content.CONVERTER_VERSION),
         as_dict=True,
@@ -148,6 +154,27 @@ def drop_attempt(node: str, fingerprint: str) -> None:
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
+def conversion_status(node: str) -> ConversionStatus:
+    """Answer whether the next run converts `node`'s body or this converter refused it; the reason for System Managers."""
+    legacy = frappe.db.get_value(DOCTYPE, {"node": node}, list(FIELDS), as_dict=True)
+    held = held_attempt(node, fingerprint_of(legacy or {}))
+    if held is None or held.outcome in {None, "converted"}:
+        return {"state": "pending"}
+
+    status: ConversionStatus = {"state": "refused"}
+    if "System Manager" in frappe.get_roles():
+        status["reason"] = held.outcome
+        if held.reason:
+            status["reason"] = f"{held.outcome}: {held.reason}"
+
+    return status
+
+
+def fingerprint_of(legacy: dict) -> str:
+    """Hash the old body's stores, so a changed body is converted again."""
+    return hashlib.sha256(json.dumps([legacy.get(name) for name in FIELDS]).encode()).hexdigest()
+
+
 def read_old(node: str, *, lock: bool = False) -> OldDocument | None:
     """Read the old body and the node's Drive threads, or None once a purge took the row; with `lock`, lock it first."""
     row = frappe.db.get_value(DOCTYPE, {"node": node}, ["name", *FIELDS], as_dict=True, for_update=lock)
@@ -155,8 +182,7 @@ def read_old(node: str, *, lock: bool = False) -> OldDocument | None:
         return None
 
     legacy = {name: row[name] for name in FIELDS}
-    fingerprint = hashlib.sha256(json.dumps([legacy[name] for name in FIELDS]).encode()).hexdigest()
-    return OldDocument(row.name, legacy, fingerprint, drive.comment_threads(node))
+    return OldDocument(row.name, legacy, fingerprint_of(legacy), drive.comment_threads(node))
 
 
 def install_conversion(node: str, old: OldDocument, converted: convert.Converted, started: datetime) -> str:

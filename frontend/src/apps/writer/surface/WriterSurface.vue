@@ -26,6 +26,7 @@ import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import CollabTextEditor from '@/apps/writer/components/CollabTextEditor.vue'
 import DocumentStrip from '@/apps/writer/components/DocumentStrip.vue'
 import NonCollabEditor from '@/apps/writer/components/NonCollabEditor.vue'
+import ReadOnlyEditor from '@/apps/writer/components/ReadOnlyEditor.vue'
 import TextEditor from '@/apps/writer/components/TextEditor.vue'
 import UsersBar from '@/apps/writer/components/UsersBar.vue'
 import type { CollaborationUser } from '@/apps/writer/composables/useCollaborationUsers'
@@ -46,7 +47,13 @@ import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
 import type { CollabRoom } from '@/platform/collab'
 
-import { frozenBanner, isSafeOnDevice, refusedSaveBanner } from './collabMessages'
+import {
+  frozenBanner,
+  isSafeOnDevice,
+  notUpgradedBanner,
+  refusedSaveBanner,
+  upgradingBanner,
+} from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import { downloadHTML } from './exports'
 import {
@@ -77,6 +84,8 @@ import { createWriteGate, type DocumentWrite } from './writes'
 
 const READ = 10
 const COMMENT = 20
+// How often an old document's page asks whether its conversion has finished
+const CONVERSION_POLL_MS = 15_000
 
 /** What `TextEditor` and `NonCollabEditor` expose. */
 interface EditorSurface {
@@ -89,6 +98,8 @@ interface EditorSurface {
   forgetStoredEdits?: () => Promise<void>
   /** The document holds content the editor can't show, so it takes no edits. */
   isFrozen?: boolean
+  /** An old document's Yjs body doesn't decode, so its stored HTML shows instead. */
+  isUnreadable?: boolean
 }
 
 const props = defineProps<{ session: DocumentSession }>()
@@ -112,6 +123,7 @@ type EditorView =
       is: typeof NonCollabEditor | typeof TextEditor
       props: ReturnType<typeof dirtyModel> & { file: EditorFile }
     }
+  | { is: typeof ReadOnlyEditor; props: { file: EditorFile } }
 
 const editorSurface = shallowRef<EditorSurface | null>(null)
 /** The editor's own unsaved flag, bound to its `dirty` model. */
@@ -203,6 +215,10 @@ const stopBanner = computed(() => {
 
   if (!banner.value && editorSurface.value?.isFrozen) {
     return frozenBanner()
+  }
+
+  if (collabMode.value === 'unconverted') {
+    return conversionBanner.value
   }
 
   return banner.value
@@ -325,6 +341,7 @@ const editable = computed(
     !writes.refusedForGood.value &&
     !isLocked(settings.value) &&
     allowsEditing.value &&
+    collabMode.value !== 'unconverted' &&
     !belowMinBuild('writer'),
 )
 
@@ -385,6 +402,10 @@ const editorView = computed<EditorView>(() => {
       litThread: litThread.value,
     }
     return { is: CollabTextEditor, props: collabProps }
+  }
+
+  if (collabMode.value === 'unconverted') {
+    return { is: ReadOnlyEditor, props: { file } }
   }
 
   const editorProps = { file, ...dirtyModel() }
@@ -651,6 +672,37 @@ function reloadPage() {
   location.reload()
 }
 
+const conversionBanner = computed(() => {
+  const conversion = documentResource.doc?.conversion
+  const isUnreadable = !!editorSurface.value?.isUnreadable
+  if (conversion?.state === 'refused') {
+    return notUpgradedBanner(conversion.reason ?? null, isUnreadable)
+  }
+
+  return upgradingBanner(isUnreadable)
+})
+
+// The row carries a conversion state until the document is collaborative, which then opens live
+let conversionPoll: ReturnType<typeof setInterval> | undefined
+watch(collabMode, (mode) => {
+  clearInterval(conversionPoll)
+  if (mode !== 'unconverted') {
+    return
+  }
+
+  conversionPoll = setInterval(async () => {
+    try {
+      await documentResource.reload()
+    } catch {
+      return
+    }
+
+    if (collabMode.value === 'unconverted' && !documentResource.doc?.conversion) {
+      void openCollab()
+    }
+  }, CONVERSION_POLL_MS)
+})
+
 onMounted(() => {
   window.addEventListener('online', setOnline)
   window.addEventListener('offline', setOffline)
@@ -663,6 +715,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('online', setOnline)
   window.removeEventListener('offline', setOffline)
   window.removeEventListener('beforeunload', warnBeforeUnload)
+  clearInterval(conversionPoll)
   closeCollab()
 })
 </script>
