@@ -1,9 +1,9 @@
 import { toast } from 'frappe-ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Awareness } from 'y-protocols/awareness'
-import { XmlElement, XmlText } from 'yjs'
+import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
-import { realEditors } from './writer-surface-fakes'
+import { realEditors, stored } from './writer-surface-fakes'
 import {
   buttonLabelled,
   liveRoom,
@@ -70,6 +70,26 @@ function unknownBlock() {
   const block = new XmlElement('mystery')
   block.insert(0, [new XmlText('Kept')])
   return block
+}
+
+// A paragraph holding `text`
+function paragraph(text: string) {
+  const block = new XmlElement('paragraph')
+  block.insert(0, [new XmlText(text)])
+  return block
+}
+
+// The old editor's body as the row stores it: collab 1, Yjs bytes in base64
+function storeOldBody(text: string) {
+  const old = new Doc()
+  old.getXmlFragment('default').insert(0, [paragraph(text)])
+  stored.collab = 1
+  stored.content = btoa(String.fromCharCode(...encodeStateAsUpdate(old)))
+  stored.html = '<p>stale</p>'
+}
+
+function editorText(root: Element) {
+  return [...root.querySelectorAll('[data-editor] .ProseMirror')].map((body) => body.textContent)
 }
 
 describe('Writer surface', () => {
@@ -170,5 +190,21 @@ describe('Writer surface', () => {
     expect(error).toHaveBeenCalledWith(
       'This is too large to add in one go. Add it in smaller parts.',
     )
+  })
+
+  it('shows the stored body read-only when the open gives no live room', async () => {
+    storeOldBody('Old text')
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(editorText(root)).toEqual(['Old text']))
+  })
+
+  it('shows only the live room, not the stored body, when the open gives one', async () => {
+    storeOldBody('Old text')
+    const room = liveRoom()
+    room.doc.getXmlFragment('default').insert(0, [paragraph('Live text')])
+    const root = await openedSurface()
+
+    await vi.waitFor(() => expect(editorText(root)).toEqual(['Live text']))
   })
 })
