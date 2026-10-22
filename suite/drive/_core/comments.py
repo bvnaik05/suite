@@ -2,11 +2,14 @@
 
 import re
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.model.document import Document
+from frappe.utils import get_system_timezone, now_datetime
 
 from suite.drive._core import content
 from suite.drive._core.access import effective_role, require
@@ -17,7 +20,7 @@ from suite.drive._core.errors import (
     DriveNotFound,
     rollback_savepoint,
 )
-from suite.drive._core.nodes import MAX_PAGE_SIZE
+from suite.drive._core.nodes import MAX_PAGE_SIZE, node_owner
 from suite.drive._core.principals import Principals
 from suite.drive._core.roles import COMMENT, EDIT, READ
 
@@ -27,6 +30,8 @@ _DATA_MENTION = re.compile(r"data-(?:id|user)=[\"']([^\"'\r\n]{1,140})[\"']")
 _CLIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 # The most a comment holds, in UTF-8 bytes, as the old Text column did
 MAX_COMMENT_BYTES = 65_535
+# The most an old Drive commenter's name holds, as the old Data column did
+MAX_AUTHOR_NAME_CHARS = 140
 
 
 def insert_thread(
@@ -248,6 +253,146 @@ def reanchor_threads(principals: Principals, node: str, anchors: dict[str, str])
 
     announce_threads(node_row)
     return _thread_views({"name": ["in", list(anchors)]})
+
+
+def comment_threads(principals: Principals, node: str) -> list[dict]:
+    """Answer each thread of one document with its anchor and comment ids, in thread order, with no words."""
+    listed: list[dict] = []
+    for row in threads(principals, node):
+        comments = [comment.name for comment in row.comments]
+        listed.append({"name": row.name, "anchor": row.anchor, "comments": comments})
+
+    return listed
+
+
+def install_threads(
+    principals: Principals, node: str, anchors: dict[str, str], new_threads: list[dict]
+) -> list[str]:
+    """Move threads and add old Drive threads under the node's owner at their own times; answer the new ids."""
+    times = old_thread_stamps(anchors, new_threads)
+    if not anchors and not new_threads:
+        return []
+
+    savepoint = f"drive_comment_install_{uuid4().hex[:12]}"
+    frappe.db.savepoint(savepoint)
+    try:
+        node_row = _comment_node(node, for_update=True)
+        require(node_row, EDIT, principals)
+        _require_document(node_row)
+        _require_active(node_row)
+        write_anchors(node_row.name, anchors)
+        owner = node_owner(node_row.name)
+        installed: list[str] = []
+        for entry, stamps in zip(new_threads, times, strict=True):
+            installed.append(insert_old_thread(node_row.name, owner, entry, stamps))
+    except Exception as exc:
+        rollback_savepoint(savepoint, exc)
+        raise
+    else:
+        frappe.db.release_savepoint(savepoint)
+
+    announce_threads(node_row)
+    return installed
+
+
+def old_thread_stamps(anchors: object, new_threads: object) -> list[list[str]]:
+    """Refuse malformed install input, and answer each old Drive thread's comment times at the site."""
+    if not isinstance(anchors, dict) or not isinstance(new_threads, list):
+        frappe.throw(_("Drive needs an anchor map and a list of comment threads"), frappe.ValidationError)
+
+    for thread, anchor in anchors.items():
+        if not isinstance(thread, str) or not thread.strip():
+            frappe.throw(_("Drive comment thread ids must be text"), frappe.ValidationError)
+
+        _validate_anchor(anchor)
+
+    zone = get_system_timezone()
+    times: list[list[str]] = []
+    for entry in new_threads:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("comments"), list)
+            or not entry["comments"]
+        ):
+            frappe.throw(
+                _("An old Drive comment thread needs an anchor and comments"), frappe.ValidationError
+            )
+
+        _validate_anchor(entry.get("anchor"))
+        for comment in entry["comments"]:
+            validate_old_comment(comment)
+
+        times.append([site_time(comment.get("time"), zone) for comment in entry["comments"]])
+
+    return times
+
+
+def validate_old_comment(comment: object) -> None:
+    if not isinstance(comment, dict):
+        frappe.throw(_("An old Drive comment must be an object"), frappe.ValidationError)
+
+    _validate_text(comment.get("content"))
+    name = comment.get("author_name")
+    if not isinstance(name, str) or not name.strip() or len(name) > MAX_AUTHOR_NAME_CHARS:
+        frappe.throw(
+            _("An old Drive commenter name must contain 1 to {0} characters").format(MAX_AUTHOR_NAME_CHARS),
+            frappe.ValidationError,
+        )
+
+
+def insert_old_thread(node: str, owner: str, entry: dict, stamps: list[str]) -> str:
+    """Write one old Drive thread and its comments under the owner at their own times, with no activity."""
+    thread = frappe.get_doc(
+        {
+            "doctype": "Drive Comment Thread",
+            "node": node,
+            "anchor": entry["anchor"],
+            "resolved": 0,
+            "client_id": None,
+            "owner": owner,
+            "modified_by": owner,
+            "creation": stamps[0],
+            "modified": stamps[-1],
+        }
+    )
+    thread.db_insert()
+    for index, (comment, stamp) in enumerate(zip(entry["comments"], stamps, strict=True), 1):
+        insert_old_comment(thread, owner, comment, stamp, index)
+
+    return thread.name
+
+
+def insert_old_comment(thread: Document, owner: str, comment: dict, stamp: str, index: int) -> None:
+    frappe.get_doc(
+        {
+            "doctype": "Drive Comment",
+            "thread": thread.name,
+            "node": thread.node,
+            "content": comment["content"],
+            "author": owner,
+            "author_name": comment["author_name"],
+            "mentions": frappe.as_json(_mentions(comment["content"])),
+            "client_id": None,
+            "owner": owner,
+            "modified_by": owner,
+            "creation": stamp,
+            "modified": stamp,
+            "idx": index,
+        }
+    ).db_insert()
+
+
+def site_time(value: object, timezone: str) -> str:
+    """Answer one UTC epoch-millisecond time as a naive site datetime, as Build's `epoch_millis` does."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        frappe.throw(_("An old Drive comment time must be epoch milliseconds"), frappe.ValidationError)
+
+    try:
+        converted = datetime.fromtimestamp(value / 1000, UTC).astimezone(ZoneInfo(timezone))
+    except (OSError, OverflowError, ValueError):
+        frappe.throw(_("An old Drive comment time is outside the datetime range"), frappe.ValidationError)
+
+    return converted.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 def write_anchors(node: str, anchors: dict[str, str]) -> None:

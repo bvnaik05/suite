@@ -1,4 +1,5 @@
 import inspect
+import itertools
 import json
 import pathlib
 from contextlib import contextmanager
@@ -7,18 +8,23 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests import IntegrationTestCase, UnitTestCase
+from frappe.utils import get_datetime, get_system_timezone
 
+from suite import drive
 from suite.drive._core import comments
 from suite.drive._core.access import grant
 from suite.drive._core.comments import (
     _locked_comment,
     _locked_thread,
+    comment_threads,
     create_thread,
     delete_comment,
     edit_comment,
+    install_threads,
     reanchor_threads,
     reply,
     resolve,
+    site_time,
     threads,
 )
 from suite.drive._core.errors import DriveConflict, DriveForbidden, DriveNotFound
@@ -28,6 +34,7 @@ from suite.drive._core.roles import COMMENT, READ
 from suite.drive._core.roots import create_root
 from suite.drive.http import routes
 from suite.drive.patches.build import comments as build_comments
+from suite.drive.patches.build.content_mapping import InvalidLegacyContent, epoch_millis
 from suite.drive.tests.fixtures import ensure_rootless_user
 from suite.tests.utils import ensure_user, stub_db
 
@@ -335,6 +342,198 @@ class TestCommentWorkflows(IntegrationTestCase):
 
         self.assertEqual(frappe.db.get_value("Drive Comment Thread", thread, "anchor"), "old")
 
+    def test_comment_threads_answers_ids_and_anchors_in_thread_order_with_no_words(self):
+        first = create_thread(self.commenter, self.document.name, "one", "First").name
+        answer = reply(self.owner, first, "Second").name
+        second = create_thread(self.owner, self.document.name, "two", "Third").name
+        opener = frappe.db.get_value("Drive Comment", {"thread": first, "content": "First"}, "name")
+        closer = frappe.db.get_value("Drive Comment", {"thread": second}, "name")
+        frappe.db.set_value("Drive Comment Thread", second, "creation", "2000-01-01 00:00:00")
+
+        listed = comment_threads(self.commenter, self.document.name)
+
+        self.assertEqual(
+            listed,
+            [
+                {"name": second, "anchor": "two", "comments": [closer]},
+                {"name": first, "anchor": "one", "comments": [opener, answer]},
+            ],
+        )
+        with self.assertRaises(DriveNotFound):
+            comment_threads(self.outsider, self.document.name)
+
+    def test_installing_writes_old_threads_under_the_owner_at_their_own_times(self):
+        zone = get_system_timezone()
+        times = (1_690_000_000_000, 1_690_000_000_123.5, 1_690_000_100_000)
+        frappe.db.set_value("Drive Node", self.document.name, "owner", OWNER)
+        new_threads = [
+            {
+                "anchor": "kept",
+                "comments": [
+                    {"content": f"Ask @[{MENTIONED}]", "author_name": "Old Name", "time": times[0]},
+                    {"content": "Answer", "author_name": "N" * 140, "time": times[1]},
+                ],
+            },
+            {"anchor": "alone", "comments": [{"content": "Late", "author_name": "Ann", "time": times[2]}]},
+        ]
+        activity = frappe.db.count("Drive Activity", {"node": self.document.name})
+        notified = frappe.db.count("Drive Notification", {"to_user": MENTIONED})
+
+        installed = install_threads(self.admin, self.document.name, {}, new_threads)
+
+        fields = ["anchor", "owner", "modified_by", "creation", "modified", "resolved", "client_id"]
+        rows = [frappe.db.get_value("Drive Comment Thread", name, fields, as_dict=True) for name in installed]
+        stamp = [get_datetime(epoch_millis(time, zone)) for time in times]
+        self.assertEqual(
+            [tuple(row.values()) for row in rows],
+            [
+                ("kept", OWNER, OWNER, stamp[0], stamp[1], 0, None),
+                ("alone", OWNER, OWNER, stamp[2], stamp[2], 0, None),
+            ],
+        )
+        comment_fields = [
+            "content",
+            "author",
+            "author_name",
+            "owner",
+            "creation",
+            "modified",
+            "idx",
+            "mentions",
+        ]
+        written = frappe.get_all(
+            "Drive Comment", filters={"thread": installed[0]}, fields=comment_fields, order_by="idx asc"
+        )
+        self.assertEqual(
+            [(*tuple(row.values())[:-1], json.loads(row.mentions)) for row in written],
+            [
+                (f"Ask @[{MENTIONED}]", OWNER, "Old Name", OWNER, stamp[0], stamp[0], 1, [MENTIONED]),
+                ("Answer", OWNER, "N" * 140, OWNER, stamp[1], stamp[1], 2, []),
+            ],
+        )
+        self.assertEqual(
+            (
+                frappe.db.count("Drive Activity", {"node": self.document.name}),
+                frappe.db.count("Drive Notification", {"to_user": MENTIONED}),
+            ),
+            (activity, notified),
+        )
+
+    def test_installing_moves_threads_and_tells_the_content_app_once_after_it_commits(self):
+        thread = create_thread(self.owner, self.document.name, "old", "First").name
+        new_threads = [{"anchor": "kept", "comments": [{"content": "Old", "author_name": "Ann", "time": 0}]}]
+        heard: list[str] = []
+        with self.content_app(heard.append):
+            install_threads(self.owner, self.document.name, {}, [])
+            frappe.db.commit()
+            self.assertEqual(heard, [])
+            install_threads(self.owner, self.document.name, {thread: "new"}, new_threads)
+            self.assertEqual(heard, [])
+            frappe.db.commit()
+
+        self.assertEqual(heard, [self.document.name])
+        listed = comment_threads(self.owner, self.document.name)
+        self.assertEqual(sorted(row["anchor"] for row in listed), ["kept", "new"])
+
+    def test_installing_needs_edit_on_an_active_document(self):
+        thread = create_thread(self.commenter, self.document.name, "old", "First").name
+        new_threads = [{"anchor": "kept", "comments": [{"content": "Old", "author_name": "Ann", "time": 0}]}]
+
+        with self.assertRaises(DriveForbidden):
+            install_threads(self.commenter, self.document.name, {thread: "new"}, new_threads)
+
+        frappe.db.set_value("Drive Node", self.document.name, "kind", "file")
+        with self.assertRaises(DriveConflict):
+            install_threads(self.owner, self.document.name, {thread: "new"}, new_threads)
+
+        frappe.db.set_value("Drive Node", self.document.name, "kind", "document")
+        update(self.admin, self.document.name, state="Trashed")
+        with self.assertRaises(DriveForbidden):
+            install_threads(self.owner, self.document.name, {thread: "new"}, new_threads)
+
+        self.assertEqual(
+            frappe.get_all("Drive Comment Thread", {"node": self.document.name}, pluck="anchor"), ["old"]
+        )
+
+    def test_installing_refuses_malformed_input_and_writes_nothing(self):
+        thread = create_thread(self.owner, self.document.name, "old", "First").name
+
+        def old(**changes):
+            return {
+                "anchor": "kept",
+                "comments": [{"content": "Old", "author_name": "Ann", "time": 0, **changes}],
+            }
+
+        cases = {
+            "an anchor map that is not a map": ([(thread, "new")], [old()]),
+            "a thread id that is not text": ({7: "new"}, [old()]),
+            "a blank thread id": ({" ": "new"}, [old()]),
+            "a moved anchor too long": ({thread: "a" * 256}, [old()]),
+            "threads that are not a list": ({thread: "new"}, None),
+            "a thread that is not an object": ({thread: "new"}, ["kept"]),
+            "an empty anchor": ({thread: "new"}, [{**old(), "anchor": ""}]),
+            "a thread with no comments": ({thread: "new"}, [{"anchor": "kept", "comments": []}]),
+            "comments that are not a list": ({thread: "new"}, [{"anchor": "kept", "comments": 7}]),
+            "a comment that is not an object": ({thread: "new"}, [{"anchor": "kept", "comments": ["Old"]}]),
+            "blank words": ({thread: "new"}, [old(content=" ")]),
+            "words over 64 KB": ({thread: "new"}, [old(content="x" * 65_536)]),
+            "a name too long": ({thread: "new"}, [old(author_name="N" * 141)]),
+            "a blank name": ({thread: "new"}, [old(author_name=" ")]),
+            "no name": ({thread: "new"}, [old(author_name=None)]),
+            "a time that is text": ({thread: "new"}, [old(time="0")]),
+            "a time that is a boolean": ({thread: "new"}, [old(time=True)]),
+            "a time past year 9999": ({thread: "new"}, [old(time=1e20)]),
+        }
+        for case, (anchors, new_threads) in cases.items():
+            with self.subTest(case), self.assertRaises(frappe.ValidationError) as refused:
+                install_threads(self.owner, self.document.name, anchors, new_threads)
+            # Refused as malformed, not as a thread Drive could not find
+
+            self.assertIs(type(refused.exception), frappe.ValidationError, case)
+
+        self.assertEqual(
+            frappe.get_all("Drive Comment Thread", {"node": self.document.name}, pluck="anchor"), ["old"]
+        )
+
+    def test_a_failure_part_way_through_installing_writes_nothing(self):
+        thread = create_thread(self.owner, self.document.name, "old", "First").name
+        new_threads = [{"anchor": "kept", "comments": [{"content": "Old", "author_name": "Ann", "time": 0}]}]
+
+        with (
+            patch.object(comments, "_mentions", side_effect=RuntimeError("down")),
+            self.assertRaises(RuntimeError),
+        ):
+            install_threads(self.owner, self.document.name, {thread: "new"}, new_threads)
+
+        self.assertEqual(
+            frappe.get_all("Drive Comment Thread", {"node": self.document.name}, pluck="anchor"), ["old"]
+        )
+
+    def test_installing_takes_more_threads_than_one_batch(self):
+        new_threads: list[dict] = []
+        for index in range(201):
+            comment = {"content": "Old", "author_name": "Ann", "time": index}
+            new_threads.append({"anchor": f"kept-{index}", "comments": [comment]})
+
+        installed = install_threads(self.owner, self.document.name, {}, new_threads)
+        install_threads(self.owner, self.document.name, dict.fromkeys(installed, "moved"), [])
+
+        anchors = frappe.get_all("Drive Comment Thread", {"node": self.document.name}, pluck="anchor")
+        self.assertEqual((len(installed), set(anchors)), (201, {"moved"}))
+
+    def test_the_drive_interface_installs_and_lists_as_the_session_user(self):
+        thread = create_thread(self.owner, self.document.name, "old", "First").name
+        frappe.set_user(COMMENTER)
+        self.addCleanup(frappe.set_user, "Administrator")
+        new_threads = [{"anchor": "kept", "comments": [{"content": "Old", "author_name": "Ann", "time": 0}]}]
+
+        with self.assertRaises(DriveForbidden):
+            drive.install_threads(self.document.name, {thread: "new"}, new_threads)
+
+        listed = drive.comment_threads(self.document.name)
+
+        self.assertEqual([(row["name"], row["anchor"]) for row in listed], [(thread, "old")])
+
     @contextmanager
     def content_app(self, threads_changed):
         frappe.db.set_value("Drive Node", self.document.name, "content_doctype", "Comment Test Doc")
@@ -593,3 +792,23 @@ class TestMigratedCommentOrdering(UnitTestCase):
                 # row keeps the 0 `init_valid_columns` leaves and the key is
                 # inert for it.
                 self.assertFalse(meta.get("istable"))
+
+
+class TestSiteTime(UnitTestCase):
+    """`install_threads` stamps an old comment as Build stamps a migrated one."""
+
+    def test_a_time_reads_as_builds_epoch_millis_reads_it(self):
+        # 2023-03-12 07:00 UTC is the instant New York springs forward
+        spring = 1_678_604_400_000
+        values = (0, 1_690_000_000_123, 1_690_000_000_123.5, 0.4, spring - 1, spring, spring + 1)
+        for zone, value in itertools.product(("UTC", "Asia/Kolkata", "America/New_York"), values):
+            with self.subTest(zone=zone, value=value):
+                self.assertEqual(site_time(value, zone), epoch_millis(value, zone))
+
+    def test_a_time_build_cannot_read_is_refused(self):
+        for value in (True, "0", None, 1e20, -1e20, float("nan"), float("inf")):
+            with self.subTest(value=value), self.assertRaises(InvalidLegacyContent):
+                epoch_millis(value, "UTC")
+
+            with self.subTest(value=value), self.assertRaises(frappe.ValidationError):
+                site_time(value, "UTC")

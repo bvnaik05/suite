@@ -16,9 +16,9 @@ which supplies the node id, the node title, `drive_check`, `drive_touch`, and
 title, the grants, the lifecycle, the versions, the comments, and the byte
 charge; the app owns the body.
 
-The ten calls an app makes are `check`, `touch`, `take_version`,
+The twelve calls an app makes are `check`, `touch`, `take_version`,
 `create_document`, `import_document`, `copy`, `adopt_media`, `read_file`,
-`push_preview`, and `record_comment`. Nothing lower flows from an app to Drive. The `ContentTypeSpec` callbacks flow the other
+`push_preview`, `record_comment`, `comment_threads`, and `install_threads`. Nothing lower flows from an app to Drive. The `ContentTypeSpec` callbacks flow the other
 way, when Drive asks an app to work with its own document body. Each one
 imports its workflow inside the call, so importing `suite.drive` for byte
 accounting alone does not load the node, preview, and imaging modules.
@@ -133,7 +133,7 @@ parent document a shared child row points at.
 
 The content workflows do check. `check`, `create_document`,
 `import_document`, `copy`, `adopt_media`, `read_file`, `touch`, `take_version`,
-and `push_preview` build the caller's
+`push_preview`, `comment_threads`, and `install_threads` build the caller's
 principals from the current Frappe session and this request's `X-Drive-Links`
 header, then run the same point check every other Drive workflow runs. A caller never constructs
 principals itself and never composes partial steps.
@@ -421,6 +421,20 @@ def record_comment(node: str, *, thread: str, comment: str, resolved: bool, ment
     _record_comment(_principals(), node, thread=thread, comment=comment, resolved=resolved, mentions=mentions)
 
 
+def comment_threads(node: str) -> list[dict]:
+    """Answer one document's threads in order as `{name, anchor, comments}`, comment ids only; needs READ."""
+    from suite.drive._core.comments import comment_threads as _comment_threads
+
+    return _comment_threads(_principals(), node)
+
+
+def install_threads(node: str, anchors: dict[str, str], new_threads: list[dict]) -> list[str]:
+    """Move threads and add old ones under the node's owner at their own times, telling no one; needs EDIT."""
+    from suite.drive._core.comments import install_threads as _install_threads
+
+    return _install_threads(_principals(), node, anchors, new_threads)
+
+
 def take_version(node: str, *, kind: str = "auto", label: str | None = None) -> int:
     """Store a node's current bytes as an immutable version and return its seq."""
     from suite.drive._core.versions import take_version as _take_version
@@ -502,6 +516,7 @@ __all__ = (
     "adopt_media",
     "bind_legacy_storage_reservation",
     "check",
+    "comment_threads",
     "copy",
     "create_document",
     "create_file",
@@ -512,6 +527,7 @@ __all__ = (
     "get_storage_usage",
     "grow_storage_reservation",
     "import_document",
+    "install_threads",
     "legacy_node",
     "list_versions",
     "node_field",

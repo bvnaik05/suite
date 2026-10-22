@@ -361,3 +361,55 @@ describe('people a comment mentions', () => {
     ])
   })
 })
+
+describe('a comment kept from the old Drive', () => {
+  const PHOTO = { full_name: 'Asha Rao', user_image: '/asha.png' }
+  const KEPT = {
+    ...WHOLE,
+    comments: [
+      { ...comment('c9', 'Asha Rao', 'From 2023'), author_name: 'Old Name', person: PHOTO },
+      { ...comment('c10', 'Asha Rao', 'Also 2023'), author_name: 'Other Name', person: PHOTO },
+    ],
+  } as unknown as DocumentThread
+
+  function avatars(host: Element) {
+    return [...host.querySelectorAll('[data-avatar]')].map((avatar) => [
+      avatar.getAttribute('data-avatar'),
+      avatar.getAttribute('data-image'),
+    ])
+  }
+
+  it('names the old commenter, with their initials and no photo', async () => {
+    const { host } = showList({ threads: [KEPT] })
+    const closed = rows(host)
+
+    await click(rowButton(host, 'From 2023'))
+
+    expect([closed, rows(host), avatars(host)]).toEqual([
+      [expect.stringMatching(/^Old Name .*From 2023/)],
+      [expect.stringMatching(/^Old Name .*From 2023.*Other Name .*Also 2023/s)],
+      [['Other Name', 'none']],
+    ])
+  })
+
+  it('names the person and shows their photo when no old name is kept', async () => {
+    const SIGNED = {
+      ...WHOLE,
+      comments: [
+        comment('c11', 'Asha Rao', 'Now'),
+        {
+          ...comment('c12', 'Ben Ito', 'Later'),
+          person: { full_name: 'Ben Ito', user_image: '/ben.png' },
+        },
+      ],
+    } as unknown as DocumentThread
+    const { host } = showList({ threads: [SIGNED] })
+
+    await click(rowButton(host, 'Now'))
+
+    expect([rows(host), avatars(host)]).toEqual([
+      [expect.stringMatching(/^Asha Rao .*Now.*Ben Ito .*Later/s)],
+      [['Ben Ito', '/ben.png']],
+    ])
+  })
+})

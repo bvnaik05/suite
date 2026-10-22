@@ -66,7 +66,11 @@ export async function fakeFrappeUi() {
   }
 
   return {
-    Avatar: { render: () => null },
+    Avatar: define({
+      props: { image: String, label: String },
+      setup: (props) => () =>
+        render('span', { 'data-avatar': props.label, 'data-image': props.image ?? 'none' }),
+    }),
     Button: define({
       props: { label: String, type: String },
       emits: ['click'],

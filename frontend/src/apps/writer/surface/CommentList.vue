@@ -521,12 +521,17 @@ function dropDeletedEdit() {
 
 watch(() => props.threads, dropDeletedEdit)
 
+// A comment kept from the old Drive is stored under the owner, so its own name stands with no photo
 function authorImage(comment: ThreadComment) {
+  if (comment.author_name) {
+    return undefined
+  }
+
   return comment.person?.user_image ?? undefined
 }
 
 function authorLabel(comment: ThreadComment) {
-  return comment.person?.full_name || comment.author || 'Someone'
+  return comment.author_name || comment.person?.full_name || comment.author || 'Someone'
 }
 
 function firstComment(thread: DocumentThread) {
@@ -685,7 +690,7 @@ function rowClass(thread: DocumentThread) {
                   <Avatar
                     v-if="comment.person"
                     :image="authorImage(comment)"
-                    :label="comment.person.full_name"
+                    :label="authorLabel(comment)"
                     size="sm"
                     shape="circle"
                   />
