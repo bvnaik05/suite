@@ -16,6 +16,7 @@ from suite.tests.utils import ensure_user
 OWNER = "own-rows-owner@example.com"
 OTHER = "own-rows-other@example.com"
 MANAGER = "own-rows-manager@example.com"
+ADMIN = "own-rows-admin@example.com"
 DOCTYPES = ("Drive Settings", "Drive Favourite", "Drive Recent")
 
 
@@ -27,6 +28,7 @@ class TestOwnRows(IntegrationTestCase):
             (OWNER, ("Suite User",)),
             (OTHER, ("Suite User",)),
             (MANAGER, ("Suite User", "System Manager")),
+            (ADMIN, ("Suite User", "Suite Admin")),
         ):
             ensure_user(user)
             frappe.get_doc("User", user).add_roles(*roles)
@@ -37,8 +39,8 @@ class TestOwnRows(IntegrationTestCase):
         super().setUp()
         self.addCleanup(frappe.db.rollback)
         self.addCleanup(frappe.set_user, "Administrator")
-        node = drive.personal_root_for(OWNER) or drive.ensure_personal_root(OWNER)
-        self.rows = {doctype: self.row(doctype, OWNER, node) for doctype in DOCTYPES}
+        self.node = drive.personal_root_for(OWNER) or drive.ensure_personal_root(OWNER)
+        self.rows = {doctype: self.row(doctype, OWNER, self.node) for doctype in DOCTYPES}
 
     def test_another_user_lists_none_of_the_owners_rows(self):
         frappe.set_user(OTHER)
@@ -71,6 +73,23 @@ class TestOwnRows(IntegrationTestCase):
         frappe.set_user("Administrator")
         for doctype, name in self.rows.items():
             self.assertEqual(frappe.db.get_value(doctype, name, "user"), OWNER)
+
+    def test_another_user_cannot_insert_a_row_for_the_owner(self):
+        frappe.set_user(OTHER)
+        for doctype in DOCTYPES:
+            values = {"doctype": doctype, "user": OWNER, "node": self.node, "opened_at": now_datetime()}
+            with self.subTest(doctype), self.assertRaises(frappe.PermissionError):
+                client.insert(values)
+
+    def test_another_user_cannot_name_their_settings_after_someone_else(self):
+        frappe.set_user(OTHER)
+        settings = frappe.get_doc({"doctype": "Drive Settings", "name": MANAGER, "user": OTHER})
+        settings.flags.name_set = True
+        with self.assertRaises(frappe.ValidationError):
+            settings.insert()
+
+        frappe.set_user("Administrator")
+        self.assertFalse(frappe.db.exists("Drive Settings", MANAGER))
 
     def test_another_user_cannot_delete_the_owners_rows(self):
         frappe.set_user(OTHER)
@@ -108,6 +127,15 @@ class TestOwnRows(IntegrationTestCase):
                 client.get(doctype, name)
 
             self.assertEqual(self.listed(doctype, OWNER), [])
+
+    def test_a_suite_admin_lists_reads_and_saves_the_owners_rows(self):
+        frappe.set_user(ADMIN)
+        for doctype, name in self.rows.items():
+            with self.subTest(doctype):
+                self.assertEqual(self.listed(doctype, OWNER), [name])
+                row = client.get(doctype, name)
+                self.assertEqual(row["user"], OWNER)
+                client.save(row)
 
     @staticmethod
     def row(doctype: str, user: str, node: str | None) -> str:
