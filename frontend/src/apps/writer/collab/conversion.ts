@@ -22,6 +22,7 @@ import {
   snapshot,
   XmlElement,
   XmlFragment,
+  XmlText,
   type AbstractStruct,
   type AbstractType,
 } from 'yjs'
@@ -250,6 +251,37 @@ function dropDriveDefaults(body: XmlFragment) {
   }
 }
 
+// An old mark holding no attributes may be stored as true, which the editor reads as that mark
+function readTrueRuns(text: XmlText) {
+  let at = 0
+  const runs = text.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[]
+  for (const { insert, attributes = {} } of runs) {
+    let length = 1
+    if (typeof insert === 'string') {
+      length = insert.length
+    }
+
+    const trueMarks = Object.keys(attributes).filter(
+      (key) =>
+        attributes[key] === true &&
+        Object.hasOwn(schema.marks, key) &&
+        !Object.keys(schema.marks[key].spec.attrs ?? {}).length,
+    )
+    if (trueMarks.length) {
+      text.format(at, length, Object.fromEntries(trueMarks.map((key) => [key, {}])))
+    }
+
+    at += length
+  }
+}
+
+function readTrueMarks(body: XmlFragment) {
+  const texts = [...body.createTreeWalker((type) => type instanceof XmlText)] as XmlText[]
+  for (const text of texts) {
+    readTrueRuns(text)
+  }
+}
+
 // Drive stored an indent only as a whole number of pixels
 function hasWholeIndents(body: XmlFragment) {
   return elementsOf(body).every((element) => {
@@ -327,12 +359,13 @@ function droppedFloats(body: XmlFragment): Dropped[] {
 // The check compares the old body with the fresh one as Yjs holds both. Between them:
 // convertOldMedia, checked on its own by where the media points and by old media holding only what
 // the old editor wrote; a float beside an alignment, dropped (recorded); Drive's defaults, dropped;
-// frappe-ui's upload id on media, dropped (recorded); Drive's mention author and type, dropped
-// (recorded); an atom key Writer doesn't declare, or the check fails; old colours, read as palette
-// names, or the check fails; cell styles, read as pasted HTML is, or the check fails; the parts the
-// build set aside holding nothing, hidden or lost (recorded), and Drive's table of contents
-// holding only its hint, left out of the source, so a lost part with content fails; and the extras
-// the result may hold, being the filler the build adds, declared defaults and heading ids
+// a mark stored as true where the mark holds no attributes, read as that mark; frappe-ui's upload
+// id on media, dropped (recorded); Drive's mention author and type, dropped (recorded); an atom key
+// Writer doesn't declare, or the check fails; old colours, read as palette names, or the check
+// fails; cell styles, read as pasted HTML is, or the check fails; the parts the build set aside
+// holding nothing, hidden or lost (recorded), and Drive's table of contents holding only its hint,
+// left out of the source, so a lost part with content fails; and the extras the result may hold,
+// being the filler the build adds, declared defaults and heading ids
 function fromYjs(old: Doc) {
   const body = old.getXmlFragment(BODY_FIELD)
   const threads = markOldThreads(body, schema)
@@ -342,6 +375,7 @@ function fromYjs(old: Doc) {
   const floats = droppedFloats(body)
   convertOldMedia(body)
   dropDriveDefaults(body)
+  readTrueMarks(body)
   const isIndentKept = hasWholeIndents(body)
   const uploadIds = dropUploadIds(body)
   const mentionData = dropMentionData(body)

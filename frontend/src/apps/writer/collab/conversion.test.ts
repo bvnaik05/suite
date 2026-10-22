@@ -1105,6 +1105,22 @@ describe('convertLegacy', () => {
     expect(content[0].marks[0].attrs.href).toBe('/a')
   })
 
+  it('converts an old Yjs bold stored as true as the bold mark', () => {
+    const result = convert(stored(legacyDoc(yMarked('hi', { bold: true }))))
+
+    const [{ content }] = bodyOf(result.state).content
+    expect([content, result.dropped]).toEqual([
+      [{ type: 'text', text: 'hi', marks: [{ type: 'bold' }] }],
+      [],
+    ])
+  })
+
+  it('refuses an old Yjs highlight stored as true', () => {
+    const legacy = stored(legacyDoc(yMarked('hi', { namedHighlight: true })))
+
+    expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
+  })
+
   it('keeps a Yjs link, which gains the link mark defaults', () => {
     const result = convert(stored(legacyDoc(yMarked('go', { link: { href: '/a' } }))))
 
