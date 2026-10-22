@@ -10,6 +10,7 @@ import {
   letHandlersAttach,
   LONGEST,
   PLACES,
+  rowButton,
   rows,
   setMounted,
   settled,
@@ -82,10 +83,10 @@ describe('commenting on the whole document', () => {
     const { list, posted } = fakeDrafts()
     const { host } = showList({ drafts: list })
 
-    await click(buttonNamed(host, 'Add a comment…'))
+    await click(buttonNamed(host, 'Add a comment'))
     await nextTick()
     const isFocused = document.activeElement === documentBox()
-    const hasLine = !!buttonNamed(host, 'Add a comment…')
+    const hasLine = !!buttonNamed(host, 'Add a comment')
     await type('Ship it')
     documentBox()!.closest('form')!.requestSubmit()
     await settled()
@@ -102,7 +103,7 @@ describe('commenting on the whole document', () => {
   it('posts no comment over the limit, keeping its box and words and saying why, but posts one at it', async () => {
     const { list, posted } = fakeDrafts()
     const { host } = showList({ drafts: list })
-    await click(buttonNamed(host, 'Add a comment…'))
+    await click(buttonNamed(host, 'Add a comment'))
     await nextTick()
 
     await type(TOO_LONG)
@@ -167,11 +168,11 @@ describe('commenting on the whole document', () => {
   it('closes an empty box without asking, and asks before dropping typed words, on Cancel or Esc', async () => {
     const { host } = showList()
 
-    await click(buttonNamed(host, 'Add a comment…'))
+    await click(buttonNamed(host, 'Add a comment'))
     await click(buttonNamed(host, 'Cancel'))
     await settled()
     const afterEmpty = [documentBox(), confirmed.asked.length]
-    await click(buttonNamed(host, 'Add a comment…'))
+    await click(buttonNamed(host, 'Add a comment'))
     await type('Half a thought')
     confirmed.answer = false
     await click(buttonNamed(host, 'Cancel'))
@@ -190,6 +191,32 @@ describe('commenting on the whole document', () => {
       ['Discard comment?', 'Discard comment?', 'Discard comment?'],
       null,
     ])
+  })
+
+  it('closes a box holding only spaces when another comment opens, bringing the line back', async () => {
+    const { host } = showList()
+    await click(buttonNamed(host, 'Add a comment'))
+    await type('   ')
+
+    await click(rowButton(host, 'Is this right?'))
+    await settled()
+
+    expect([documentBox(), !!buttonNamed(host, 'Add a comment'), confirmed.asked]).toEqual([
+      null,
+      true,
+      [],
+    ])
+  })
+
+  it('keeps a box with typed words open when another comment opens', async () => {
+    const { host } = showList()
+    await click(buttonNamed(host, 'Add a comment'))
+    await type('Half a thought')
+
+    await click(rowButton(host, 'Is this right?'))
+    await settled()
+
+    expect([documentBox()?.value, confirmed.asked]).toEqual(['Half a thought', []])
   })
 
   it('shows no place word on a comment to the whole document that is posting', () => {

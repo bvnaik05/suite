@@ -131,7 +131,7 @@ test("losing edit access freezes the editor and cancels the pending save", async
 	// A trashed document takes no new comments.
 	await page.getByRole("button", { name: "Comments" }).click();
 	await expect(page.getByRole("heading", { name: "Comments" })).toBeVisible();
-	await expect(page.getByRole("button", { name: "Add a comment…" })).toHaveCount(0);
+	await expect(page.getByRole("button", { name: "Add a comment" })).toHaveCount(0);
 	expect(seen.errors).toEqual([]);
 });
 
@@ -154,7 +154,7 @@ test("a toolbar-only change asks before leaving the document", async ({ page }) 
 test("adding a comment keeps the panel open and shows the comment", async ({ page }) => {
 	await openDocument(page);
 	await page.getByRole("button", { name: "Comments" }).click();
-	await page.getByRole("button", { name: "Add a comment…" }).click();
+	await page.getByRole("button", { name: "Add a comment" }).click();
 	await page.getByLabel("Add a comment", { exact: true }).fill("Looks good to me");
 	await page.getByRole("button", { name: "Comment", exact: true }).click();
 

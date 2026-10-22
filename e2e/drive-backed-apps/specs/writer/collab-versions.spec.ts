@@ -403,14 +403,14 @@ test.describe("Writer collaboration", () => {
 			.getByRole("heading", { name: "Comments" })
 			.boundingBox())!;
 		expect(
-			await comments.getByRole("button", { name: "Add a comment…" }).evaluate((button) => {
+			await comments.getByRole("button", { name: "Add a comment" }).evaluate((button) => {
 				const range = document.createRange();
 				range.selectNodeContents(button);
 				return range.getBoundingClientRect().x;
 			}),
 		).toBe(commentsHeading.x);
 		expect(
-			(await comments.getByRole("button", { name: "Add a comment…" }).boundingBox())!.y -
+			(await comments.getByRole("button", { name: "Add a comment" }).boundingBox())!.y -
 				commentsHeading.y,
 		).toBe(tocGap);
 

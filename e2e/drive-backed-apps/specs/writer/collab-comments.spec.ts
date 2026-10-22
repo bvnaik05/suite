@@ -17,7 +17,7 @@ async function openComments(page: Page) {
 
 async function commentOnDocument(page: Page, text: string) {
 	const panel = await openComments(page);
-	await panel.getByRole("button", { name: "Add a comment…" }).click();
+	await panel.getByRole("button", { name: "Add a comment" }).click();
 	await panel.getByLabel("Add a comment", { exact: true }).fill(text);
 	await panel.getByRole("button", { name: "Comment", exact: true }).click();
 	return panel;
@@ -175,7 +175,7 @@ test.describe("Writer collaboration comments", () => {
 		const [handle = ""] = collaborator.user.user.split("@");
 		await openWriterDocument(page, node);
 		const panel = await openComments(page);
-		await panel.getByRole("button", { name: "Add a comment…" }).click();
+		await panel.getByRole("button", { name: "Add a comment" }).click();
 		const box = panel.getByLabel("Add a comment", { exact: true });
 		await box.pressSequentially(`Ask @${handle}`);
 		const option = panel.getByRole("option");

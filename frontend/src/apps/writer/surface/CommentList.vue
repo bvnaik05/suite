@@ -212,6 +212,13 @@ async function showOpenThread(name: string | null) {
 
 watch(openThread, showOpenThread, { immediate: true })
 
+// Another comment opening puts back the line in place of a whole-document box with no words
+watch(openThread, (name) => {
+  if (name && documentDraft.value && !documentDraft.value.text.trim()) {
+    props.drafts.discard(documentDraft.value)
+  }
+})
+
 function hasThread(shown: ThreadRow[], name: string | null) {
   return shown.some(({ thread }) => thread.name === name)
 }
@@ -410,6 +417,23 @@ function resolveIcon(thread: DocumentThread) {
   return 'lucide-check'
 }
 
+// Open, the first comment's text sits where the closed row showed it
+function threadButtonClass(thread: DocumentThread) {
+  if (isOpen(thread)) {
+    return 'pb-1'
+  }
+
+  return 'pb-2'
+}
+
+function commentTextClass(thread: DocumentThread, comment: ThreadComment) {
+  if (isReply(thread, comment)) {
+    return 'text-p-sm'
+  }
+
+  return 'text-sm'
+}
+
 function actionsClass(thread: DocumentThread) {
   if (isOpen(thread)) {
     return ''
@@ -594,10 +618,10 @@ function rowClass(thread: DocumentThread) {
       <button
         v-else
         type="button"
-        class="block w-full rounded-4 px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
+        class="block w-full rounded-4 border border-[--surface-gray-2] bg-surface-gray-2 px-[11px] py-[5px] text-left text-sm text-ink-gray-4 hover:border-outline-elevation-2 hover:bg-surface-gray-3"
         @click="startDocumentComment"
       >
-        Add a comment…
+        Add a comment
       </button>
     </template>
     <CommentDraftCard
@@ -629,12 +653,13 @@ function rowClass(thread: DocumentThread) {
         >
           <button
             type="button"
-            class="block w-full space-y-1 px-3 py-2 text-left"
+            class="block w-full space-y-1 px-3 pt-2 text-left"
+            :class="threadButtonClass(row.thread)"
             :aria-expanded="isOpen(row.thread)"
             @click="toggleThread(row.thread)"
           >
-            <span class="flex items-center gap-1.5 pr-8 text-xs text-ink-gray-5">
-              <span class="min-w-0 text-sm-medium text-ink-gray-8">
+            <span class="flex items-baseline gap-1.5 pr-8 text-xs text-ink-gray-5">
+              <span class="min-w-0 text-sm-medium text-ink-gray-7">
                 <DriveCommentAuthor
                   :author="firstComment(row.thread).author"
                   :author-name="firstComment(row.thread).author_name"
@@ -642,7 +667,7 @@ function rowClass(thread: DocumentThread) {
                 >
               </span>
               <span v-if="row.where" class="shrink-0">{{ row.where }}</span>
-              <span v-if="isUnread(row.thread)" class="flex shrink-0 items-center">
+              <span v-if="isUnread(row.thread)" class="flex shrink-0 items-center self-center">
                 <span class="size-1.5 rounded-full bg-surface-amber-7" aria-hidden="true" />
                 <span class="sr-only">Unread</span>
               </span>
@@ -665,7 +690,7 @@ function rowClass(thread: DocumentThread) {
           </button>
           <div
             v-if="canComment"
-            class="absolute right-1.5 top-1 flex items-center"
+            class="absolute right-3 top-[3px] flex items-center"
             :class="actionsClass(row.thread)"
           >
             <Button
@@ -677,7 +702,7 @@ function rowClass(thread: DocumentThread) {
             />
           </div>
           <template v-if="isOpen(row.thread)">
-            <div class="space-y-2 px-3 pb-3">
+            <div class="space-y-2 px-3 pb-2">
               <div
                 v-for="comment in row.thread.comments"
                 :key="comment.name"
@@ -685,7 +710,7 @@ function rowClass(thread: DocumentThread) {
               >
                 <p
                   v-if="isReply(row.thread, comment)"
-                  class="flex items-center gap-2 pr-8 text-sm-medium text-ink-gray-8"
+                  class="flex items-center gap-2 pr-8 text-sm-medium text-ink-gray-7"
                 >
                   <Avatar
                     v-if="comment.person"
@@ -694,10 +719,14 @@ function rowClass(thread: DocumentThread) {
                     size="sm"
                     shape="circle"
                   />
-                  <DriveCommentAuthor :author="comment.author" :author-name="comment.author_name">{{
-                    authorLabel(comment)
-                  }}</DriveCommentAuthor>
-                  <span class="flex-1 text-xs text-ink-gray-5">{{ dayOrTime(comment) }}</span>
+                  <span class="flex min-w-0 flex-1 items-baseline gap-2">
+                    <DriveCommentAuthor
+                      :author="comment.author"
+                      :author-name="comment.author_name"
+                      >{{ authorLabel(comment) }}</DriveCommentAuthor
+                    >
+                    <span class="flex-1 text-xs text-ink-gray-5">{{ dayOrTime(comment) }}</span>
+                  </span>
                 </p>
                 <form
                   v-if="isEditing(comment)"
@@ -722,12 +751,16 @@ function rowClass(thread: DocumentThread) {
                     />
                   </div>
                 </form>
-                <p v-else class="whitespace-pre-wrap pr-8 text-p-sm text-ink-gray-7">
+                <p
+                  v-else
+                  class="whitespace-pre-wrap pr-8 text-ink-gray-7"
+                  :class="commentTextClass(row.thread, comment)"
+                >
                   <CommentText :content="comment.content" :mentions="comment.mentions" />
                 </p>
                 <div
                   v-if="hasMenu(comment)"
-                  class="absolute -right-1.5 -top-1"
+                  class="absolute -top-1 right-0"
                   :class="menuClass(comment)"
                 >
                   <Dropdown

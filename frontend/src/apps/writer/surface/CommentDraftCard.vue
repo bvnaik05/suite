@@ -27,7 +27,7 @@ defineExpose({ focus })
 </script>
 
 <template>
-  <form class="space-y-2 rounded-4 bg-surface-gray-1 p-3" @submit.prevent="emit('post')">
+  <form class="space-y-2 rounded-4 bg-surface-gray-1 p-2.5" @submit.prevent="emit('post')">
     <p v-if="quote" class="truncate border-l-2 pl-2 text-sm text-ink-gray-5">{{ quote }}</p>
     <MentionTextarea
       ref="field"
