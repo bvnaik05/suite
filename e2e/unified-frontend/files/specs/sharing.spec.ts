@@ -1,6 +1,4 @@
-import { request, type APIRequestContext, type Locator, type Page } from "@playwright/test";
-
-import { expect, test } from "../../helpers/flips";
+import { request, type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
 
 import {
 	DRIVE,
@@ -13,7 +11,7 @@ import {
 	uploadFile,
 	type DriveNode,
 } from "../../helpers/drive";
-import { PERSON, personContext } from "../../helpers/person";
+import { PERSON, PERSON_NAME, ensurePerson, personContext } from "../../helpers/person";
 import { MOBILE_VIEWPORT } from "../../helpers/shell";
 
 /** Stage 9: the Drive share dialog (unified spec §7), opened from a /d/ surface. */
@@ -35,6 +33,7 @@ let home: DriveNode;
 let file: DriveNode;
 
 test.beforeEach(async ({ baseURL }) => {
+	ensurePerson();
 	api = await adminApi(baseURL!);
 	const personal = (await roots(api)).personal.node;
 	home = await createFolder(api, personal, runTag("uf9-share"));
@@ -70,9 +69,9 @@ const peopleField = (dialog: Locator) => dialog.getByRole("combobox", { name: "A
 
 /** Picks PERSON in the people field. The pick waits as a chip until Share is pressed. */
 async function pickPerson(page: Page, dialog: Locator) {
-	await peopleField(dialog).fill("backfill-owner");
-	await page.getByRole("option", { name: /Backfill Owner/ }).click();
-	await expect(dialog.getByRole("list", { name: "People to add" }).getByRole("listitem")).toHaveText(["Backfill Owner"]);
+	await peopleField(dialog).fill(PERSON.split("@")[0]);
+	await page.getByRole("option", { name: new RegExp(PERSON_NAME) }).click();
+	await expect(dialog.getByRole("list", { name: "People to add" }).getByRole("listitem")).toHaveText([PERSON_NAME]);
 }
 
 /** Adds everyone picked, without the notification email. */
@@ -96,7 +95,7 @@ test("a local grant: pick a person, give Edit, and the server holds it", async (
 	// The owner comes first, with nothing to change.
 	await expect(people.first()).toContainText("Owner");
 	await expect(people.first().getByRole("button")).toHaveCount(0);
-	await expect(dialog.getByRole("button", { name: "Access for Backfill Owner: Edit" })).toBeVisible();
+	await expect(dialog.getByRole("button", { name: `Access for ${PERSON_NAME}: Edit` })).toBeVisible();
 	await expect(peopleField(dialog)).toHaveValue("");
 	expect((await grants(file.name)).find((grant) => grant.principal === PERSON)?.role).toBe(40);
 });
@@ -214,18 +213,18 @@ test("a folder row in Files opens the same dialog, and the grant lands on the fo
 	await pickPerson(page, dialog);
 	await sharePicked(dialog);
 
-	const row = dialog.getByRole("region", { name: "People" }).getByRole("listitem").filter({ hasText: "Backfill Owner" });
+	const row = dialog.getByRole("region", { name: "People" }).getByRole("listitem").filter({ hasText: PERSON_NAME });
 	await row.getByRole("button", { name: /View/ }).click();
 	await expect(page.getByRole("menuitem", { name: "Remove here and inside" })).toBeVisible();
 	await page.keyboard.press("Escape");
 	expect((await grants(folder.name)).find((grant) => grant.principal === PERSON)?.role).toBe(10);
 });
 
-test("a manager who lowers their own access is asked first, and the row loses Share", async ({ browser, baseURL, flips }) => {
+test("a manager who lowers their own access is asked first, and the row loses Share", async ({ browser, baseURL }) => {
 	const folder = await createFolder(api, home.name, "handover");
 	await putGrant(home.name, PERSON, { role: 10 });
 	await putGrant(folder.name, PERSON, { role: 50 });
-	const context = await personContext(browser, baseURL!, flips);
+	const context = await personContext(browser, baseURL!);
 	const page = await context.newPage();
 
 	await page.goto(`/drive/f/${home.name}?view=list`);

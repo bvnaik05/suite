@@ -1,4 +1,4 @@
-import { expect, test } from "../../helpers/flips";
+import { expect, test } from "@playwright/test";
 
 /** Ticket 001 route grammar and ticket 002 rail navigation. */
 

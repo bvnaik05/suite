@@ -5,16 +5,8 @@ import { MOBILE_VIEWPORT, patchAccount } from "../../helpers/shell";
 /**
  * Stage 5 (spec sections 3.5, 3.15 and 9.3, ticket 018): one Suite PWA, the
  * phone bottom nav in Mail and Calendar, and the rail inside Mail's admin
- * pages. The Vite dev server does not render the boot, so each journey sets
- * `suite_flip_shell` the way the served page does.
+ * pages.
  */
-
-async function bootShellFlip(page: Page, on: boolean) {
-	await page.addInitScript((value) => {
-		// The files flip stays on, so Home and Drive keep their rail items.
-		Object.assign(window, { suite_flip_shell: value, suite_flip_files: true });
-	}, on);
-}
 
 /**
  * Records each service worker registration before the browser runs it. The
@@ -45,42 +37,40 @@ const bottomNavItems = (page: Page) => page.locator("[data-slot='mobile-nav-item
 const tabBar = (page: Page) => page.locator("nav").filter({ has: page.getByRole("button", { name: "Profile" }) });
 const manifestLinks = (page: Page) => page.locator("link[rel='manifest']");
 
-for (const flip of [true, false]) {
-	test.describe(`one Suite PWA (flip ${flip ? "on" : "off"})`, () => {
-		test.beforeEach(async ({ page }) => {
-			await bootShellFlip(page, flip);
-			await patchAccount(page, MAIL_ACCOUNT);
-		});
-
-		test("every area links the Suite manifest", async ({ page }) => {
-			for (const path of ["/home", "/drive", "/mail", "/calendar", "/meet"]) {
-				await page.goto(path);
-				await expect(manifestLinks(page)).toHaveCount(1);
-				await expect(manifestLinks(page)).toHaveAttribute("href", "/pwa/suite/manifest.webmanifest");
-			}
-
-			const manifest = (await (await page.request.get("/pwa/suite/manifest.webmanifest")).json()) as Record<string, unknown>;
-			expect(manifest.id).toBe("/suite");
-			expect(manifest.start_url).toBe("/suite/start");
-		});
-
-		test("a signed-in user registers the push worker once per page, in Home and in Mail", async ({ page }) => {
-			await recordWorkerRegistrations(page);
-			await page.goto("/home");
-			await expect.poll(() => workerRegistrations(page)).toHaveLength(1);
-			const [call] = await workerRegistrations(page);
-			expect(call.url).toMatch(/^\/assets\/suite\/frontend\/sw\.js(\?config=.*)?$/);
-			expect(call.options).toEqual({ type: "module" });
-
-			// Mail no longer registers a worker of its own: a page load in Mail registers one.
-			await page.goto("/mail");
-			await expect(page).toHaveURL(/\/mail\/account\//);
-			await expect(page.locator("#sidebar").getByRole("link", { name: /^Inbox/ })).toBeVisible();
-			await expect.poll(() => workerRegistrations(page)).toHaveLength(1);
-			expect((await workerRegistrations(page))[0]).toEqual(call);
-		});
+test.describe("one Suite PWA", () => {
+	test.beforeEach(async ({ page }) => {
+		await patchAccount(page, MAIL_ACCOUNT);
 	});
-}
+
+	test("every area links the Suite manifest", async ({ page }) => {
+		for (const path of ["/home", "/drive", "/mail", "/calendar", "/meet"]) {
+			await page.goto(path);
+			await expect(manifestLinks(page)).toHaveCount(1);
+			await expect(manifestLinks(page)).toHaveAttribute("href", "/pwa/suite/manifest.webmanifest");
+		}
+
+		const manifest = (await (await page.request.get("/pwa/suite/manifest.webmanifest")).json()) as Record<string, unknown>;
+		expect(manifest.id).toBe("/suite");
+		expect(manifest.start_url).toBe("/suite/start");
+	});
+
+	test("a signed-in user registers the push worker once per page, in Home and in Mail", async ({ page }) => {
+		test.skip(!process.env.E2E_MAIL, "needs a mail server");
+		await recordWorkerRegistrations(page);
+		await page.goto("/home");
+		await expect.poll(() => workerRegistrations(page)).toHaveLength(1);
+		const [call] = await workerRegistrations(page);
+		expect(call.url).toMatch(/^\/assets\/suite\/frontend\/sw\.js(\?config=.*)?$/);
+		expect(call.options).toEqual({ type: "module" });
+
+		// Mail no longer registers a worker of its own: a page load in Mail registers one.
+		await page.goto("/mail");
+		await expect(page).toHaveURL(/\/mail\/account\//);
+		await expect(page.locator("#sidebar").getByRole("link", { name: /^Inbox/ })).toBeVisible();
+		await expect.poll(() => workerRegistrations(page)).toHaveLength(1);
+		expect((await workerRegistrations(page))[0]).toEqual(call);
+	});
+});
 
 test("a signed-out visitor registers no push worker", async ({ browser, baseURL }) => {
 	const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
@@ -99,11 +89,8 @@ test("a signed-out visitor registers no push worker", async ({ browser, baseURL 
 test.describe("phone bottom nav in the shell", () => {
 	test.use({ viewport: MOBILE_VIEWPORT, hasTouch: true, isMobile: true });
 
-	test.beforeEach(async ({ page }) => {
-		await bootShellFlip(page, true);
-	});
-
 	test("Mail and Calendar show only their own tab bar; Home and Meet keep the bottom nav", async ({ page }) => {
+		test.skip(!process.env.E2E_MAIL, "needs a mail server");
 		await patchAccount(page, MAIL_ACCOUNT);
 
 		await page.goto("/home");
@@ -142,6 +129,7 @@ test.describe("phone bottom nav in the shell", () => {
 	});
 
 	test("an installed app applies the top safe area once in Mail and Calendar, as in Home", async ({ page }) => {
+		test.skip(!process.env.E2E_MAIL, "needs a mail server");
 		const INSET = 47;
 		const cdp = await page.context().newCDPSession(page);
 		await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: INSET, bottom: 0, left: 0, right: 0 } });
@@ -192,7 +180,6 @@ test.describe("phone bottom nav in the shell", () => {
 });
 
 test("an admin sees Mail active on the rail in the Admin Dashboard", async ({ page }) => {
-	await bootShellFlip(page, true);
 	await patchAccount(page, MAIL_ACCOUNT);
 	await page.route("**/api/method/suite.mail.api.account.get_user_info*", async (route) => {
 		const response = await route.fetch();

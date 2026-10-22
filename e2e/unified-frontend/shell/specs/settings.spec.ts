@@ -1,6 +1,4 @@
-import { type Locator, type Page } from "@playwright/test";
-
-import { expect, test } from "../../helpers/flips";
+import { type Locator, type Page, expect, test } from "@playwright/test";
 
 import { failRequest, MOBILE_VIEWPORT, patchAccount } from "../../helpers/shell";
 
@@ -290,6 +288,7 @@ test.describe("phone", () => {
 	});
 
 	test("Mail's Profile page lists the same settings as the Settings list", async ({ page }) => {
+		test.skip(!process.env.E2E_MAIL, "needs a mail server");
 		await patchAccount(page, FULL_ACCOUNT);
 		await page.goto("/mail");
 		// Mail's own tab bar.

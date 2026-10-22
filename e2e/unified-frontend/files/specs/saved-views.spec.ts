@@ -1,6 +1,4 @@
-import { type APIRequestContext } from "@playwright/test";
-
-import { expect, test } from "../../helpers/flips";
+import { type APIRequestContext, expect, test } from "@playwright/test";
 
 import {
 	adminApi,
@@ -15,7 +13,7 @@ import {
 	visit,
 	type DriveNode,
 } from "../../helpers/drive";
-import { PERSON, personContext } from "../../helpers/person";
+import { PERSON, ensurePerson, personContext } from "../../helpers/person";
 
 /** Ticket 006: the saved views and the presentation keys they refuse. */
 
@@ -58,11 +56,12 @@ test("Trash lists the trashed node under My files", async ({ page }) => {
 	await expect(page.getByText(trashed.title, { exact: true })).toBeVisible();
 });
 
-test("a reader of a shared folder sees it in Shared with me and opens it read-only", async ({ browser, baseURL, flips }) => {
+test("a reader of a shared folder sees it in Shared with me and opens it read-only", async ({ browser, baseURL }) => {
 	const shared = await createFolder(api, home.name, runTag("w4-shared"));
 	const inside = await createDocument(api, shared.name, runTag("w4-inside"), "Writer Document");
+	ensurePerson();
 	await grantRole(api, shared.name, PERSON, 10);
-	const context = await personContext(browser, baseURL!, flips);
+	const context = await personContext(browser, baseURL!);
 	const page = await context.newPage();
 
 	await page.goto("/drive/shared-with-me");

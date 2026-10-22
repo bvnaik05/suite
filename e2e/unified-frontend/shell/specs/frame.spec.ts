@@ -1,6 +1,4 @@
-import { type Locator, type Page } from "@playwright/test";
-
-import { expect, test } from "../../helpers/flips";
+import { type Locator, type Page, expect, test } from "@playwright/test";
 
 import { adminApi, createDocument, purge, roots, runTag } from "../../helpers/drive";
 
