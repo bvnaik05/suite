@@ -23,6 +23,7 @@ from suite.writer.content import conversion
 from suite.writer.content.readable_copy import is_html_complete
 from suite.writer.content.tests.drive_callback_case import DriveCallbackCase
 from suite.writer.content.tests.support import WRITER, call_route, read_open
+from suite.writer.http import routes as writer_routes
 
 TIME = 1_690_000_000_000
 OLD_THREAD = {"uuid": "u1", "comments": [{"userName": "Ann", "time": TIME, "content": "Old note"}]}
@@ -332,6 +333,29 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(conversion.convert_document(node), "check")
 
         self.assertEqual(len(self.records(node)), 2)
+
+    def test_tells_the_reader_an_old_document_waits_for_the_converter(self):
+        node = self.old_document("<p>Hello world</p>")
+
+        self.assertEqual(writer_routes.document(self.docname_of(node))["conversion"], {"state": "pending"})
+
+    def test_gives_the_reason_for_a_refusal_only_to_a_system_manager(self):
+        node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
+        conversion.convert_document(node)
+        docname = self.docname_of(node)
+
+        writer_sees = writer_routes.document(docname)["conversion"]
+        frappe.set_user("Administrator")
+        manager_sees = writer_routes.document(docname)["conversion"]
+
+        self.assertEqual(writer_sees, {"state": "refused"})
+        self.assertEqual(manager_sees, {"state": "refused", "reason": "check: orphan"})
+
+    def test_drops_the_conversion_state_once_converted(self):
+        node = self.old_document("<p>Hello world</p>")
+        conversion.convert_document(node)
+
+        self.assertNotIn("conversion", writer_routes.document(self.docname_of(node)))
 
     def test_a_purge_leaves_no_record_of_a_converted_or_refused_document(self):
         converted = self.old_document("<p>Hello world</p>")
