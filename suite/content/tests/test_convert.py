@@ -11,6 +11,8 @@ from frappe.tests import UnitTestCase
 from suite.content import capacity, checker, convert
 
 LEGACY = {"content": None, "html": "<p>a</p>", "collab": 0, "ycomments": None}
+COMMENT = {"content": "<p>see</p>", "authorName": "Ann", "time": 1700000000000}
+THREAD = {"key": "k1", "anchor": "anchor-1", "comments": [COMMENT]}
 GOOD = {
     "kind": "converted",
     "state": base64.b64encode(b"\x01\x02").decode(),
@@ -18,6 +20,7 @@ GOOD = {
     "dropped": [{"kind": "noise", "name": "spellcheck"}],
     "anchors": {"thread-1": "anchor-1"},
     "threads": [{"key": "k1", "anchor": "anchor-1", "comments": []}],
+    "html": "<p>a</p>",
     "version": "1",
 }
 
@@ -61,6 +64,7 @@ class TestConvert(UnitTestCase):
                 dropped=[{"kind": "noise", "name": "spellcheck"}],
                 anchors={"thread-1": "anchor-1"},
                 threads=[{"key": "k1", "anchor": "anchor-1", "comments": []}],
+                html="<p>a</p>",
             ),
         )
 
@@ -94,6 +98,33 @@ class TestConvert(UnitTestCase):
             ("anchors not an object", {**GOOD, "anchors": []}),
             ("an anchor that isn't text", {**GOOD, "anchors": {"thread-1": 1}}),
             ("threads not a list", {**GOOD, "threads": {}}),
+            ("no copy", {key: value for key, value in GOOD.items() if key != "html"}),
+            ("a copy that isn't text", {**GOOD, "html": ["<p>a</p>"]}),
+            ("an empty state", {**GOOD, "state": ""}),
+            ("a drop with no kind", {**GOOD, "dropped": [{}]}),
+            ("a drop whose kind isn't text", {**GOOD, "dropped": [{"kind": 1}]}),
+            ("a thread of another shape", {**GOOD, "threads": [{"x": 1}]}),
+            ("a thread with no anchor", {**GOOD, "threads": [{"key": "k1", "comments": []}]}),
+            ("a thread whose key isn't text", {**GOOD, "threads": [{**THREAD, "key": 1}]}),
+            ("a thread whose comments aren't a list", {**GOOD, "threads": [{**THREAD, "comments": {}}]}),
+            ("a thread that isn't an object", {**GOOD, "threads": ["x"]}),
+            ("a comment that isn't an object", {**GOOD, "threads": [{**THREAD, "comments": ["x"]}]}),
+            (
+                "a comment with no time",
+                {**GOOD, "threads": [{**THREAD, "comments": [{**COMMENT, "time": None}]}]},
+            ),
+            (
+                "a comment timed true",
+                {**GOOD, "threads": [{**THREAD, "comments": [{**COMMENT, "time": True}]}]},
+            ),
+            (
+                "a comment with no text",
+                {**GOOD, "threads": [{**THREAD, "comments": [{**COMMENT, "content": 1}]}]},
+            ),
+            (
+                "a comment with no name",
+                {**GOOD, "threads": [{**THREAD, "comments": [{**COMMENT, "authorName": None}]}]},
+            ),
         ):
             with self.subTest(name):
                 bundle = self.answering(answer)
@@ -107,7 +138,9 @@ class TestConvert(UnitTestCase):
                 convert.convert(bundle, "1", LEGACY, max_state=1),
             ),
             (
-                convert.Converted(b"\x01\x02", "html", GOOD["dropped"], GOOD["anchors"], GOOD["threads"]),
+                convert.Converted(
+                    b"\x01\x02", "html", GOOD["dropped"], GOOD["anchors"], GOOD["threads"], GOOD["html"]
+                ),
                 convert.Refused("bad_answer"),
             ),
         )
@@ -116,6 +149,40 @@ class TestConvert(UnitTestCase):
         for answer in (GOOD, {"kind": "failed", "reason": "check", "version": "1"}):
             with self.subTest(answer["kind"]), self.assertRaises(convert.ConverterChanged):
                 convert.convert(self.answering(answer), "2", LEGACY)
+
+    def test_reads_a_thread_with_its_comments(self):
+        answer = {**GOOD, "threads": [THREAD]}
+
+        result = convert.convert(self.answering(answer), "1", LEGACY)
+
+        self.assertEqual(result.threads, [THREAD])
+
+    def test_prints_no_document_text(self):
+        words = "Quarterly secret"
+        answer = {
+            **GOOD,
+            "state": base64.b64encode(words.encode()).decode(),
+            "dropped": [{"kind": "comment-copy", "id": "c1", "text": words}],
+            "anchors": {"c1": words},
+            "threads": [{**THREAD, "anchor": words, "comments": [{**COMMENT, "content": words}]}],
+            "html": f"<p>{words}</p>",
+        }
+
+        result = convert.convert(self.answering(answer), "1", LEGACY)
+
+        self.assertIsInstance(result, convert.Converted)
+        self.assertNotIn(words, repr(result))
+        self.assertNotIn(words, str(result))
+
+    def test_names_another_version_in_a_short_plain_message(self):
+        answer = {**GOOD, "version": "9 '<p>Quarterly secret</p>' " + "x" * 14000}
+
+        with self.assertRaises(convert.ConverterChanged) as raised:
+            convert.convert(self.answering(answer), "1", LEGACY)
+
+        message = str(raised.exception)
+        self.assertNotIn("secret", message)
+        self.assertLessEqual(len(message), 200)
 
     def test_gives_no_answer_without_node_or_the_bundle(self):
         with patch.object(checker, "usable_node", return_value=None):
@@ -131,7 +198,7 @@ class TestConvert(UnitTestCase):
             "process.stdin.on('data', (chunk) => chunks.push(chunk)).on('end', () => {\n"
             "  const read = Buffer.concat(chunks)\n"
             "  const header = read.subarray(4, 4 + read.readUInt32LE(0)).toString()\n"
-            f"  const answer = {{ ...{good}, dropped: [JSON.parse(header)] }}\n"
+            f"  const answer = {{ ...{good}, dropped: [{{ kind: 'echo', ...JSON.parse(header) }}] }}\n"
             "  process.stdout.write(JSON.stringify(answer))\n"
             "})"
         )
@@ -142,7 +209,7 @@ class TestConvert(UnitTestCase):
                 result = convert.convert(bundle, "1", legacy, **caps)
                 self.assertEqual(
                     result.dropped,
-                    [{"legacy": {**legacy, "collab": 0}, "maxState": sent_cap}],
+                    [{"kind": "echo", "legacy": {**legacy, "collab": 0}, "maxState": sent_cap}],
                 )
 
     def test_bundle_ready_fails_loudly_on_a_child_that_crashes(self):

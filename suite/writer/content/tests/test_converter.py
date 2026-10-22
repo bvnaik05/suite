@@ -137,7 +137,9 @@ class TestConverter(UnitTestCase):
             check=True,
         )
         exposed_globals, version_line = completed.stdout.decode().splitlines()
-        self.assertEqual((exposed_globals, json.loads(version_line)), ("[]", {"version": "1"}))
+        self.assertEqual(
+            (exposed_globals, json.loads(version_line)), ("[]", {"version": writer_content.CONVERTER_VERSION})
+        )
 
     def test_loads_nothing_an_old_body_points_at(self):
         listener = self.enterContext(socket.create_server(("127.0.0.1", 0)))

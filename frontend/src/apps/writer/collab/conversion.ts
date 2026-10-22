@@ -78,6 +78,7 @@ import {
 } from '@/apps/writer/collab/old-styles'
 import { readOldThreads, type OldComment } from '@/apps/writer/collab/old-threads'
 import { placeThread } from '@/apps/writer/collab/places'
+import { writerRender } from '@/apps/writer/collab/render'
 import { tabEditor } from '@/apps/writer/collab/tab-editor'
 import { DRIVE_HEADING_LINE_HEIGHT, INDENTED_BLOCKS } from '@/apps/writer/extensions/block-layout'
 import { renderedIds } from '@/apps/writer/extensions/heading-anchors'
@@ -113,6 +114,7 @@ export type Converted =
   | {
       kind: 'converted'
       state: Uint8Array
+      html: string
       dropped: Dropped[]
       from: 'yjs' | 'html'
       anchors: Record<string, string>
@@ -886,5 +888,8 @@ export function convertLegacy(legacy: LegacyBody, maxState: number): Converted {
     return { kind: 'failed', reason: 'check' }
   }
 
-  return { kind: 'converted', state, dropped, from, anchors, threads }
+  const converted = new Doc()
+  applyUpdate(converted, state)
+  const { html } = writerRender(converted)
+  return { kind: 'converted', state, html, dropped, from, anchors, threads }
 }

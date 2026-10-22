@@ -2,6 +2,7 @@ import { generateJSON, type JSONContent } from '@tiptap/core'
 import { describe, expect, it, vi } from 'vitest'
 import { Doc, encodeStateAsUpdate, encodeStateVector, mergeUpdates, XmlElement, XmlText } from 'yjs'
 
+import { writerAdapter } from '@/apps/writer/collab/adapter'
 import { convertLegacy } from '@/apps/writer/collab/conversion'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 import { addInnerText } from '@/apps/writer/collab/headless-dom'
@@ -453,6 +454,24 @@ describe('convertLegacy', () => {
 
     expect(bodyOf(result.state)).toEqual(page(words('fresh')))
     expect(result.from).toBe('html')
+  })
+
+  it('answers the readable copy a live tab writes, its tabs in the order stored', () => {
+    function tab(id: string, order: string, text: string) {
+      const node = yElement('tab', yParagraph(text))
+      node.setAttribute('id', id)
+      node.setAttribute('label', id)
+      node.setAttribute('order', order)
+      return node
+    }
+
+    const legacy = stored(
+      legacyDoc(yParagraph('first'), tab('b', '2', 'two'), tab('a', '1', 'one')),
+    )
+
+    const result = convert(legacy)
+
+    expect(result.html).toBe(writerAdapter.toHtml(opened(result.state)))
   })
 
   it.each([

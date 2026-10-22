@@ -82,6 +82,7 @@ describe("convertLegacy, Drive's 2023 threads", () => {
       expect(result).toEqual({
         kind: 'converted',
         state: expect.any(Uint8Array),
+        html: expect.any(String),
         dropped,
         from,
         anchors: {},

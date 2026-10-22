@@ -20,7 +20,7 @@ record, never to a log or report.
 
 import base64
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from suite.content import capacity, checker
@@ -36,12 +36,14 @@ class ConverterChanged(Exception):
 
 @dataclass(frozen=True)
 class Converted:
-    state: bytes
+    state: bytes = field(repr=False)
     # "yjs" or "html", the part of the old body the state was made from
     source: str
-    dropped: list[dict]
-    anchors: dict[str, str]
-    threads: list[dict]
+    dropped: list[dict] = field(repr=False)
+    anchors: dict[str, str] = field(repr=False)
+    threads: list[dict] = field(repr=False)
+    # The readable copy a live tab writes for `state`
+    html: str = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -70,7 +72,8 @@ def convert(
 
     answered = answer.get("version")
     if answered != version:
-        raise ConverterChanged(f"the bundle answered version {answered!r}, not {version!r}")
+        shown = checker.plain_reason(str(answered))
+        raise ConverterChanged(f"the bundle answered version {shown}, not {version}")
 
     return read_answer(answer, max_state)
 
@@ -97,9 +100,14 @@ def read_answer(answer: dict, max_state: int) -> Converted | Refused:
         return Refused("bad_answer")
 
     converted = Converted(
-        state, answer.get("from"), answer.get("dropped"), answer.get("anchors"), answer.get("threads")
+        state,
+        answer.get("from"),
+        answer.get("dropped"),
+        answer.get("anchors"),
+        answer.get("threads"),
+        answer.get("html"),
     )
-    if answer.get("kind") != "converted" or len(state) > max_state or not is_well_formed(converted):
+    if answer.get("kind") != "converted" or not 0 < len(state) <= max_state or not is_well_formed(converted):
         return Refused("bad_answer")
 
     return converted
@@ -111,9 +119,34 @@ def is_well_formed(converted: Converted) -> bool:
     return (
         converted.source in {"yjs", "html"}
         and is_list_of_objects(converted.dropped)
+        and all(isinstance(drop.get("kind"), str) for drop in converted.dropped)
         and is_list_of_objects(converted.threads)
+        and all(is_thread(thread) for thread in converted.threads)
+        and isinstance(converted.html, str)
         and isinstance(anchors, dict)
         and all(isinstance(key, str) and isinstance(value, str) for key, value in anchors.items())
+    )
+
+
+def is_thread(thread: dict) -> bool:
+    """Whether `thread` is a 2023 thread with its key, anchor and comments as the converter writes them."""
+    comments = thread.get("comments")
+    return (
+        isinstance(thread.get("key"), str)
+        and isinstance(thread.get("anchor"), str)
+        and is_list_of_objects(comments)
+        and all(is_comment(comment) for comment in comments)
+    )
+
+
+def is_comment(comment: dict) -> bool:
+    """Whether `comment` has its text, author's name and time as the converter writes them."""
+    time = comment.get("time")
+    return (
+        isinstance(comment.get("content"), str)
+        and isinstance(comment.get("authorName"), str)
+        and isinstance(time, int | float)
+        and not isinstance(time, bool)
     )
 
 
