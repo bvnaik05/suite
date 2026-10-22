@@ -827,7 +827,9 @@ jobs:
       - name: Install E2E dependencies
         working-directory: ${{ github.workspace }}/e2e
         timeout-minutes: 20
-        run: yarn install --frozen-lockfile --non-interactive
+        run: |
+          yarn install --frozen-lockfile --non-interactive
+          yarn playwright install --with-deps chromium
 
       - name: Start Frappe server
         working-directory: ${{ runner.temp }}/frappe-bench
@@ -846,6 +848,7 @@ jobs:
           exit $status
         env:
           BASE_URL: http://unified.test:8000
+          BENCH_WEB_URL: http://unified.test:8000
           BENCH_PATH: ${{ runner.temp }}/frappe-bench
           BENCH_SITE: unified.test
           CI: true
