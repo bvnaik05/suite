@@ -523,7 +523,7 @@ watch(() => props.threads, dropDeletedEdit)
 
 // A comment kept from the old Drive is stored under the owner, so its own name stands with no photo
 function authorImage(comment: ThreadComment) {
-  if (comment.author_name) {
+  if (comment.author_name?.trim()) {
     return undefined
   }
 
@@ -531,7 +531,7 @@ function authorImage(comment: ThreadComment) {
 }
 
 function authorLabel(comment: ThreadComment) {
-  return comment.author_name || comment.person?.full_name || comment.author || 'Someone'
+  return comment.author_name?.trim() || comment.person?.full_name || comment.author || 'Someone'
 }
 
 function firstComment(thread: DocumentThread) {

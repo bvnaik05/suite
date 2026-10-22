@@ -412,4 +412,26 @@ describe('a comment kept from the old Drive', () => {
       [['Ben Ito', '/ben.png']],
     ])
   })
+
+  it('names the person and shows their photo when the old name is blank', async () => {
+    const BLANK = {
+      ...WHOLE,
+      comments: [
+        { ...comment('c13', 'Asha Rao', 'Then'), author_name: ' ' },
+        {
+          ...comment('c14', 'Ben Ito', 'After'),
+          author_name: '  ',
+          person: { full_name: 'Ben Ito', user_image: '/ben.png' },
+        },
+      ],
+    } as unknown as DocumentThread
+    const { host } = showList({ threads: [BLANK] })
+
+    await click(rowButton(host, 'Then'))
+
+    expect([rows(host), avatars(host)]).toEqual([
+      [expect.stringMatching(/^Asha Rao .*Then.*Ben Ito .*After/s)],
+      [['Ben Ito', '/ben.png']],
+    ])
+  })
 })

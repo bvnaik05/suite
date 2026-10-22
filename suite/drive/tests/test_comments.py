@@ -370,7 +370,7 @@ class TestCommentWorkflows(IntegrationTestCase):
             {
                 "anchor": "kept",
                 "comments": [
-                    {"content": f"Ask @[{MENTIONED}]", "author_name": "Old Name", "time": times[0]},
+                    {"content": f"Ask @[{MENTIONED}]", "author_name": " Old Name ", "time": times[0]},
                     {"content": "Answer", "author_name": "N" * 140, "time": times[1]},
                 ],
             },
