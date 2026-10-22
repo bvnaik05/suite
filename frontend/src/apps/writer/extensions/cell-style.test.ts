@@ -66,6 +66,16 @@ describe('cell style on paste', () => {
     })
   })
 
+  it('keeps the overflow and overflow wrap, as written', () => {
+    expect(pasted('overflow: hidden; overflow-wrap: break-word; white-space: nowrap').style).toBe(
+      'overflow: hidden; overflow-wrap: break-word;',
+    )
+  })
+
+  it.each(['overflow-x: hidden', 'overflow-y: hidden'])('drops an overflow side, %s', (style) => {
+    expect(pasted(style).style).toBeNull()
+  })
+
   it('keeps one border side set after the whole border, as written', () => {
     expect(pasted('border: 1px solid red; border-top-color: blue').style).toBe(
       'border: 1px solid red; border-top-color: blue;',

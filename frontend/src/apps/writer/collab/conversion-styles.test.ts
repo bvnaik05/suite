@@ -1591,6 +1591,11 @@ describe('convertLegacy on table cell styles', () => {
       null,
       'padding: 4px !important; vertical-align: top;',
     ],
+    [
+      'overflow: hidden; overflow-wrap: break-word; padding: 5pt; vertical-align: top',
+      null,
+      'overflow: hidden; overflow-wrap: break-word; padding: 5pt; vertical-align: top;',
+    ],
   ]
 
   it.each(KEPT)('keeps an HTML cell styled "%s"', (style, name, kept) => {
@@ -1625,6 +1630,8 @@ describe('convertLegacy on table cell styles', () => {
     'border: 1px solid red; position: absolute',
     'background: #123456',
     'background-color: #fef08a !important',
+    'overflow-x: hidden',
+    'overflow: hidden; overflow-x: auto',
   ])('refuses an HTML cell styled "%s", which a cell does not keep', (style) => {
     const html = htmlCell(`style="${style}"`)
 
@@ -1644,6 +1651,8 @@ describe('convertLegacy on table cell styles', () => {
     { style: 'background-color: #fef08a !important' },
     { style: 'background-color: var(--prose-highlight-blue) !important' },
     { style: 'background-color: #fef08a !important /* c */' },
+    { style: 'overflow-x: hidden' },
+    { style: 'overflow: hidden; overflow-x: auto' },
   ])('refuses an old Yjs cell holding %o', (attributes) => {
     expect(convertLegacy(yTable(yCell('tableCell', attributes)), MAX_STATE)).toEqual({
       kind: 'failed',

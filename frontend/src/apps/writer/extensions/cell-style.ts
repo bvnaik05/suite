@@ -25,11 +25,14 @@ const SIDES = ['top', 'right', 'bottom', 'left']
 const BORDER_PARTS = ['width', 'style', 'color']
 
 // The cell properties Writer keeps and draws, as the longhands a browser reads them into: the
-// border, padding, vertical alignment and background
+// border, padding, vertical alignment, overflow and background; overflow by its shorthand, which
+// jsdom doesn't split
 const KEPT_PROPERTIES = [
   ...SIDES.flatMap((side) => BORDER_PARTS.map((part) => `border-${side}-${part}`)),
   ...SIDES.map((side) => `padding-${side}`),
   'vertical-align',
+  'overflow',
+  'overflow-wrap',
   BACKGROUND,
 ]
 
