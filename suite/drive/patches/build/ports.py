@@ -71,6 +71,9 @@ class StorageGateway(Protocol):
     def run_backfill(self, batch_size: int) -> dict:
         """`frappe.storage.backfill.run()`. Idempotent; links local bytes in place."""
 
+    def has_local_file(self, file_url: str) -> bool:
+        """Whether the backfill would find a file on disk for this local URL."""
+
     def claim_blob(self, checksum: str) -> ClaimedBlob | None:
         """A ready private S3 blob for this content, held against GC.
 
@@ -139,6 +142,16 @@ class SiteStorage:
         from frappe.storage import backfill
 
         return backfill.run(batch_size=batch_size)
+
+    def has_local_file(self, file_url: str) -> bool:
+        """Whether the backfill would find a file on disk for this local URL."""
+        import os
+
+        from frappe.storage.backfill import locate
+        from frappe.utils import get_files_path
+
+        found = locate(file_url)
+        return bool(found) and os.path.isfile(get_files_path(found[1], is_private=found[0]))
 
     def claim_blob(self, checksum: str) -> ClaimedBlob | None:
         from frappe.storage.blob import revive_blob

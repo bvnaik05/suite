@@ -66,8 +66,9 @@ BUILD_STAMP = "2026-01-01 00:00:00.000000"
 class FakeStorage:
     """`StorageGateway` over dictionaries."""
 
-    def __init__(self, *, enabled=True, driver="s3", config=None, backfill=None):
+    def __init__(self, *, enabled=True, driver="s3", config=None, backfill=None, missing_local=()):
         self._enabled = enabled
+        self._missing_local = set(missing_local)
         self._driver = driver
         self._config = config if config is not None else {"bucket": "drive-bucket"}
         self._backfill = backfill if backfill is not None else {"linked": 0, "blobs_created": 0}
@@ -86,6 +87,9 @@ class FakeStorage:
     def run_backfill(self, batch_size):
         self.backfill_calls.append(batch_size)
         return self._backfill
+
+    def has_local_file(self, file_url):
+        return file_url not in self._missing_local
 
     def add_blob(self, name, *, key, checksum, status="Ready", driver="s3", is_private=1):
         """A blob row that some other writer left behind."""
