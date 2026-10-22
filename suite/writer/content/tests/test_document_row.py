@@ -3,7 +3,7 @@ from unittest.mock import patch
 import frappe
 
 from suite import drive
-from suite.content import copies, live, log
+from suite.content import copies, live
 from suite.drive._core import content as drive_content
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
@@ -25,20 +25,7 @@ class TestWriterDocumentRow(DriveCallbackCase):
         control = {"lineage": doc.lineage, "kind": "threads"}
         publish.assert_called_once_with("suite_collab_ctl", control, room=room)
 
-    def assert_old_saves_refused(
-        self, mode: str, document, node: str, fields: tuple[str, ...], before
-    ) -> None:
-        for save in (
-            lambda: document.save_doc("AAA=", html="<p>older</p>"),
-            lambda: document.save_html("<p>older</p>"),
-            lambda: save_comments(document.name, "AQID"),
-        ):
-            with self.subTest(mode=mode), self.assertRaisesRegex(LoggedDocumentConflict, "reload it"):
-                save()
-
-            self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), fields), before)
-
-    def test_an_old_tab_cannot_save_over_a_collab_document_with_collaboration_on_or_off(self):
+    def test_an_old_tab_cannot_save_over_a_collab_document(self):
         node = self.new_document()
         self.type_into(node, ["one"])
         self.compact(node)
@@ -46,10 +33,15 @@ class TestWriterDocumentRow(DriveCallbackCase):
         before = frappe.db.get_value("Writer Document", self.docname_of(node), fields)
         document = frappe.get_doc("Writer Document", self.docname_of(node))
 
-        for mode in ("on", "off"):
-            log.set_mode(writer_content.APP, mode)
-            frappe.db.commit()
-            self.assert_old_saves_refused(mode, document, node, fields, before)
+        for save in (
+            lambda: document.save_doc("AAA=", html="<p>older</p>"),
+            lambda: document.save_html("<p>older</p>"),
+            lambda: save_comments(document.name, "AQID"),
+        ):
+            with self.subTest(), self.assertRaisesRegex(LoggedDocumentConflict, "reload it"):
+                save()
+
+            self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), fields), before)
 
         self.assertEqual(self.text_of(self.body_of(node)), "one")
 

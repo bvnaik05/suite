@@ -77,7 +77,7 @@ class TestNoteEditor(IntegrationTestCase):
     def setUpClass(cls):
         super().setUpClass()
         get_hooks = hooks_with_note(frappe.get_hooks)
-        # The apps the site ships, each switched back as it was
+        # The apps the site ships, as they were switched
         cls.others = {name: log.mode(name) for name in editors()}
         cls.addClassCleanup(clear_registry_cache)
         cls.hooks = patch.object(frappe, "get_hooks", get_hooks)
@@ -88,12 +88,11 @@ class TestNoteEditor(IntegrationTestCase):
 
     @classmethod
     def tearDownClass(cls):
+        # A note with a log can't be removed, so its tables go first
+        drop_owned_tables()
         settings = frappe.get_single("Suite Collab Settings")
         settings.apps = [row for row in settings.apps if row.app != note.EDITOR.app]
         settings.save(ignore_permissions=True)
-        for name, mode in cls.others.items():
-            log.set_mode(name, mode)
-
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
         super().tearDownClass()
 
@@ -148,16 +147,31 @@ class TestNoteEditor(IntegrationTestCase):
 
         self.assertEqual(refused.exception.body, {"collab": "malformed"})
 
-    def test_switching_every_other_app_off_leaves_notes_on(self):
-        self.assertTrue(self.others)
-        for name in self.others:
-            log.set_mode(name, "off")
+    def test_notes_with_a_log_cannot_be_turned_off_or_removed(self):
+        with self.assertRaisesRegex(frappe.ValidationError, "Collaboration in note can't be turned off"):
+            log.set_mode(note.EDITOR.app, "off")
+
+        settings = frappe.get_single("Suite Collab Settings")
+        settings.apps = [row for row in settings.apps if row.app != note.EDITOR.app]
+        with self.assertRaisesRegex(frappe.ValidationError, "Collaboration in note can't be turned off"):
+            settings.save(ignore_permissions=True)
 
         self.assertTrue(content.enabled(note.EDITOR.app))
-        content.require_enabled(note.EDITOR.app)
-        self.assertEqual(self.push(typed(self.client_id, "still here"))["rev"], 1)
-        for name in self.others:
-            with self.subTest(app=name), self.assertRaises(content.Refusal) as refused:
-                content.require_enabled(name)
 
-            self.assertEqual(refused.exception.body, {"collab": "disabled"})
+    def test_notes_off_answer_disabled_and_leave_the_other_apps_on(self):
+        doc_table = table(note.EDITOR.app, "doc")
+        for (node,) in frappe.db.sql(f"SELECT `node` FROM `{doc_table}` WHERE `mode` != 'purged'"):
+            log.delete_purged(note.EDITOR.app, log.mark_purged(note.EDITOR.app, node))
+
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+        log.set_mode(note.EDITOR.app, "off")
+
+        with self.assertRaises(content.Refusal) as refused:
+            content.require_enabled(note.EDITOR.app)
+
+        self.assertEqual(refused.exception.body, {"collab": "disabled"})
+        self.assertEqual(
+            {name: content.enabled(name) for name in self.others},
+            {name: mode == "on" for name, mode in self.others.items()},
+        )

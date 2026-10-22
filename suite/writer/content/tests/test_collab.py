@@ -22,28 +22,6 @@ from suite.writer.content.tests.support import (
 
 
 class TestWriterCollab(CollabCase):
-    def test_mode_off_answers_disabled_and_writes_nothing(self):
-        self.set_mode("off")
-        before = {kind: self.table_count(kind) for kind in ("doc", "update", "session")}
-        node = self.new_document()
-
-        header, rows = self.open_document(node)
-        self.assertEqual((header["state"], rows), ("disabled", []))
-        sid = uuid.uuid4().hex
-        session = json.dumps({"sid": sid}).encode()
-        push = push_body(uuid.uuid4().hex, sid, 1, 1, 0, self.typed_update(1, 1, "x"))
-        for handler, body in (
-            (routes.sessions_post, session),
-            (routes.updates_post, push),
-            (routes.updates_get, session),
-            (routes.suspect_post, session),
-            (lambda node: routes.stage_put(node, uuid.uuid4().hex, "0"), b"x"),
-        ):
-            response = call_route(handler, node, body=body)
-            self.assertEqual((response.status_code, answer(response)), (409, {"collab": "disabled"}))
-
-        self.assertEqual({kind: self.table_count(kind) for kind in before}, before)
-
     def test_two_writers_converge_on_one_order(self):
         self.set_mode("on")
         node = self.new_document()

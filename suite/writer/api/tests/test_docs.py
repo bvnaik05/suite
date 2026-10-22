@@ -56,21 +56,14 @@ class TestSaveComments(IntegrationTestCase):
 
     def setUp(self):
         super().setUp()
-        # A document made with collaboration on saves its comments through its log instead
-        saved_mode = log.mode(writer_content.APP)
-        log.set_mode(writer_content.APP, "off")
-        self.addCleanup(self.restore_mode, saved_mode)
         frappe.set_user(USER)
         self.addCleanup(frappe.set_user, "Administrator")
         self.document = _new_document(f"Comments {frappe.generate_hash(6)}")
         self.addCleanup(self._purge, self.document.name)
+        # A document with a log saves its comments through its log instead
+        log.delete_purged(writer_content.APP, log.mark_purged(writer_content.APP, self.document.name))
         grant(self.document.name, OTHER, drive.COMMENT, _admin())
         grant(self.document.name, READER, drive.READ, _admin())
-        frappe.db.commit()
-
-    @staticmethod
-    def restore_mode(mode: str):
-        log.set_mode(writer_content.APP, mode)
         frappe.db.commit()
 
     @staticmethod

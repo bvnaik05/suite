@@ -7,7 +7,7 @@ import frappe
 import pycrdt
 
 from suite import drive
-from suite.content import log, logged
+from suite.content import logged
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import restore_version
 from suite.writer import content as writer_content
@@ -76,19 +76,6 @@ class TestWriterDriveVersions(DriveCallbackCase):
         self.assertEqual(self.text_of(state), "one two three")
         self.assertEqual(version["through_rev"], doc.head_rev)
 
-    def test_with_collaboration_off_a_version_is_still_the_logs_state(self):
-        node = self.new_document()
-        self.type_into(node, ["one"])
-        log.set_mode(writer_content.APP, "off")
-        frappe.db.commit()
-
-        version = version_of(self.docname_of(node))
-
-        self.assertEqual(version["schema"], "writer-document/2")
-        state_gz = base64.b64decode(version["state"])
-        state = gzip.decompress(state_gz)
-        self.assertEqual(self.text_of(state), "one")
-
     def test_a_broken_log_refuses_a_version_instead_of_storing_a_wrong_one(self):
         node = self.new_document()
         self.type_into(node, ["one"])
@@ -115,23 +102,6 @@ class TestWriterDriveVersions(DriveCallbackCase):
         self.assertEqual((self.doc_row(node).head_rev, self.row_count(node)), (head_rev, head_rev))
         self.assertEqual(frappe.db.count("Drive Node Version", {"node": node, "kind": ("!=", "auto")}), 1)
 
-    def test_with_collaboration_off_drive_still_refuses_to_restore_a_collab_document(self):
-        node = self.new_document()
-        self.type_into(node, ["one"])
-        version_seq = drive.take_version(node, kind="named", label="one")
-        log.set_mode(writer_content.APP, "off")
-        frappe.db.commit()
-        fields = ("content", "html", "collab")
-        before = frappe.db.get_value("Writer Document", self.docname_of(node), fields)
-
-        writer_principals = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
-        with self.assertRaisesRegex(drive.DriveConflict, "Open the document to restore this version"):
-            restore_version(writer_principals, node, version_seq)
-
-        frappe.db.rollback()
-        self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), fields), before)
-        self.assertEqual(frappe.db.count("Drive Node Version", {"node": node, "kind": ("!=", "auto")}), 1)
-
     def test_every_collab_version_starts_with_the_bytes_a_restore_refuses(self):
         node = self.new_document()
         self.type_into(node, ["one"])
@@ -141,9 +111,9 @@ class TestWriterDriveVersions(DriveCallbackCase):
         self.assertTrue(record.startswith(logged.record_prefix(writer_content.APP)))
 
     def restoring_without_a_log(self):
-        log.set_mode(writer_content.APP, "off")
-        frappe.db.commit()
-        docname = self.docname_of(self.new_document())
+        node = self.new_document()
+        self.delete_log(node)
+        docname = self.docname_of(node)
         fields = ("content", "html", "collab")
 
         def restore(raw: bytes) -> None:

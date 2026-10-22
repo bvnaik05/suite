@@ -454,12 +454,6 @@ class TestWriterInDrive(IntegrationTestCase):
         activation = activated()
         activation.__enter__()
         self.addCleanup(activation.__exit__, None, None, None)
-        # These tests keep the body in the document row, so no document may start a collab log
-        saved_mode = log.mode("writer")
-        self.addCleanup(frappe.db.commit)
-        self.addCleanup(log.set_mode, "writer", saved_mode)
-        log.set_mode("writer", "off")
-
         # Registered before the first row exists, so a `setUp` that dies half
         # way still hands its roots back.
         self.addCleanup(self._remove_fixture_rows)
@@ -478,12 +472,15 @@ class TestWriterInDrive(IntegrationTestCase):
     # helpers
 
     def _document(self, title="Report", parent=None, **kwargs) -> str:
-        return drive.create_document(
+        node = drive.create_document(
             parent or self.root.node,
             title,
             content_doctype=DOCTYPE,
             **kwargs,
         )
+        # These tests keep the body in the document row, so no document keeps a collab log
+        self.addCleanup(log.delete_purged, "writer", log.mark_purged("writer", node))
+        return node
 
     def _docname(self, node: str) -> str:
         return frappe.db.get_value("Drive Node", node, "content_docname")

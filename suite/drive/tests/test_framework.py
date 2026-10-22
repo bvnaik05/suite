@@ -77,11 +77,6 @@ class TestShareLinkOpensContentDocuments(IntegrationTestCase):
 
     def setUp(self):
         super().setUp()
-        # A Writer document with a log refuses save_html, so these start without one
-        saved_mode = log.mode("writer")
-        self.addCleanup(frappe.db.commit)
-        self.addCleanup(log.set_mode, "writer", saved_mode)
-        log.set_mode("writer", "off")
         frappe.set_user(OWNER)
         self.addCleanup(frappe.set_user, "Administrator")
         root = provision_personal_root(OWNER)
@@ -90,6 +85,8 @@ class TestShareLinkOpensContentDocuments(IntegrationTestCase):
             doctype: drive.create_document(root, f"Linked {doctype} {suffix}", content_doctype=doctype)
             for doctype in SAVES
         }
+        # A Writer document with a log refuses save_html, so these start without one
+        log.delete_purged("writer", log.mark_purged("writer", self.nodes["Writer Document"]))
         frappe.db.commit()
         self.addCleanup(self._purge)
 

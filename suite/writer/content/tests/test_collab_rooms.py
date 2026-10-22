@@ -117,14 +117,11 @@ class TestWriterCollabRooms(CollabCase):
         self.assertEqual((status, body["rev"]), (200, 1))
         self.assert_one_order(node, 1)
 
-    def test_the_realtime_service_may_let_sockets_into_rooms_only_while_collaboration_is_on(self):
+    def test_the_realtime_service_lets_sockets_into_rooms_while_writer_is_on(self):
         frappe.set_user("Guest")
-        answers: dict[str, bool] = {}
-        for mode in ("off", "on"):
-            self.set_mode(mode)
-            answers[mode] = live.joinable()
+        self.set_mode("on")
 
-        self.assertEqual(answers, {"off": False, "on": True})
+        self.assertTrue(live.joinable())
 
     def test_the_switch_takes_one_row_for_each_app_that_keeps_its_documents_in_the_layer(self):
         frappe.set_user("Administrator")

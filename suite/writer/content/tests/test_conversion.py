@@ -306,7 +306,8 @@ class TestConversion(DriveCallbackCase):
             conversion.convert_document(node)
 
         self.assertEqual(self.as_before(node), before)
-        self.assertEqual(self.records(node), ())
+        # The attempt stays with no outcome, for a later run to record as crashed
+        self.assertEqual(self.records(node), ((None, None, None),))
 
     def test_leaves_a_document_purged_under_the_converter(self):
         node = self.old_document("<p>Hello world</p>")

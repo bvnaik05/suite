@@ -9,7 +9,7 @@ import frappe
 import pycrdt
 
 from suite import content, drive
-from suite.content import capacity, checkpoints, log, logged, scheduling
+from suite.content import capacity, checkpoints, logged, scheduling
 from suite.content.http import routes
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
@@ -142,24 +142,6 @@ class TestWriterDocumentCopies(DriveCallbackCase):
         meta = self.opened(copied).get("meta", type=pycrdt.Map)
         self.assertEqual(meta["pictures"].to_py(), [embed(copied_picture), [copied_picture]])
         self.assertEqual(str(meta["note"]), embed(picture))
-
-    def test_with_collaboration_off_drive_still_copies_versions_and_guards_from_the_log(self):
-        node = self.new_document()
-        picture = self.old_media(node, "picture.png")
-        self.push_edit(
-            node, lambda body: body.children.append(pycrdt.XmlElement("image", {"src": embed(picture)}))
-        )
-        log.set_mode(writer_content.APP, "off")
-        frappe.db.commit()
-
-        copied = self.copy_of(node)
-
-        [copied_picture] = frappe.get_all("Drive Node", {"parent_node": copied, "kind": "file"}, pluck="name")
-        [image] = logged.live_state("writer", copied).get("default", type=pycrdt.XmlFragment).children
-        self.assertEqual(dict(image.attributes), {"src": embed(copied_picture)})
-        self.assertEqual(version_of(self.docname_of(node))["schema"], "writer-document/2")
-        with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
-            writer_drive.SPEC.export(self.docname_of(node), "html")
 
     def test_a_copys_start_cannot_change_once_a_tab_has_a_session(self):
         node = self.new_document()
