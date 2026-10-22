@@ -10,7 +10,7 @@ from frappe.utils import get_datetime, get_system_timezone
 from suite.composition.http import Route
 from suite.content import log
 from suite.writer import content as writer_content
-from suite.writer.api.docs import OldBody, VersionConversion, convert_version, old_body, save_comments
+from suite.writer.api.docs import OldBody, VersionConversion, convert_version, old_body
 from suite.writer.content.conversion import ConversionStatus, conversion_status
 from suite.writer.doctype.writer_document.writer_document import WriterDocument
 
@@ -24,20 +24,6 @@ class WriterRow(TypedDict):
     settings: NotRequired[str | dict[str, object] | None]
     conversion: NotRequired[ConversionStatus]
     content_modified: NotRequired[str]
-
-
-class SaveBody(TypedDict):
-    data: str
-    html: NotRequired[str]
-
-
-class SaveHTML(TypedDict):
-    html: str
-
-
-class SaveComments(TypedDict):
-    doc: str
-    data: str
 
 
 class SaveSettings(TypedDict):
@@ -69,8 +55,6 @@ def document(name: str) -> WriterRow:
     return row
 
 
-save_doc = WriterDocument.save_doc
-save_html = WriterDocument.save_html
 update_settings = WriterDocument.update_settings
 
 CONTRACT_ROUTES = (
@@ -85,42 +69,12 @@ CONTRACT_ROUTES = (
     ),
     Route(
         "POST",
-        "/api/v2/document/Writer Document/{name}/method/save_doc",
-        "save_doc",
-        body=SaveBody,
-        output=type(None),
-        kind="mutation",
-        public_name="documents.save",
-        allow_guest=True,
-    ),
-    Route(
-        "POST",
-        "/api/v2/document/Writer Document/{name}/method/save_html",
-        "save_html",
-        body=SaveHTML,
-        output=type(None),
-        kind="mutation",
-        public_name="documents.saveHTML",
-        allow_guest=True,
-    ),
-    Route(
-        "POST",
         "/api/v2/document/Writer Document/{name}/method/update_settings",
         "update_settings",
         body=SaveSettings,
         output=type(None),
         kind="mutation",
         public_name="documents.updateSettings",
-    ),
-    Route(
-        "POST",
-        "/api/v2/method/suite.writer.api.docs.save_comments",
-        "save_comments",
-        body=SaveComments,
-        output=type(None),
-        kind="mutation",
-        public_name="comments.save",
-        allow_guest=True,
     ),
     Route(
         "GET",

@@ -46,27 +46,11 @@ def enable_collab(node: str) -> dict:
 
 
 @whitelist_for_tests(methods=["POST"])
-def disable_collab(node: str) -> dict:
-    """Turn Writer's collaboration off, leaving `node`'s document and log as they are."""
-    set_mode(writer_content.APP, "off")
-    frappe.db.commit()
-    return state(node)
-
-
-@whitelist_for_tests(methods=["POST"])
 def make_legacy(node: str) -> int:
     """Mark `node`'s Writer document non-collaborative, as one from before collaboration is; answer the flag."""
     frappe.db.set_value("Writer Document", {"node": node}, "collab", 0)
     frappe.db.commit()
     return frappe.db.get_value("Writer Document", {"node": node}, "collab")
-
-
-@whitelist_for_tests(methods=["POST"])
-def drop_log(node: str) -> int:
-    """Purge `node`'s log so it opens as a document from before collaboration; answer 1 once it has none."""
-    logged.purge(writer_content.APP, node)
-    frappe.db.commit()
-    return int(content.find(writer_content.APP, node) is None)
 
 
 @whitelist_for_tests(methods=["POST"])

@@ -66,12 +66,6 @@ BASELINE_DEBT = {
         ),
     ),
     **_debt(
-        "Suite Drive",
-        "Remove when the Writer link case no longer has to turn Writer's collaboration off.",
-        # The case saves a Writer document's HTML, which a document with a log refuses
-        ("suite/drive/tests/test_framework.py|import|suite.content",),
-    ),
-    **_debt(
         "Suite content layer",
         "Remove when `suite.drive` can register a content type for one test.",
         (
@@ -113,11 +107,6 @@ BASELINE_DEBT = {
             "suite/writer/tests/test_drive_adoption.py|import|suite.drive._core.roots",
             "suite/writer/tests/test_drive_adoption.py|import|suite.drive._core.versions",
             "suite/writer/tests/test_drive_adoption.py|import|suite.drive.framework",
-            # The comment fixture grants on and purges nodes directly; Drive
-            # exposes neither as a public call yet.
-            "suite/writer/api/tests/test_docs.py|import|suite.drive._core.access",
-            "suite/writer/api/tests/test_docs.py|import|suite.drive._core.nodes",
-            "suite/writer/api/tests/test_docs.py|import|suite.drive._core.principals",
             # The collab reader case needs a READ grant, which has no public call yet
             "suite/writer/content/tests/test_collab_access.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_collab_access.py|import|suite.drive._core.principals",

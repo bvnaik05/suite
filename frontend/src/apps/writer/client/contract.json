@@ -113,78 +113,6 @@
       "bytes": false
     },
     {
-      "id": "save_doc",
-      "kind": "mutation",
-      "publicName": "documents.save",
-      "page": null,
-      "envelope": "data",
-      "method": "POST",
-      "path": "/api/v2/document/Writer Document/{name}/method/save_doc",
-      "pathParams": [
-        "name"
-      ],
-      "query": null,
-      "body": {
-        "properties": {
-          "data": {
-            "title": "Data",
-            "type": "string"
-          },
-          "html": {
-            "title": "Html",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "SaveBody",
-        "type": "object"
-      },
-      "output": {
-        "type": "null"
-      },
-      "errors": [],
-      "entity": null,
-      "nodeParams": [],
-      "stream": false,
-      "bytes": false
-    },
-    {
-      "id": "save_html",
-      "kind": "mutation",
-      "publicName": "documents.saveHTML",
-      "page": null,
-      "envelope": "data",
-      "method": "POST",
-      "path": "/api/v2/document/Writer Document/{name}/method/save_html",
-      "pathParams": [
-        "name"
-      ],
-      "query": null,
-      "body": {
-        "properties": {
-          "html": {
-            "title": "Html",
-            "type": "string"
-          }
-        },
-        "required": [
-          "html"
-        ],
-        "title": "SaveHTML",
-        "type": "object"
-      },
-      "output": {
-        "type": "null"
-      },
-      "errors": [],
-      "entity": null,
-      "nodeParams": [],
-      "stream": false,
-      "bytes": false
-    },
-    {
       "id": "update_settings",
       "kind": "mutation",
       "publicName": "documents.updateSettings",
@@ -207,43 +135,6 @@
           "data"
         ],
         "title": "SaveSettings",
-        "type": "object"
-      },
-      "output": {
-        "type": "null"
-      },
-      "errors": [],
-      "entity": null,
-      "nodeParams": [],
-      "stream": false,
-      "bytes": false
-    },
-    {
-      "id": "save_comments",
-      "kind": "mutation",
-      "publicName": "comments.save",
-      "page": null,
-      "envelope": "data",
-      "method": "POST",
-      "path": "/api/v2/method/suite.writer.api.docs.save_comments",
-      "pathParams": [],
-      "query": null,
-      "body": {
-        "properties": {
-          "doc": {
-            "title": "Doc",
-            "type": "string"
-          },
-          "data": {
-            "title": "Data",
-            "type": "string"
-          }
-        },
-        "required": [
-          "doc",
-          "data"
-        ],
-        "title": "SaveComments",
         "type": "object"
       },
       "output": {

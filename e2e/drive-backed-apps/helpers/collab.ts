@@ -68,11 +68,6 @@ export function makeLegacy(testApi: APIRequestContext, node: string) {
 	return callTestHook<number>(testApi, "make_legacy", node);
 }
 
-/** Take away `node`'s log, without turning collaboration off for the whole site. */
-export function dropLog(testApi: APIRequestContext, node: string) {
-	return callTestHook<number>(testApi, "drop_log", node);
-}
-
 export function compactNow(testApi: APIRequestContext, node: string) {
 	return callTestHook<CollabState>(testApi, "compact_now", node);
 }

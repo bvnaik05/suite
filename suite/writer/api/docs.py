@@ -8,47 +8,14 @@ import mimemapper
 
 from suite import drive
 from suite.content import convert
-from suite.writer import comments
 from suite.writer import content as writer_content
-from suite.writer.drive import DOCTYPE, VERSION_SCHEMA, _read_bounded, _version_payload
+from suite.writer.drive import VERSION_SCHEMA, _read_bounded, _version_payload
 
 # To be moved to mimemapper
 QUICK_MAP = {
     "video/quicktime": "mov",
     "image/gif": "gif",
 }
-
-
-@frappe.whitelist(allow_guest=True, methods=["POST"])
-def save_comments(doc: str, data: str):
-    """Store the inline comment threads of one Writer document.
-
-    Inline comments are a Yjs document of their own, anchored to positions in
-    the body that only Writer can read, so they are body data Writer keeps in
-    `ycomments`, not Drive comments. Adding a comment or resolving a thread
-    needs COMMENT on the node (`suite/drive/CONTEXT.md`, Rules), and a trashed
-    node refuses it like any other write above READ.
-
-    A comment that gained a mention is reported to Drive, which records the
-    activity and notifies the people it names, as a Drive comment's mention
-    does. `drive.record_comment` carries the COMMENT check for that path, so
-    the save and its report are refused together, before the blob is written.
-
-    `allow_guest` lets a link holder with Comment reach the route; Drive's
-    check decides whether they may act.
-    """
-    document = frappe.get_doc(DOCTYPE, doc)
-    document.drive_check(drive.COMMENT)
-    document.refuse_if_logged()
-    for mentioned in comments.new_mentions(document.ycomments, data):
-        drive.record_comment(
-            document.node,
-            thread=mentioned.thread,
-            comment=mentioned.comment,
-            resolved=mentioned.resolved,
-            mentions=mentioned.users,
-        )
-    frappe.db.set_value(DOCTYPE, document.name, "ycomments", data, update_modified=False)
 
 
 class VersionConversion(TypedDict):

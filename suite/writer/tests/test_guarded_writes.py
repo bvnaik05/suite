@@ -1,10 +1,9 @@
 """Every writer of a Writer Document row, so a new one can't skip the logged-document refusal.
 
-A document with a log keeps its body, comments and collab flag through the log, and
-`WriterDocument.refuse_if_logged` refuses anything else that would write them. Generic
-saves go through `validate`, which refuses too. The scan lists each function that writes
-the row directly; a new one fails until it is listed here with why it can't write over a
-logged document.
+A document with a log keeps its body, comments and collab flag through the log. Generic
+saves go through `WriterDocument.validate`, which refuses them. The scan lists each
+function that writes the row directly; a new one fails until it is listed here with why it
+can't write over a logged document.
 
 The scan reads one file at a time, so it misses a doctype passed in a variable (Build's
 `write_writer_template`, through `_bulk`), and a qb table held in anything but a plain name
@@ -26,13 +25,10 @@ WRITER = "suite/writer/"
 WRITER_DOCUMENT = "suite/writer/doctype/writer_document/"
 
 NEW_ROW = "a new row has no log yet"
-REFUSES = "refuses a logged document first"
+REFUSES = "the content layer refuses a logged document first"
 THE_LOG = "the log writes its own body"
 KNOWN_WRITERS = {
-    "suite/writer/doctype/writer_document/writer_document.py:WriterDocument.save_doc": REFUSES,
-    "suite/writer/doctype/writer_document/writer_document.py:WriterDocument.save_html": REFUSES,
     "suite/writer/doctype/writer_document/writer_document.py:WriterDocument.update_settings": "writes only settings",
-    "suite/writer/api/docs.py:save_comments": REFUSES,
     "suite/writer/drive.py:create_empty": NEW_ROW,
     "suite/writer/drive.py:duplicate": NEW_ROW,
     "suite/writer/drive.py:restore_version": REFUSES,

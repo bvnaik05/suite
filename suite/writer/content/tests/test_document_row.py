@@ -7,9 +7,7 @@ from suite.content import copies, live
 from suite.drive._core import content as drive_content
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
-from suite.writer.api.docs import save_comments
 from suite.writer.content.tests.drive_callback_case import DriveCallbackCase
-from suite.writer.doctype.writer_document.writer_document import LoggedDocumentConflict
 
 
 class TestWriterDocumentRow(DriveCallbackCase):
@@ -24,26 +22,6 @@ class TestWriterDocumentRow(DriveCallbackCase):
 
         control = {"lineage": doc.lineage, "kind": "threads"}
         publish.assert_called_once_with("suite_collab_ctl", control, room=room)
-
-    def test_an_old_tab_cannot_save_over_a_collab_document(self):
-        node = self.new_document()
-        self.type_into(node, ["one"])
-        self.compact(node)
-        fields = ("content", "html", "ycomments")
-        before = frappe.db.get_value("Writer Document", self.docname_of(node), fields)
-        document = frappe.get_doc("Writer Document", self.docname_of(node))
-
-        for save in (
-            lambda: document.save_doc("AAA=", html="<p>older</p>"),
-            lambda: document.save_html("<p>older</p>"),
-            lambda: save_comments(document.name, "AQID"),
-        ):
-            with self.subTest(), self.assertRaisesRegex(LoggedDocumentConflict, "reload it"):
-                save()
-
-            self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), fields), before)
-
-        self.assertEqual(self.text_of(self.body_of(node)), "one")
 
     def test_a_generic_row_write_cannot_change_the_body_of_a_collab_document(self):
         node = self.new_document()

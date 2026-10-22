@@ -41,7 +41,6 @@ import frappe.share
 import pycrdt
 from frappe.storage.blob import put_blob
 from frappe.tests import IntegrationTestCase, UnitTestCase
-from frappe.utils import get_datetime
 
 from suite import drive
 from suite.content import log
@@ -766,18 +765,6 @@ class TestWriterInDrive(IntegrationTestCase):
         self.assertGreater(captured, seq, "the state a restore replaced is versioned first")
         self.assertEqual(frappe.db.count("Drive Node Version", {"node": node}), 2)
 
-    def test_the_document_method_takes_a_version_through_drive(self):
-        node = self._document(title="Methodical")
-        document = frappe.get_doc(DOCTYPE, self._docname(node))
-        self._as(USER)
-        seq = document.take_version(label="milestone")
-        frappe.set_user("Administrator")
-
-        row = frappe.db.get_value(
-            "Drive Node Version", {"node": node, "seq": seq}, ("kind", "label", "actor"), as_dict=True
-        )
-        self.assertEqual((row.kind, row.label, row.actor), ("named", "milestone", USER))
-
     # the body callbacks Drive drives
 
     def test_the_html_export_streams_the_stored_body(self):
@@ -838,39 +825,6 @@ class TestWriterInDrive(IntegrationTestCase):
 
     # authorization
 
-    def test_a_reader_cannot_save_the_body_and_an_editor_can(self):
-        node = self._document(title="Guarded")
-        document = frappe.get_doc(DOCTYPE, self._docname(node))
-        grant(node, OTHER, drive.READ, self.admin)
-
-        self._as(OTHER)
-        with self.assertRaises(DriveForbidden):
-            document.save_doc(body_with("x"))
-        frappe.set_user("Administrator")
-
-        grant(node, OTHER, drive.EDIT, self.admin)
-        self._as(OTHER)
-        document.save_doc(body_with("x"), html="<p>x</p>")
-        frappe.set_user("Administrator")
-        self.assertEqual(frappe.db.get_value(DOCTYPE, document.name, "html"), "<p>x</p>")
-
-    def test_a_save_stamps_the_node_and_never_the_document_title(self):
-        # `create_document` stamps `content_modified` itself, so the creation
-        # stamp is the value the save must beat. `Drive Node.content_modified`
-        # is a `datetime(6)`, and the two `now_datetime()` calls sit a node
-        # insert, a factory call, and a grant apart, so the two stamps cannot
-        # read equal. Deleting `drive_touch` leaves the creation stamp in
-        # place and fails the comparison.
-        node = self._document(title="Stamped")
-        created = get_datetime(frappe.db.get_value("Drive Node", node, "content_modified"))
-        document = frappe.get_doc(DOCTYPE, self._docname(node))
-
-        document.save_html("<p>new</p>")
-
-        after = frappe.db.get_value("Drive Node", node, ("content_modified", "title"), as_dict=True)
-        self.assertGreater(get_datetime(after.content_modified), created)
-        self.assertEqual(after.title, "Stamped")
-
     def test_an_inherited_folder_grant_reaches_the_row_and_the_list(self):
         folder = create_node_folder(self.admin, self.root.node, "Shared folder")
         node = self._document(title="Inherited", parent=folder)
@@ -911,11 +865,7 @@ class TestWriterInDrive(IntegrationTestCase):
         before = frappe.db.get_value(DOCTYPE, document.name, "html")
         update(self.admin, node, state="Trashed")
 
-        for write in (
-            lambda: document.save_doc(body_with("x"), html="<p>x</p>"),
-            lambda: document.save_html("<p>x</p>"),
-            lambda: document.update_settings('{"collab": false}'),
-        ):
+        for write in (lambda: document.update_settings('{"collab": false}'),):
             with self.subTest(write=write), self.assertRaises(DriveForbidden):
                 write()
         self.assertEqual(frappe.db.get_value(DOCTYPE, document.name, "html"), before)
@@ -945,8 +895,8 @@ class TestWriterInDrive(IntegrationTestCase):
         document.drive_check(drive.READ)
 
         update(self.admin, node, state="Active")
-        document.save_html("<p>back</p>")
-        self.assertEqual(frappe.db.get_value(DOCTYPE, document.name, "html"), "<p>back</p>")
+        document.update_settings('{"collab": true}')
+        self.assertEqual(frappe.db.get_value(DOCTYPE, document.name, "settings"), '{"collab": true}')
 
     # compatibility with what Build has not copied yet
 

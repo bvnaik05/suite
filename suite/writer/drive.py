@@ -11,7 +11,7 @@ Drive only through `from suite import drive` (ARCHITECTURE.md, rule 2.2).
 ## The body, and the two places a media id lives
 
 The editor binds Tiptap's `Collaboration` extension to the Yjs root fragment
-`default` (`frontend/src/apps/writer/components/TextEditor.vue`), so `content`
+`default` (`frontend/src/apps/writer/collab/field.ts`), so `content`
 is one base64 Yjs update of that fragment. A picture is an element attribute
 holding a Drive node id, written either as the embed URL Writer has always
 produced or as a plain `data-node` attribute.
@@ -106,7 +106,7 @@ VERSION_MIME = "application/json"
 
 # One version is one body plus its HTML mirror plus JSON framing. Drive wrote
 # every native envelope, but a §14.6 migrated `Writer Version` is raw snapshot
-# HTML that never passed through `save_doc`, so the read is bounded before the
+# HTML that never passed through Writer's editor, so the read is bounded before the
 # bytes are held rather than after, exactly as `suite.sheets.drive` bounds its
 # own. `Writer Document.content` and `.html` are both LONGTEXT.
 MAX_VERSION_BYTES = 64 * 1024 * 1024
@@ -125,7 +125,6 @@ def create_empty(node: str) -> str:
     document.content = EMPTY_BODY
     document.html = ""
     document.settings = DEFAULT_SETTINGS
-    document.collab = 1
     document.insert(ignore_permissions=True)
     return document.name
 

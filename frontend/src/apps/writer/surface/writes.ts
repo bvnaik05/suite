@@ -19,8 +19,6 @@ export interface WriteGate {
   readonly role: Readonly<Ref<number>>
   /** True while this document takes writes: it is Active and the role is EDIT or more. */
   readonly writable: Readonly<Ref<boolean>>
-  /** True once a save is refused because the document saves as it is edited; no write goes after it. */
-  readonly refusedForGood: Readonly<Ref<boolean>>
   /**
    * The same document with each named write passed through the gate.
    *
@@ -53,7 +51,6 @@ export function createWriteGate(
     return verdict.value === null ? granted : Math.min(granted, verdict.value)
   })
   const writable = computed(() => session.state.value === 'Active' && role.value >= EDIT)
-  const refusedForGood = ref(false)
 
   watch(
     writable,
@@ -85,21 +82,10 @@ export function createWriteGate(
       async run(params) {
         if (!writable.value) throw new DOMException('Editing access changed', 'AbortError')
 
-        if (refusedForGood.value) {
-          throw new DOMException('Saving stopped', 'AbortError')
-        }
-
         try {
           return await write.run(params)
         } catch (error) {
           if (isRefusal(error)) refuse()
-
-          // The stop strip says why, so the refusal reaches the editor as a cancel it doesn't report
-          if (isLoggedRefusal(error)) {
-            refusedForGood.value = true
-            throw new DOMException('Saving stopped', 'AbortError')
-          }
-
           throw error
         }
       },
@@ -112,12 +98,7 @@ export function createWriteGate(
     return reactive({ ...toRefs(document), ...replaced }) as D
   }
 
-  return { role, writable, refusedForGood, guard }
-}
-
-// The server takes this document's edits only as they are made, never as a whole body
-function isLoggedRefusal(error: unknown): boolean {
-  return (error as { type?: unknown } | null)?.type === 'LoggedDocumentConflict'
+  return { role, writable, guard }
 }
 
 function isRefusal(error: unknown): boolean {
