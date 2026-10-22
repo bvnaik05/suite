@@ -38,6 +38,17 @@ function refuseConvert(): Promise<ConvertedVersion> {
   return Promise.resolve({ refused: null })
 }
 
+// An old version, which the server converts before it restores, whose stored HTML is out of date
+function oldVersion() {
+  return encode({ schema: 'writer-document/1', content: 'AAA=', html: '<p>stale</p>', collab: 0 })
+}
+
+function converted(text: string): Promise<ConvertedVersion> {
+  const paragraph = { type: 'paragraph', content: [{ type: 'text', text }] }
+  const doc = prosemirrorJSONToYDoc(schema, { type: 'doc', content: [paragraph] }, BODY_FIELD)
+  return Promise.resolve({ body: { lineage: '', state: encodeStateAsUpdate(doc) } })
+}
+
 function html(value: string) {
   return new TextEncoder().encode(value)
 }
@@ -174,4 +185,45 @@ describe('restoreVersion', () => {
       expect(notice).toEqual({ isRestored, message, anchors: {} })
     },
   )
+
+  it('restores an old version as the converter made it, not its stored HTML', async () => {
+    const room = fakeRoom({ outcome: 'landed' })
+
+    const notice = await restoreVersion(room, 4, oldVersion(), [], () => converted('back then'))
+
+    expect([notice.isRestored, shown(room.doc)]).toEqual([true, 'back then'])
+  })
+
+  it.each([
+    [null, "This version couldn't be upgraded, so it can't be restored. You can download it."],
+    [
+      'too_large',
+      "This version couldn't be upgraded, so it can't be restored. You can download it. Reason: too_large.",
+    ],
+  ])(
+    'offers the download of an old version the converter refuses (%s)',
+    async (reason, message) => {
+      const room = fakeRoom({ outcome: 'landed' })
+
+      const notice = await restoreVersion(room, 4, oldVersion(), [], () =>
+        Promise.resolve({ refused: reason }),
+      )
+
+      expect([notice, room.restoreVersion.mock.calls.length]).toEqual([
+        { isRestored: false, message, canDownload: true, anchors: {} },
+        0,
+      ])
+    },
+  )
+
+  it('restores nothing when converting an old version fails', async () => {
+    const room = fakeRoom({ outcome: 'landed' })
+
+    const restore = restoreVersion(room, 4, oldVersion(), [], () =>
+      Promise.reject(new Error('down')),
+    )
+
+    await expect(restore).rejects.toThrow('down')
+    expect(room.restoreVersion.mock.calls.length).toBe(0)
+  })
 })
