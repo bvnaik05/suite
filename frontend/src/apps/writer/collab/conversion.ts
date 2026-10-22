@@ -548,6 +548,25 @@ function dropUploadMarks(body: HTMLElement) {
   return names
 }
 
+// Old Drive's mention wrote whom it named, a user or a group, over its data-type, which the editor
+// reads as mention (b5aa37a1 MentionExtension.ts:199-208, Document.vue:205/211)
+const DRIVE_MENTION_TYPES = ['User', 'User Group']
+
+function readOldMentions(body: HTMLElement) {
+  const mentions = [...body.querySelectorAll('span.mention[data-type][data-id]')].filter(
+    (element) => DRIVE_MENTION_TYPES.includes(element.getAttribute('data-type')!),
+  )
+  for (const mention of mentions) {
+    mention.setAttribute('data-type', 'mention')
+  }
+
+  if (!mentions.length) {
+    return []
+  }
+
+  return ['type']
+}
+
 // Drive's mention held its author, which it never drew; its words stay
 function dropMentionAuthors(body: HTMLElement) {
   const mentions = [...body.querySelectorAll('[data-author]')].filter(
@@ -665,20 +684,22 @@ function droppedNoise(source: ParentNode, result: ParentNode) {
 }
 
 // The check compares the old HTML, its old media mapped, its colours and fonts read and a
-// float beside an alignment dropped (recorded), frappe-ui's upload marks, Drive's mention author
-// and its class sets dropped (recorded) and Drive's defaults dropped, with the fresh body as the editor draws it;
-// every property the raw style text names must survive the parse, bar the noise list, and the
-// whitespace the parser folds isn't compared
+// float beside an alignment dropped (recorded), Drive's old mention type read (recorded),
+// frappe-ui's upload marks, Drive's mention author and its class sets dropped (recorded) and
+// Drive's defaults dropped, with the fresh body as the editor draws it; every property the raw
+// style text names must survive the parse, bar the noise list, and the whitespace the parser
+// folds isn't compared
 function fromHtml(html: string) {
   const { body } = new DOMParser().parseFromString(html, 'text/html')
   const marked = markedHtmlIds(body)
   const threads = markHtmlThreads(body)
   const hasUnreadableThreads = !threads || !!body.querySelector(ANNOTATION_TAG)
   const isFontRead = dropUnclosedFonts(body)
+  const mentionTypes = readOldMentions(body)
   // Before the defaults go, since dropping one rewrites the style text from the parse
   const raw = rawStyles(body)
   const floats = droppedHtmlFloats(body)
-  const isRewritten = !!threads?.threads.length || isFontRead
+  const isRewritten = !!threads?.threads.length || isFontRead || mentionTypes.length > 0
   const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html, isRewritten), extensions))
   const uploadMarks = dropUploadMarks(body)
   const mentionAuthors = dropMentionAuthors(body)
@@ -700,6 +721,7 @@ function fromHtml(html: string) {
       const names = [
         ...raw.noise,
         ...uploadMarks,
+        ...mentionTypes,
         ...mentionAuthors,
         ...driveClasses,
         ...floats,

@@ -782,6 +782,54 @@ describe('convertLegacy', () => {
     ])
   })
 
+  it.each(['User', 'User Group'])(
+    "keeps old Drive's HTML mention of a %s as a mention, recording its type and author",
+    (type) => {
+      const mention = `<span data-type="${type}" class="mention" data-id="x" data-label="Ann" data-author="a@b.c">@Ann</span>`
+      const html = `<p>hi ${mention}</p>`
+
+      const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+      expect(bodyOf(result.state)).toEqual(
+        page(
+          paragraph(
+            { type: 'text', text: 'hi ' },
+            { type: 'mention', attrs: { id: 'x', label: 'Ann' } },
+          ),
+        ),
+      )
+      expect(result.dropped).toHaveLength(2)
+      expect(result.dropped).toEqual(
+        expect.arrayContaining([
+          { kind: 'noise', name: 'type' },
+          { kind: 'noise', name: 'author' },
+        ]),
+      )
+    },
+  )
+
+  it.each([
+    {
+      name: 'no id',
+      mention: '<span data-type="User" class="mention" data-label="Ann">@Ann</span>',
+    },
+    {
+      name: 'no type',
+      mention: '<span class="mention" data-id="x" data-label="Ann">@Ann</span>',
+    },
+    {
+      name: 'another type',
+      mention: '<span data-type="Team" class="mention" data-id="x" data-label="Ann">@Ann</span>',
+    },
+  ])("refuses old Drive's HTML mention with $name", ({ mention }) => {
+    const html = `<p>hi ${mention}</p>`
+
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+
   it("keeps Drive's HTML page break, its id and look going since the editor draws the same", () => {
     const html = `<p>one</p><div ${DRIVE_PAGE_BREAK} data-page-break="true"></div><p>two</p>`
 
