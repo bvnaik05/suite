@@ -5,11 +5,19 @@ import * as yjs from 'yjs'
 import { client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
+import { openSignedInDeviceStore } from '@/platform/collab'
 
 import { discardCopy, listCopies } from './copies'
 import { keepDeviceCopies } from './deviceCopies'
 
+vi.mock('@/platform/collab', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/platform/collab')>()
+  return { ...real, openSignedInDeviceStore: vi.fn(real.openSignedInDeviceStore) }
+})
+
 const NODE = 'drive-file-1'
+const PAGE_PREFIX = 'suite:writer-recovery:'
+const KEPT_KEY = `suite:writer-device-copied:${NODE}`
 
 const session = {
   nodeId: NODE,
@@ -111,6 +119,20 @@ describe('keeping the old editor work on this device', () => {
 
     const copies = await listCopies(NODE)
     expect(copies.map((copy) => copy.text)).toEqual(['typed offline'])
+    expect(copies[0].key.startsWith(PAGE_PREFIX)).toBe(false)
+    expect(localStorage.getItem(KEPT_KEY)).not.toBeNull()
+  })
+
+  it('keeps the work as a page copy, not counted as kept, when there is no signed-in store', async () => {
+    await writeOldYjsStore(NODE, 'typed offline')
+    vi.mocked(openSignedInDeviceStore).mockResolvedValueOnce(null)
+
+    await keepDeviceCopies(session, row)
+
+    const copies = await listCopies(NODE)
+    expect(copies.map((copy) => copy.text)).toEqual(['typed offline'])
+    expect(copies[0].key.startsWith(PAGE_PREFIX)).toBe(true)
+    expect(localStorage.getItem(KEPT_KEY)).toBeNull()
   })
 
   it('keeps the old plain editor draft stored under the Drive file name', async () => {
