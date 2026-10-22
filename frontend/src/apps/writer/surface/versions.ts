@@ -2,6 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 import { yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
 import { Doc } from 'yjs'
 
+import { api, client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
 import { loadVersion } from '@/apps/writer/collab/old-media'
@@ -15,8 +16,12 @@ export interface StoredVersion {
   firstTabLabel: string | null
 }
 
-/** A stored version's body: a Yjs state and the lineage it belongs to, or HTML. */
-export type VersionBody = { lineage: string; state: Uint8Array } | { html: string }
+/** A stored version's body: a Yjs state and the lineage it belongs to, or HTML; an old version's HTML is convertible. */
+export type VersionBody =
+  { lineage: string; state: Uint8Array } | { html: string; isConvertible?: boolean }
+
+/** An old version as the converter makes it, or its refusal with the reason System Managers see. */
+export type ConvertedVersion = { body: VersionBody } | { refused: string | null }
 
 /** The stored bytes of version `seq`. */
 export async function fetchVersion(session: DocumentSession, seq: number): Promise<Uint8Array> {
@@ -84,7 +89,7 @@ export async function readVersionBody(bytes: Uint8Array): Promise<VersionBody> {
     version.collab as number | boolean | undefined,
   )
   if (isHtmlVersion && hasContent && typeof version.html === 'string' && isKnownCollab) {
-    return { html: version.html }
+    return { html: version.html, isConvertible: true }
   }
 
   const isYjsVersion = version.schema === 'writer-document/2' && version.codec === 'yjs1'
@@ -93,6 +98,24 @@ export async function readVersionBody(bytes: Uint8Array): Promise<VersionBody> {
   }
 
   throw new Error('This version cannot be read.')
+}
+
+/** Runs old version `seq` through the server's converter, so its Yjs text restores rather than its stored HTML. */
+export async function convertedVersion(
+  session: DocumentSession,
+  seq: number,
+): Promise<ConvertedVersion> {
+  const converted = await client.mutation(
+    api.writer.versions.convert,
+    { node: session.nodeId, seq },
+    { context: session.credentials.context, silent: true },
+  )
+  if (!converted.state) {
+    return { refused: converted.reason ?? null }
+  }
+
+  // No lineage matches a converted state, so the restore matches it by content
+  return { body: { lineage: '', state: fromBase64(converted.state) } }
 }
 
 function parsedOrNull(text: string): unknown {

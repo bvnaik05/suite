@@ -282,6 +282,13 @@ def list_versions(node: str, *, cursor: str | None = None, limit: int | None = N
     )
 
 
+def read_version(node: str, seq: int) -> IO[bytes]:
+    """Answer one readable node's version `seq` as its stored bytes."""
+    from suite.drive._core.versions import read_version as _read_version
+
+    return _read_version(_principals(), node, seq)
+
+
 def copy(node: str, parent: str, *, title: str | None = None) -> str:
     """Copy one readable tree, sharing blobs but no authority and no history."""
     from suite.drive._core.nodes import copy as _copy
@@ -536,6 +543,7 @@ __all__ = (
     "personal_root_for",
     "push_preview",
     "read_file",
+    "read_version",
     "record_comment",
     "reduce_storage_reservation",
     "refuse_shared_child_rows",

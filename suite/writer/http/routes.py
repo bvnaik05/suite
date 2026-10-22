@@ -7,7 +7,7 @@ import frappe
 from suite.composition.http import Route
 from suite.content import log
 from suite.writer import content as writer_content
-from suite.writer.api.docs import save_comments
+from suite.writer.api.docs import VersionConversion, convert_version, save_comments
 from suite.writer.content.conversion import ConversionStatus, conversion_status
 from suite.writer.doctype.writer_document.writer_document import WriterDocument
 
@@ -38,6 +38,11 @@ class SaveComments(TypedDict):
 
 class SaveSettings(TypedDict):
     data: str
+
+
+class ConvertVersion(TypedDict):
+    node: str
+    seq: int
 
 
 def document(name: str) -> WriterRow:
@@ -101,6 +106,16 @@ CONTRACT_ROUTES = (
         output=type(None),
         kind="mutation",
         public_name="comments.save",
+        allow_guest=True,
+    ),
+    Route(
+        "POST",
+        "/api/v2/method/suite.writer.api.docs.convert_version",
+        "convert_version",
+        body=ConvertVersion,
+        output=VersionConversion,
+        kind="mutation",
+        public_name="versions.convert",
         allow_guest=True,
     ),
 )

@@ -16,6 +16,7 @@ import { writerSchema } from '@/apps/writer/schema'
 import type { RestoreResult } from '@/platform/collab'
 
 import { restoreVersion } from './restoreVersion'
+import type { ConvertedVersion } from './versions'
 
 const schema = getSchema(writerSchema())
 
@@ -31,6 +32,10 @@ function fakeRoom(result: RestoreResult) {
       return result
     }),
   }
+}
+
+function refuseConvert(): Promise<ConvertedVersion> {
+  return Promise.resolve({ refused: null })
 }
 
 function html(value: string) {
@@ -91,7 +96,7 @@ async function restoreLostWorld(result: RestoreResult, isSaved: boolean) {
   const bytes = await yjsVersion(doc)
   textOf(doc).delete(5, 6)
   const room = { ...fakeRoom(result), doc, isCommitted: () => isSaved }
-  const notice = await restoreVersion(room, 4, bytes, threads)
+  const notice = await restoreVersion(room, 4, bytes, threads, refuseConvert)
   return { doc, notice }
 }
 
@@ -99,7 +104,7 @@ describe('restoreVersion', () => {
   it('saves first, then makes the document the version', async () => {
     const room = fakeRoom({ outcome: 'landed' })
 
-    const notice = await restoreVersion(room, 4, html('<p>back then</p>'), [])
+    const notice = await restoreVersion(room, 4, html('<p>back then</p>'), [], refuseConvert)
 
     expect(notice).toEqual({ isRestored: true, message: 'Version restored', anchors: {} })
     expect([
@@ -133,7 +138,7 @@ describe('restoreVersion', () => {
   it('never begins a restore of bytes it cannot read', async () => {
     const room = fakeRoom({ outcome: 'landed' })
 
-    const notice = await restoreVersion(room, 4, new Uint8Array([0xff, 0xfe]), [])
+    const notice = await restoreVersion(room, 4, new Uint8Array([0xff, 0xfe]), [], refuseConvert)
 
     expect([notice.isRestored, notice.message, room.restoreVersion.mock.calls.length]).toEqual([
       false,
@@ -164,7 +169,7 @@ describe('restoreVersion', () => {
   ] as [RestoreResult, boolean, string][])(
     'tells the person how %o went',
     async (result, isRestored, message) => {
-      const notice = await restoreVersion(fakeRoom(result), 4, html('<p>x</p>'), [])
+      const notice = await restoreVersion(fakeRoom(result), 4, html('<p>x</p>'), [], refuseConvert)
 
       expect(notice).toEqual({ isRestored, message, anchors: {} })
     },

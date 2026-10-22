@@ -125,6 +125,31 @@ const operationSaveComments: MutationRef<SaveCommentsInput, SaveCommentsOutput, 
     loadValidators: async () => (await import('./validators')).operationSaveComments,
   }
 
+export type ConvertVersionInput = { node: string; seq: number }
+
+export type ConvertVersionOutput = { state?: string; reason?: string }
+
+export type ConvertVersionError = never
+
+const operationConvertVersion: MutationRef<
+  ConvertVersionInput,
+  ConvertVersionOutput,
+  ConvertVersionError
+> = {
+  id: 'convert_version',
+  owner: 'writer',
+  kind: 'mutation',
+  publicName: 'versions.convert',
+  method: 'POST',
+  path: '/api/v2/method/suite.writer.api.docs.convert_version',
+  prefix: '/api/suite/writer/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: [],
+  loadValidators: async () => (await import('./validators')).operationConvertVersion,
+}
+
 export const api = {
   documents: {
     get: operationDocument,
@@ -134,5 +159,8 @@ export const api = {
   },
   comments: {
     save: operationSaveComments,
+  },
+  versions: {
+    convert: operationConvertVersion,
   },
 } as const

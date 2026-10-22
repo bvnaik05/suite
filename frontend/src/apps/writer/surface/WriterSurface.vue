@@ -77,7 +77,7 @@ import {
   type MissingImage,
 } from './versionImages'
 import VersionPreview from './VersionPreview.vue'
-import { fetchVersion, readVersionBody, storedVersionHTML } from './versions'
+import { convertedVersion, fetchVersion, readVersionBody, storedVersionHTML } from './versions'
 import { createWriterDocument, editorFileOf, isLocked, type EditorFile } from './writerDocument'
 import WriterDocumentMenu from './WriterDocumentMenu.vue'
 import { createWriteGate, type DocumentWrite } from './writes'
@@ -487,6 +487,13 @@ async function restoreShownVersion(shown: DocumentVersion, images: MissingImage[
   try {
     await restoreImages(props.session, images)
     const notice = await restoreBody(shown)
+    if (notice.canDownload) {
+      toast.error(notice.message, {
+        action: { label: 'Download', onClick: () => void downloadVersion(shown) },
+      })
+      return
+    }
+
     if (!notice.isRestored) {
       toast.error(notice.message)
       return
@@ -527,7 +534,9 @@ async function restoreBody(shown: DocumentVersion): Promise<VersionRestore> {
   }
 
   const bytes = await fetchVersion(props.session, shown.seq)
-  return restoreVersion(liveRoom, shown.seq, bytes, threads.value)
+  return restoreVersion(liveRoom, shown.seq, bytes, threads.value, () =>
+    convertedVersion(props.session, shown.seq),
+  )
 }
 
 // A document edited without collaboration is restored on the server, then read again

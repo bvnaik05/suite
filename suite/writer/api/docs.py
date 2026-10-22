@@ -1,9 +1,14 @@
+import base64
+from typing import NotRequired, TypedDict
+
 import frappe
 import mimemapper
 
 from suite import drive
+from suite.content import convert
 from suite.writer import comments
-from suite.writer.drive import DOCTYPE
+from suite.writer import content as writer_content
+from suite.writer.drive import DOCTYPE, _read_bounded, _version_payload
 
 # To be moved to mimemapper
 QUICK_MAP = {
@@ -42,6 +47,37 @@ def save_comments(doc: str, data: str):
             mentions=mentioned.users,
         )
     frappe.db.set_value(DOCTYPE, document.name, "ycomments", data, update_modified=False)
+
+
+class VersionConversion(TypedDict):
+    state: NotRequired[str]
+    reason: NotRequired[str]
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def convert_version(node: str, seq: int) -> VersionConversion:
+    """Convert an old `writer-document/1` version for a restore; EDIT only, as each call starts a Node child."""
+    drive.check(node, drive.EDIT)
+    legacy = _version_payload(_read_bounded(drive.read_version(node, int(seq))))
+    try:
+        converted = convert.convert(
+            writer_content.CONVERTER_BUILD,
+            writer_content.CONVERTER_VERSION,
+            {**legacy, "ycomments": None},
+        )
+    except convert.ConverterChanged:
+        converted = convert.Refused("converter_changed")
+
+    if isinstance(converted, convert.Converted):
+        return {"state": base64.b64encode(converted.state).decode()}
+
+    refusal: VersionConversion = {}
+    if "System Manager" in frappe.get_roles():
+        refusal["reason"] = "unavailable"
+        if converted is not None:
+            refusal["reason"] = converted.reason
+
+    return refusal
 
 
 @frappe.whitelist()

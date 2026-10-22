@@ -3,6 +3,8 @@ import type { Validators } from '@/platform/transport'
 import { assertSchema } from '@/platform/transport/schema'
 
 import type {
+  ConvertVersionInput,
+  ConvertVersionOutput,
   DocumentInput,
   DocumentOutput,
   SaveCommentsInput,
@@ -149,5 +151,38 @@ export const operationSaveComments: Validators<SaveCommentsInput, SaveCommentsOu
   },
   validateOutput(value: unknown): asserts value is SaveCommentsOutput {
     assertSchema(value, { type: 'null' }, 'save_comments output')
+  },
+}
+
+export const operationConvertVersion: Validators<ConvertVersionInput, ConvertVersionOutput> = {
+  validateInput(value: unknown): asserts value is ConvertVersionInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          node: { title: 'Node', type: 'string' },
+          seq: { title: 'Seq', type: 'integer' },
+        },
+        required: ['node', 'seq'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'convert_version input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is ConvertVersionOutput {
+    assertSchema(
+      value,
+      {
+        properties: {
+          state: { title: 'State', type: 'string' },
+          reason: { title: 'Reason', type: 'string' },
+        },
+        title: 'VersionConversion',
+        type: 'object',
+      },
+      'convert_version output',
+    )
   },
 }

@@ -5,6 +5,7 @@ const effects = {
   save_html: { invalidates: ['document', 'drive.node_versions', 'drive.view_list'] },
   save_comments: { invalidates: ['document', 'drive.node_versions', 'drive.view_list'] },
   update_settings: { invalidates: ['document', 'drive.node_versions', 'drive.view_list'] },
+  convert_version: 'none',
 } as const
 
 export const registration: OwnerRegistration = {

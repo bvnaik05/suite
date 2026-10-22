@@ -4,7 +4,7 @@ import { restoredAnchors, type AnchoredThread } from '@/apps/writer/collab/resto
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import type { CollabRoom, RestoreResult } from '@/platform/collab'
 
-import { readVersionBody } from './versions'
+import { readVersionBody, type ConvertedVersion, type VersionBody } from './versions'
 
 type RestoringRoom = Pick<
   CollabRoom,
@@ -15,6 +15,8 @@ type RestoringRoom = Pick<
 export interface RestoreNotice {
   isRestored: boolean
   message: string
+  /** The converter refused an old version, so the person is offered its download instead. */
+  canDownload?: boolean
 }
 
 /** A restore's notice, with new anchors for threads whose text it brought back and the server holds. */
@@ -33,18 +35,28 @@ const REFUSALS: Record<string, string> = {
   paused: 'Saving is paused, so nothing was restored.',
 }
 
-/** Restores version `seq` from its stored bytes, after this tab's edits are saved. */
+/** Restores version `seq` from its stored bytes, after this tab's edits are saved; `convert` upgrades an old one. */
 export async function restoreVersion(
   room: RestoringRoom,
   seq: number,
   bytes: Uint8Array,
   threads: AnchoredThread[],
+  convert: () => Promise<ConvertedVersion>,
 ): Promise<VersionRestore> {
-  let body
+  let body: VersionBody
   try {
     body = await readVersionBody(bytes)
   } catch {
     return { isRestored: false, message: "This version can't be restored.", anchors: {} }
+  }
+
+  if ('isConvertible' in body) {
+    const converted = await convert()
+    if ('refused' in converted) {
+      return { ...refusedNotice(converted.refused), anchors: {} }
+    }
+
+    body = converted.body
   }
 
   await withinTenSeconds(room.flush())
@@ -70,6 +82,15 @@ function savedAnchors(room: RestoringRoom, anchors: Record<string, string>) {
   }
 
   return saved
+}
+
+function refusedNotice(reason: string | null): RestoreNotice {
+  let message = "This version couldn't be upgraded, so it can't be restored. You can download it."
+  if (reason) {
+    message += ` Reason: ${reason}.`
+  }
+
+  return { isRestored: false, message, canDownload: true }
 }
 
 function noticeFor(result: RestoreResult): RestoreNotice {
