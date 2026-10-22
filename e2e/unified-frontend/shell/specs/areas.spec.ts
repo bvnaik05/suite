@@ -10,7 +10,7 @@ import { patchAccount } from "../../helpers/shell";
 
 const MAIL_ACCOUNT = {
 	is_jmap_configured: true,
-	roles: { system_manager: true },
+	roles: { system_manager: true, suite_admin: true },
 	capabilities: { jmap: true, systemManager: true },
 };
 // A share-link fragment, as a copied link carries it. The router takes it into
@@ -35,8 +35,7 @@ test.afterAll(async () => {
 });
 
 const rail = (page: Page) => page.getByRole("navigation", { name: "Areas" });
-const driveArea = (page: Page) => page.getByRole("navigation", { name: "File locations" });
-const homeDriveGroup = (page: Page) => page.getByRole("navigation", { name: "Drive", exact: true });
+const driveArea = (page: Page) => page.getByRole("group", { name: "Locations" });
 
 async function railLabels(page: Page): Promise<string[]> {
 	// An empty rail list has no size, so wait for the shell's avatar instead.
@@ -91,7 +90,7 @@ test("/ and the PWA start land on Home", async ({ page }) => {
 
 test("the rail lists every area, Drive as the second", async ({ page }) => {
 	await page.goto("/drive");
-	expect(await railLabels(page)).toEqual(["Home", "Drive", "Mail", "Calendar", "Meet"]);
+	expect(await railLabels(page)).toEqual(["Home", "Drive", "Mail", "Calendar", "Meet", "People"]);
 	await expect(rail(page).getByRole("link", { name: "Drive" })).toHaveAttribute("aria-current", "page");
 	await expect(driveArea(page)).toBeVisible();
 });
@@ -110,11 +109,6 @@ test("the folder route opens a folder and sends a file id to /d/", async ({ page
 	await expect(page).not.toHaveURL(new RegExp(`/drive/f/${file.name}`));
 	// Back reloads the folder page. Let it finish before the test ends.
 	await expect(page.getByText(file.title, { exact: true })).toBeVisible();
-});
-
-test("/home shows the Drive group", async ({ page }) => {
-	await page.goto("/home");
-	await expect(homeDriveGroup(page).getByRole("link", { name: "Starred" })).toBeVisible();
 });
 
 test("an old Drive path with a redirect row lands on its new page, and one without finds no page", async ({ page }) => {

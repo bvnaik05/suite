@@ -27,20 +27,21 @@ test.afterAll(async () => {
 });
 
 test("the search field finds nodes across the tree and shows their path", async ({ page }) => {
-	await page.goto("/drive");
-	await page.getByRole("searchbox", { name: "Search files" }).fill(`${term}-report`);
+	await page.goto("/drive?view=list");
+	await page.getByRole("searchbox", { name: "Search all files" }).fill(`${term}-report`);
 
 	await expect(page).toHaveURL(new RegExp(`q=${term}-report`));
 	await expect(page.getByText(`${term}-report`, { exact: true })).toHaveCount(2);
-	await expect(page.getByText(`${term}-nested`, { exact: false }).first()).toBeVisible();
-	await expect(page.getByText("Administrator", { exact: false }).first()).toBeVisible();
+	// The path starts at the caller's root, named by its place.
+	await expect(page.getByText(`My files / ${term}-home`, { exact: true })).toBeVisible();
+	await expect(page.getByText(`My files / ${term}-home / ${term}-nested`, { exact: true })).toBeVisible();
 });
 
 test("clearing the term restores the listing at the current route", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}?q=${term}-report`);
 	await expect(page.getByText(`${term}-report`, { exact: true })).toHaveCount(2);
 
-	await page.getByRole("searchbox", { name: "Search files" }).fill("");
+	await page.getByRole("searchbox", { name: "Search all files" }).fill("");
 	await expect(page).not.toHaveURL(/q=/);
 	await expect(page.getByText(`${term}-nested`, { exact: true })).toBeVisible();
 });
@@ -49,7 +50,7 @@ test("search hides New because it has no destination", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}`);
 	await expect(page.getByRole("button", { name: "New", exact: true })).toBeVisible();
 
-	await page.getByRole("searchbox", { name: "Search files" }).fill(`${term}-report`);
+	await page.getByRole("searchbox", { name: "Search all files" }).fill(`${term}-report`);
 	await expect(page).toHaveURL(/q=/);
 	await expect(page.getByRole("button", { name: "New", exact: true })).toHaveCount(0);
 });

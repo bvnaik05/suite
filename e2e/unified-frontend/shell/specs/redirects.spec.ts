@@ -77,7 +77,7 @@ test("an old link clicked in the app lands on the new page", async ({ page }) =>
 	await expect(page).toHaveURL(new RegExp(`/drive/f/${folder.name}(/[^?]*)?\\?view=grid$`));
 
 	await openInApp(page, "/writer?sort=title");
-	await expect(page).toHaveURL(/\/drive\/recent\?type=writer&sort=title$/);
+	await expect(page).toHaveURL(/\/drive\/recent\?type=document&sort=title$/);
 
 	await openInApp(page, "/suite");
 	await expect(page).toHaveURL(/\/home$/);
@@ -99,7 +99,7 @@ test("a full page load of an old address lands on the new page", async ({ browse
 	const page = await signedInPage(browser);
 	for (const [old, expected] of [
 		["/drive/recents", "/drive/recent"],
-		["/sheets?x=1", "/drive/recent?type=sheets&x=1"],
+		["/sheets?x=1", "/drive/recent?type=spreadsheet&x=1"],
 		["/sheets/new", "/home"],
 		["/slides/presentation/new", "/home"],
 		[`/drive/w/${doc.name}/old-slug`, `/d/${doc.name}`],

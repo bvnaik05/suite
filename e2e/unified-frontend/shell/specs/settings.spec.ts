@@ -13,20 +13,19 @@ const FIRST_TABS = [
 	{ heading: "Drive", tab: "Statistics" },
 	{ heading: "Mail", tab: "Credentials" },
 	{ heading: "Calendar", tab: "Calendars" },
-	{ heading: "Workspace", tab: "General" },
 ];
 
 const SETTINGS_SECTION = "section[aria-label]:has(> div > button)";
 
 const FULL_ACCOUNT = {
 	is_jmap_configured: true,
-	roles: { system_manager: true },
+	roles: { system_manager: true, suite_admin: true },
 	capabilities: { jmap: true, systemManager: true },
 };
 
 const PLAIN_ACCOUNT = {
 	is_jmap_configured: false,
-	roles: [],
+	roles: { system_manager: false, suite_admin: false },
 	capabilities: { jmap: false, systemManager: false },
 };
 
@@ -38,12 +37,17 @@ async function openSettingsFromRail(page: Page) {
 	return settings;
 }
 
-/** Source modules the dev server served, by file name. */
+/**
+ * Component modules the page fetched, by source file name. The dev server
+ * serves `Name.vue`; a production build serves the lazy chunk `Name-<hash>.js`.
+ */
 function trackModules(page: Page): Set<string> {
 	const served = new Set<string>();
 	page.on("request", (request) => {
-		const name = new URL(request.url()).pathname.split("/").pop();
-		if (name?.endsWith(".vue")) served.add(name);
+		const name = new URL(request.url()).pathname.split("/").pop() ?? "";
+		if (name.endsWith(".vue")) served.add(name);
+		const chunk = /^([A-Z][A-Za-z0-9]*)-[\w-]{8}\.js$/.exec(name);
+		if (chunk) served.add(`${chunk[1]}.vue`);
 	});
 	return served;
 }

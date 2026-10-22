@@ -116,8 +116,9 @@ test("losing edit access freezes the deck, sends no write and offers the changes
 	await patchNode(api, deck.name, { state: "Trashed" });
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 
+	// A trashed item is read-only; its Trashed badge takes the place of View only.
 	await expect(page.getByText("Trashed", { exact: true })).toBeVisible();
-	await expect(page.getByText("View only", { exact: true })).toBeVisible();
+	await expect(page.getByText("Editing access changed. Your unsaved changes are kept on this device.")).toBeVisible();
 	const frozenAt = seen.requests.length;
 	await page.waitForTimeout(3_000);
 	expect(seen.requests.slice(frozenAt).filter((line) => line.includes("save_slides"))).toEqual([]);

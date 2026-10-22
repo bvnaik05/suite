@@ -96,11 +96,15 @@ test("renames, comments and opens versions without a legacy Drive call", async (
 	expect(order[0]).toContain("save_sheet");
 	expect(order.at(-1)).toContain("/versions");
 
+	// Autosave may already have kept automatic versions; restore adds one more.
+	const automatic = versions.getByRole("listitem").filter({ hasText: "Automatic version" });
+	const automaticBefore = await automatic.count();
 	await versions.getByRole("listitem").filter({ hasText: "Journey version" }).getByRole("button", { name: "Restore" }).click();
 	await page.getByRole("dialog", { name: "Restore this version?" }).getByRole("button", { name: "Restore" }).click();
 	await expect(page.getByText("Version restored")).toBeVisible();
 	// Restore keeps the state it replaced as a new automatic version first.
-	await expect(versions.getByText("Automatic version")).toBeVisible();
+	await expect(automatic).toHaveCount(automaticBefore + 1);
+	await expect(versions.getByRole("listitem").first()).toContainText("Automatic version");
 	await expect(page.getByRole("textbox", { name: "Spreadsheet title" })).toHaveValue("Renamed sheet");
 
 	// Share opens the Drive share dialog for a manager (stage 9).

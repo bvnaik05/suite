@@ -15,7 +15,7 @@ test("the rail moves between Home and Drive", async ({ page }) => {
 
 	await rail.getByRole("link", { name: "Drive" }).click();
 	await expect(page).toHaveURL(/\/drive$/);
-	await expect(page.getByRole("navigation", { name: "File locations" })).toBeVisible();
+	await expect(page.getByRole("group", { name: "Locations" })).toBeVisible();
 
 	await rail.getByRole("link", { name: "Home" }).click();
 	await expect(page).toHaveURL(/\/home$/);

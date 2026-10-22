@@ -28,24 +28,59 @@ let recent: DriveNode;
  * each journey checks the rendering against a known answer.
  */
 const EVENT_FIXTURE = [
-	{
+	calendarEvent({
 		id: "w4-event-1",
-		uid: "w4-event-1",
 		title: "W4 standup",
 		start: isoIn(2),
 		duration: "PT30M",
-		status: "confirmed",
 		conferencing: { meeting_id: "w4meetcode", url: "https://example.invalid/w4meetcode" },
-	},
-	{
+	}),
+	calendarEvent({
 		id: "w4-event-2",
-		uid: "w4-event-2",
 		title: "W4 review",
 		start: isoIn(26),
 		duration: "PT60M",
-		status: "confirmed",
-	},
+	}),
 ];
+
+/** A whole `events_get` row: the client validates every field the server sends. */
+function calendarEvent(fields: { id: string; title: string; start: string; duration: string; conferencing?: unknown }) {
+	const now = new Date().toISOString();
+	return {
+		name: fields.id,
+		account: "administrator@suite.test",
+		uid: fields.id,
+		time_zone: "UTC",
+		status: "confirmed",
+		description: "",
+		show_without_time: 0,
+		recurrence_id: null,
+		recurrence_rule: null,
+		organizer: "administrator@suite.test",
+		calendars: [],
+		created: null,
+		draft: 0,
+		recurrence_id_time_zone: "",
+		privacy: "public",
+		free_busy_status: "busy",
+		locations: [],
+		alerts: [],
+		use_default_alerts: 0,
+		created_utc: now,
+		updated_utc: now,
+		origin: true,
+		may_invite_self: 0,
+		may_invite_others: 0,
+		hide_attendees: 0,
+		creation: now,
+		modified: now,
+		sequence: 0,
+		links: [],
+		participants: [],
+		conferencing: null,
+		...fields,
+	};
+}
 
 function isoIn(hours: number): string {
 	return new Date(Date.now() + hours * 3_600_000).toISOString().replace(/\.\d+Z$/, "Z");

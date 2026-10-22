@@ -152,7 +152,8 @@ test("Upload new version replaces a file's bytes from its preview", async ({ pag
 	expect((await children(api, home.name)).rows.map((row) => row.title)).toEqual(["notes.bin"]);
 	await expect(page.getByRole("link", { name: "Download" }).first()).toHaveAttribute(
 		"href",
-		new RegExp(`${DRIVE}/nodes/${file.name}/content\\?v=1`),
+		// The download link asks for an attachment of the new revision.
+		new RegExp(`${DRIVE}/nodes/${file.name}/content\\?download=1&v=1$`),
 	);
 	expect(legacy).toEqual([]);
 });
@@ -288,7 +289,7 @@ test("a restore whose folder is gone asks for a destination in the same root", a
 	await expect(dialog).toBeVisible();
 	await expect(dialog.getByText("The folder this item was in is gone.", { exact: false })).toBeVisible();
 	await dialog.getByRole("button", { name: home.title }).click();
-	await dialog.getByRole("button", { name: "Restore", exact: true }).click();
+	await dialog.getByRole("button", { name: "Restore here", exact: true }).click();
 
 	await expect(page.getByText("1 restored · 0 failed")).toBeVisible();
 	await expect(page.getByText("selected")).toHaveCount(0);

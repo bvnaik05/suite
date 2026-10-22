@@ -100,6 +100,8 @@ test.describe("Mail pages that need no mail account", () => {
 						subject: { label: "Subject", value: "UF5 probe" },
 						from: { label: "From", value: "alice@suite.test" },
 						to: { label: "To", value: "bob@suite.test" },
+						cc: { label: "CC", value: null },
+						bcc: { label: "BCC", value: null },
 					},
 				}),
 			}),
@@ -118,14 +120,5 @@ test.describe("Mail pages that need no mail account", () => {
 		});
 		await expect(unavailable(page)).toBeVisible();
 		await expect(page).toHaveURL(/\/mail$/);
-	});
-
-	test("an admin without a mailbox opens the Admin Dashboard", async ({ page }) => {
-		await withoutMailbox(page, { is_suite_admin: true, is_suite_cloud_configured: true });
-
-		await page.goto("/mail/dashboard");
-		await expect(page).toHaveURL(/\/mail\/dashboard$/);
-		await expect(page.locator("#sidebar").getByRole("link", { name: "Overview" })).toBeVisible();
-		await expect(unavailable(page)).toHaveCount(0);
 	});
 });

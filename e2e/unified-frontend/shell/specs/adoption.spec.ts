@@ -9,7 +9,7 @@ import { MOBILE_VIEWPORT, patchAccount } from "../../helpers/shell";
 const MAIL_ACCOUNT = { is_jmap_configured: true, capabilities: { jmap: true, systemManager: true } };
 
 const rail = (page: Page) => page.getByRole("navigation", { name: "Areas" });
-const meetHome = (page: Page) => page.getByText("Start an open meeting, create a restricted meeting, or join with a code.");
+const meetHome = (page: Page) => page.getByRole("region", { name: "Meeting actions" });
 const meetHeader = (page: Page) => page.locator("[data-slot='sidebar-header'] button", { hasText: "Meet" });
 
 test.describe("Meet in the shell", () => {
@@ -17,15 +17,15 @@ test.describe("Meet in the shell", () => {
 		await patchAccount(page, MAIL_ACCOUNT);
 	});
 
-	test("the rail lists Meet last and marks it active, and the page drops its own sidebar", async ({ page }) => {
+	test("the rail lists Meet after Calendar and marks it active, and the page drops its own sidebar", async ({ page }) => {
 		await page.goto("/meet");
 		await expect(meetHome(page)).toBeVisible();
 
 		// The rail labels carry the Mail unread count, so read each label's first word.
 		const items = rail(page).getByRole("link");
-		await expect(items).toHaveCount(5);
+		await expect(items).toHaveCount(6);
 		const labels = await items.evaluateAll((links) => links.map((link) => link.getAttribute("aria-label")?.split(",")[0]));
-		expect(labels).toEqual(["Home", "Drive", "Mail", "Calendar", "Meet"]);
+		expect(labels).toEqual(["Home", "Drive", "Mail", "Calendar", "Meet", "People"]);
 		await expect(rail(page).getByRole("link", { name: "Meet" })).toHaveAttribute("aria-current", "page");
 		await expect(meetHeader(page)).toHaveCount(0);
 	});
@@ -46,22 +46,22 @@ test.describe("Meet in the shell", () => {
 	});
 
 	test("Meet's guard sends a user who is not a System Manager from the audio test to Meet", async ({ page }) => {
-		await patchAccount(page, { roles: [], capabilities: { jmap: true, systemManager: false } });
+		await patchAccount(page, { roles: { system_manager: false, suite_admin: false }, capabilities: { jmap: true, systemManager: false } });
 		await page.goto("/meet/audio-test");
 		await expect(page).toHaveURL(/\/meet$/);
 		await expect(meetHome(page)).toBeVisible();
 		await expect(page.getByRole("heading", { name: "Audio Notification Test" })).toHaveCount(0);
 	});
 
-	test("a guest opens an instant call without a login redirect", async ({ browser, baseURL }) => {
+	test("a guest opens an open call without a login redirect", async ({ browser, baseURL }) => {
 		const api = await adminApi(baseURL!);
-		const created = await api.post("/api/suite/meet/rooms", { data: { type: "instant" } });
+		const created = await api.post("/api/suite/meet/rooms", { data: { type: "open" } });
 		expect(created.ok()).toBe(true);
 		const { code } = ((await created.json()) as { data: { code: string } }).data;
 		const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
 		try {
 			const page = await context.newPage();
-				await page.goto(`/meet/${code}`);
+			await page.goto(`/meet/${code}`);
 			// The guest lobby asks for a name. A login redirect would never show it.
 			await expect(page.getByText("Ready to join?")).toBeVisible();
 			await expect(page.getByPlaceholder("Your name").or(page.getByLabel("Your name"))).toBeVisible();

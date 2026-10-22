@@ -42,7 +42,7 @@ test("Space selects, Shift+Space extends the range and Escape clears", async ({ 
 
 	await page.keyboard.press("Escape");
 	await expect(page.getByText("selected")).toHaveCount(0);
-	await expect(page.getByRole("searchbox", { name: "Search files" })).toBeVisible();
+	await expect(page.getByRole("searchbox", { name: "Search all files" })).toBeVisible();
 });
 
 test("Ctrl-click enters selection and the bulk bar carries two actions", async ({ page }) => {
@@ -88,7 +88,7 @@ test("changing the destination clears the selection", async ({ page }) => {
 	await page.locator("[data-node]").first().click({ modifiers: ["ControlOrMeta"] });
 	await expect(page.getByText("1 selected")).toBeVisible();
 
-	await page.getByRole("navigation", { name: "File views" }).getByRole("link", { name: "Starred" }).click();
+	await page.getByRole("group", { name: "Views" }).getByRole("link", { name: "Starred" }).click();
 	await expect(page).toHaveURL(/\/drive\/starred$/);
 	await expect(page.getByText("selected")).toHaveCount(0);
 });
@@ -109,7 +109,7 @@ test("a mixed bulk move reports both halves and keeps the failures selected", as
 	const dialog = page.getByRole("dialog", { name: "Move to" });
 	await dialog.getByRole("button", { name: home.title }).click();
 	await dialog.getByRole("button", { name: destination.title }).click();
-	await dialog.getByRole("button", { name: "Move", exact: true }).click();
+	await dialog.getByRole("button", { name: "Move here", exact: true }).click();
 
 	await expect(page.getByText("1 moved · 1 failed")).toBeVisible();
 	await expect(page.getByText("1 selected")).toBeVisible();
