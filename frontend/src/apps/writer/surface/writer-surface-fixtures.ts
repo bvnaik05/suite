@@ -78,6 +78,7 @@ export function resetSurface() {
   stored.collab = 0
   realEditors.isOn = false
   stored.content = ''
+  stored.conversion = null
   vi.restoreAllMocks()
 }
 

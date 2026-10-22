@@ -3,7 +3,13 @@ import type { Doc } from 'yjs'
 
 export const rooms = { next: null as object | null }
 // The body the server holds for a document edited without collaboration
-export const stored = { html: '', content: '', collab: 0 }
+export const stored = {
+  html: '',
+  content: '',
+  collab: 0,
+  // Set while the document waits for, or was refused, conversion to collaboration
+  conversion: null as { state: 'pending' | 'refused'; reason?: string } | null,
+}
 // Mounts the real editors, over a stand-in for CoreEditor, in place of the fakes below
 export const realEditors = { isOn: false }
 
@@ -144,6 +150,10 @@ export async function fakeCollabPlatform() {
         return { state: 'live', room: rooms.next }
       }
 
+      if (stored.conversion) {
+        return { state: 'unconverted' }
+      }
+
       return { state: 'disabled' }
     },
     openSignedInDeviceStore: async () => null,
@@ -153,8 +163,8 @@ export async function fakeCollabPlatform() {
 export function fakeWriterDocument(original: typeof import('./writerDocument')) {
   function writerDocument() {
     function read() {
-      const { collab, html, content } = stored
-      return { name: 'content-1', collab, settings: {}, html, content }
+      const { collab, html, content, conversion } = stored
+      return { name: 'content-1', collab, settings: {}, html, content, conversion }
     }
 
     const resources = reactive({
@@ -230,11 +240,16 @@ export async function fakeDocumentMenu() {
   const { defineComponent: define, h: render } = await import('vue')
   return {
     default: define({
+      props: { canSaveVersion: Boolean },
       emits: ['saveVersion'],
       setup:
-        (_, { emit }) =>
+        (props, { emit }) =>
         () =>
-          render('button', { 'data-save-version': '', onClick: () => emit('saveVersion') }),
+          render('button', {
+            'data-save-version': '',
+            hidden: !props.canSaveVersion,
+            onClick: () => emit('saveVersion'),
+          }),
     }),
   }
 }
