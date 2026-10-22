@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, test } from "@playwright/test";
 
-import { adminApi, createDocument, createFolder, purge, roots, runTag, type DriveNode } from "../../helpers/drive";
+import { adminApi, children, createDocument, createFolder, purge, roots, runTag, type DriveNode } from "../../helpers/drive";
 
 /** Ticket 006: tree-wide search with a path beneath every result. */
 
@@ -46,11 +46,20 @@ test("clearing the term restores the listing at the current route", async ({ pag
 	await expect(page.getByText(`${term}-nested`, { exact: true })).toBeVisible();
 });
 
-test("search hides New because it has no destination", async ({ page }) => {
+test("New stays during a search and adds to the folder the search started from", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}`);
 	await expect(page.getByRole("button", { name: "New", exact: true })).toBeVisible();
 
 	await page.getByRole("searchbox", { name: "Search all files" }).fill(`${term}-report`);
 	await expect(page).toHaveURL(/q=/);
-	await expect(page.getByRole("button", { name: "New", exact: true })).toHaveCount(0);
+	await page.getByRole("button", { name: "New", exact: true }).click();
+	await page.getByRole("menuitem", { name: "Folder", exact: true }).first().click();
+	const dialog = page.getByRole("dialog", { name: "New folder" });
+	await dialog.getByRole("textbox").fill(`${term}-made-while-searching`);
+	await dialog.getByRole("button", { name: "Create" }).click();
+	await expect(dialog).toBeHidden();
+
+	await expect
+		.poll(async () => (await children(api, home.name)).rows.map((row) => row.title))
+		.toContain(`${term}-made-while-searching`);
 });

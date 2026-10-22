@@ -129,7 +129,9 @@ test("losing edit access freezes the sheet, cancels the pending save and offers 
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 
 	await expect(page.getByText("Trashed", { exact: true })).toBeVisible();
-	await expect(page.getByText("View only", { exact: true })).toBeVisible();
+	// A trashed document shows Trashed in place of View only; the frozen toolbar shows the lock.
+	await expect(page.getByText("View only", { exact: true })).toHaveCount(0);
+	await expect(page.getByRole("button", { name: "Bold" })).toBeDisabled();
 	await page.waitForTimeout(3_000);
 
 	const saves = seen.requests.slice(trashedAt).filter((line) => line.includes("suite.sheets.api.save_sheet"));
@@ -172,8 +174,9 @@ test("a person who holds only an edit link opens and saves the sheet", async ({ 
 	await ensureLinkOnlyUser();
 	const response = await api.put(`${DRIVE}/nodes/${sheet.name}/grants/$LINK`, { data: { role: 40 } });
 	expect(response.ok()).toBe(true);
-	const body = (await response.json()) as { data?: { grant: { principal: string } }; message?: { grant: { principal: string } } };
-	const code = (body.data ?? body.message)!.grant.principal.replace("$LINK:", "");
+	// The answer is the grant row itself.
+	const body = (await response.json()) as { data?: { principal: string }; message?: { principal: string } };
+	const code = (body.data ?? body.message)!.principal.replace("$LINK:", "");
 
 	const visitor = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
 	const login = await visitor.request.post("/api/method/login", { form: { usr: LINK_ONLY.email, pwd: LINK_ONLY.password } });

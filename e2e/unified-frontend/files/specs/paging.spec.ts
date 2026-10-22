@@ -35,8 +35,13 @@ test("the listing loads the next window when the sentinel becomes visible", asyn
 	const rows = page.locator("[data-node]");
 	await expect(rows).toHaveCount(60, { timeout: 20_000 });
 
-	await rows.last().scrollIntoViewIfNeeded();
-	await expect(rows).toHaveCount(TOTAL, { timeout: 20_000 });
+	// The sentinel loads on entering view. A background refresh can reset the
+	// listing while it is already in view, so scroll it out and back, as a reader would.
+	await expect(async () => {
+		await rows.first().scrollIntoViewIfNeeded();
+		await rows.last().scrollIntoViewIfNeeded();
+		await expect(rows).toHaveCount(TOTAL, { timeout: 3_000 });
+	}).toPass({ timeout: 20_000 });
 	await expect(page.getByText("row-065", { exact: true })).toBeVisible();
 });
 
@@ -80,7 +85,15 @@ test("a failed next window keeps the loaded rows and offers a retry", async ({ p
 	await expect(rows).toHaveCount(60);
 	await expect(page.getByText("Could not refresh files")).toBeVisible();
 
+	// Bring Retry into view while windows still fail: any load the scroll sets off
+	// fails too and Retry returns, so the click below is the only fresh walk.
+	const retry = page.getByRole("button", { name: "Retry loading more" });
+	await retry.scrollIntoViewIfNeeded();
+	await expect(retry).toBeVisible();
+
 	await page.unroute(/\/children\?.*cursor=/);
-	await page.getByRole("button", { name: "Retry loading more" }).click();
+	const nextWindow = page.waitForResponse((response) => /\/children\?.*cursor=/.test(response.url()) && response.ok());
+	await retry.click();
+	await nextWindow;
 	await expect(rows).toHaveCount(TOTAL, { timeout: 20_000 });
 });

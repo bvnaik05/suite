@@ -94,10 +94,12 @@ test("New Presentation creates the node and lands on /d/", async ({ page }) => {
 test("New offers Upload files and then Upload folder", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}?view=list`);
 	await page.getByRole("button", { name: "New", exact: true }).click();
-	const items = page.getByRole("menuitem");
-	await expect(page.getByRole("menuitem", { name: "Upload files" })).toBeEnabled();
-	const labels = await items.allInnerTexts();
-	expect(labels.slice(0, 3).map((label) => label.trim())).toEqual(["Folder", "Upload files", "Upload folder"]);
+	const menu = page.getByRole("menu", { name: "New" });
+	await expect(menu.getByText("Upload", { exact: true })).toBeVisible();
+	const labels = (await menu.getByRole("menuitem").allInnerTexts()).map((label) => label.trim());
+	// Create starts with Folder; the Upload group closes the menu with Files, then Folder.
+	expect(labels[0]).toBe("Folder");
+	expect(labels.slice(-2)).toEqual(["Files", "Folder"]);
 });
 
 test("each registered document type opens its own surface", async ({ page }) => {

@@ -38,7 +38,7 @@ const EVENT_FIXTURE = [
 	calendarEvent({
 		id: "w4-event-2",
 		title: "W4 review",
-		start: isoIn(26),
+		start: tomorrowAtNoon(),
 		duration: "PT60M",
 	}),
 ];
@@ -82,6 +82,12 @@ function calendarEvent(fields: { id: string; title: string; start: string; durat
 	};
 }
 
+/** Tomorrow at noon local time: Upcoming covers today and tomorrow only, so `now + 26h` can fall past it. */
+function tomorrowAtNoon(): string {
+	const now = new Date();
+	return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12).toISOString().replace(/\.\d+Z$/, "Z");
+}
+
 function isoIn(hours: number): string {
 	return new Date(Date.now() + hours * 3_600_000).toISOString().replace(/\.\d+Z$/, "Z");
 }
@@ -121,16 +127,19 @@ test("Recent's View all opens the Recent view", async ({ page }) => {
 	await expect(page).toHaveURL(/\/drive\/recent$/);
 });
 
-test("Upcoming groups the events and offers Join for a conferencing one", async ({ page }) => {
+test("Upcoming lists today's and tomorrow's events and offers Join for a conferencing one", async ({ page }) => {
 	await stubEvents(page);
 	await page.goto("/home");
 	await expect(page.getByRole("heading", { name: "Upcoming" })).toBeVisible();
 
 	const rows = page.getByTestId("upcoming-rows");
-	await expect(rows.getByText("W4 standup")).toBeVisible();
-	await expect(rows.getByText("W4 review")).toBeVisible();
-	await expect(rows.getByText("Today")).toBeVisible();
-	await expect(rows.getByRole("link", { name: "Join" })).toHaveAttribute("href", "/meet/w4meetcode");
+	const standup = rows.getByRole("link", { name: "Join W4 standup" });
+	const review = rows.getByRole("link", { name: "Open W4 review" });
+	await expect(standup).toHaveAttribute("href", "/meet/w4meetcode");
+	await expect(review).toHaveAttribute("href", "/calendar");
+	const tomorrow = new Date();
+	tomorrow.setDate(tomorrow.getDate() + 1);
+	await expect(review).toContainText(String(tomorrow.getDate()));
 });
 
 test("Upcoming reports an empty calendar when the account has no events", async ({ page }) => {
@@ -168,7 +177,7 @@ test("New Document creates a Writer node in the Personal Root and opens it", asy
 	const node = page.url().split("/d/")[1]!.split("/")[0]!;
 	const created = await getNode(api, node);
 	expect(created.content_doctype).toBe("Writer Document");
-	expect(created.parent).toBe((await roots(api)).personal.node);
+	expect(created.parent_node).toBe((await roots(api)).personal.node);
 	await purge(api, node);
 });
 

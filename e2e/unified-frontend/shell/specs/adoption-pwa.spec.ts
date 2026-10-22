@@ -40,19 +40,29 @@ test.describe("one Suite PWA", () => {
 		await patchAccount(page, MAIL_ACCOUNT);
 	});
 
-	test("every area links the Suite manifest", async ({ page }) => {
+	test("every area links the Suite manifest, and Mail and Calendar their own", async ({ page }) => {
 		// Under the app's base: `/` on Vite's dev server, the built assets' prefix otherwise.
-		const SUITE_MANIFEST = /^(\/assets\/suite\/frontend)?\/pwa\/suite\/manifest\.webmanifest$/;
-		for (const path of ["/home", "/drive", "/mail", "/calendar", "/meet"]) {
+		const manifestOf = (app: string) =>
+			new RegExp(`^(/assets/suite/frontend)?/pwa/${app}/manifest\\.webmanifest$`);
+		const expected = { "/home": "suite", "/drive": "suite", "/meet": "suite", "/mail": "mail", "/calendar": "calendar" };
+		for (const [path, app] of Object.entries(expected)) {
 			await page.goto(path);
 			await expect(manifestLinks(page)).toHaveCount(1);
-			await expect(manifestLinks(page)).toHaveAttribute("href", SUITE_MANIFEST);
+			await expect(manifestLinks(page)).toHaveAttribute("href", manifestOf(app));
 		}
 
-		const href = (await manifestLinks(page).getAttribute("href"))!;
-		const manifest = (await (await page.request.get(href)).json()) as Record<string, unknown>;
-		expect(manifest.id).toBe("/suite");
-		expect(manifest.start_url).toBe("/suite/start");
+		const manifestAt = async (path: string) => {
+			await page.goto(path);
+			await expect(manifestLinks(page)).toHaveCount(1);
+			const href = (await manifestLinks(page).getAttribute("href"))!;
+			return (await (await page.request.get(href)).json()) as Record<string, unknown>;
+		};
+		const suite = await manifestAt("/home");
+		expect(suite.id).toBe("/suite");
+		expect(suite.start_url).toBe("/suite/start");
+		const mail = await manifestAt("/mail");
+		expect(mail.id).toBe("/mail");
+		expect(mail.scope).toBe("/mail");
 	});
 
 	test("a signed-in user registers the push worker once per page, in Home and in Mail", async ({ page }) => {

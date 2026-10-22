@@ -48,9 +48,11 @@ async function openFolder(page: Page, folder: DriveNode) {
 	await expect(page.getByRole("button", { name: "New", exact: true })).toBeVisible();
 }
 
-async function useNewMenu(page: Page, item: string) {
+/** New's Upload group comes after Create, whose "Folder" shares the upload folder's label. */
+async function useNewMenu(page: Page, item: "Upload files" | "Upload folder") {
 	await page.getByRole("button", { name: "New", exact: true }).click();
-	await page.getByRole("menuitem", { name: item, exact: true }).click();
+	const label = item === "Upload files" ? "Files" : "Folder";
+	await page.getByRole("menuitem", { name: label, exact: true }).last().click();
 }
 
 async function openTrash(page: Page) {
@@ -294,7 +296,7 @@ test("a restore whose folder is gone asks for a destination in the same root", a
 	await expect(page.getByText("1 restored · 0 failed")).toBeVisible();
 	await expect(page.getByText("selected")).toHaveCount(0);
 	const restored = await getNode(api, orphan.name);
-	expect(restored.parent).toBe(home.name);
+	expect(restored.parent_node).toBe(home.name);
 	expect(restored.state).toBe("Active");
 });
 

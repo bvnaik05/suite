@@ -163,11 +163,9 @@ async function ensureLinkOnlyUser(): Promise<void> {
 async function shareByLink(node: string, role: number): Promise<string> {
 	const response = await api.put(`${DRIVE}/nodes/${node}/grants/$LINK`, { data: { role } });
 	expect(response.ok()).toBe(true);
-	const body = (await response.json()) as {
-		data?: { grant: { principal: string } };
-		message?: { grant: { principal: string } };
-	};
-	return (body.data ?? body.message)!.grant.principal.replace("$LINK:", "");
+	// The answer is the grant row itself.
+	const body = (await response.json()) as { data?: { principal: string }; message?: { principal: string } };
+	return (body.data ?? body.message)!.principal.replace("$LINK:", "");
 }
 
 /** A browser signed in as the link-only person, holding these links. */
