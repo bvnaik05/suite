@@ -227,6 +227,8 @@ override_whitelisted_methods = {
     # SpamD
     "mail.api.spamd.scan": "suite.mail.api.spamd.scan",
     "mail.api.spamd.get_spam_score": "suite.mail.api.spamd.get_spam_score",
+    # writer — embed URLs baked into documents created by the standalone app
+    "writer.api.embed.get": "suite.writer.api.embed.get",
 }
 
 # ============================================================================
