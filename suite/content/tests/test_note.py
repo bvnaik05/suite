@@ -4,6 +4,7 @@ import json
 import struct
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from unittest.mock import patch
 
 import frappe
@@ -158,12 +159,48 @@ class TestNoteEditor(IntegrationTestCase):
 
         self.assertTrue(content.enabled(note.EDITOR.app))
 
-    def test_notes_off_answer_disabled_and_leave_the_other_apps_on(self):
+    def purge_every_log(self) -> None:
         doc_table = table(note.EDITOR.app, "doc")
         for (node,) in frappe.db.sql(f"SELECT `node` FROM `{doc_table}` WHERE `mode` != 'purged'"):
             log.delete_purged(note.EDITOR.app, log.mark_purged(note.EDITOR.app, node))
 
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+    def test_only_a_log_that_is_not_purged_counts(self):
+        self.assertTrue(log.has_logs(note.EDITOR.app))
+
+        self.purge_every_log()
+
+        self.assertFalse(log.has_logs(note.EDITOR.app))
+        # An app whose tables were never made
+        self.assertFalse(log.has_logs("absent"))
+
+    def test_an_always_on_app_cannot_be_turned_off_with_no_logs(self):
+        self.purge_every_log()
+
+        with (
+            patch.object(note, "EDITOR", replace(note.EDITOR, always_on=True)),
+            self.assertRaisesRegex(frappe.ValidationError, "Collaboration in note can't be turned off"),
+        ):
+            log.set_mode(note.EDITOR.app, "off")
+
+        self.assertTrue(content.enabled(note.EDITOR.app))
+
+    def test_settings_refuse_an_unknown_app_and_a_second_row_for_one_app(self):
+        settings = frappe.get_single("Suite Collab Settings")
+        settings.append("apps", {"app": "absent", "mode": "off"})
+        with self.assertRaisesRegex(
+            frappe.ValidationError, "No app named absent keeps its documents in the content layer"
+        ):
+            settings.save(ignore_permissions=True)
+
+        settings = frappe.get_single("Suite Collab Settings")
+        settings.append("apps", {"app": note.EDITOR.app, "mode": "on"})
+        with self.assertRaisesRegex(frappe.ValidationError, "note has more than one row"):
+            settings.save(ignore_permissions=True)
+
+    def test_notes_off_answer_disabled_and_leave_the_other_apps_on(self):
+        self.purge_every_log()
 
         log.set_mode(note.EDITOR.app, "off")
 
