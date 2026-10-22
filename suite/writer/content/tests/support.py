@@ -434,7 +434,11 @@ class CheckpointCase(IntegrationTestCase):
     def delete_document(self, node: str):
         frappe.set_user("Administrator")
         admin = Principals("Administrator", ("Administrator",), (), is_admin=True)
-        if frappe.db.get_value("Drive Node", node, "state") != "Trashed":
+        state = frappe.db.get_value("Drive Node", node, "state")
+        if state is None:
+            return
+
+        if state != "Trashed":
             update(admin, node, state="Trashed")
 
         purge(admin, node)
