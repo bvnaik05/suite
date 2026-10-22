@@ -42,6 +42,15 @@ def set_mode(app: str, new_mode: str) -> None:
     settings.save(ignore_permissions=True)
 
 
+def has_logs(app: str) -> bool:
+    """Whether any of the app's documents has a log that isn't purged."""
+    doc_table = table(app, "doc")
+    if doc_table not in frappe.db.get_tables(cached=False):
+        return False
+
+    return bool(frappe.db.sql(f"SELECT 1 FROM `{doc_table}` WHERE `mode` != 'purged' LIMIT 1"))
+
+
 def enabled(app: str) -> bool:
     """Whether the app's collaboration is on."""
     return mode(app) == "on"

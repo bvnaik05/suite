@@ -35,7 +35,7 @@ class EditorSpec:
     doctype whose row holds each document's latest checked body, base64, in `body_field`; `part_map` names
     every root type it writes; `checker_build` is the Node bundle that judges suspect documents and checks
     what trimming deletes. `readable_copy` and `media` are None for an app whose documents keep no HTML
-    copy or use no Drive files."""
+    copy or use no Drive files. `always_on` keeps the app's collaboration from being turned off."""
 
     app: str
     doctype: str
@@ -45,6 +45,7 @@ class EditorSpec:
     checker_build: Path
     readable_copy: HtmlCopy | None
     media: MediaReferences | None
+    always_on: bool = False
 
 
 # Short enough that every table name the layer makes from it fits MariaDB's 64 characters

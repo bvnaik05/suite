@@ -6,6 +6,7 @@ from pathlib import Path
 import pycrdt
 
 from suite import content
+from suite.content.log import set_mode
 from suite.writer.content.files import node_ids, value_rewriter
 from suite.writer.content.readable_copy import is_html_complete
 
@@ -40,4 +41,10 @@ EDITOR = content.EditorSpec(
     checker_build=CHECKER_BUILD,
     readable_copy=content.HtmlCopy(field="html", is_html_complete=is_html_complete),
     media=content.MediaReferences(node_ids=node_ids, value_rewriter=value_rewriter),
+    always_on=True,
 )
+
+
+def turn_on() -> None:
+    """Turn Writer's collaboration on, which it then stays."""
+    set_mode(APP, "on")
