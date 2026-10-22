@@ -2,6 +2,7 @@ import base64
 import dataclasses
 import json
 import os
+from datetime import timedelta
 from unittest.mock import patch
 
 import frappe
@@ -10,8 +11,10 @@ from bs4 import BeautifulSoup
 from frappe.utils import get_datetime, get_system_timezone
 
 from suite import drive
-from suite.content import checker, compaction, convert, copies, log
+from suite.content import checker, compaction, convert, copies, jobs, log
+from suite.content.editors import spec_of
 from suite.content.http import routes
+from suite.drive._core.nodes import _restore, _trash
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
@@ -340,3 +343,166 @@ class TestConversion(DriveCallbackCase):
             self.delete_document(node)
 
             self.assertEqual(self.records(node), ())
+
+    def old_documents(self, count: int) -> list[str]:
+        nodes = [self.old_document("<p>Hello world</p>") for _ in range(count)]
+        for node in nodes:
+            self.addCleanup(self.delete_document, node)
+
+        return nodes
+
+    def run_on(self, mine: list[str], each=None) -> list[str]:
+        """Run the job, converting only `mine`; the nodes it went to, in order."""
+        writer = spec_of(writer_content.APP).conversion
+        seen = []
+
+        def only_mine(node):
+            seen.append(node)
+            if each is not None:
+                each(node)
+
+            if node in mine:
+                return writer.convert_document(node)
+
+        convert.run_pending(writer_content.APP, dataclasses.replace(writer, convert_document=only_mine))
+        return seen
+
+    def reasons_logged(self, reason: str) -> int:
+        return frappe.db.count(
+            "Error Log", {"method": "Collab conversion: writer did not run", "error": reason}
+        )
+
+    def forget_logged(self, reason: str) -> None:
+        frappe.cache.delete_value(f"suite-convert-{writer_content.APP}-{reason}")
+        self.addCleanup(frappe.cache.delete_value, f"suite-convert-{writer_content.APP}-{reason}")
+
+    def test_a_run_converts_or_records_each_old_document_and_a_second_run_changes_nothing(self):
+        good, other, refused = self.old_documents(3)
+        frappe.db.set_value(
+            "Writer Document", self.docname_of(refused), "ycomments", old_comments(("c1", "world", []))
+        )
+        frappe.db.commit()
+
+        self.run_on([good, other, refused])
+
+        self.assertEqual(
+            [bool(log.find(writer_content.APP, node)) for node in (good, other, refused)], [True, True, False]
+        )
+        self.assertEqual(self.records(refused), (("check", "orphan", None),))
+        after = {node: (self.as_before(node), self.records(node)) for node in (good, other, refused)}
+
+        self.run_on([good, other, refused])
+
+        self.assertEqual({node: (self.as_before(node), self.records(node)) for node in after}, after)
+
+    def test_a_new_converter_version_tries_a_refused_body_again(self):
+        [node] = self.old_documents(1)
+        with patch.object(convert, "convert", return_value=convert.Refused("too_large")):
+            self.assertEqual(conversion.convert_document(node), "too_large")
+            self.assertIsNone(conversion.convert_document(node))
+
+            with patch.object(writer_content, "CONVERTER_VERSION", "next"):
+                self.assertEqual(conversion.convert_document(node), "too_large")
+
+        self.assertEqual(self.records(node), (("too_large", None, None),) * 2)
+
+    def test_records_a_body_crashed_once_its_attempt_outlives_the_job_and_skips_a_running_one(self):
+        running, crashed = self.old_documents(2)
+        now = frappe.utils.now_datetime()
+        for node, age in (
+            (running, timedelta(seconds=60)),
+            (crashed, conversion.STALE_ATTEMPT + timedelta(seconds=1)),
+        ):
+            conversion.start_attempt(node, conversion.read_old(node).fingerprint, now - age)
+        before = {node: self.as_before(node) for node in (running, crashed)}
+
+        self.assertIsNone(conversion.convert_document(running))
+        self.assertEqual(conversion.convert_document(crashed), "crashed")
+
+        self.assertEqual({node: self.as_before(node) for node in before}, before)
+        self.assertEqual(self.records(running), ((None, None, None),))
+        self.assertEqual(self.records(crashed), (("crashed", None, None),))
+
+    def test_the_next_run_converts_a_document_made_during_a_run(self):
+        [first] = self.old_documents(1)
+        made = []
+
+        def make_one(node):
+            if node == first and not made:
+                made.extend(self.old_documents(1))
+
+        self.run_on([first], each=make_one)
+        self.assertIsNone(log.find(writer_content.APP, made[0]))
+
+        self.run_on(made)
+
+        self.assertIsNotNone(log.find(writer_content.APP, made[0]))
+
+    def test_skips_a_trashed_document_and_converts_it_once_restored(self):
+        [node] = self.old_documents(1)
+        owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        _trash(owner, node)
+        frappe.db.commit()
+        before = self.as_before(node)
+
+        self.assertNotIn(node, self.run_on([node]))
+        self.assertEqual(self.as_before(node), before)
+        self.assertEqual(self.records(node), ())
+
+        _restore(owner, node, parent_node=None)
+        frappe.db.commit()
+        self.run_on([node])
+
+        self.assertIsNotNone(log.find(writer_content.APP, node))
+
+    def test_goes_through_every_page_newest_first_once(self):
+        nodes = self.old_documents(3)
+
+        with patch.object(convert, "PAGE", 2):
+            seen = self.run_on([])
+
+        self.assertEqual(seen[:3], nodes[::-1])
+        self.assertEqual(len(seen), len(set(seen)))
+
+    def test_starts_no_document_once_its_time_is_up(self):
+        [node] = self.old_documents(1)
+
+        with patch.object(convert, "RUN_FOR", -1):
+            self.assertEqual(self.run_on([node]), [])
+
+        self.assertIsNone(log.find(writer_content.APP, node))
+
+    def test_stops_and_logs_why_when_the_converter_changes(self):
+        reason = "the bundle answered version 9, not 1"
+        self.forget_logged(reason)
+        logged = self.reasons_logged(reason)
+
+        def changed(node):
+            raise convert.ConverterChanged(reason)
+
+        self.assertEqual(len(self.run_on([], each=changed)), 1)
+        self.assertEqual(self.reasons_logged(reason), logged + 1)
+
+    def test_without_node_or_the_bundle_writes_nothing_and_logs_once_an_hour(self):
+        reason = "no Node, or no converter bundle of this version"
+        self.forget_logged(reason)
+        logged = self.reasons_logged(reason)
+        [node] = self.old_documents(1)
+
+        for stub in ({"return_value": False}, {"side_effect": checker.CheckerFailed("down")}):
+            with patch.object(convert, "bundle_ready", **stub):
+                self.assertEqual(self.run_on([node]), [])
+
+        self.assertIsNone(log.find(writer_content.APP, node))
+        self.assertEqual(self.records(node), ())
+        self.assertEqual(self.reasons_logged(reason), logged + 1)
+
+    def test_queues_one_conversion_job_for_each_app_with_a_converter(self):
+        writer = spec_of(writer_content.APP)
+        apps = {"writer": writer, "plain": dataclasses.replace(writer, conversion=None)}
+
+        with patch.object(jobs, "editors", return_value=apps), patch.object(frappe, "enqueue") as enqueue:
+            jobs.queue_conversion()
+
+        [(_, queued)] = [(call.args, call.kwargs) for call in enqueue.call_args_list]
+        self.assertEqual((queued["app"], queued["job_id"]), ("writer", "suite-convert-writer"))
