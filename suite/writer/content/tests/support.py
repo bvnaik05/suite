@@ -29,6 +29,8 @@ from suite.content.http import routes
 from suite.content.log import chain_next, chain_seed
 from suite.content.stage import PIECE_MAX
 from suite.content.updates import encoded_string, encoded_uint
+from suite.drive._core.nodes import purge, update
+from suite.drive._core.principals import Principals
 from suite.tests.utils import ensure_user
 from suite.writer import content as writer_content
 
@@ -430,12 +432,12 @@ class CheckpointCase(IntegrationTestCase):
         return node
 
     def delete_document(self, node: str):
-        docname = frappe.db.get_value("Drive Node", node, "content_docname")
-        if docname:
-            frappe.db.delete("Writer Document", docname)
+        frappe.set_user("Administrator")
+        admin = Principals("Administrator", ("Administrator",), (), is_admin=True)
+        if frappe.db.get_value("Drive Node", node, "state") != "Trashed":
+            update(admin, node, state="Trashed")
 
-        frappe.db.delete("Drive Activity", {"node": node})
-        frappe.db.delete("Drive Node", node)
+        purge(admin, node)
         frappe.db.commit()
 
     def delete_log(self, node: str):

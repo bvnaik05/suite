@@ -79,8 +79,12 @@ class TestSuspect(CheckpointCase):
             self.skipTest(f"needs Node {checker.NODE_MAJOR}+ and the built bundle at {BUNDLE}")
 
         self.requested: list[tuple[str, str]] = []
+        real_enqueue = frappe.enqueue
 
         def enqueue(method, **kwargs):
+            if method not in {jobs.COMPACT, jobs.JUDGE}:
+                return real_enqueue(method, **kwargs)
+
             self.requested.append((method, kwargs["doc_id"]))
 
         for patcher in (

@@ -127,6 +127,9 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_collab_stage.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_suspect.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_suspect.py|import|suite.drive._core.principals",
+            # The checkpoint cases trash and purge each document they make; neither is a public call yet
+            "suite/writer/content/tests/support.py|import|suite.drive._core.nodes",
+            "suite/writer/content/tests/support.py|import|suite.drive._core.principals",
             # The trimming case reads every version back as its writer; reading one is not a public call yet
             "suite/writer/content/tests/test_trimming.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_trimming.py|import|suite.drive._core.versions",

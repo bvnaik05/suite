@@ -27,11 +27,17 @@ class TestWriterCompactionTriggers(CheckpointCase):
     def setUp(self):
         super().setUp()
         self.requested: list[str] = []
-        enqueue = patch.object(
-            frappe, "enqueue", lambda method, **kwargs: self.requested.append(kwargs["doc_id"])
-        )
-        enqueue.start()
-        self.addCleanup(enqueue.stop)
+        real_enqueue = frappe.enqueue
+
+        def enqueue(method, **kwargs):
+            if method != jobs.COMPACT:
+                return real_enqueue(method, **kwargs)
+
+            self.requested.append(kwargs["doc_id"])
+
+        patcher = patch.object(frappe, "enqueue", enqueue)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def typing_pushes(self, node: str, texts: list[str]) -> list[bytes]:
         sid = uuid.uuid4().hex
