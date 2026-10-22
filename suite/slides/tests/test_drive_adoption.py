@@ -695,6 +695,37 @@ class TestSlidesInDrive(IntegrationTestCase):
         with self.assertRaises(DriveForbidden):
             drive.adopt_media(target, [picture])
 
+    def test_a_reader_cannot_save_a_deck_and_a_trashed_deck_refuses_an_editor(self):
+        from suite.slides.api.slides import save_slides
+
+        node = self._deck(title="Save rights")
+        docname = self._docname(node)
+        before = [row["name"] for row in self._slide_rows(node)]
+
+        def save():
+            modified = str(frappe.db.get_value(DOCTYPE, docname, "modified"))
+            save_slides(docname, [{"client_id": "x", "background": "#000000ff", "elements": "[]"}], modified)
+
+        grant(node, OTHER, drive.READ, self.admin)
+        self._as(OTHER)
+        with self.assertRaises((frappe.PermissionError, DriveForbidden)):
+            save()
+        frappe.set_user("Administrator")
+        self.assertEqual([row["name"] for row in self._slide_rows(node)], before)
+
+        # Administrator skips permission hooks, so an editor tries the trashed deck.
+        grant(node, OTHER, drive.EDIT, self.admin)
+        self._as(OTHER)
+        save()
+        frappe.set_user("Administrator")
+        before = [row["name"] for row in self._slide_rows(node)]
+        update(self.admin, node, state="Trashed")
+        self._as(OTHER)
+        with self.assertRaises((frappe.PermissionError, DriveForbidden)):
+            save()
+        frappe.set_user("Administrator")
+        self.assertEqual([row["name"] for row in self._slide_rows(node)], before)
+
     # history
 
     def test_a_version_round_trips_the_slides_the_theme_and_the_references(self):

@@ -2,18 +2,12 @@ import frappe
 from frappe.tests import IntegrationTestCase
 from frappe.utils import cstr
 
-from suite.drive._core.access import grant
-from suite.drive._core.errors import DriveForbidden
-from suite.drive._core.nodes import update
-from suite.drive._core.principals import Principals
-from suite.drive._core.roles import READ
 from suite.slides.api.slides import save_slides
 from suite.slides.tests.utils import make_presentation
 from suite.tests.utils import ensure_user
 
 OWNER = "slides-save-owner@example.com"
 OTHER_USER = "slides-save-other@example.com"
-ADMIN = Principals("Administrator", ("Administrator",), ("$PUBLIC",), is_admin=True)
 
 
 def slide(client_id, background="#ffffffff"):
@@ -127,22 +121,3 @@ class TestSaveSlides(IntegrationTestCase):
     def test_requires_write_permission(self):
         with self.set_user(OTHER_USER), self.assertRaises(frappe.PermissionError):
             save_slides(self.presentation, [slide("a")], self.modified())
-
-    def test_a_drive_reader_cannot_save(self):
-        self.save([slide("a")])
-        before = row_names(self.presentation)
-        node = frappe.db.get_value("Presentation", self.presentation, "node")
-        grant(node, OTHER_USER, READ, ADMIN)
-
-        with self.set_user(OTHER_USER), self.assertRaises(frappe.PermissionError):
-            save_slides(self.presentation, [slide("b")], self.modified())
-        self.assertEqual(row_names(self.presentation), before)
-
-    def test_a_trashed_deck_refuses_its_owner_s_save(self):
-        self.save([slide("a")])
-        before = row_names(self.presentation)
-        update(ADMIN, frappe.db.get_value("Presentation", self.presentation, "node"), state="Trashed")
-
-        with self.assertRaises((frappe.PermissionError, DriveForbidden)):
-            self.save([slide("b")])
-        self.assertEqual(row_names(self.presentation), before)
