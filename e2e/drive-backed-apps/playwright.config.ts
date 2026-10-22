@@ -33,8 +33,6 @@ const testApiServer =
 			}
 		: undefined;
 
-const SITE_SWITCH = /collab-site-switch\.spec\.ts/;
-
 function chromeChoice() {
 	if (chromeExecutable) {
 		return { launchOptions: { executablePath: chromeExecutable } };
@@ -77,14 +75,6 @@ export default defineConfig({
 	projects: [
 		{
 			name: "chromium",
-			testIgnore: SITE_SWITCH,
-			use: browser,
-		},
-		{
-			// Switching collaboration off for the site stops every collab test beside it; alone, run with --no-deps
-			name: "site-switch",
-			testMatch: SITE_SWITCH,
-			dependencies: ["chromium"],
 			use: browser,
 		},
 	],

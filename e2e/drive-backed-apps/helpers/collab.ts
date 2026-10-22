@@ -48,7 +48,7 @@ async function callTestHook<T>(testApi: APIRequestContext, name: string, node: s
 }
 
 /** Turn collaboration on for the site and give `node` a collab log. Call before the document opens. */
-export function enableCollab(testApi: APIRequestContext, node: string) {
+function enableCollab(testApi: APIRequestContext, node: string) {
 	return callTestHook<CollabState>(testApi, "enable_collab", node);
 }
 
@@ -61,11 +61,6 @@ export async function openForCollab(
 ): Promise<void> {
 	await enableCollab(testApi, node);
 	await shareWriterDocument(owner, node, { user: collaborator, read: true, write: true });
-}
-
-/** Turn Writer's collaboration off; the next test's `enableCollab` turns it on again. */
-export function disableCollab(testApi: APIRequestContext, node: string) {
-	return callTestHook<CollabState>(testApi, "disable_collab", node);
 }
 
 /** Open `node` in the old, non-collaborative editor from now on. */
