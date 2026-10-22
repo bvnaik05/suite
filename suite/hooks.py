@@ -152,6 +152,10 @@ suite_content_editors = ["suite.writer.content.EDITOR"]
 # Permissions — permission_query_conditions (deep-merged union; no key clashes)
 # ============================================================================
 permission_query_conditions = {
+    # drive — one user's own rows
+    "Drive Settings": "suite.drive.framework.own_row_query_conditions",
+    "Drive Favourite": "suite.drive.framework.own_row_query_conditions",
+    "Drive Recent": "suite.drive.framework.own_row_query_conditions",
     # slides — governed by Drive (§10.4). `Slide` is the deck's satellite and
     # takes its rights from the deck's node.
     "Presentation": "suite.drive.framework.doc_query_conditions",
@@ -178,6 +182,10 @@ permission_query_conditions = {
 # Permissions — has_permission (deep-merged union; no key clashes)
 # ============================================================================
 has_permission = {
+    # drive — one user's own rows
+    "Drive Settings": "suite.drive.framework.own_row_has_permission",
+    "Drive Favourite": "suite.drive.framework.own_row_has_permission",
+    "Drive Recent": "suite.drive.framework.own_row_has_permission",
     # slides — governed by Drive (§10.4).
     "Presentation": "suite.drive.framework.doc_has_permission",
     "Slide": "suite.drive.framework.satellite_has_permission",
