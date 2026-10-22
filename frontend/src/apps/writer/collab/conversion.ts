@@ -608,6 +608,8 @@ const DRIVE_CLASSES: Record<string, string[]> = {
   ],
   // code f5936ffea:414
   code: ['not-prose px-px font-mono bg-gray-50 text-[0.85em] rounded-sm border border-gray-300'],
+  // annotation e88592e0:517
+  span: ['cursor-pointer annotation'],
 }
 
 function isDriveClass(element: Element) {

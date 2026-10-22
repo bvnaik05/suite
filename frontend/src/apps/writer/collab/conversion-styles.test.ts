@@ -1694,6 +1694,10 @@ describe("convertLegacy on old Drive's class sets", () => {
     return `<p><code class="${classes}">one</code></p>`
   }
 
+  function span(classes: string) {
+    return `<p>a<span class="${classes}">b</span></p>`
+  }
+
   // Each set as old Drive's DocEditor/TextEditor.vue wrote it
   const SETS: [string, (classes: string) => string, string][] = [
     ['listItem, 81496fa39:313', list, 'prose-list-item'],
@@ -1737,6 +1741,7 @@ describe("convertLegacy on old Drive's class sets", () => {
       code,
       'not-prose px-px font-mono bg-gray-50 text-[0.85em] rounded-sm border border-gray-300',
     ],
+    ['annotation, e88592e0:517', span, 'cursor-pointer annotation'],
   ]
 
   it.each(SETS)('converts the %s set, recording the class', (_, html, classes) => {
@@ -1765,6 +1770,15 @@ describe("convertLegacy on old Drive's class sets", () => {
       expect(convertLegacy(legacy, MAX_STATE)).toEqual({ kind: 'failed', reason: 'check' })
     },
   )
+
+  it('refuses the annotation set on a span that still holds its annotation', () => {
+    const html = '<p>a<span class="cursor-pointer annotation" data-annotation-id="a1">b</span></p>'
+
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
 
   it('converts a set written in another order', () => {
     const html = pre(
