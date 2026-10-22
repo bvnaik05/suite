@@ -2,6 +2,7 @@ import base64
 import dataclasses
 import json
 import os
+import threading
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -19,6 +20,7 @@ from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
 from suite.writer import content as writer_content
+from suite.writer.api import docs
 from suite.writer.content import conversion
 from suite.writer.content.readable_copy import is_html_complete
 from suite.writer.content.tests.drive_callback_case import DriveCallbackCase
@@ -220,6 +222,68 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual([thread.anchor for thread in self.threads_of(node)], ["x1"])
         [(_outcome, _reason, dropped)] = self.records(node)
         self.assertEqual(json.loads(dropped), [{"kind": "unknown-anchor", "thread": "x1"}])
+
+    def test_records_a_drive_thread_made_while_the_conversion_writes(self):
+        node = self.old_document("<p>Hello world</p>")
+        site = frappe.local.site
+        errors: list[Exception] = []
+
+        def comment_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            frappe.set_user(WRITER)
+            try:
+                self.build_thread(node, "late", ["late"])
+            except Exception as error:
+                errors.append(error)
+            finally:
+                frappe.destroy()
+
+        commenter = threading.Thread(target=comment_elsewhere)
+        converted = False
+        real_sql = frappe.db.sql
+
+        def converting(*args, **kwargs):
+            nonlocal converted
+            converted = True
+            return REAL_CONVERT(*args, **kwargs)
+
+        # Comment from another connection just before the write first locks a Drive Node
+        def sql(query, *args, **kwargs):
+            locks_a_node = "`tabDrive Node`" in str(query) and "FOR UPDATE" in str(query).upper()
+            if converted and locks_a_node and commenter.ident is None:
+                commenter.start()
+                commenter.join(10)
+
+            return real_sql(query, *args, **kwargs)
+
+        with patch.object(convert, "convert", side_effect=converting), patch.object(frappe.db, "sql", sql):
+            self.assertEqual(conversion.convert_document(node), "converted")
+
+        self.assertFalse(commenter.is_alive())
+        self.assertEqual(errors, [])
+        [(_outcome, _reason, dropped)] = self.records(node)
+        self.assertEqual(json.loads(dropped), [{"kind": "unknown-anchor", "thread": "late"}])
+
+    def test_converts_a_collaborative_version_from_its_yjs_body_not_its_stale_html(self):
+        node = self.new_document()
+        self.delete_log(node)
+        doc = pycrdt.Doc()
+        doc.get("default", type=pycrdt.XmlFragment).children.append(
+            pycrdt.XmlElement("paragraph", None, [pycrdt.XmlText("Yjs text")])
+        )
+        old = {"content": base64.b64encode(doc.get_update()).decode(), "html": "<p>stale</p>", "collab": 1}
+        frappe.db.set_value("Writer Document", self.docname_of(node), old)
+        frappe.db.commit()
+        seq = drive.take_version(node)
+        frappe.db.commit()
+
+        answer = docs.convert_version(node, seq)
+
+        restored = pycrdt.Doc()
+        restored.apply_update(base64.b64decode(answer["state"]))
+        body = str(restored.get("default", type=pycrdt.XmlFragment))
+        self.assertEqual(body, "<paragraph>Yjs text</paragraph>")
 
     def edit_while_converting(self, node: str, edits: int):
         docname = self.docname_of(node)
