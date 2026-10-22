@@ -1,4 +1,5 @@
-import { reactive } from 'vue'
+import type { AnyExtension } from '@tiptap/core'
+import { reactive, type PropType } from 'vue'
 import type { Doc } from 'yjs'
 
 export const rooms = { next: null as object | null }
@@ -117,7 +118,7 @@ export async function fakeCoreEditor() {
   const { default: Text } = await import('@tiptap/extension-text')
   return {
     default: define({
-      props: { extensions: { type: Array, default: () => [] } },
+      props: { extensions: { type: Array as PropType<AnyExtension[]>, default: () => [] } },
       setup(props, { expose, slots }) {
         const extensions = [Document, Paragraph, Text, ...props.extensions]
         const editor = shallowRef(new Editor({ extensions }))
