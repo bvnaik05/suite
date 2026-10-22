@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import * as yjs from 'yjs'
 
+import { client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab/field'
 
@@ -55,6 +56,37 @@ async function writeOldDraft(id: string, html: string) {
   await put(db, 'content', { val: html, saved: new Date() }, id)
 }
 
+// A body the row saved, and the old store's bytes: that body, plus `extra` typed after it
+function oldBodyAndStore(words: string, extra = '') {
+  const doc = new yjs.Doc()
+  const paragraph = new yjs.XmlElement('paragraph')
+  const text = new yjs.XmlText(words)
+  paragraph.insert(0, [text])
+  doc.getXmlFragment(BODY_FIELD).insert(0, [paragraph])
+  const saved = yjs.encodeStateAsUpdate(doc)
+  if (extra) {
+    text.insert(words.length, extra)
+  }
+
+  return { content: btoa(String.fromCharCode(...saved)), stored: yjs.encodeStateAsUpdate(doc) }
+}
+
+async function writeStoredBytes(id: string, bytes: Uint8Array) {
+  const db = await openDatabase(`fdoc-${id}`, (created) =>
+    created.createObjectStore('updates', { autoIncrement: true }),
+  )
+  await put(db, 'updates', bytes)
+}
+
+async function writeDraftSavedAt(id: string, html: string, saved: Date) {
+  const db = await openDatabase('Writer', (created) => created.createObjectStore('content'))
+  await put(db, 'content', { val: html, saved }, id)
+}
+
+async function keptTexts() {
+  return (await listCopies(NODE)).map((copy) => copy.text)
+}
+
 function deleteDatabase(name: string) {
   return new Promise((resolve) => {
     indexedDB.deleteDatabase(name).onsuccess = resolve
@@ -64,6 +96,7 @@ function deleteDatabase(name: string) {
 beforeEach(() => localStorage.clear())
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   const copies = await listCopies()
   await Promise.all(copies.map(discardCopy))
   await deleteDatabase(`fdoc-${NODE}`)
@@ -87,5 +120,80 @@ describe('keeping the old editor work on this device', () => {
 
     const copies = await listCopies(NODE)
     expect(copies.map((copy) => copy.text)).toEqual(['draft never saved'])
+  })
+
+  it('keeps what the old store holds beyond the saved body', async () => {
+    const { content, stored } = oldBodyAndStore('saved words', ' and more')
+    await writeStoredBytes(NODE, stored)
+
+    await keepDeviceCopies(session, { ...row, content })
+
+    expect(await keptTexts()).toEqual(['saved words and more'])
+  })
+
+  it('keeps nothing when the old store holds only the saved body', async () => {
+    const { content, stored } = oldBodyAndStore('saved words')
+    await writeStoredBytes(NODE, stored)
+
+    await keepDeviceCopies(session, { ...row, content })
+
+    expect(await keptTexts()).toEqual([])
+  })
+
+  it('keeps nothing when the draft is the saved body', async () => {
+    await writeOldDraft(NODE, row.html)
+
+    await keepDeviceCopies(session, row)
+
+    expect(await keptTexts()).toEqual([])
+  })
+
+  it('keeps a draft only when it is newer than the last save', async () => {
+    const saved = new Date('2026-10-01T10:00:00Z')
+    const draft = '<p>draft</p>'
+
+    for (const [modified, kept] of [
+      ['2026-10-01T10:00:01Z', []],
+      ['2026-10-01T10:00:00Z', []],
+      ['2026-10-01T09:59:59Z', ['draft']],
+    ] as const) {
+      localStorage.clear()
+      await writeDraftSavedAt(NODE, draft, saved)
+
+      await keepDeviceCopies(session, { ...row, content_modified: modified })
+
+      expect(await keptTexts(), modified).toEqual(kept)
+      await Promise.all((await listCopies()).map(discardCopy))
+    }
+  })
+
+  it('keeps each piece of old work once across opens, even after it is discarded', async () => {
+    await writeOldYjsStore(NODE, 'typed offline')
+    await writeOldDraft(NODE, '<p>draft never saved</p>')
+
+    await keepDeviceCopies(session, row)
+    await keepDeviceCopies(session, row)
+    expect((await keptTexts()).sort()).toEqual(['draft never saved', 'typed offline'])
+
+    await Promise.all((await listCopies()).map(discardCopy))
+    await keepDeviceCopies(session, row)
+    expect(await keptTexts()).toEqual([])
+  })
+
+  it('compares a document not yet converted with the old body the server still holds', async () => {
+    const { content, stored } = oldBodyAndStore('saved words')
+    await writeStoredBytes(NODE, stored)
+    const live = { ...row, conversion: undefined }
+    const query = vi.spyOn(client, 'query').mockResolvedValueOnce({ content })
+
+    await keepDeviceCopies(session, live)
+
+    expect(query.mock.calls[0]?.[1]).toEqual({ node: NODE })
+    expect(await keptTexts()).toEqual([])
+
+    query.mockResolvedValueOnce({})
+    await keepDeviceCopies(session, live)
+
+    expect(await keptTexts()).toEqual(['saved words'])
   })
 })
