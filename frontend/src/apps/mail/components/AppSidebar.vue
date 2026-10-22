@@ -493,8 +493,8 @@ const sidebarItems = computed(() => {
       {
         label: __('Overview'),
         icon: House,
-        to: { name: 'mail-overview' },
-        activeFor: ['mail-overview'],
+        to: { name: 'admin-overview' },
+        activeFor: ['admin-overview'],
       },
     ]
     return [{ label: '', items: pinned }, ...dashboardItems]
@@ -570,7 +570,7 @@ const sidebarItems = computed(() => {
   )
     groups.push({
       label: __('Admin'),
-      items: [{ label: __('Admin Dashboard'), icon: Crown, to: { path: '/mail/dashboard' } }],
+      items: [{ label: __('Admin Dashboard'), icon: Crown, to: { path: '/admin' } }],
     })
 
   return groups

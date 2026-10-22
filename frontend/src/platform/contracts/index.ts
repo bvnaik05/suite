@@ -7,7 +7,7 @@
 import type { Component, InjectionKey } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
 
-export type PlatformCapability = 'jmap' | 'systemManager'
+export type PlatformCapability = 'jmap' | 'systemManager' | 'suiteAdmin'
 
 /**
  * `shell`: the route renders inside the shell, with the rail and one
@@ -49,6 +49,8 @@ export interface AreaDefinition {
   requires?: PlatformCapability[]
   /** What the rail's dot counts, in its tooltip ("3 unread"). Translated; "unread" when unset. */
   badgeNoun?: () => string
+  /** `workspace` areas open from the workspace menu instead of the desktop rail. Defaults to `rail`. */
+  placement?: 'rail' | 'workspace'
   /**
    * Installs on a phone as an app of its own, from its own pages: they link
    * the manifest in `public/pwa/<id>/`, scoped to `to` (ticket 047).
