@@ -64,35 +64,10 @@
                 </template>
               </FTextEditor>
             </div>
-            <div class="relative hidden md:block min-w-0">
-              <FloatingComments
-                v-if="commentsPainted"
-                v-model:active-comment="activeComment"
-                :y-comments="comments"
-                :file
-                :show-comments
-                :show-resolved
-                :show-unanchored
-                :editor="editor!"
-                @save="saveComments"
-              />
-            </div>
+            <div class="hidden md:block" />
           </div>
         </div>
         <slot name="cover" />
-        <div
-          v-if="paintedComments?._map.size && !hasCover()"
-          class="hidden md:block absolute top-4 right-4"
-        >
-          <Dropdown :options="commentFilterOptions" align="end">
-            <Button
-              :icon="LucideMessageSquareQuote"
-              variant="outline"
-              :label="__('Comment visibility')"
-              :tooltip="__('Comment visibility')"
-            />
-          </Dropdown>
-        </div>
       </div>
       <slot name="aside" />
     </div>
@@ -102,11 +77,9 @@
 
 <script setup lang="ts">
 import type { AnyExtension, Content } from '@tiptap/core'
-import { TextSelection } from '@tiptap/pm/state'
 import { BubbleMenu } from '@tiptap/vue-3/menus'
 import { onKeyDown } from '@vueuse/core'
-import LucideMessageSquareQuote from '~icons/lucide/message-square-quote'
-import { Button, Dropdown, toast, useFileUpload } from 'frappe-ui'
+import { toast, useFileUpload } from 'frappe-ui'
 import {
   EditorContent,
   EditorDropZone,
@@ -114,7 +87,6 @@ import {
   Editor as FTextEditor,
   EditorFixedMenu as TextEditorFixedMenu,
 } from 'frappe-ui/editor'
-import { v4 as uuidv4 } from 'uuid'
 import {
   computed,
   inject,
@@ -125,13 +97,11 @@ import {
   useTemplateRef,
   watch,
 } from 'vue'
-import type { Doc, Map as YMap } from 'yjs'
 
 import { hasDefaultDocumentTitle } from '@/apps/drive'
 import { searchMentions, useUsers } from '@/apps/writer/composables/useUsers'
 import { writerEditorExtensions } from '@/apps/writer/editor-extensions'
 import emitter from '@/apps/writer/emitter'
-import { rebuild } from '@/apps/writer/extensions/comments'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
 import { currentTabHTML } from '@/apps/writer/extensions/tabs'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
@@ -146,12 +116,10 @@ import {
   editorColumns,
   editorTextStyle,
 } from '@/apps/writer/utils/editor-layout'
-import { useSessionStore } from '@/boot/session'
 import { useRootStore } from '@/stores/root'
 
 import { bubbleMenuOptions } from './core-editor/bubble-menu'
 import { buildMenuButtons } from './core-editor/menu-buttons'
-import FloatingComments from './FloatingComments.vue'
 import ToC from './ToC.vue'
 import ToCMobile from './ToCMobile.vue'
 
@@ -162,22 +130,12 @@ const props = withDefaults(
     settings: WriterSettings
     editable?: boolean
     collaborative?: boolean
-    yjsDoc?: Doc | null
     extensions?: AnyExtension[]
-    comments?: YMap<unknown>
-    newComment?: (
-      id: string,
-      from: number,
-      to: number,
-      owner: string | null,
-      anchorText: string,
-    ) => void
-    saveComments?: () => Promise<void>
     rawContent?: string
     // Takes over the bubble menu's Comment, for editors that comment through Drive
     commentOnSelection?: (() => void) | null
   }>(),
-  { yjsDoc: null, extensions: () => [], commentOnSelection: null },
+  { extensions: () => [], commentOnSelection: null },
 )
 
 const emit = defineEmits<{
@@ -212,23 +170,6 @@ provide('editor', editor)
 defineExpose({ editor })
 
 const anchors = ref<unknown[]>([])
-const activeComment = ref<string | null>(null)
-const commentsPainted = ref(false)
-const showComments = ref<boolean>(JSON.parse(localStorage.getItem('show-comments') || 'false'))
-const showResolved = ref(false)
-const showUnanchored = ref(false)
-
-// The comments map, once its extension has painted it
-const paintedComments = computed(() => {
-  if (!commentsPainted.value) {
-    return undefined
-  }
-
-  return props.comments
-})
-
-watch(activeComment, () => rebuild(editor.value))
-watch(showComments, (isShown) => localStorage.setItem('show-comments', String(isShown)))
 
 const scrollParent = computed(() => document.querySelector<HTMLElement>('#editor-scroll-container'))
 
@@ -249,56 +190,8 @@ watch(
   { immediate: true },
 )
 
-const showUnanchoredButton = computed(() => {
-  const comments = paintedComments.value
-  if (!comments) {
-    return false
-  }
-
-  return Array.from(comments._map).some(([, value]) => {
-    const [first] = value.content.getContent()
-    return !document.querySelector(`[data-comment-name='${first?.id}']`)
-  })
-})
-
-const commentFilterOptions = computed(() => {
-  const comments = paintedComments.value
-  if (!comments) {
-    return []
-  }
-
-  const hasResolved = Array.from(comments._map).some(([, value]) => {
-    const [first] = value.content.getContent()
-    return first?.resolved
-  })
-  return [
-    {
-      label: __('Comments'),
-      switch: true as const,
-      switchValue: showComments.value,
-      onClick: () => (showComments.value = !showComments.value),
-    },
-    hasResolved &&
-      showComments.value && {
-        label: __('Resolved'),
-        switch: true as const,
-        switchValue: showResolved.value,
-        onClick: () => (showResolved.value = !showResolved.value),
-      },
-    showUnanchoredButton.value &&
-      showComments.value && {
-        label: __('Outdated'),
-        switch: true as const,
-        switchValue: showUnanchored.value,
-        onClick: () => (showUnanchored.value = !showUnanchored.value),
-      },
-  ].filter((option) => option !== false)
-})
-
 function onCommentActivated(id: string) {
   if (!id) return
-  activeComment.value = id
-  showComments.value = true
   const commentEl =
     document.querySelector<HTMLElement>(`span[data-comment-name="${id}"]`) ||
     document.querySelector<HTMLElement>(`span[data-comment-id="${id}"]`)
@@ -324,15 +217,6 @@ const writerEditorOptions = {
   },
   scrollParent: () => scrollParent.value!,
   media: inject(DOCUMENT_MEDIA, null),
-  comments: props.comments,
-  ydoc: props.yjsDoc,
-  activeComment,
-  showComments,
-  showResolved,
-  edited,
-  onCommentsPainted: () => {
-    commentsPainted.value = true
-  },
 }
 
 const editorExtensions = [...writerEditorExtensions(writerEditorOptions), ...props.extensions]
@@ -346,7 +230,7 @@ const menuButtons = computed(() =>
   }),
 )
 
-const bubbleMenuOpts = computed(() => bubbleMenuOptions({ comments: props.comments }))
+const bubbleMenuOpts = bubbleMenuOptions()
 
 const gridStyle = computed(() => editorColumns(props.settings))
 
@@ -367,8 +251,7 @@ function onBackgroundClick(event: MouseEvent) {
   }
 }
 
-// The owner of `edited` decides what counts as a change: `useYjs` reads the
-// Yjs document, `NonCollabEditor` compares the HTML. This event also fires
+// The owner of `edited` decides what counts as a change. This event also fires
 // when the stored body is first put into the editor, so it marks nothing.
 function handleEditorChange(value: Content) {
   emit('editor-change', value)
@@ -406,25 +289,8 @@ function addComment() {
   if (props.commentOnSelection) {
     return props.commentOnSelection()
   }
-  if (!props.yjsDoc) {
-    return toast.warning(__("New comments aren't supported on this doc."), {
-      duration: 1,
-    })
-  }
 
-  const instance = editor.value
-  if (!instance) return
-
-  showComments.value = true
-  const { state } = instance
-  const { from, to } = state.selection
-  if (from === to) return
-
-  const id = uuidv4()
-  props.newComment!(id, from, to, useSessionStore().user, state.doc.textBetween(from, to, ' '))
-  activeComment.value = id
-  const tr = state.tr.setSelection(TextSelection.create(state.doc, from))
-  instance.view.dispatch(tr)
+  toast.warning(__("New comments aren't supported on this doc."), { duration: 1 })
 }
 
 function manualSave(func?: () => void) {

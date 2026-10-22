@@ -1,6 +1,5 @@
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
-import { ref } from 'vue'
 import type { Doc } from 'yjs'
 
 import { BODY_FIELD } from '@/apps/writer/collab/field'
@@ -16,11 +15,6 @@ export function tabEditor(doc: Doc) {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   })
   return new Editor({
     element: document.createElement('div'),

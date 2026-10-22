@@ -3,7 +3,6 @@ import { Editor, getSchema, type JSONContent } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
 import { afterEach } from 'vitest'
-import { ref } from 'vue'
 import * as yjs from 'yjs'
 
 import { writerEditorExtensions } from '@/apps/writer/editor-extensions'
@@ -66,11 +65,6 @@ function openTab(state: Uint8Array, clientID: number): Tab {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   })
   const element = document.createElement('div')
   document.body.append(element)

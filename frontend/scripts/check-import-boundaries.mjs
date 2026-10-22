@@ -257,13 +257,7 @@ const moduleGraphDebtGroups = [
     owner: 'Writer frontend owner',
     removal:
       'Remove each entry when the owner migrates that dependency to platform or a declared product package root.',
-    entries: [
-      'writer/components/CoreEditor.vue|@/boot/session',
-      'writer/components/CoreEditor.vue|@/stores/root',
-      'writer/components/FloatingComments.vue|@/boot/session',
-      'writer/components/TextEditor.vue|@/boot/session',
-      'writer/composables/useYjs.ts|@/boot/session',
-    ],
+    entries: ['writer/components/CoreEditor.vue|@/stores/root'],
   },
 ]
 const unstableFrappeUIDebtGroups = [

@@ -9,12 +9,9 @@ import {
   type MentionSuggestionItem,
   type StarterKitOptions,
 } from 'frappe-ui/editor'
-import type { Ref } from 'vue'
-import type * as yjs from 'yjs'
 
 import { BlockLayout } from '@/apps/writer/extensions/block-layout'
 import CleanStyles from '@/apps/writer/extensions/clean-styles'
-import { CommentExtension } from '@/apps/writer/extensions/comments'
 import { CoreEditorExtension } from '@/apps/writer/extensions/core-editor'
 import { DriveMedia, type DocumentMedia } from '@/apps/writer/extensions/drive-media'
 import EmbedExtension from '@/apps/writer/extensions/embed-extension'
@@ -53,13 +50,6 @@ export interface WriterEditorOptions {
   onAnchors: (anchors: unknown[]) => void
   scrollParent: () => HTMLElement | Window
   media: DocumentMedia | null
-  comments?: yjs.Map<unknown>
-  ydoc?: yjs.Doc | null
-  activeComment: Ref<string | null>
-  showComments: Ref<boolean>
-  showResolved: Ref<boolean>
-  edited: Ref<boolean | undefined>
-  onCommentsPainted: () => void
 }
 
 const MEDIA_EXTENSIONS: AnyExtension[] = [Image, ImageGroup, ImageViewer, Video]
@@ -127,25 +117,5 @@ export function writerEditorExtensions(options: WriterEditorOptions): AnyExtensi
     }),
     MediaDownload,
     DriveMedia.configure({ media: options.media }),
-    ...commentExtensions(options),
-  ]
-}
-
-function commentExtensions(options: WriterEditorOptions): AnyExtension[] {
-  if (!options.comments) {
-    return []
-  }
-
-  return [
-    CommentExtension.configure({
-      comments: options.comments,
-      doc: options.ydoc,
-      activeComment: options.activeComment,
-      showComments: options.showComments,
-      showResolved: options.showResolved,
-      edited: options.edited,
-      onActivated: options.onCommentActivated,
-      onDecorationsPainted: options.onCommentsPainted,
-    }),
   ]
 }

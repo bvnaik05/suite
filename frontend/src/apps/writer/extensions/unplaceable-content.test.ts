@@ -11,14 +11,12 @@ import {
   type UnplaceableReason,
 } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
 import * as yjs from 'yjs'
 
 import { writerFault } from '../collab/fault'
 import { BODY_FIELD } from '../collab/field'
 import { writerEditorExtensions } from '../editor-extensions'
 import { writerSchema } from '../schema'
-import { getEditorPos } from './comments'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
@@ -65,13 +63,6 @@ function open(state: Uint8Array): Tab {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    comments: ydoc.getMap('comments'),
-    ydoc,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   })
   const freezes: Tab['freezes'] = []
   const ySyncOptions = {
@@ -618,24 +609,6 @@ describe('positions around hidden leftovers', () => {
     expect(shape(tab)).toEqual(['paragraph', '-'])
     expect(resolve(tab, yjs.createRelativePositionFromTypeIndex(empty, 0))).toBeNull()
     expect(resolve(tab, yjs.createRelativePositionFromTypeIndex(quote, 0))).toBeNull()
-  })
-})
-
-describe('a comment after a hidden leftover', () => {
-  it('highlights the text it was made on, and places its card there', () => {
-    const tab = open(stored(paragraph('ab'), leftover(), paragraph('cdef')))
-    const text = (tab.ydoc.getXmlFragment(BODY_FIELD).get(2) as yjs.XmlElement).get(
-      0,
-    ) as yjs.XmlText
-    const [from, to] = [1, 3].map((index) =>
-      yjs.encodeRelativePosition(yjs.createRelativePositionFromTypeIndex(text, index)),
-    )
-
-    tab.ydoc.getMap('comments').set('c1', { id: 'c1', anchor: { from, to }, resolved: false })
-
-    const highlight = tab.editor.view.dom.querySelector('[data-comment-name="c1"]')
-    expect(highlight?.textContent).toBe('de')
-    expect(getEditorPos(from, tab.editor)).toBe(6)
   })
 })
 

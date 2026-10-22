@@ -6,7 +6,7 @@ import { Doc } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 
-import { oldEditor, realEditors, rooms, stored } from './writer-surface-fakes'
+import { realEditors, rooms, stored } from './writer-surface-fakes'
 
 export type Versions = DocumentSession['versions']
 export type Comments = DocumentSession['comments']
@@ -18,19 +18,7 @@ export type EditorElement = HTMLElement & { editor: TiptapEditor }
 Element.prototype.scrollIntoView = () => {}
 
 const { default: WriterSurface } = await import('./WriterSurface.vue')
-const { watchBuild } = await import('@/platform/build')
 const { discardCopy, listCopies } = await import('@/apps/writer/recovery/copies')
-
-export async function serverMinBuilds(minBuilds: Record<string, string>, body = '{}') {
-  const headers = { 'X-Suite-Min-Builds': JSON.stringify(minBuilds) }
-  async function respond() {
-    return new Response(body, { headers })
-  }
-
-  vi.stubGlobal('fetch', vi.fn(respond))
-  watchBuild()
-  await window.fetch('/api/method/ping')
-}
 
 export async function openedSurface(
   versions?: Versions,
@@ -88,9 +76,6 @@ export function resetSurface() {
   rooms.next = null
   stored.html = ''
   stored.collab = 0
-  stored.isRefusingSaves = false
-  oldEditor.forgetStoredEdits.mockClear()
-  oldEditor.isFrozen = false
   realEditors.isOn = false
   stored.content = ''
   vi.restoreAllMocks()
@@ -139,10 +124,6 @@ export const oneVersion = {
 } as unknown as Versions
 
 export const STOPPED = 'Saving stopped in this tab. Reload to keep editing.'
-export const REFUSED =
-  'This document now saves as you edit, so saving stopped in this tab. Reload to keep editing.'
-export const REFUSED_KEPT =
-  'This document now saves as you edit, so saving stopped in this tab. Unsent changes were kept as a recovery copy. Reload to keep editing.'
 
 // A live room whose saving failed for good, which the page shows as the stop strip
 export function stoppedRoom() {

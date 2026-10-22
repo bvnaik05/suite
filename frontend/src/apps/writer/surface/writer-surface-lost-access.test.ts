@@ -20,7 +20,6 @@ vi.hoisted(() => {
 
 vi.mock('frappe-ui', async () => (await import('./writer-surface-fakes')).fakeFrappeUi())
 vi.mock('@/apps/drive', async () => (await import('./writer-surface-fakes')).fakeDrive())
-vi.mock('y-webrtc', async () => (await import('./writer-surface-fakes')).fakeWebrtc())
 vi.mock('@/apps/writer/components/CoreEditor.vue', async () =>
   (await import('./writer-surface-fakes')).fakeCoreEditor(),
 )
@@ -29,9 +28,6 @@ vi.mock('@/apps/writer/collab', () => ({
 }))
 vi.mock('@/platform/collab', async () =>
   (await import('./writer-surface-fakes')).fakeCollabPlatform(),
-)
-vi.mock('@/apps/writer/components/NonCollabEditor.vue', async () =>
-  (await import('./writer-surface-fakes')).fakeNonCollabEditor(),
 )
 vi.mock('./writerDocument', async (importOriginal) => {
   const { fakeWriterDocument } = await import('./writer-surface-fakes')
@@ -42,11 +38,6 @@ vi.mock('@/apps/writer/components/CollabTextEditor.vue', async (importOriginal) 
   const real =
     await importOriginal<typeof import('@/apps/writer/components/CollabTextEditor.vue')>()
   return fakeCollabTextEditor(real)
-})
-vi.mock('@/apps/writer/components/TextEditor.vue', async (importOriginal) => {
-  const { fakeTextEditor } = await import('./writer-surface-fakes')
-  const real = await importOriginal<typeof import('@/apps/writer/components/TextEditor.vue')>()
-  return fakeTextEditor(real)
 })
 vi.mock('@/apps/writer/components/UsersBar.vue', () => ({ default: { render: () => null } }))
 vi.mock('./WriterDocumentMenu.vue', async () =>

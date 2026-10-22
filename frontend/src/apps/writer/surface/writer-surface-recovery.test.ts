@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
-import { oldEditor, stored } from './writer-surface-fakes'
 import {
   buttonLabelled,
   discardCopies,
@@ -9,8 +8,6 @@ import {
   oneVersion,
   openedSurface,
   previewAndReturn,
-  REFUSED,
-  REFUSED_KEPT,
   resetSurface,
   settled,
   STOPPED,
@@ -25,7 +22,6 @@ vi.hoisted(() => {
 
 vi.mock('frappe-ui', async () => (await import('./writer-surface-fakes')).fakeFrappeUi())
 vi.mock('@/apps/drive', async () => (await import('./writer-surface-fakes')).fakeDrive())
-vi.mock('y-webrtc', async () => (await import('./writer-surface-fakes')).fakeWebrtc())
 vi.mock('@/apps/writer/components/CoreEditor.vue', async () =>
   (await import('./writer-surface-fakes')).fakeCoreEditor(),
 )
@@ -34,9 +30,6 @@ vi.mock('@/apps/writer/collab', () => ({
 }))
 vi.mock('@/platform/collab', async () =>
   (await import('./writer-surface-fakes')).fakeCollabPlatform(),
-)
-vi.mock('@/apps/writer/components/NonCollabEditor.vue', async () =>
-  (await import('./writer-surface-fakes')).fakeNonCollabEditor(),
 )
 vi.mock('./writerDocument', async (importOriginal) => {
   const { fakeWriterDocument } = await import('./writer-surface-fakes')
@@ -47,11 +40,6 @@ vi.mock('@/apps/writer/components/CollabTextEditor.vue', async (importOriginal) 
   const real =
     await importOriginal<typeof import('@/apps/writer/components/CollabTextEditor.vue')>()
   return fakeCollabTextEditor(real)
-})
-vi.mock('@/apps/writer/components/TextEditor.vue', async (importOriginal) => {
-  const { fakeTextEditor } = await import('./writer-surface-fakes')
-  const real = await importOriginal<typeof import('@/apps/writer/components/TextEditor.vue')>()
-  return fakeTextEditor(real)
 })
 vi.mock('@/apps/writer/components/UsersBar.vue', () => ({ default: { render: () => null } }))
 vi.mock('./WriterDocumentMenu.vue', async () =>
@@ -211,30 +199,6 @@ describe('Writer surface', () => {
     await settled()
     expect(stripTexts(root)).toHaveLength(1)
     await discardCopies()
-  })
-
-  it("clears the old editor's store once its refused save is kept as a recovery copy", async () => {
-    Object.assign(stored, { collab: 1, isRefusingSaves: true })
-    const root = await openedSurface()
-
-    await vi.waitFor(() => expect(oldEditor.forgetStoredEdits).toHaveBeenCalledOnce())
-    expect((await listCopies('node-1')).map((copy) => copy.html)).toEqual([
-      '<p>Old editor line</p>',
-    ])
-    expect(stripTexts(root)).toEqual([REFUSED_KEPT])
-    await discardCopies()
-  })
-
-  it("keeps the old editor's store when the recovery copy can't be kept", async () => {
-    Object.assign(stored, { collab: 1, isRefusingSaves: true })
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Quota exceeded', 'QuotaExceededError')
-    })
-    const root = await openedSurface()
-
-    await vi.waitFor(() => expect(stripTexts(root)).toEqual([REFUSED]))
-    await settled()
-    expect(oldEditor.forgetStoredEdits).not.toHaveBeenCalled()
   })
 
   it('opens the recovery copy a link names, in place of the editor', async () => {

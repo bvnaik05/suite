@@ -1,18 +1,15 @@
 import { toast } from 'frappe-ui'
-import { fromUint8Array } from 'js-base64'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Awareness } from 'y-protocols/awareness'
-import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
+import { XmlElement, XmlText } from 'yjs'
 
-import { oldEditor, realEditors, stored } from './writer-surface-fakes'
+import { realEditors } from './writer-surface-fakes'
 import {
   buttonLabelled,
-  discardCopies,
   liveRoom,
   oneVersion,
   openedSurface,
   previewAndReturn,
-  REFUSED_KEPT,
   resetSurface,
   settled,
   stripTexts,
@@ -26,7 +23,6 @@ vi.hoisted(() => {
 
 vi.mock('frappe-ui', async () => (await import('./writer-surface-fakes')).fakeFrappeUi())
 vi.mock('@/apps/drive', async () => (await import('./writer-surface-fakes')).fakeDrive())
-vi.mock('y-webrtc', async () => (await import('./writer-surface-fakes')).fakeWebrtc())
 vi.mock('@/apps/writer/components/CoreEditor.vue', async () =>
   (await import('./writer-surface-fakes')).fakeCoreEditor(),
 )
@@ -35,9 +31,6 @@ vi.mock('@/apps/writer/collab', () => ({
 }))
 vi.mock('@/platform/collab', async () =>
   (await import('./writer-surface-fakes')).fakeCollabPlatform(),
-)
-vi.mock('@/apps/writer/components/NonCollabEditor.vue', async () =>
-  (await import('./writer-surface-fakes')).fakeNonCollabEditor(),
 )
 vi.mock('./writerDocument', async (importOriginal) => {
   const { fakeWriterDocument } = await import('./writer-surface-fakes')
@@ -48,11 +41,6 @@ vi.mock('@/apps/writer/components/CollabTextEditor.vue', async (importOriginal) 
   const real =
     await importOriginal<typeof import('@/apps/writer/components/CollabTextEditor.vue')>()
   return fakeCollabTextEditor(real)
-})
-vi.mock('@/apps/writer/components/TextEditor.vue', async (importOriginal) => {
-  const { fakeTextEditor } = await import('./writer-surface-fakes')
-  const real = await importOriginal<typeof import('@/apps/writer/components/TextEditor.vue')>()
-  return fakeTextEditor(real)
 })
 vi.mock('@/apps/writer/components/UsersBar.vue', () => ({ default: { render: () => null } }))
 vi.mock('./WriterDocumentMenu.vue', async () =>
@@ -122,17 +110,6 @@ describe('Writer surface', () => {
     await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
   })
 
-  it("freezes the real old editor over text it can't show", async () => {
-    realEditors.isOn = true
-    stored.collab = 1
-    const body = new Doc()
-    body.getXmlFragment('default').insert(0, [unknownBlock()])
-    stored.content = fromUint8Array(encodeStateAsUpdate(body))
-    const root = await openedSurface()
-
-    await vi.waitFor(() => expect(stripTexts(root)).toEqual([FROZEN]))
-  })
-
   it('shows the freeze strip over the polling notice', async () => {
     const room = frozenRoom()
     room.status = { ...room.status, liveState: 'polling' }
@@ -164,20 +141,6 @@ describe('Writer surface', () => {
     await settled()
 
     expect([room.stopForGood.mock.calls, room.suspect.mark.mock.calls]).toEqual([[], []])
-  })
-
-  it('shows the freeze strip over the old editor, and its refused save over the freeze', async () => {
-    oldEditor.isFrozen = true
-    stored.collab = 1
-    const frozen = await openedSurface()
-    await vi.waitFor(() => expect(stripTexts(frozen)).toEqual([FROZEN]))
-    document.body.innerHTML = ''
-
-    stored.isRefusingSaves = true
-    const refused = await openedSurface()
-
-    await vi.waitFor(() => expect(stripTexts(refused)).toEqual([REFUSED_KEPT]))
-    await discardCopies()
   })
 
   it('tells the person a paste is too large to add in one go', async () => {

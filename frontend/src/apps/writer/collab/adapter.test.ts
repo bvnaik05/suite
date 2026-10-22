@@ -3,7 +3,6 @@ import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
 import { Awareness } from 'y-protocols/awareness'
 import * as yjs from 'yjs'
 
@@ -64,13 +63,6 @@ function openWriter(room: CollabRoom, onFrozen: () => void) {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    comments: room.doc.getMap('comments'),
-    ydoc: room.doc,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   })
   const extensions = [...writerExtensions, ...writerBinding(room, onFrozen)]
   const editor = new Editor({ element: host, extensions })

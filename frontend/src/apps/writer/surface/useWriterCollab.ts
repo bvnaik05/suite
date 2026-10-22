@@ -18,7 +18,7 @@ import { TransportError } from '@/platform/transport'
 import { bannerFor, isKeptNowhere, openFailureFor, type BannerState } from './collabMessages'
 import { markNewerSchemaShown } from './newerSchemaMark'
 
-export type CollabMode = 'opening' | 'legacy' | 'unconverted' | 'live' | 'failed'
+export type CollabMode = 'opening' | 'readonly' | 'unconverted' | 'live' | 'failed'
 
 type EditingState = 'editing' | 'paused' | 'closed'
 
@@ -89,7 +89,7 @@ export function useWriterCollab(
 
     if (opened.state !== 'live') {
       stopRemovals?.()
-      mode.value = opened.state === 'unconverted' ? 'unconverted' : 'legacy'
+      mode.value = opened.state === 'unconverted' ? 'unconverted' : 'readonly'
       return
     }
 

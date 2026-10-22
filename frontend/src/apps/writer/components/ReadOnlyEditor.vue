@@ -49,7 +49,7 @@ const body = computed(() => {
       },
     },
   })
-  return { key: 'yjs', yjsDoc: read.old, extensions: [sync], collaborative: true }
+  return { key: 'yjs', extensions: [sync], collaborative: true }
 })
 
 const textEditor = useTemplateRef('textEditor')

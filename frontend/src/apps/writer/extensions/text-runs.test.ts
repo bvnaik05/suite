@@ -7,12 +7,10 @@ import {
   yUndoPluginKey,
 } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
 import * as yjs from 'yjs'
 
 import { BODY_FIELD } from '../collab/field'
 import { writerEditorExtensions } from '../editor-extensions'
-import { getEditorPos } from './comments'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
 vi.mock('@/apps/writer/resources', () => ({ getTemplates: {} }))
@@ -58,13 +56,6 @@ function open(state: Uint8Array): Tab {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    comments: ydoc.getMap('comments'),
-    ydoc,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   })
   const collaboration = Collaboration.configure({ document: ydoc, field: BODY_FIELD })
   const mount = document.createElement('div')
@@ -322,21 +313,6 @@ describe('positions in neighbouring texts', () => {
       [4, 6],
       [5, 7],
     ])
-  })
-
-  it('highlight a comment made across the second and third texts', () => {
-    const tab = open(stored(texts('ab', 'cd', 'ef')))
-    const [, second, third] = block(tab).toArray() as yjs.XmlText[]
-    const [from, to] = [
-      yjs.createRelativePositionFromTypeIndex(second, 1),
-      yjs.createRelativePositionFromTypeIndex(third, 1),
-    ].map((position) => yjs.encodeRelativePosition(position))
-
-    tab.ydoc.getMap('comments').set('c1', { id: 'c1', anchor: { from, to }, resolved: false })
-
-    const highlight = tab.editor.view.dom.querySelectorAll('[data-comment-name="c1"]')
-    expect([...highlight].map((mark) => mark.textContent).join('')).toBe('de')
-    expect(getEditorPos(from, tab.editor)).toBe(4)
   })
 })
 

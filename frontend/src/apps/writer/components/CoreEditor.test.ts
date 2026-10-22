@@ -42,7 +42,6 @@ vi.mock('frappe-ui/editor', async (importOriginal) => {
   }
 })
 vi.mock('./core-editor/menu-buttons', () => ({ buildMenuButtons: () => [] }))
-vi.mock('./FloatingComments.vue', () => ({ default: { render: () => null } }))
 vi.mock('./ToC.vue', () => ({ default: { render: () => h('nav', { 'data-toc': '' }) } }))
 vi.mock('./ToCMobile.vue', () => ({
   default: { render: () => h('nav', { 'data-toc-mobile': '' }) },
@@ -53,7 +52,6 @@ vi.mock('@/apps/writer/composables/useUsers', () => ({
   searchMentions: () => [],
 }))
 vi.mock('@/stores/root', () => ({ useRootStore: () => ({ paletteOpen: false }) }))
-vi.mock('@/boot/session', () => ({ useSessionStore: () => ({ user: 'owner@example.com' }) }))
 
 const mounted: App[] = []
 

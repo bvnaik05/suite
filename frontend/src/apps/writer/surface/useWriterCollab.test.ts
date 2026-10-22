@@ -523,7 +523,7 @@ describe('writer collab rebuild', () => {
       name: 'opens no live room',
       opened: async () => ({ state: 'disabled' as const }),
       isClosing: false,
-      mode: 'legacy',
+      mode: 'readonly',
     },
     {
       name: 'ends after the page closed',

@@ -13,7 +13,6 @@ import {
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { api, useMutation } from '@/api'
 import {
   DriveDocumentHeader,
   type DocumentPanel,
@@ -22,15 +21,12 @@ import {
   type DocumentVersion,
 } from '@/apps/drive'
 import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
+import type { peopleOf } from '@/apps/writer/collab/peers'
 import { withinTenSeconds } from '@/apps/writer/collab/timeout'
 import CollabTextEditor from '@/apps/writer/components/CollabTextEditor.vue'
 import DocumentStrip from '@/apps/writer/components/DocumentStrip.vue'
-import NonCollabEditor from '@/apps/writer/components/NonCollabEditor.vue'
 import ReadOnlyEditor from '@/apps/writer/components/ReadOnlyEditor.vue'
-import TextEditor from '@/apps/writer/components/TextEditor.vue'
 import UsersBar from '@/apps/writer/components/UsersBar.vue'
-import type { CollaborationUser } from '@/apps/writer/composables/useCollaborationUsers'
-import emitter from '@/apps/writer/emitter'
 import { DOCUMENT_MEDIA } from '@/apps/writer/extensions/drive-media'
 import {
   downloadCopy,
@@ -48,13 +44,7 @@ import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
 import type { CollabRoom } from '@/platform/collab'
 
-import {
-  frozenBanner,
-  isSafeOnDevice,
-  notUpgradedBanner,
-  refusedSaveBanner,
-  upgradingBanner,
-} from './collabMessages'
+import { frozenBanner, isSafeOnDevice, notUpgradedBanner, upgradingBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import { downloadHTML } from './exports'
 import {
@@ -81,22 +71,20 @@ import VersionPreview from './VersionPreview.vue'
 import { convertedVersion, fetchVersion, readVersionBody, storedVersionHTML } from './versions'
 import { createWriterDocument, editorFileOf, isLocked, type EditorFile } from './writerDocument'
 import WriterDocumentMenu from './WriterDocumentMenu.vue'
-import { createWriteGate, type DocumentWrite } from './writes'
+import { createWriteGate } from './writes'
 
 const READ = 10
 const COMMENT = 20
 // How often an old document's page asks whether its conversion has finished
 const CONVERSION_POLL_MS = 15_000
 
-/** What `TextEditor` and `NonCollabEditor` expose. */
+/** What `CollabTextEditor` and `ReadOnlyEditor` expose. */
 interface EditorSurface {
   editor?: Editor | null
   /** Other people in the document; only the collaborative editor has them. */
-  peers?: CollaborationUser[]
+  peers?: ReturnType<typeof peopleOf>
   /** Where each comment thread shows; only the collaborative editor places them. */
   places?: ThreadPlaces
-  /** Clears the old editor's device store, which would replay a refused save into later opens. */
-  forgetStoredEdits?: () => Promise<void>
   /** The document holds content the editor can't show, so it takes no edits. */
   isFrozen?: boolean
   /** An old document's Yjs body doesn't decode, so its stored HTML shows instead. */
@@ -120,15 +108,9 @@ type EditorView =
         litThread: string | null
       }
     }
-  | {
-      is: typeof NonCollabEditor | typeof TextEditor
-      props: ReturnType<typeof dirtyModel> & { file: EditorFile }
-    }
   | { is: typeof ReadOnlyEditor; props: { file: EditorFile } }
 
 const editorSurface = shallowRef<EditorSurface | null>(null)
-/** The editor's own unsaved flag, bound to its `dirty` model. */
-const dirty = ref(false)
 const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const panel = ref<DocumentPanel | null>(null)
 // The thread open in the comments panel, and the one whose row is pointed at
@@ -176,7 +158,7 @@ const {
 const writes = createWriteGate(
   props.session,
   async () => {
-    if (dirty.value || room.value?.status.unsentCount) {
+    if (room.value?.status.unsentCount) {
       retainRecovery()
     }
 
@@ -188,7 +170,7 @@ const writes = createWriteGate(
       console.error(error)
     }
 
-    if (!dirty.value && !room.value?.status.unsentCount) {
+    if (!room.value?.status.unsentCount) {
       // Access came back within the bound, so nothing turned read-only
       if (!writes.writable.value) {
         toast.warning('Editing access changed. This document is now read-only.')
@@ -207,13 +189,7 @@ const writes = createWriteGate(
 
 const writerDocument = createWriterDocument(props.session)
 
-const refusedSaveKept = ref(false)
-// The old editor has no room, so a freeze there shows here rather than in the room's banner
 const stopBanner = computed(() => {
-  if (writes.refusedForGood.value) {
-    return refusedSaveBanner(refusedSaveKept.value)
-  }
-
   if (!banner.value && editorSurface.value?.isFrozen) {
     return frozenBanner()
   }
@@ -235,29 +211,6 @@ const shownBanner = computed(() => {
   return stopBanner.value
 })
 const showsRecoveryBanner = computed(() => !isPreviewing.value && !stopBanner.value)
-
-watch(writes.refusedForGood, () => {
-  refusedSaveKept.value = retainRecovery()
-  editorSurface.value?.editor?.setEditable(false)
-  if (refusedSaveKept.value) {
-    void editorSurface.value?.forgetStoredEdits?.()
-  }
-})
-
-const version = useMutation(api.drive.versions.create, {
-  context: props.session.credentials.context,
-  silent: true,
-})
-
-const automaticVersion: DocumentWrite = {
-  get isPending() {
-    return version.isPending
-  },
-  get error() {
-    return version.error
-  },
-  run: () => version.run({ node: props.session.nodeId, kind: 'auto' }),
-}
 
 const commentDrafts = useCommentDrafts({
   session: props.session,
@@ -299,10 +252,7 @@ function openThreadInPanel(name: string | null) {
   }
 }
 
-const documentResource = writes.guard(
-  Object.assign(writerDocument, { newVersion: automaticVersion }),
-  ['saveDoc', 'saveHtml', 'newVersion'],
-)
+const documentResource = writerDocument
 
 const readable = computed(
   () => props.session.state.value !== 'Refused' && writes.role.value >= READ,
@@ -312,19 +262,7 @@ const canComment = computed(
   () => props.session.state.value === 'Active' && writes.role.value >= COMMENT,
 )
 
-const saving = computed(
-  () => !!documentResource.saveDoc?.isPending || !!documentResource.saveHtml?.isPending,
-)
-
-const saveFailed = computed(
-  () => !!documentResource.saveDoc?.error || !!documentResource.saveHtml?.error,
-)
-
-const resourceSaveState = computed<DocumentSaveState>(() =>
-  saving.value ? 'saving' : saveFailed.value ? 'failed' : dirty.value ? 'unsaved' : 'clean',
-)
-
-const saveState = computed<DocumentSaveState>(() => roomSaveState.value ?? resourceSaveState.value)
+const saveState = computed<DocumentSaveState>(() => roomSaveState.value ?? 'clean')
 const savingPaused = computed(() => !!roomPaused.value && saveState.value !== 'failed')
 
 const saveNote = computed(() =>
@@ -339,7 +277,6 @@ const editable = computed(
   () =>
     readable.value &&
     writes.writable.value &&
-    !writes.refusedForGood.value &&
     !isLocked(settings.value) &&
     allowsEditing.value &&
     collabMode.value !== 'unconverted' &&
@@ -369,27 +306,10 @@ const hasLostReadAccess = computed(() => !readable.value)
 const hasFailedToOpen = computed(() => collabMode.value === 'failed')
 const isLoading = computed(() => !documentResource.doc || collabMode.value === 'opening')
 
-// Bumped by a restore so the editor mounts again on the restored body
-const bodyRevision = ref(0)
-
-const editorFile = computed(() => {
-  // A remount must not take a draft typed before it from the device
-  void bodyRevision.value
-  return editorFileOf(props.session, editable.value)
-})
+const editorFile = computed(() => editorFileOf(props.session, editable.value))
 
 const peers = computed(() => editorSurface.value?.peers ?? [])
 const threadPlaces = computed(() => editorSurface.value?.places ?? null)
-
-// The non-collaborative editors bind `dirty` as a model
-function dirtyModel() {
-  return {
-    dirty: dirty.value,
-    'onUpdate:dirty': (isDirty: boolean) => {
-      dirty.value = isDirty
-    },
-  }
-}
 
 const editorView = computed<EditorView>(() => {
   const file = editorFile.value
@@ -407,13 +327,7 @@ const editorView = computed<EditorView>(() => {
     return { is: CollabTextEditor, props: collabProps }
   }
 
-  if (collabMode.value === 'unconverted') {
-    return { is: ReadOnlyEditor, props: { file } }
-  }
-
-  const editorProps = { file, ...dirtyModel() }
-  const isCollabOff = documentResource.doc?.collab === 0
-  return { is: isCollabOff ? NonCollabEditor : TextEditor, props: editorProps }
+  return { is: ReadOnlyEditor, props: { file } }
 })
 
 provide('file', editorFile)
@@ -452,10 +366,7 @@ async function downloadVersion(shown: DocumentVersion) {
 const header = shallowRef<{ focusPanelToggle(name: DocumentPanel): void } | null>(null)
 const sidePanel = shallowRef<InstanceType<typeof DocumentSidePanel> | null>(null)
 const isRestoringVersion = ref(false)
-const canRestoreVersion = computed(() => {
-  const isCollabOff = collabMode.value === 'legacy' && documentResource.doc?.collab === 0
-  return editable.value && ((collabLive.value && !!room.value) || isCollabOff)
-})
+const canRestoreVersion = computed(() => editable.value && collabLive.value && !!room.value)
 
 async function confirmRestore(shown: DocumentVersion) {
   isRestoringVersion.value = true
@@ -531,22 +442,13 @@ async function moveThreadsBack(anchors: Record<string, string>) {
 async function restoreBody(shown: DocumentVersion): Promise<VersionRestore> {
   const liveRoom = room.value
   if (!liveRoom) {
-    return restoreStoredVersion(shown)
+    return { isRestored: false, message: 'The version was not restored.', anchors: {} }
   }
 
   const bytes = await fetchVersion(props.session, shown.seq)
   return restoreVersion(liveRoom, shown.seq, bytes, threads.value, () =>
     convertedVersion(props.session, shown.seq),
   )
-}
-
-// A document edited without collaboration is restored on the server, then read again
-async function restoreStoredVersion(shown: DocumentVersion): Promise<VersionRestore> {
-  await flush()
-  await props.session.versions.restore(String(shown.seq))
-  await documentResource.reload()
-  bodyRevision.value += 1
-  return { isRestored: true, message: 'Version restored', anchors: {} }
 }
 
 function viewCopy(copy: RecoveryCopy) {
@@ -649,14 +551,7 @@ function flush(): Promise<void> {
     return withinTenSeconds(room.value.flush())
   }
 
-  if (!dirty.value && !saving.value) {
-    return Promise.resolve()
-  }
-
-  const saved = new Promise<void>((resolve) => {
-    emitter.emit('manual-save', () => resolve())
-  })
-  return withinTenSeconds(saved)
+  return Promise.resolve()
 }
 
 function nameVersion() {
@@ -841,7 +736,6 @@ onBeforeUnmount(() => {
         <div class="flex min-h-0 flex-1 overflow-hidden">
           <component
             :is="editorView.is"
-            :key="bodyRevision"
             ref="editorSurface"
             v-bind="editorView.props"
             :document="documentResource"
