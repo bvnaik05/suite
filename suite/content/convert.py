@@ -104,7 +104,7 @@ def convert_page(app: str, conversion: Conversion, page: list[frappe._dict], dea
 
 
 def pending_page(app: str, after: frappe._dict | None) -> list[frappe._dict]:
-    """Load the next page of the app's documents with no live log, newest first, after the row `after`."""
+    """Load the next page of the app's untrashed documents with no live log, newest first, after the row `after`."""
     doctype = spec_of(app).doctype
     node_field = drive.node_field(doctype)
     doc_table = table(app, "doc")
@@ -117,6 +117,7 @@ def pending_page(app: str, after: frappe._dict | None) -> list[frappe._dict]:
     return frappe.db.sql(
         f"""SELECT `row`.`name`, `row`.`modified`, `row`.`{node_field}` AS `node`
         FROM `tab{doctype}` `row`
+        JOIN `tabDrive Node` `node` ON `node`.`name` = `row`.`{node_field}` AND `node`.`state` = 'Active'
         LEFT JOIN `{doc_table}` `doc` ON `doc`.`node` = `row`.`{node_field}` AND `doc`.`mode` != 'purged'
         WHERE `row`.`{node_field}` IS NOT NULL AND `doc`.`id` IS NULL {since}
         ORDER BY `row`.`modified` DESC, `row`.`name` ASC
