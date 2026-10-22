@@ -346,7 +346,9 @@ const editable = computed(
 )
 
 // Saving pauses don't hide it, so the person is told why no version was taken
-const canSaveVersion = computed(() => readable.value && writes.writable.value)
+const canSaveVersion = computed(
+  () => readable.value && writes.writable.value && collabMode.value !== 'unconverted',
+)
 
 const showEditingPaused = computed(
   () => !editable.value && editingPaused.value && writes.writable.value,
