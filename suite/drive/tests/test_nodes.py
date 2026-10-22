@@ -652,6 +652,19 @@ class TestNodeLifecycle(IntegrationTestCase):
         self.assertIn(f"/{destination}/{child}/", frappe.db.get_value("Drive Node", descendant, "path"))
         self.assertEqual(frappe.db.get_value("Drive Node", parent, "state"), "Trashed")
 
+    def test_restoring_in_place_beside_a_newer_namesake_gives_the_restored_node_a_free_title(self):
+        folder = create_folder(self.admin, self.root.name, "Folder")
+        old = create_folder(self.admin, folder, "Plan")
+        update(self.admin, old, state="Trashed")
+        newer = create_folder(self.admin, folder, "Plan")
+
+        restored = update(self.admin, old, state="Active")
+
+        self.assertEqual(
+            (restored.parent_node, restored.title, restored.state), (folder, "Plan (2)", "Active")
+        )
+        self.assertEqual(frappe.db.get_value("Drive Node", newer, ["title", "state"]), ("Plan", "Active"))
+
     def test_restore_rejects_cross_root_destination_and_move_cannot_bypass_restore(self):
         parent = create_folder(self.admin, self.root.name, "Parent")
         child = create_folder(self.admin, parent, "Child")

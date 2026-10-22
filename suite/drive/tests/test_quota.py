@@ -240,6 +240,36 @@ class TestRootReservationsAndRecompute(IntegrationTestCase):
         consume_storage_reservation(self.root, "consume-smaller", 25)
         self.assertEqual(frappe.db.get_value("Drive Root", self.root, "used_bytes"), 25)
 
+    def test_mail_usage_alone_can_use_up_a_users_drive_headroom(self):
+        from suite.suite_core.storage import state
+
+        doc, _policy, _measurements = state()
+        kept = (doc.policy, doc.measurements)
+        self.addCleanup(
+            lambda: frappe.db.set_value(
+                "Suite Storage State", "site", dict(zip(("policy", "measurements"), kept, strict=True))
+            )
+        )
+        # A 10-byte cap allows 11 with its headroom; Mail already holds 10.
+        frappe.db.set_value(
+            "Suite Storage State",
+            "site",
+            {
+                "policy": frappe.as_json({"users": {self.user: {"cap": 10}}}),
+                "measurements": frappe.as_json(
+                    {"site_mail": 10, "allowance": 0, "personal": {self.user: 10}}
+                ),
+            },
+        )
+        frappe.db.set_value("Drive Root", self.root, "used_bytes", 0, update_modified=False)
+
+        with patch("suite.suite_core.utils.is_suite_cloud_configured", return_value=True):
+            admit(self.root, 1)
+            with self.assertRaises(DriveOverQuota):
+                admit(self.root, 1)
+
+        self.assertEqual(frappe.db.get_value("Drive Root", self.root, "used_bytes"), 1)
+
     def test_releasing_more_than_is_used_leaves_the_root_at_zero_not_negative(self):
         frappe.db.set_value("Drive Root", self.root, "used_bytes", 3, update_modified=False)
         release(self.root, 10)
