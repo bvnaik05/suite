@@ -134,7 +134,7 @@ test("a person's access ends on a chosen day, and a role change keeps it", async
 	await page.getByRole("menuitem", { name: "Comment", exact: true }).click();
 	await expect(accessButton(row)).toHaveAccessibleName(/: Comment$/);
 	const stored = (await grants(file.name)).find((grant) => grant.principal === PERSON)!;
-	expect(stored).toMatchObject({ role: 20, expires_on: "2031-01-15 23:59:59" });
+	expect(stored).toMatchObject({ role: 20, expires_on: "2031-01-15T23:59:59Z" });
 });
 
 test("removing a person's grant takes them off the list and the server", async ({ page }) => {
@@ -205,7 +205,7 @@ test("Everyone on the web lets a guest read the item", async ({ page, baseURL })
 	await expect(rowFor(dialog, "Anyone on the internet can view")).toBeVisible();
 	await expect(toggle).toBeChecked();
 	expect((await grants(file.name)).find((grant) => grant.principal === "$PUBLIC")?.role).toBe(10);
-	const guest = await request.newContext({ baseURL });
+	const guest = await request.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
 	const read = await guest.get(`${DRIVE}/nodes/${file.name}`);
 	expect(read.status()).toBe(200);
 	await guest.dispose();

@@ -229,6 +229,8 @@ test("a composite sends the link code of a deck that is shared on its own", asyn
 	const manifest = page.waitForResponse((answer) => answer.url().includes("composite.composite_manifest"));
 	const group = page.waitForResponse((answer) => answer.url().includes("composite.composite_group"));
 	await openDeck(page);
+	// A response the typed client refuses ends the load before the manifest is asked for.
+	await expect(page.getByText(/^get_composite_presentation /), "the composite answer passes its contract").toHaveCount(0);
 
 	// The manifest carries every held code, and names only the decks they open.
 	const listed = await manifest;

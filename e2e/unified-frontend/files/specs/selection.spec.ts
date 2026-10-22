@@ -131,7 +131,9 @@ test("a clean bulk move to trash empties the selection", async ({ page }) => {
 	await listRows.nth(1).click({ modifiers: ["ControlOrMeta"] });
 
 	await page.getByRole("button", { name: "Move to trash" }).click();
-	await expect(page.getByText("2 moved to trash · 0 failed")).toBeVisible();
+	// Success is a toast; the outcome alert shows only when some items failed.
+	await expect(page.getByText("Moved 2 items to Trash")).toBeVisible();
+	await expect(page.getByText(/moved to trash · \d+ failed/)).toHaveCount(0);
 	await expect(page.getByText("selected")).toHaveCount(0);
 	expect((await getNode(api, rows[0]!.name)).state).toBe("Trashed");
 });

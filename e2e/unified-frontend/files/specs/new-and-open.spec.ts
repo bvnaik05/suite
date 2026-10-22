@@ -150,5 +150,7 @@ test("a Sheets document carries one share control, the Drive one", async ({ page
 	await expect(page.getByRole("button", { name: "File" })).toBeVisible({ timeout: 20_000 });
 	await expect(page.getByRole("button", { name: /Share/ })).toHaveCount(1);
 	await page.getByRole("button", { name: /Share/ }).click();
-	await expect(page.getByRole("dialog", { name: /^Share “/ })).toBeVisible();
+	const dialog = page.getByRole("dialog", { name: "Share", exact: true });
+	await expect(dialog.getByText(sheet.title, { exact: true })).toBeVisible();
+	await expect(dialog.getByRole("region", { name: "Who has access" })).toBeVisible();
 });

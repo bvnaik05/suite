@@ -149,5 +149,7 @@ test("Share on a row opens the Drive share dialog", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}?view=list`);
 	await openRowMenu(page, target.title);
 	await page.getByRole("menuitem", { name: "Share" }).click();
-	await expect(page.getByRole("dialog", { name: `Share “${target.title}”` })).toBeVisible();
+	const dialog = page.getByRole("dialog", { name: "Share", exact: true });
+	await expect(dialog.getByText(target.title, { exact: true })).toBeVisible();
+	await expect(dialog.getByRole("region", { name: "Who has access" })).toBeVisible();
 });

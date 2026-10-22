@@ -53,7 +53,8 @@ async function shareLink(node: string, body: Record<string, unknown> = { role: 1
 
 /** A context on the bench web server, signed in or not. No redirect is followed. */
 async function server(signedIn: boolean): Promise<APIRequestContext> {
-	const context = await request.newContext({ baseURL: SERVER, extraHTTPHeaders: { Host: SITE } });
+	// The runner applies `use.storageState` (the admin login) to request contexts too.
+	const context = await request.newContext({ baseURL: SERVER, extraHTTPHeaders: { Host: SITE }, storageState: SIGNED_OUT });
 	if (signedIn) await loginViaApi(context);
 	return context;
 }
@@ -117,8 +118,12 @@ test.describe("the server resolves a share link", () => {
 		expect(missing.headers()["cache-control"]).toContain("no-cache");
 		expect(missingPage).toContain(NOT_FOUND_COPY);
 		expect(gonePage).toContain(EXPIRED_COPY);
-		for (const page of [missingPage, gonePage]) {
-			expect(page).not.toContain("Go to Home");
+		for (const [label, response, page] of [
+			["missing (404)", missing, missingPage],
+			["gone (410)", gone, gonePage],
+		] as const) {
+			const sent = response.headers()["set-cookie"];
+			expect(page, `${label}: status ${response.status()}, set-cookie ${sent ?? "none"}, guest cookies ${JSON.stringify((await guest.storageState()).cookies.map((c) => c.name))}`).not.toContain("Go to Home");
 			expect(page).not.toContain("Sign in");
 			expect(page).not.toContain(doc.title);
 		}

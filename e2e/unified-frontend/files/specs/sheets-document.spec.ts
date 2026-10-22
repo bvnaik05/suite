@@ -14,6 +14,7 @@ import {
 	runTag,
 	type DriveNode,
 } from "../../helpers/drive";
+import { xlsxCellText } from "../../helpers/xlsx";
 
 /** Stage 11: the Sheets document on `/d/<id>`, through Drive and Suite routes only. */
 
@@ -138,15 +139,20 @@ test("losing edit access freezes the sheet, cancels the pending save and offers 
 	expect(saves).toEqual([]);
 	const recovery = () =>
 		page.evaluate((node) => localStorage.getItem(`suite:sheets-recovery:${node}`), sheet.name);
-	expect(await recovery()).toContain("4242");
+	// The committed cell lives in the engine snapshot (binary), the cell editor's
+	// text in the draft. Both must come out in the downloaded file below.
 	expect(await recovery()).toContain("5150");
 
 	const download = page.waitForEvent("download");
 	await page.locator(".sheets-header").getByRole("button", { name: "Download my changes" }).click();
 	const file = await download;
 	expect(file.suggestedFilename()).toBe("Sheets journey (recovered).xlsx");
-	// An .xlsx file is a zip archive. Its cells are checked in `recovery.test.ts`.
-	expect(readFileSync((await file.path())!).subarray(0, 2).toString()).toBe("PK");
+	// An .xlsx file is a zip archive.
+	const bytes = readFileSync((await file.path())!);
+	expect(bytes.subarray(0, 2).toString()).toBe("PK");
+	const cells = xlsxCellText(bytes);
+	expect(cells, "the recovered file keeps the committed cell").toMatch(/>4242</);
+	expect(cells, "the recovered file keeps the cell still in the editor").toMatch(/>5150</);
 	await expect(page.locator(".sheets-header").getByRole("button", { name: "Download my changes" })).toHaveCount(0);
 	expect(await recovery()).toBeNull();
 	expect(seen.requests.filter((line) => line.includes("suite.drive.api"))).toEqual([]);

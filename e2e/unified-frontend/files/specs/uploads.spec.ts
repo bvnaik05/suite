@@ -201,9 +201,10 @@ test("a reload mid-upload leaves an interrupted entry that Resume finishes", asy
 	await page.unroute(CHUNK_ROUTE);
 	await page.reload();
 
-	// The interrupted upload raises the red dot. The ring opens the tracker.
+	// The interrupted upload raises the red dot. The Drive item opens the tracker.
 	const drive = rail(page).getByRole("link", { name: /^Drive/ });
-	await expect(drive.locator("[data-slot='area-progress-attention']")).toBeVisible();
+	await expect(drive.getByRole("status")).toHaveText("Drive: Needs attention");
+	await expect(drive.locator("[data-slot='area-progress-dot']")).toHaveAttribute("data-attention", "true");
 	await drive.click();
 	await expect(page.locator("[data-slot='upload-entry'][data-state='interrupted']")).toBeVisible();
 
@@ -342,10 +343,13 @@ test("the upload ring shows on the Drive rail item in another area", async ({ pa
 	await rail(page).getByRole("link", { name: "Home" }).click();
 	await expect(page).toHaveURL(/\/home/);
 	const drive = rail(page).getByRole("link", { name: /^Drive/ });
-	await expect(drive.locator("[data-slot='area-progress-ring']")).toBeVisible();
+	await expect(drive.getByRole("status")).toHaveText("Drive: In progress");
+	await expect(drive.locator("[data-slot='area-progress-dot']")).toHaveAttribute("data-tone", "running");
 
 	release!();
-	await expect(drive.locator("[data-slot='area-progress-ring']")).toHaveAttribute("data-tone", "done");
+	await expect(drive.getByRole("status")).toHaveText("Drive: Done");
+	// The dot fades out once the work is done.
+	await expect(drive.locator("[data-slot='area-progress-dot']")).toHaveCount(0);
 	await page.unroute(CHUNK_ROUTE);
 	expect((await children(api, home.name)).rows.map((row) => row.title)).toEqual(["slow.txt"]);
 });

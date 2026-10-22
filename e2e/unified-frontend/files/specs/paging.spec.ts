@@ -72,28 +72,37 @@ test("a failed next window keeps the loaded rows and offers a retry", async ({ p
 	const rows = page.locator("[data-node]");
 	await expect(rows).toHaveCount(60, { timeout: 20_000 });
 
-	await page.route(/\/children\?.*cursor=/, (route) =>
-		route.fulfill({
+	let failed = 0;
+	let failing = true;
+	await page.route(/\/children\?.*cursor=/, (route) => {
+		if (!failing) return route.continue();
+		failed += 1;
+		return route.fulfill({
 			status: 500,
 			contentType: "application/json",
 			body: JSON.stringify({ errors: [{ type: "InternalServerError", message: "Injected failure" }] }),
-		}),
-	);
-	await rows.last().scrollIntoViewIfNeeded();
+		});
+	});
+	// As in the first test: a background refresh can reset the listing while the
+	// sentinel is already in view, so scroll it out and back until a window fails.
+	await expect(async () => {
+		await rows.first().scrollIntoViewIfNeeded();
+		await rows.last().scrollIntoViewIfNeeded();
+		expect(failed, "a next-window request was sent and failed").toBeGreaterThan(0);
+	}).toPass({ timeout: 20_000 });
 
 	await expect(page.getByRole("button", { name: "Retry loading more" })).toBeVisible();
 	await expect(rows).toHaveCount(60);
-	await expect(page.getByText("Could not refresh files")).toBeVisible();
+	await expect(page.getByText("Could not refresh files"), `failed next-window requests so far: ${failed}`).toBeVisible();
 
-	// Bring Retry into view while windows still fail: any load the scroll sets off
-	// fails too and Retry returns, so the click below is the only fresh walk.
+	// Retry sits in the sentinel, already in view. Scrolling or an actionability
+	// wait would move the sentinel and set off a load of its own, so the windows
+	// stop failing only for the click itself.
 	const retry = page.getByRole("button", { name: "Retry loading more" });
-	await retry.scrollIntoViewIfNeeded();
-	await expect(retry).toBeVisible();
-
-	await page.unroute(/\/children\?.*cursor=/);
+	await expect(retry).toBeInViewport();
+	failing = false;
 	const nextWindow = page.waitForResponse((response) => /\/children\?.*cursor=/.test(response.url()) && response.ok());
-	await retry.click();
+	await retry.dispatchEvent("click");
 	await nextWindow;
 	await expect(rows).toHaveCount(TOTAL, { timeout: 20_000 });
 });
