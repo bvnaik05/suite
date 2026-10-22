@@ -65,7 +65,8 @@
           <!-- The offer to install, just above the bottom bar: in the flow, so it covers nothing,
                and only where the bar is. -->
           <InstallPrompt :app="activeArea?.installable ? activeArea : undefined" />
-          <component :is="activeArea.phoneNav" v-if="activeArea?.phoneNav" />
+          <!-- An unavailable area's own tabs lead only back to its unavailable page. -->
+          <component :is="activeArea.phoneNav" v-if="activeArea?.phoneNav && !unavailable" />
           <MobileNav
             v-else
             :areas="areas"
