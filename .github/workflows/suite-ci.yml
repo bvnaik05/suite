@@ -823,6 +823,8 @@ jobs:
           bench --site "$SITE" set-config storage_v2 1
           bench --site "$SITE" set-config ignore_csrf 1
           bench --site "$SITE" set-config host_name "http://$SITE:8000"
+          # A fresh site sends everyone to the setup wizard; the journeys start past it.
+          bench --site "$SITE" execute suite.api.account.mark_onboarded
 
       - name: Install E2E dependencies
         working-directory: ${{ github.workspace }}/e2e
