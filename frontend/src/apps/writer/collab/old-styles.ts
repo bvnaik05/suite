@@ -176,8 +176,10 @@ function textColourFormat(color: unknown): Attributes | null {
   return { color: name || null }
 }
 
-// An old font family whose ';' ends it, read as the editor reads the family before it; nothing
-// when it holds no such ';', an open quote, a line break or a family the editor can't read
+// An old font family whose first ';' ends it, read as the editor reads the family before it;
+// nothing when it holds no ';', an open quote, a family the editor can't read, a line break,
+// escape or comment before the ';', or when what follows could hold a declaration or swallow the
+// styles drawn after it
 function fontFamilyFormat(fontFamily: unknown): Attributes {
   if (typeof fontFamily !== 'string') {
     return {}
@@ -186,9 +188,10 @@ function fontFamilyFormat(fontFamily: unknown): Attributes {
   const end = fontFamily.indexOf(';')
   if (
     end < 0 ||
-    fontFamily.slice(end + 1).trim() ||
+    !/^[\p{L}\p{N} \t,._;-]*$/u.test(fontFamily.slice(end + 1)) ||
     unclosedQuote(fontFamily) ||
-    /[\n\r\f]/.test(fontFamily.slice(0, end))
+    /[\n\r\f]/.test(fontFamily.slice(0, end)) ||
+    /\\|\/\*/.test(fontFamily.slice(0, end))
   ) {
     return {}
   }
