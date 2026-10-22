@@ -471,7 +471,7 @@ describe('convertLegacy', () => {
 
     const result = convert(legacy)
 
-    expect(result.html).toBe(writerAdapter.toHtml(opened(result.state)))
+    expect(result.html).toBe(writerAdapter.toHtml?.(opened(result.state)))
   })
 
   it.each([
