@@ -557,6 +557,20 @@ describe('writer collab rebuild', () => {
     expect([collab.mode.value, watched.size]).toEqual([mode, 0])
   })
 
+  it('opens an old document the converter has not reached read-only, with no live room', async () => {
+    vi.mocked(openCollabRoom).mockImplementationOnce(async () => ({
+      state: 'unconverted' as const,
+    }))
+
+    const collab = await openCollab()
+
+    expect([collab.mode.value, collab.room.value, collab.isLive.value]).toEqual([
+      'unconverted',
+      null,
+      false,
+    ])
+  })
+
   it("keeps the text someone else's edit removed as a recovery copy, and says so", async () => {
     fakeRooms.room = fakeRooms.makeRoom()
     const collab = await openCollab()

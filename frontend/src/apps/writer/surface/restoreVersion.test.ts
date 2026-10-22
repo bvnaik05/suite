@@ -39,8 +39,8 @@ function refuseConvert(): Promise<ConvertedVersion> {
 }
 
 // An old version, which the server converts before it restores, whose stored HTML is out of date
-function oldVersion() {
-  return encode({ schema: 'writer-document/1', content: 'AAA=', html: '<p>stale</p>', collab: 0 })
+function oldVersion(collab = 0) {
+  return encode({ schema: 'writer-document/1', content: 'AAA=', html: '<p>stale</p>', collab })
 }
 
 function converted(text: string): Promise<ConvertedVersion> {
@@ -186,13 +186,18 @@ describe('restoreVersion', () => {
     },
   )
 
-  it('restores an old version as the converter made it, not its stored HTML', async () => {
-    const room = fakeRoom({ outcome: 'landed' })
+  it.each([0, 1])(
+    'restores an old version (collab %s) as the converter made it, not its stored HTML',
+    async (collab) => {
+      const room = fakeRoom({ outcome: 'landed' })
 
-    const notice = await restoreVersion(room, 4, oldVersion(), [], () => converted('back then'))
+      const notice = await restoreVersion(room, 4, oldVersion(collab), [], () =>
+        converted('back then'),
+      )
 
-    expect([notice.isRestored, shown(room.doc)]).toEqual([true, 'back then'])
-  })
+      expect([notice.isRestored, shown(room.doc)]).toEqual([true, 'back then'])
+    },
+  )
 
   it.each([
     [null, "This version couldn't be upgraded, so it can't be restored. You can download it."],

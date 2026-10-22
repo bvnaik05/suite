@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   bannerFor,
+  notUpgradedBanner,
   openFailureFor,
   refusedSaveBanner,
+  upgradingBanner,
   type Banner,
   type BannerState,
 } from './collabMessages'
@@ -565,5 +567,30 @@ describe('collab open failure copy', () => {
     expect(openFailureFor(null, 400)).toBe("This document couldn't be opened.")
     expect(openFailureFor(null, null)).toBe("This document couldn't be opened.")
     expect(openFailureFor('locked', 500)).toBe('This document is locked. Unlock it to open it.')
+  })
+})
+
+describe('collab read-only copy for old documents', () => {
+  it('says an old document is read-only until it is upgraded, and when its body was unreadable', () => {
+    expect(pageText(upgradingBanner(false))).toBe(
+      'This document is being upgraded for editing together. It is read-only until then.',
+    )
+    expect(pageText(upgradingBanner(true))).toBe(
+      'This document is being upgraded for editing together. It is read-only until then.' +
+        " Its saved body couldn't be read, so this is its last saved copy.",
+    )
+  })
+
+  it('says a refused document stays read-only, naming the reason only when one is given', () => {
+    expect(pageText(notUpgradedBanner(null, false))).toBe(
+      "This document couldn't be upgraded, so it stays read-only.",
+    )
+    expect(pageText(notUpgradedBanner('too_large', false))).toBe(
+      "This document couldn't be upgraded, so it stays read-only. Reason: too_large.",
+    )
+    expect(pageText(notUpgradedBanner('too_large', true))).toBe(
+      "This document couldn't be upgraded, so it stays read-only. Reason: too_large." +
+        " Its saved body couldn't be read, so this is its last saved copy.",
+    )
   })
 })
