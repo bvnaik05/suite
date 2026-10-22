@@ -125,6 +125,12 @@ class TestConversion(DriveCallbackCase):
         text = BeautifulSoup(row.html, "html.parser").get_text()
         self.assertTrue(is_html_complete(self.started_state(node), row.html, text))
         self.assertEqual(self.records(node), (("converted", None, "[]"),))
+        kept = frappe.db.sql(
+            "SELECT `reason`, `payload` FROM `__writer_content_recovery` WHERE `node` = %s", node
+        )
+        self.assertEqual(
+            [(reason, bytes(payload)) for reason, payload in kept], [("copy_first", b"<p>Hello world</p>")]
+        )
 
     def test_converts_an_empty_document_into_an_empty_copy(self):
         node = self.old_document(None)
