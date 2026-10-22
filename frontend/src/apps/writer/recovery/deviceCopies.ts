@@ -14,15 +14,12 @@ import { openSignedInDeviceStore } from '@/platform/collab'
 import { keepPageCopy } from './copies'
 
 /**
- * The old editor's work on this device: its Yjs store `fdoc-<name>` and its
- * draft in the `Writer` database. Each open keeps what the row lacks as a
+ * The old editor's work on this device, keyed by Drive node: its Yjs store
+ * `fdoc-<node>` and its draft in the `Writer` database. Each open keeps what the row lacks as a
  * recovery copy, once, and never deletes the old stores, which a stale tab may
  * still write to.
  */
-type OldRow = Pick<
-  WriterDocumentRow,
-  'name' | 'content' | 'html' | 'content_modified' | 'conversion'
->
+type OldRow = Pick<WriterDocumentRow, 'content' | 'html' | 'content_modified' | 'conversion'>
 
 interface OldDraft {
   val?: unknown
@@ -39,9 +36,8 @@ export async function keepDeviceCopies(session: DocumentSession, row: OldRow) {
 }
 
 async function keepYjsCopy(session: DocumentSession, row: OldRow) {
-  const updates = await readFrom<unknown[]>(`fdoc-${row.name}`, 'updates', (store) =>
-    store.getAll(),
-  )
+  const node = session.nodeId
+  const updates = await readFrom<unknown[]>(`fdoc-${node}`, 'updates', (store) => store.getAll())
   if (!updates?.length) {
     return
   }
@@ -53,7 +49,6 @@ async function keepYjsCopy(session: DocumentSession, row: OldRow) {
     return
   }
 
-  const node = session.nodeId
   const key = `yjs:${await digest(vector)}`
   const state = yjs.encodeStateAsUpdate(merged)
   await keepOnce(node, key, () => keepState(node, session.title.value, state))
@@ -90,7 +85,7 @@ function mergedDoc(base: yjs.Doc, updates: unknown[]) {
 }
 
 async function keepDraftCopy(node: string, title: string, row: OldRow) {
-  const draft = await readFrom<OldDraft>('Writer', 'content', (store) => store.get(row.name))
+  const draft = await readFrom<OldDraft>('Writer', 'content', (store) => store.get(node))
   const html = draft?.val
   const saved = draft?.saved
   if (typeof html !== 'string' || !(saved instanceof Date) || html === (row.html ?? '')) {
