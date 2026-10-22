@@ -73,6 +73,12 @@ watch(
   { immediate: true },
 )
 
+watch(previewedVersion, () => {
+  if (!versionName.value.trim()) {
+    stopNamingVersion()
+  }
+})
+
 function closePanel() {
   const closed = panel.value
   panel.value = null
@@ -140,9 +146,9 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
 
 <template>
   <Transition
-    enter-active-class="md:transition-[width] md:duration-300 md:ease-in-out"
+    enter-active-class="md:transition-[width] md:duration-150 md:ease-in-out"
     enter-from-class="md:!w-0"
-    leave-active-class="md:transition-[width] md:duration-300 md:ease-in-out"
+    leave-active-class="md:transition-[width] md:duration-150 md:ease-in-out"
     leave-to-class="md:!w-0"
   >
     <aside
@@ -186,7 +192,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             :actions="threadActions"
             :drafts
           />
-          <p v-else-if="lists.isLoading" class="text-sm text-ink-gray-5">Loading…</p>
+          <p v-else-if="lists.isLoading" class="px-3 text-sm text-ink-gray-5">Loading…</p>
           <template v-else>
             <VersionList
               v-model:previewed="previewedVersion"
@@ -194,6 +200,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
               :can-restore="canRestoreVersion"
               :is-restoring="isRestoringVersion"
               :can-save-version="canEditDocument"
+              :is-current-hidden="showsVersionName"
               :rename="versionRename"
               @restore="emit('restoreVersion', $event)"
               @download="emit('downloadVersion', $event)"

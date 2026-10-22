@@ -232,6 +232,31 @@ describe("a version's actions", () => {
     expect(saves()).toBe(1)
   })
 
+  it('saves a version on a click on Current version while on it', () => {
+    const { host, saves } = mountList()
+
+    currentButton(host).click()
+
+    expect(saves()).toBe(1)
+  })
+
+  it('goes back to the current version on a click on Current version, saving nothing', async () => {
+    const { host, shown, saves } = mountList({ previewed: named })
+
+    currentButton(host).click()
+    await nextTick()
+
+    expect([shown.value, saves()]).toEqual([null, 0])
+  })
+
+  it('saves nothing on a click on Current version for someone who can’t save', () => {
+    const { host, shown, saves } = mountList({ canSaveVersion: false })
+
+    currentButton(host).click()
+
+    expect([shown.value, saves()]).toEqual([null, 0])
+  })
+
   it('offers no Save version to someone who can’t save', () => {
     const { host } = mountList({ canSaveVersion: false })
 

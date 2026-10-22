@@ -10,14 +10,16 @@ import { versionDays, versionTime } from './versionDates'
 
 /**
  * The document's versions under the day each was taken, newest first, with
- * "Current version" at the top. The row being viewed carries a bar on its left
- * edge; it and a hovered row show Restore and the row's menu.
+ * "Current version" at the top. An old version being viewed is filled; it and a
+ * hovered row show Restore and the row's menu.
  */
 const props = defineProps<{
   versions: DocumentVersion[]
   canRestore: boolean
   isRestoring: boolean
   canSaveVersion: boolean
+  /** Leaves out the Current version row, as the panel's name box stands in for it. */
+  isCurrentHidden?: boolean
   /** Names the version, answering whether Drive took the name; absent for someone who can't. */
   rename?: (version: DocumentVersion, label: string) => Promise<boolean>
 }>()
@@ -30,10 +32,8 @@ const emit = defineEmits<{
 }>()
 
 const days = computed(() => versionDays(props.versions))
+const isCurrentShown = computed(() => !props.isCurrentHidden)
 const isCurrentViewed = computed(() => !previewed.value)
-const currentRowClass = computed(() =>
-  isCurrentViewed.value ? 'bg-surface-elevation-3 shadow-sm' : 'hover:bg-surface-gray-2',
-)
 const currentActionsClass = computed(() =>
   isCurrentViewed.value ? '' : 'invisible group-hover:visible group-focus-within:visible',
 )
@@ -58,6 +58,16 @@ function view(version: DocumentVersion | null) {
   previewed.value = version
 }
 
+// Already on the current version, a click on it saves a version as the bookmark does
+function viewCurrent() {
+  if (isCurrentViewed.value && props.canSaveVersion) {
+    emit('saveVersion')
+    return
+  }
+
+  view(null)
+}
+
 function actionsClass(version: DocumentVersion) {
   if (isViewed(version) || menuRow.value === version.seq) {
     return ''
@@ -66,11 +76,7 @@ function actionsClass(version: DocumentVersion) {
   return 'invisible group-hover:visible group-focus-within:visible'
 }
 
-// An automatic version goes by its time, in grey, and names only who took it below
-function titleClass(version: DocumentVersion) {
-  return version.label ? 'text-ink-gray-8' : 'text-ink-gray-6'
-}
-
+// An automatic version goes by its time, and names only who took it below
 function title(version: DocumentVersion) {
   return version.label || versionTime(version)
 }
@@ -162,12 +168,12 @@ function actions(version: DocumentVersion): DropdownOptions {
 
 <template>
   <div class="space-y-1">
-    <div class="group flex items-center rounded-4" :class="currentRowClass">
+    <div v-if="isCurrentShown" class="group flex items-center rounded-4 hover:bg-surface-gray-2">
       <button
         type="button"
         class="min-w-0 flex-1 py-2 pl-3 pr-2 text-left text-sm text-ink-gray-8"
         :aria-pressed="isCurrentViewed"
-        @click="view(null)"
+        @click="viewCurrent"
       >
         Current version
       </button>
@@ -188,8 +194,10 @@ function actions(version: DocumentVersion): DropdownOptions {
         </Tooltip>
       </div>
     </div>
-    <section v-for="day in days" :key="day.label">
-      <h3 v-if="day.label" class="px-3 pb-1 pt-2 text-sm text-ink-gray-5">{{ day.label }}</h3>
+    <section v-for="day in days" :key="day.label" class="[&:first-child>h3]:pt-0">
+      <h3 v-if="day.label" class="px-3 pb-1 pt-2 text-sm-medium text-ink-gray-7">
+        {{ day.label }}
+      </h3>
       <div class="space-y-1">
         <div
           v-for="version in day.versions"
@@ -216,7 +224,7 @@ function actions(version: DocumentVersion): DropdownOptions {
             :aria-pressed="isViewed(version)"
             @click="view(version)"
           >
-            <p class="truncate text-sm" :class="titleClass(version)">{{ title(version) }}</p>
+            <p class="truncate text-sm text-ink-gray-6">{{ title(version) }}</p>
             <p class="truncate text-xs text-ink-gray-5">{{ byline(version) }}</p>
           </button>
           <div class="flex shrink-0 items-center pr-1.5" :class="actionsClass(version)">

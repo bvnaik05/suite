@@ -100,13 +100,14 @@ async function openVersionsPanel(isRefusingVersions = false) {
     },
   } as unknown as DocumentSession
   const panel = ref<NamingPanel | null>(null)
+  const viewed = ref<DocumentVersion | null>(null)
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp(() =>
     h(DocumentSidePanel, {
       ref: panel,
       panel: 'versions',
-      previewedVersion: null,
+      previewedVersion: viewed.value,
       session,
       canComment: true,
       canEditDocument: false,
@@ -126,7 +127,13 @@ async function openVersionsPanel(isRefusingVersions = false) {
   app.mount(host)
   mounted = app
   await panel.value?.startNamingVersion()
-  return { steps, host }
+  // As clicking another version's row in the list does
+  async function view(version: DocumentVersion) {
+    viewed.value = version
+    await nextTick()
+  }
+
+  return { steps, host, view }
 }
 
 function nameBox() {
@@ -192,6 +199,37 @@ describe('naming a version in the Versions panel', () => {
     await settled()
 
     expect([steps, nameBox()]).toEqual([[], null])
+  })
+
+  it('shows the name box in place of Current version, which comes back once the box closes', async () => {
+    const { host } = await openVersionsPanel()
+    const isCurrentShownWhileNaming = host.textContent?.includes('Current version')
+
+    await press('Escape')
+    await settled()
+
+    expect([isCurrentShownWhileNaming, host.textContent?.includes('Current version')]).toEqual([
+      false,
+      true,
+    ])
+  })
+
+  it('puts Current version back when another version is viewed with no name typed', async () => {
+    const { host, view } = await openVersionsPanel()
+
+    await type('   ')
+    await view({ seq: 1, kind: 'auto', label: null } as unknown as DocumentVersion)
+
+    expect([nameBox(), host.textContent?.includes('Current version')]).toEqual([null, true])
+  })
+
+  it('keeps the box and its name when another version is viewed', async () => {
+    const { view } = await openVersionsPanel()
+
+    await type('Before the review')
+    await view({ seq: 1, kind: 'auto', label: null } as unknown as DocumentVersion)
+
+    expect(nameBox()?.value).toBe('Before the review')
   })
 
   it('keeps the box, the name and the cursor when the version fails to save', async () => {
@@ -346,7 +384,7 @@ describe('the Comments panel while versions load', () => {
 
     expect([
       host.textContent?.includes('Loading…'),
-      host.textContent?.includes('Add a comment…'),
+      host.textContent?.includes('Add a comment'),
     ]).toEqual([false, true])
   })
 })
