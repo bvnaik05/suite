@@ -6,7 +6,6 @@ import Text from '@tiptap/extension-text'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
-import { trackUnsaved } from '@/apps/writer/composables/unsaved'
 import { PasteSizeGuard } from '@/apps/writer/extensions/paste-size-guard'
 import { listTabs, TabsExtension, tabsIn } from '@/apps/writer/extensions/tabs'
 
@@ -252,9 +251,8 @@ describe('importDocx', () => {
       ],
     })
     editor.commands.setContent('<p>Existing line before any import.</p>')
-    const unsaved = { value: false }
     const changes = vi.fn()
-    trackUnsaved(body, unsaved, changes)
+    body.on('update', changes)
 
     await importDocx(fakeFile('launch brief.docx'), {
       editor: { value: editor },
@@ -274,7 +272,6 @@ describe('importDocx', () => {
     expect(listTabs(peer).map((tab) => tab.label)).toEqual(['Untitled', 'launch brief'])
     expect(peer.getText()).toContain('Existing line before any import.')
     expect(peer.getText()).toContain('Imported text')
-    expect(unsaved.value).toBe(true)
     expect(changes).toHaveBeenCalled()
     expect(toastMock.success).toHaveBeenCalledWith('Document imported successfully.')
   })
