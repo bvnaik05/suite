@@ -87,6 +87,11 @@ class TestConversion(DriveCallbackCase):
             "SELECT `outcome`, `reason`, `dropped` FROM `__writer_content_conversion` WHERE `node` = %s", node
         )
 
+    def failures(self, node: str) -> list[int]:
+        return frappe.db.sql_list(
+            "SELECT `failures` FROM `__writer_content_conversion` WHERE `node` = %s", node
+        )
+
     def threads_of(self, node: str) -> list[frappe._dict]:
         return frappe.get_all("Drive Comment Thread", {"node": node}, ["name", "anchor"], order_by="name")
 
@@ -491,7 +496,12 @@ class TestConversion(DriveCallbackCase):
         self.addCleanup(self.delete_document, node)
         [other] = self.old_documents(1)
         self.forget_logged(f"{node}: QueryDeadlockError")
-        before = {**self.as_before(node), "state": "Active", "records": ()}
+        before = {
+            **self.as_before(node),
+            "state": "Active",
+            "records": ((None, None, None),),
+            "failures": [1],
+        }
         release = threading.Event()
         during: dict = {}
 
@@ -499,7 +509,7 @@ class TestConversion(DriveCallbackCase):
         def converting(*args, **kwargs):
             if not during and self.records(other):
                 during.update(self.as_before(node), state=frappe.db.get_value("Drive Node", node, "state"))
-                during["records"] = self.records(node)
+                during.update(records=self.records(node), failures=self.failures(node))
                 release.set()
 
             return REAL_CONVERT(*args, **kwargs)
@@ -653,7 +663,32 @@ class TestConversion(DriveCallbackCase):
             conversion.convert_document(node)
 
         self.assertEqual(self.as_before(node), before)
-        self.assertEqual(self.records(node), ())
+        self.assertEqual(self.records(node), ((None, None, None),))
+        self.assertEqual(self.failures(node), [1])
+
+    def test_tries_a_failing_body_again_and_records_it_crashed_at_its_third_failure_under_a_converter(self):
+        node = self.old_document("<p>Crash text</p>")
+        self.addCleanup(self.delete_document, node)
+        before = self.as_before(node)
+
+        with patch.object(convert, "convert", side_effect=RuntimeError("down")) as converting:
+            for failures in (1, 2):
+                self.assertRaises(RuntimeError, conversion.convert_document, node)
+                self.assertEqual(self.records(node), ((None, None, None),))
+                self.assertEqual(self.failures(node), [failures])
+                self.assertEqual(conversion.conversion_status(node), {"state": "pending"})
+
+            self.assertRaises(RuntimeError, conversion.convert_document, node)
+            self.assertIsNone(conversion.convert_document(node))
+            self.assertEqual(converting.call_count, 3)
+            self.assertEqual(conversion.conversion_status(node)["state"], "refused")
+
+            with patch.object(writer_content, "CONVERTER_VERSION", "next"), self.assertRaises(RuntimeError):
+                conversion.convert_document(node)
+
+        self.assertEqual(self.as_before(node), before)
+        self.assertEqual(self.records(node), (("crashed", None, None), (None, None, None)))
+        self.assertEqual(self.failures(node), [3, 1])
 
     def test_leaves_a_document_purged_under_the_converter(self):
         node = self.old_document("<p>Hello world</p>")
@@ -795,7 +830,8 @@ class TestConversion(DriveCallbackCase):
             (running, timedelta(seconds=60)),
             (crashed, conversion.STALE_ATTEMPT + timedelta(seconds=1)),
         ):
-            conversion.start_attempt(node, conversion.read_old(node).fingerprint, now - age)
+            conversion.start_attempt(node, conversion.read_old(node).fingerprint, now - age, retry=False)
+
         before = {node: self.as_before(node) for node in (running, crashed)}
 
         self.assertIsNone(conversion.convert_document(running))
@@ -887,7 +923,7 @@ class TestConversion(DriveCallbackCase):
         with patch.object(convert, "convert", side_effect=crash_on_first):
             self.assertTrue(convert.convert_page(writer_content.APP, writer, page, time.monotonic() + 600))
             self.assertIsNotNone(log.find(writer_content.APP, other))
-            self.assertEqual(self.records(crashing), ())
+            self.assertEqual(self.records(crashing), ((None, None, None),))
             [logged] = new_logs()
 
             convert.convert_page(writer_content.APP, writer, page[:1], time.monotonic() + 600)

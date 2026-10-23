@@ -266,7 +266,7 @@ def ensure_copy_table(app: str) -> None:
 
 
 def ensure_conversion_table(app: str) -> None:
-    """Create the table that records each conversion of an old document, keyed on its node."""
+    """Create the conversion records table and add the columns tables made before them lack."""
     conversion_table = table(app, "conversion")
     # `dropped` holds document text, so it is read only by this record's own checks
     frappe.db.sql_ddl(
@@ -281,6 +281,9 @@ def ensure_conversion_table(app: str) -> None:
             `dropped` json NULL,
             PRIMARY KEY (`node`, `fingerprint`, `converter_version`)
         ) {TABLE_OPTIONS}"""
+    )
+    frappe.db.sql_ddl(
+        f"ALTER TABLE `{conversion_table}` ADD COLUMN IF NOT EXISTS `failures` int unsigned NOT NULL DEFAULT 0"
     )
 
 
