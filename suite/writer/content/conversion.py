@@ -295,9 +295,8 @@ def write_conversion(node: str, old: OldDocument, converted: convert.Converted) 
         return None
 
     names = thread_names(node, old.legacy["ycomments"], old.threads)
-    anchors = {names.get(key): anchor for key, anchor in converted.anchors.items()}
-    if None in anchors:
-        raise ConversionRefused("check", "orphan")
+    anchors = {names[key]: anchor for key, anchor in converted.anchors.items() if key in names}
+    dead = [key for key in converted.anchors if key not in names]
 
     threads = [old_thread(thread) for thread in converted.threads]
     if drive.has_blank_old_comment(threads):
@@ -314,7 +313,11 @@ def write_conversion(node: str, old: OldDocument, converted: convert.Converted) 
 
     named = set(names.values())
     unknown = [thread["name"] for thread in old.threads if thread["name"] not in named]
-    return [*converted.dropped, *({"kind": "unknown-anchor", "thread": name} for name in unknown)]
+    return [
+        *converted.dropped,
+        *({"kind": "dead-highlight", "key": key} for key in dead),
+        *({"kind": "unknown-anchor", "thread": name} for name in unknown),
+    ]
 
 
 def checked_html(old: OldDocument, converted: convert.Converted) -> str:
