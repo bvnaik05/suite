@@ -984,3 +984,15 @@ class TestConversion(DriveCallbackCase):
 
         [(_, queued)] = [(call.args, call.kwargs) for call in enqueue.call_args_list]
         self.assertEqual((queued["app"], queued["job_id"]), ("writer", "suite-convert-writer"))
+
+    def test_queues_and_runs_no_conversion_while_the_app_is_off(self):
+        with (
+            patch.object(log, "enabled", return_value=False),
+            patch.object(frappe, "enqueue") as enqueue,
+            patch.object(convert, "run_pending") as running,
+        ):
+            jobs.queue_conversion()
+            jobs.convert_pending(writer_content.APP)
+
+        enqueue.assert_not_called()
+        running.assert_not_called()
