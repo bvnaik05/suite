@@ -243,14 +243,25 @@ class TestConversion(DriveCallbackCase):
             self.assertEqual(self.as_before(node), before, msg=name)
             self.assertEqual(self.records(node), (("check", "orphan", None),), msg=name)
 
-    def test_refuses_a_comment_mark_no_old_comment_lists(self):
-        node = self.old_document('<p>Hello <span data-comment-id="m1">world</span></p>')
-        before = self.as_before(node)
+    def test_drops_a_comment_mark_no_old_comment_lists_and_records_it(self):
+        node = self.old_document(
+            '<p>Hello <span data-comment-id="m1">world</span><span data-comment-id="c2"></span></p>'
+        )
+        self.build_thread(node, "m1", ["m1"])
 
-        self.assertEqual(conversion.convert_document(node), "check")
+        self.assertEqual(conversion.convert_document(node), "converted")
 
-        self.assertEqual(self.as_before(node), before)
-        self.assertEqual(self.records(node), (("check", "orphan", None),))
+        self.assertEqual(self.threads_of(node), [{"name": "m1", "anchor": "m1"}])
+        self.assertEqual(frappe.db.count("Drive Comment", {"node": node}), 1)
+        [(_outcome, _reason, dropped)] = self.records(node)
+        self.assertEqual(
+            json.loads(dropped),
+            [
+                {"kind": "comment-deleted", "id": "c2"},
+                {"kind": "dead-highlight", "key": "m1"},
+                {"kind": "unknown-anchor", "thread": "m1"},
+            ],
+        )
 
     def test_refuses_an_old_reply_with_no_id(self):
         doc = pycrdt.Doc()
