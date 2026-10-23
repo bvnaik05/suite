@@ -453,6 +453,9 @@ class TestCompositeGroups(IntegrationTestCase):
             [(reference, index) for index, reference in enumerate(self._ids(composite), start=1)],
         )
         self.assertEqual([row["node"] for row in answered], decks)
+        for row in answered:
+            self.assertIsNone(row["composite"])
+            self.assertIsNone(row["slides"])
 
     def test_a_reference_id_is_the_row_and_never_the_deck_or_the_node(self):
         reference = self._deck(title="Ref")

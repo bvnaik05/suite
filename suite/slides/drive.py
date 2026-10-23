@@ -445,6 +445,8 @@ def composite_references(docname: str) -> list[dict]:
                 # guest-reachable.
                 "node": node if readable else None,
                 "readable": readable,
+                "composite": None,
+                "slides": None,
             }
         )
     return answered
