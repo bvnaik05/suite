@@ -690,6 +690,35 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(self.records(node), (("crashed", None, None), (None, None, None)))
         self.assertEqual(self.failures(node), [3, 1])
 
+    def test_tries_a_failed_child_body_again_and_keeps_its_reason_at_the_third_failure(self):
+        for reason in ("child_timeout", "child_crash"):
+            [node] = self.old_documents(1)
+            before = self.as_before(node)
+            with patch.object(convert, "convert", return_value=convert.Refused(reason)):
+                outcomes = [conversion.convert_document(node) for _ in range(4)]
+
+            self.assertEqual(outcomes, [None, None, reason, None], msg=reason)
+            self.assertEqual(self.as_before(node), before, msg=reason)
+            self.assertEqual(self.records(node), ((reason, None, None),), msg=reason)
+            self.assertEqual(self.failures(node), [3], msg=reason)
+
+    def test_tries_an_over_quota_body_again_once_retried_and_leaves_other_refusals(self):
+        over, refused = self.old_documents(2)
+        frappe.db.set_value(
+            "Writer Document", self.docname_of(refused), "ycomments", old_comments(("c1", "world", []))
+        )
+        frappe.db.commit()
+        with patch.object(drive, "take_version", side_effect=drive.DriveOverQuota()):
+            self.assertEqual(conversion.convert_document(over), "over_quota")
+
+        self.assertEqual(conversion.convert_document(refused), "check")
+
+        self.assertEqual(conversion.retry_over_quota(), 1)
+
+        self.assertEqual(conversion.convert_document(over), "converted")
+        self.assertIsNone(conversion.convert_document(refused))
+        self.assertEqual(self.records(refused), (("check", "orphan", None),))
+
     def test_leaves_a_document_purged_under_the_converter(self):
         node = self.old_document("<p>Hello world</p>")
 

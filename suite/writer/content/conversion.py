@@ -4,9 +4,11 @@
 the answer in one transaction under the row's lock. Every check runs before the first write, and a
 refusal writes only its record. A record with no outcome is committed before the converter runs, so a
 worker that dies on a body leaves it, and a later run records that body `crashed`. A run that fails on
-a body counts the failure on its record and the next run tries again; the record counts per converter
-version, so a body fails FAILURES times under each version before it is recorded `crashed`. The record
-keeps `dropped`, which holds document text, so it goes nowhere else.
+a body, or a child that crashes or times out on it, counts the failure on its record and the next run
+tries again; the record counts per converter version, so a body fails FAILURES times under each version
+before it is recorded `crashed`, or with the child's reason. Only `retry_over_quota` clears a refusal,
+an over_quota one, once space is freed. The record keeps `dropped`, which holds document text, so it
+goes nowhere else.
 """
 
 import base64
@@ -36,6 +38,8 @@ ATTEMPTS = 3
 STALE_ATTEMPT = timedelta(seconds=1500)
 # How many runs fail on a body under one converter version before it is recorded `crashed`
 FAILURES = 3
+# Child failures that can clear up by themselves, so they count as failures rather than end the attempt
+PASSING = frozenset({"child_timeout", "child_crash"})
 OPEN_ATTEMPT = "`node` = %s AND `fingerprint` = %s AND `converter_version` = %s AND `outcome` IS NULL"
 CHANGED = "changed"
 LOGGED = "logged"
@@ -78,6 +82,9 @@ def convert_document(node: str) -> str | None:
             return None
 
         if isinstance(converted, convert.Refused):
+            if converted.reason in PASSING:
+                return count_failure(node, old.fingerprint, converted.reason)
+
             record(node, old.fingerprint, started, converted.reason)
             frappe.db.commit()  # nosemgrep: frappe-manual-commit
             return converted.reason
@@ -121,7 +128,7 @@ def run_converter(
         drop_attempt(node, old.fingerprint)
         raise
     except Exception:
-        count_failure(node, old.fingerprint)
+        count_failure(node, old.fingerprint, "crashed")
         raise
 
     if converted is None:
@@ -164,8 +171,8 @@ def start_attempt(node: str, fingerprint: str, started: datetime, retry: bool) -
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
-def count_failure(node: str, fingerprint: str) -> None:
-    """Count a run's failure on this body's attempt, and record it `crashed` at FAILURES under this converter."""
+def count_failure(node: str, fingerprint: str, outcome: str) -> str | None:
+    """Count a run's failure on this body's attempt; at FAILURES under this converter, record and answer `outcome`."""
     conversion_table = table(writer_content.APP, "conversion")
     key = (node, fingerprint, writer_content.CONVERTER_VERSION)
     frappe.db.sql(
@@ -173,10 +180,12 @@ def count_failure(node: str, fingerprint: str) -> None:
         (now_datetime(), *key),
     )
     frappe.db.sql(
-        f"UPDATE `{conversion_table}` SET `outcome` = 'crashed' WHERE {OPEN_ATTEMPT} AND `failures` >= %s",
-        (*key, FAILURES),
+        f"UPDATE `{conversion_table}` SET `outcome` = %s WHERE {OPEN_ATTEMPT} AND `failures` >= %s",
+        (outcome, *key, FAILURES),
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    held = held_attempt(node, fingerprint)
+    return held and held.outcome
 
 
 def drop_attempt(node: str, fingerprint: str) -> None:
@@ -188,6 +197,18 @@ def drop_attempt(node: str, fingerprint: str) -> None:
         f"UPDATE `{conversion_table}` SET `finished` = %s WHERE {OPEN_ATTEMPT}", (now_datetime(), *key)
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+def retry_over_quota() -> int:
+    """Clear this converter's over_quota records, so the next run tries them again once space is freed."""
+    conversion_table = table(writer_content.APP, "conversion")
+    frappe.db.sql(
+        f"DELETE FROM `{conversion_table}` WHERE `outcome` = 'over_quota' AND `converter_version` = %s",
+        (writer_content.CONVERTER_VERSION,),
+    )
+    [[cleared]] = frappe.db.sql("SELECT ROW_COUNT()")
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    return cleared
 
 
 def conversion_status(node: str) -> ConversionStatus:
@@ -236,7 +257,7 @@ def install_conversion(node: str, old: OldDocument, converted: convert.Converted
         return refused.outcome
     except Exception:
         frappe.db.rollback()
-        count_failure(node, old.fingerprint)
+        count_failure(node, old.fingerprint, "crashed")
         raise
 
     if dropped is None:
