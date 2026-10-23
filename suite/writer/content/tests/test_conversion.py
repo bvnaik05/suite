@@ -969,7 +969,7 @@ class TestConversion(DriveCallbackCase):
         keys = writer_routes.document(self.docname_of(node))["conversion"]["rooms"]["keys"]
         told: list[tuple] = []
 
-        def publish(event, message, room=None, **kwargs):
+        def publish(event, message=None, room=None, **kwargs):
             if event != "suite_collab_converted":
                 return
 
