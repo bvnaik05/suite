@@ -54,7 +54,7 @@ def self_test() -> dict:
         "cgroup_readable": all(os.access(path, os.R_OK) for path in CGROUP_PATHS),
         "nofork": bool(sbool(os.environ.get("FRAPPE_BACKGROUND_WORKERS_NOFORK", False))),
     }
-    passed = report["pycrdt"] == compaction.PYCRDT_VERSION and report["compaction"] == "pass"
+    passed = self_test_fault() is None
     settings = {
         "self_test_at": now_datetime(),
         "self_test_passed": int(passed),
@@ -63,6 +63,15 @@ def self_test() -> dict:
     frappe.db.set_single_value("Suite Collab Settings", settings)
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     return report
+
+
+def self_test_fault() -> str | None:
+    """Name why compaction fails here, a pycrdt other than the pinned one or a wrong fixture result, or None."""
+    if pycrdt.__version__ != compaction.PYCRDT_VERSION:
+        return f"pycrdt {pycrdt.__version__}, expected {compaction.PYCRDT_VERSION}"
+
+    result = compaction_check()
+    return None if result == "pass" else result
 
 
 def fixture_rows() -> list[bytes]:

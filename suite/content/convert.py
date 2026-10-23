@@ -38,9 +38,9 @@ from frappe.utils.scheduler import is_scheduler_disabled
 from frappe.utils.user import get_system_managers
 
 from suite import drive
-from suite.content import capacity, checker, log
+from suite.content import capacity, checker, log, selftest
 from suite.content.editors import Conversion, editors, spec_of
-from suite.content.tables import table
+from suite.content.tables import KINDS, table
 
 # The oldest Node the converter runs on, the first whose --permission is stable; CI runs it there
 NODE_MIN = (22, 13)
@@ -78,14 +78,33 @@ def run_pending(app: str, conversion: Conversion) -> None:
     """Convert the app's documents that have no log, page by page, until none is left or time runs out."""
     clear_block("scheduler")
     deadline = time.monotonic() + RUN_FOR
+    missing = missing_prerequisite(app)
+    if missing:
+        log_reason(app, missing)
+        return
+
     page = pending_page(app, conversion.version, None)
     if not page:
         return
 
+    fault = selftest.self_test_fault()
+    if fault:
+        log_reason(app, f"the collaboration self-test fails: {fault}")
+        return
+
+    if not converter_ready(app, conversion):
+        return
+
+    while page and convert_page(app, conversion, page, deadline):
+        page = pending_page(app, conversion.version, page[-1])
+
+
+def converter_ready(app: str, conversion: Conversion) -> bool:
+    """Whether Node and the converter bundle of this version are here; logs why not."""
     if checker.usable_node(NODE_MIN) is None:
         report_block("node")
         log_reason(app, BLOCKS["node"])
-        return
+        return False
 
     clear_block("node")
     try:
@@ -95,10 +114,22 @@ def run_pending(app: str, conversion: Conversion) -> None:
 
     if not ready:
         log_reason(app, "no converter bundle of this version")
-        return
 
-    while page and convert_page(app, conversion, page, deadline):
-        page = pending_page(app, conversion.version, page[-1])
+    return ready
+
+
+def missing_prerequisite(app: str) -> str | None:
+    """Name the first thing the site lacks to convert the app's documents: MariaDB or a content table, or None."""
+    if frappe.db.db_type != "mariadb":
+        return "the database isn't MariaDB"
+
+    present = set(frappe.db.get_tables(cached=False))
+    for kind in KINDS:
+        name = table(app, kind)
+        if name not in present:
+            return f"content table {name} is missing"
+
+    return None
 
 
 def convert_page(app: str, conversion: Conversion, page: list[frappe._dict], deadline: float) -> bool:
