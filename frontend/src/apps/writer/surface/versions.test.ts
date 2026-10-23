@@ -35,6 +35,12 @@ const document = {
   ],
 }
 
+// A version the old editor saved while collaborating, its Yjs newer than its HTML
+function oldCollabVersion(ydoc: Doc, html = '<p>Old</p>') {
+  const content = btoa(String.fromCharCode(...encodeStateAsUpdate(ydoc)))
+  return { schema: 'writer-document/1', content, html, collab: 1 }
+}
+
 async function gzipBase64(bytes: Uint8Array) {
   const raw = new Response(new Uint8Array(bytes)).body!
   const stream = raw.pipeThrough(new CompressionStream('gzip'))
@@ -87,6 +93,33 @@ describe('readVersion', () => {
       content: '<p>Saved</p>',
       firstTabLabel: null,
     })
+  })
+
+  it('shows a collaborative writer-document/1 version as its Yjs text, not its out-of-date HTML', async () => {
+    const version = oldCollabVersion(prosemirrorJSONToYDoc(schema, document, 'default'))
+    const shown = await readVersion(encode(version))
+
+    expect(typeof shown.content).toBe('object')
+    expect(schema.nodeFromJSON(shown.content).eq(schema.nodeFromJSON(document))).toBe(true)
+    expect(shown.firstTabLabel).toBeNull()
+  })
+
+  it('shows a collaborative writer-document/1 version as its HTML when its Yjs shows nothing', async () => {
+    const unplaceable = new Doc()
+    const element = new XmlElement('nonsense')
+    element.insert(0, [new XmlText('Lost')])
+    unplaceable.getXmlFragment(BODY_FIELD).insert(0, [element])
+
+    for (const [name, version] of [
+      ['unreadable', { ...oldCollabVersion(new Doc()), content: btoa('\xff\xff\xff') }],
+      ['empty', oldCollabVersion(new Doc())],
+      ['unplaceable', oldCollabVersion(unplaceable)],
+    ] as const) {
+      expect(await readVersion(encode(version)), name).toEqual({
+        content: '<p>Old</p>',
+        firstTabLabel: null,
+      })
+    }
   })
 
   it('shows a writer-document/2 version as the document its state holds', async () => {
@@ -212,6 +245,21 @@ describe('storedVersionHTML', () => {
     const session = servingVersion(await oldImageVersion())
 
     expect(await storedVersionHTML(session, 1, null)).toContain('<img src="/files/chart.png"')
+  })
+
+  it('downloads a collaborative writer-document/1 version as its Yjs text with its old image', async () => {
+    const ydoc = prosemirrorJSONToYDoc(schema, document, 'default')
+    const image = new XmlElement('resizableMedia')
+    image.setAttribute('src', '/files/chart.png')
+    image.setAttribute('media-type', 'img')
+    ydoc.getXmlFragment(BODY_FIELD).push([image])
+    const session = servingVersion(oldCollabVersion(ydoc))
+
+    const html = await storedVersionHTML(session, 1, null)
+
+    expect(html).toContain('<p>Ship the <strong>first</strong> cut.</p>')
+    expect(html).toContain('<img src="/files/chart.png"')
+    expect(html).not.toContain('Old')
   })
 
   it("refuses a version whose content Writer can't show", async () => {

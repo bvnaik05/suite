@@ -48,6 +48,20 @@ function oldImageVersion() {
   return stateVersion(ydoc)
 }
 
+// A version the old editor saved while collaborating, its Yjs newer than its HTML
+function oldCollabVersion(ydoc: Doc, html: string) {
+  const content = btoa(String.fromCharCode(...encodeStateAsUpdate(ydoc)))
+  return JSON.stringify({ schema: 'writer-document/1', content, html, collab: 1 })
+}
+
+function bodyOf(name: string, text: string) {
+  const ydoc = new Doc()
+  const element = new XmlElement(name)
+  element.insert(0, [new XmlText(text)])
+  ydoc.getXmlFragment(BODY_FIELD).insert(0, [element])
+  return ydoc
+}
+
 async function stateVersion(ydoc: Doc) {
   const update = new Response(new Uint8Array(encodeStateAsUpdate(ydoc))).body!
   const zipped = await new Response(update.pipeThrough(new CompressionStream('gzip'))).arrayBuffer()
@@ -134,6 +148,26 @@ describe('VersionPreview', () => {
 
     await vi.waitFor(() => expect(preview.root.textContent).toContain('Shared draft'))
     expect(session.credentials.fetch).toHaveBeenCalledWith('/versions/4')
+    preview.unmount()
+  })
+
+  it('shows an old collaborative version as its Yjs text, not its out-of-date HTML', async () => {
+    const stored = oldCollabVersion(bodyOf('paragraph', 'Written together'), '<p>Old copy</p>')
+    const session = fakeSession(async () => new Response(stored))
+    const preview = mountPreview(session)
+
+    await vi.waitFor(() => expect(preview.root.textContent).toContain('Written together'))
+    expect(preview.root.textContent).not.toContain('Old copy')
+    preview.unmount()
+  })
+
+  it("shows an old collaborative version's HTML when Writer can't place its Yjs", async () => {
+    const stored = oldCollabVersion(bodyOf('nonsense', 'Lost'), '<p>Saved copy</p>')
+    const session = fakeSession(async () => new Response(stored))
+    const preview = mountPreview(session)
+
+    await vi.waitFor(() => expect(preview.root.textContent).toContain('Saved copy'))
+    expect(preview.root.textContent).not.toContain("can't be shown")
     preview.unmount()
   })
 
