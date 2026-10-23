@@ -319,12 +319,22 @@ export function frozenBanner(keepOpen = ''): Banner {
 
 const UNREADABLE_LINE = " Its saved body couldn't be read, so this is its last saved copy."
 
+// Why every old document waits, as the server names it to System Managers
+const WAIT_REASONS: Record<string, string> = {
+  node: 'the server has no Node 22.13 or newer',
+  scheduler: 'the scheduler is off',
+}
+
 // An old document the next conversion run makes collaborative, read-only until then
-export function upgradingBanner(isUnreadable: boolean): Banner {
+export function upgradingBanner(reason: string | null, isUnreadable: boolean): Banner {
   const unreadable = isUnreadable ? UNREADABLE_LINE : ''
-  return {
-    text: `This document is being upgraded for editing together. It is read-only until then.${unreadable}`,
+  let text = 'This document is being upgraded for editing together. It is read-only until then.'
+  if (reason) {
+    const shown = WAIT_REASONS[reason] ?? reason
+    text += ` Reason: ${shown}.`
   }
+
+  return { text: `${text}${unreadable}` }
 }
 
 // An old document the converter refused; `reason` only reaches System Managers

@@ -20,6 +20,9 @@ record, never to a log or report.
 `run_pending` is the scheduled job's loop: it pages through the app's documents that have no log, newest
 first, and hands each to the app's `convert_document`, which owns everything about one document. It
 passes over a document this converter refused unless the row changed after the refused attempt began.
+
+Without Node, or with the scheduler off, nothing converts. `check_before_migrate` prints each cause on
+every migrate, and System Managers get one notification per cause until it is fixed.
 """
 
 import base64
@@ -29,10 +32,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import frappe
+from frappe.desk.doctype.notification_log.notification_log import make_notification_logs
+from frappe.utils.scheduler import is_scheduler_disabled
+from frappe.utils.user import get_system_managers
 
 from suite import drive
-from suite.content import capacity, checker
-from suite.content.editors import Conversion, spec_of
+from suite.content import capacity, checker, log
+from suite.content.editors import Conversion, editors, spec_of
 from suite.content.tables import table
 
 # The oldest Node the converter runs on, the first whose --permission is stable; CI runs it there
@@ -42,6 +48,8 @@ PAGE = 25
 # No new child starts after this; with the child's 120 s cap a run ends well inside the queue's 1500 s
 RUN_FOR = 600
 TIMEOUT = 1500
+# What stops every conversion, by cause; System Managers are told the cause, never any document's data
+BLOCKS = {"node": "Node 22.13 or newer is missing", "scheduler": "the scheduler is off"}
 
 
 class ConverterChanged(Exception):
@@ -67,18 +75,25 @@ class Refused:
 
 def run_pending(app: str, conversion: Conversion) -> None:
     """Convert the app's documents that have no log, page by page, until none is left or time runs out."""
+    clear_block("scheduler")
     deadline = time.monotonic() + RUN_FOR
     page = pending_page(app, conversion.version, None)
     if not page:
         return
 
+    if checker.usable_node(NODE_MIN) is None:
+        report_block("node")
+        log_reason(app, BLOCKS["node"])
+        return
+
+    clear_block("node")
     try:
         ready = bundle_ready(conversion.build, conversion.version)
     except checker.CheckerFailed:
         ready = False
 
     if not ready:
-        log_reason(app, "no Node, or no converter bundle of this version")
+        log_reason(app, "no converter bundle of this version")
         return
 
     while page and convert_page(app, conversion, page, deadline):
@@ -145,6 +160,74 @@ def log_reason(app: str, reason: str) -> None:
         message=reason,
         reference_doctype="Suite Collab Settings",
     )
+
+
+def check_before_migrate() -> None:
+    """Print what stops documents waiting to convert, and tell System Managers once; never raises."""
+    try:
+        tell_blocks()
+    except Exception as error:
+        print(f"Couldn't check whether collaborative documents can be upgraded: {type(error).__name__}")
+
+
+def tell_blocks() -> None:
+    """Print each cause stopping documents that wait to convert, telling System Managers once; forget fixed ones."""
+    if not any_waiting():
+        return
+
+    causes = {
+        "node": checker.usable_node(NODE_MIN) is None,
+        "scheduler": is_scheduler_disabled(verbose=False),
+    }
+    for cause, is_blocked in causes.items():
+        if not is_blocked:
+            clear_block(cause)
+            continue
+
+        print(f"Collaborative documents can't be upgraded: {BLOCKS[cause]}")
+        report_block(cause)
+
+
+def any_waiting() -> bool:
+    """Whether an app with collaboration on has a document waiting to convert."""
+    for app, spec in editors().items():
+        if spec.conversion and log.enabled(app) and pending_page(app, spec.conversion.version, None):
+            return True
+
+    return False
+
+
+def blocked_cause() -> str | None:
+    """Return the first cause stopping every conversion, as System Managers were told it, or None."""
+    return next((cause for cause in BLOCKS if frappe.db.get_global(block_key(cause))), None)
+
+
+def report_block(cause: str) -> None:
+    """Tell System Managers `cause` stops conversions, once until it is cleared."""
+    if frappe.db.get_global(block_key(cause)):
+        return
+
+    frappe.db.set_global(block_key(cause), 1)
+    notice = {
+        "type": "Alert",
+        "document_type": "Suite Collab Settings",
+        "document_name": "Suite Collab Settings",
+        "subject": f"Collaborative documents can't be upgraded: {BLOCKS[cause]}",
+    }
+    make_notification_logs(notice, get_system_managers(only_name=True))
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+def clear_block(cause: str) -> None:
+    """Forget `cause` once it is fixed, so it is told again if it comes back."""
+    if frappe.db.get_global(block_key(cause)):
+        frappe.db.set_global(block_key(cause), None)
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+def block_key(cause: str) -> str:
+    """Name the global default that holds whether System Managers were told `cause`."""
+    return f"suite_collab_blocked_{cause}"
 
 
 def bundle_ready(bundle: Path, version: str) -> bool:

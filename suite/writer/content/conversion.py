@@ -25,7 +25,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from suite import drive
-from suite.content import checker, compaction, convert, copies, log
+from suite.content import checker, compaction, convert, copies, live, log
 from suite.content.checkpoints import replace_start
 from suite.content.tables import table
 from suite.writer import content as writer_content
@@ -56,6 +56,7 @@ class OldDocument:
 class ConversionStatus(TypedDict):
     state: str
     reason: NotRequired[str]
+    rooms: NotRequired[live.Rooms]
 
 
 class ConversionRefused(Exception):
@@ -87,6 +88,7 @@ def convert_document(node: str) -> str | None:
 
             record(node, old.fingerprint, started, converted.reason)
             frappe.db.commit()  # nosemgrep: frappe-manual-commit
+            live.publish_conversion(writer_content.APP, node, "refused")
             return converted.reason
 
         outcome = install_conversion(node, old, converted, started)
@@ -107,6 +109,7 @@ def crashed_outcome(node: str, fingerprint: str, held: frappe._dict, now: dateti
 
     record(node, fingerprint, held.started, "crashed")
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    live.publish_conversion(writer_content.APP, node, "refused")
     return "crashed"
 
 
@@ -188,6 +191,9 @@ def count_failure(node: str, fingerprint: str, outcome: str) -> str | None:
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     held = held_attempt(node, fingerprint)
+    if held and held.outcome:
+        live.publish_conversion(writer_content.APP, node, "refused")
+
     return held and held.outcome
 
 
@@ -215,11 +221,19 @@ def retry_over_quota() -> int:
 
 
 def conversion_status(node: str) -> ConversionStatus:
-    """Answer whether the next run converts `node`'s body or this converter refused it; the reason for System Managers."""
+    """Answer whether the next run converts `node`'s body, with the rooms told its outcome, or this converter refused it; the reason for System Managers."""
     legacy = frappe.db.get_value(DOCTYPE, {"node": node}, list(FIELDS), as_dict=True)
     held = held_attempt(node, fingerprint_of(legacy or {}))
     if held is None or held.outcome in {None, "converted"}:
-        return {"state": "pending"}
+        pending: ConversionStatus = {
+            "state": "pending",
+            "rooms": live.conversion_rooms(writer_content.APP, node),
+        }
+        cause = convert.blocked_cause()
+        if cause and "System Manager" in frappe.get_roles():
+            pending["reason"] = cause
+
+        return pending
 
     status: ConversionStatus = {"state": "refused"}
     if "System Manager" in frappe.get_roles():
@@ -257,6 +271,7 @@ def install_conversion(node: str, old: OldDocument, converted: convert.Converted
         frappe.db.rollback()
         record(node, old.fingerprint, started, refused.outcome, refused.reason)
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        live.publish_conversion(writer_content.APP, node, "refused")
         return refused.outcome
     except Exception:
         frappe.db.rollback()
@@ -270,6 +285,7 @@ def install_conversion(node: str, old: OldDocument, converted: convert.Converted
     record(node, old.fingerprint, started, "converted", dropped=dropped)
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     frappe.clear_document_cache(DOCTYPE, old.docname)
+    live.publish_conversion(writer_content.APP, node, "converted")
     return "converted"
 
 

@@ -1,6 +1,7 @@
 export { type Limits } from './frames'
 export { CollabOpenError } from './answers'
 export { covers } from './covers'
+export { watchRooms } from './hub'
 export { judge, type Fault } from './judge'
 export { sizeCheck } from './limits'
 export { openRoom } from './open'

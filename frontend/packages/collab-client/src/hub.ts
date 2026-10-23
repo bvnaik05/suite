@@ -80,3 +80,34 @@ export class Hub {
     this.sendRoomSet()
   }
 }
+
+// A member that only joins rooms, with no room of its own to open or answer
+function roomsMember(currentKeys: () => string[]): HubMember {
+  return { currentKeys, connected: () => {}, dropped: () => {}, answered: () => {} }
+}
+
+// Joins `keys` in the socket's room set until stopped, telling `onTold` of each `event` heard
+export function watchRooms(
+  socket: LiveSocket,
+  keys: string[],
+  event: string,
+  onTold: (message: unknown) => void,
+) {
+  const hub = Hub.forSocket(socket)
+  let currentKeys = keys
+  const member = roomsMember(() => currentKeys)
+  socket.on(event, onTold)
+  hub.members.add(member)
+  hub.sendRoomSet()
+
+  return {
+    setKeys(nextKeys: string[]) {
+      currentKeys = nextKeys
+      hub.sendRoomSet()
+    },
+    stop() {
+      socket.off(event, onTold)
+      hub.leave(member)
+    },
+  }
+}

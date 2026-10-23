@@ -36,9 +36,21 @@ export const operationDocument: Validators<DocumentInput, DocumentOutput> = {
             properties: {
               state: { title: 'State', type: 'string' },
               reason: { title: 'Reason', type: 'string' },
+              rooms: { $ref: '#/$defs/Rooms' },
             },
             required: ['state'],
             title: 'ConversionStatus',
+            type: 'object',
+          },
+          Rooms: {
+            properties: {
+              epoch: { title: 'Epoch', type: 'integer' },
+              keys: { items: { type: 'string' }, title: 'Keys', type: 'array' },
+              epoch_seconds: { title: 'Epoch Seconds', type: 'integer' },
+              server_time: { title: 'Server Time', type: 'number' },
+            },
+            required: ['epoch', 'keys', 'epoch_seconds', 'server_time'],
+            title: 'Rooms',
             type: 'object',
           },
         },

@@ -1,6 +1,7 @@
 import {
   openDeviceStore,
   openRoom,
+  watchRooms,
   type CollabAdapter,
   type CollabEndpoints,
   type CollabRoom,
@@ -208,6 +209,11 @@ async function roomDevice(session: CollabSession, app: string, user: string) {
       title: () => session.title.value,
     }
   )
+}
+
+// Tells `onTold` once the server converts or refuses the document waiting in the rooms `keys` name
+export function watchConversion(keys: string[], onTold: () => void) {
+  return watchRooms(getRealtimeSocket(), keys, 'suite_collab_converted', onTold)
 }
 
 // `onThreadsChanged` is told when the document's comment threads may have changed;

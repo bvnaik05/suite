@@ -42,7 +42,7 @@ import RecoveryPreview from '@/apps/writer/recovery/RecoveryPreview.vue'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
 import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
-import type { CollabRoom } from '@/platform/collab'
+import { watchConversion, type CollabRoom } from '@/platform/collab'
 
 import { frozenBanner, isSafeOnDevice, notUpgradedBanner, upgradingBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
@@ -605,35 +605,53 @@ const conversionBanner = computed(() => {
     return notUpgradedBanner(conversion.reason ?? null, isUnreadable)
   }
 
-  return upgradingBanner(isUnreadable)
+  return upgradingBanner(conversion?.reason ?? null, isUnreadable)
 })
 
 function isRefused() {
   return documentResource.doc?.conversion?.state === 'refused'
 }
 
+function conversionKeys() {
+  return documentResource.doc?.conversion?.rooms?.keys ?? []
+}
+
 // The row carries a conversion state until the document is collaborative, which then opens live
 // A refused document stays refused while it is open, so its poll stops
+// The conversion's rooms tell the tab its outcome sooner; the poll also moves it to each epoch's rooms
 let conversionPoll: ReturnType<typeof setInterval> | undefined
-watch(collabMode, (mode) => {
+let conversionWatch: ReturnType<typeof watchConversion> | null = null
+
+function stopWaiting() {
   clearInterval(conversionPoll)
+  conversionWatch?.stop()
+  conversionWatch = null
+}
+
+async function checkConversion() {
+  try {
+    await documentResource.reload()
+  } catch {
+    return
+  }
+
+  if (isRefused()) {
+    stopWaiting()
+  } else if (collabMode.value === 'unconverted' && !documentResource.doc?.conversion) {
+    void openCollab()
+  } else {
+    conversionWatch?.setKeys(conversionKeys())
+  }
+}
+
+watch(collabMode, (mode) => {
+  stopWaiting()
   if (mode !== 'unconverted' || isRefused()) {
     return
   }
 
-  conversionPoll = setInterval(async () => {
-    try {
-      await documentResource.reload()
-    } catch {
-      return
-    }
-
-    if (isRefused()) {
-      clearInterval(conversionPoll)
-    } else if (collabMode.value === 'unconverted' && !documentResource.doc?.conversion) {
-      void openCollab()
-    }
-  }, CONVERSION_POLL_MS)
+  conversionPoll = setInterval(checkConversion, CONVERSION_POLL_MS)
+  conversionWatch = watchConversion(conversionKeys(), () => void checkConversion())
 })
 
 onMounted(() => {
@@ -648,7 +666,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('online', setOnline)
   window.removeEventListener('offline', setOffline)
   window.removeEventListener('beforeunload', warnBeforeUnload)
-  clearInterval(conversionPoll)
+  stopWaiting()
   closeCollab()
 })
 </script>

@@ -71,8 +71,11 @@ def after_install():
 
 def before_migrate() -> None:
     """Rebuild the module map from disk; the map cached from redis before a pull outlives clear_cache, and sync skips modules missing from it."""
+    from suite.content import convert
+
     frappe.cache.delete_value("app_modules")
     frappe.setup_module_map()
+    convert.check_before_migrate()
 
 
 def after_migrate():

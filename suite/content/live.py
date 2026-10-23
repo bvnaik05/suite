@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import time
+from typing import TypedDict
 
 import frappe
 from frappe.utils.password import get_encryption_key
@@ -21,7 +22,14 @@ EPOCH_SECONDS = 150
 INLINE_MAX = 32 * 1024
 
 
-def rooms(app: str, doc_id: str, lineage: str) -> dict:
+class Rooms(TypedDict):
+    epoch: int
+    keys: list[str]
+    epoch_seconds: int
+    server_time: float
+
+
+def rooms(app: str, doc_id: str, lineage: str) -> Rooms:
     """Return the rooms a tab joins now, this epoch's and the next, with the server's clock to time them."""
     now = time.time()
     epoch = int(now // EPOCH_SECONDS)
@@ -33,6 +41,17 @@ def rooms(app: str, doc_id: str, lineage: str) -> dict:
         "epoch_seconds": EPOCH_SECONDS,
         "server_time": now,
     }
+
+
+# A lineage is a uuid hex, so a conversion room never shares a key with a document's live room
+def conversion_rooms(app: str, node: str) -> Rooms:
+    """Return the rooms a tab waiting on `node`'s conversion joins to hear its outcome."""
+    return rooms(app, node, "conversion")
+
+
+def publish_conversion(app: str, node: str, state: str) -> None:
+    """Tell the tabs waiting on `node` it was converted or refused, once that is committed."""
+    publish(app, node, "conversion", "suite_collab_converted", {"state": state})
 
 
 def room_key(app: str, doc_id: str, lineage: str, epoch: int) -> str:

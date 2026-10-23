@@ -1,7 +1,18 @@
 // Generated from src/apps/writer/client/contract.json. Do not edit.
 import type { MutationRef, PageRef, QueryRef } from '@/platform/transport'
 
-export type DocumentOutputConversionStatus = { state: string; reason?: string }
+export type DocumentOutputConversionStatus = {
+  state: string
+  reason?: string
+  rooms?: DocumentOutputRooms
+}
+
+export type DocumentOutputRooms = {
+  epoch: number
+  keys: Array<string>
+  epoch_seconds: number
+  server_time: number
+}
 
 export type DocumentInput = { name: string }
 
