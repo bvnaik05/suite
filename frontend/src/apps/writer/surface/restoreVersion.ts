@@ -52,6 +52,14 @@ export async function restoreVersion(
 
   if ('isConvertible' in body) {
     const converted = await convert()
+    if ('isPending' in converted) {
+      return {
+        isRestored: false,
+        message: 'This version is still being upgraded. Try restoring it again in a minute.',
+        anchors: {},
+      }
+    }
+
     if ('refused' in converted) {
       return { ...refusedNotice(converted.refused), anchors: {} }
     }

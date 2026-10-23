@@ -138,6 +138,7 @@ export const operationConvertVersion: Validators<ConvertVersionInput, ConvertVer
         properties: {
           state: { title: 'State', type: 'string' },
           reason: { title: 'Reason', type: 'string' },
+          pending: { title: 'Pending', type: 'boolean' },
         },
         title: 'VersionConversion',
         type: 'object',

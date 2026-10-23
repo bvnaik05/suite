@@ -222,6 +222,10 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "boolean"
           }
         },
         "title": "VersionConversion",

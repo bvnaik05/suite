@@ -20,8 +20,12 @@ export interface StoredVersion {
 export type VersionBody =
   { lineage: string; state: Uint8Array } | { html: string; isConvertible?: boolean }
 
-/** An old version as the converter makes it, or its refusal with the reason System Managers see. */
-export type ConvertedVersion = { body: VersionBody } | { refused: string | null }
+/** An old version as the converter makes it, its refusal with the reason System Managers see, or still converting. */
+export type ConvertedVersion =
+  { body: VersionBody } | { refused: string | null } | { isPending: true }
+
+const ASK_EVERY_MS = 2000
+const WAIT_MS = 150_000
 
 /** The stored bytes of version `seq`. */
 export async function fetchVersion(session: DocumentSession, seq: number): Promise<Uint8Array> {
@@ -105,17 +109,31 @@ export async function convertedVersion(
   session: DocumentSession,
   seq: number,
 ): Promise<ConvertedVersion> {
-  const converted = await client.mutation(
-    api.writer.versions.convert,
-    { node: session.nodeId, seq },
-    { context: session.credentials.context, silent: true },
-  )
+  const giveUpAt = Date.now() + WAIT_MS
+  let converted = await askToConvert(session, seq)
+  while (converted.pending) {
+    if (Date.now() >= giveUpAt) {
+      return { isPending: true }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, ASK_EVERY_MS))
+    converted = await askToConvert(session, seq)
+  }
+
   if (!converted.state) {
     return { refused: converted.reason ?? null }
   }
 
   // No lineage matches a converted state, so the restore matches it by content
   return { body: { lineage: '', state: fromBase64(converted.state) } }
+}
+
+function askToConvert(session: DocumentSession, seq: number) {
+  return client.mutation(
+    api.writer.versions.convert,
+    { node: session.nodeId, seq },
+    { context: session.credentials.context, silent: true },
+  )
 }
 
 function parsedOrNull(text: string): unknown {

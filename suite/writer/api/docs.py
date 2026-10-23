@@ -7,7 +7,7 @@ import frappe
 import mimemapper
 
 from suite import drive
-from suite.content import convert
+from suite.content import convert, scheduling
 from suite.writer import content as writer_content
 from suite.writer.drive import VERSION_SCHEMA, _read_bounded, _version_payload
 
@@ -17,10 +17,15 @@ QUICK_MAP = {
     "image/gif": "gif",
 }
 
+CONVERT_TIMEOUT = 300
+# How long a version waits for its job, and its answer for the page to ask again
+CONVERSION_KEPT = 600
+
 
 class VersionConversion(TypedDict):
     state: NotRequired[str]
     reason: NotRequired[str]
+    pending: NotRequired[bool]
 
 
 class OldBody(TypedDict):
@@ -66,9 +71,40 @@ def version_object(node: str, seq: int) -> dict:
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def convert_version(node: str, seq: int) -> VersionConversion:
-    """Convert an old `writer-document/1` version for a restore; EDIT only, as each call starts a Node child."""
+    """Convert an old `writer-document/1` version for a restore in a job, read here as the caller; EDIT only."""
     drive.check(node, drive.EDIT)
-    legacy = _version_payload(_read_bounded(drive.read_version(node, int(seq))))
+    seq = int(seq)
+    answer = frappe.cache.get_value(version_key("answer", node, seq))
+    if answer is None:
+        if frappe.cache.get_value(version_key("input", node, seq)) is None:
+            legacy = _version_payload(_read_bounded(drive.read_version(node, seq)))
+            frappe.cache.set_value(version_key("input", node, seq), legacy, expires_in_sec=CONVERSION_KEPT)
+
+        scheduling.enqueue(
+            "suite.writer.api.docs.run_version_conversion",
+            f"suite-writer-convert-version-{node}-{seq}",
+            timeout=CONVERT_TIMEOUT,
+            node=node,
+            seq=seq,
+        )
+        return {"pending": True}
+
+    if "state" in answer:
+        return {"state": answer["state"]}
+
+    refusal: VersionConversion = {}
+    if "System Manager" in frappe.get_roles():
+        refusal["reason"] = answer["reason"]
+
+    return refusal
+
+
+def run_version_conversion(node: str, seq: int) -> None:
+    """Convert the version `convert_version` read, and keep the answer for its next ask."""
+    legacy = frappe.cache.get_value(version_key("input", node, seq))
+    if legacy is None:
+        return
+
     try:
         converted = convert.convert(
             writer_content.CONVERTER_BUILD,
@@ -77,17 +113,26 @@ def convert_version(node: str, seq: int) -> VersionConversion:
         )
     except convert.ConverterChanged:
         converted = convert.Refused("converter_changed")
+    except Exception as error:
+        # By type only, as a traceback's locals could carry the document's text
+        frappe.log_error(
+            title="Writer: version conversion crashed", message=f"{node} v{seq}: {type(error).__name__}"
+        )
+        converted = convert.Refused("crashed")
 
+    answer = {"reason": "unavailable"}
     if isinstance(converted, convert.Converted):
-        return {"state": base64.b64encode(converted.state).decode()}
+        answer = {"state": base64.b64encode(converted.state).decode()}
+    elif converted is not None:
+        answer = {"reason": converted.reason}
 
-    refusal: VersionConversion = {}
-    if "System Manager" in frappe.get_roles():
-        refusal["reason"] = "unavailable"
-        if converted is not None:
-            refusal["reason"] = converted.reason
+    frappe.cache.set_value(version_key("answer", node, seq), answer, expires_in_sec=CONVERSION_KEPT)
+    frappe.cache.delete_value(version_key("input", node, seq))
 
-    return refusal
+
+def version_key(kind: str, node: str, seq: int) -> str:
+    """Name the cache key for version `seq`'s conversion input or answer under this converter."""
+    return f"suite-writer-version-{kind}-{node}-{seq}-{writer_content.CONVERTER_VERSION}"
 
 
 @frappe.whitelist()

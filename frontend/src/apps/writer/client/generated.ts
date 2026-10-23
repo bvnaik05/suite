@@ -82,7 +82,7 @@ const operationOldBody: QueryRef<OldBodyInput, OldBodyOutput, OldBodyError> = {
 
 export type ConvertVersionInput = { node: string; seq: number }
 
-export type ConvertVersionOutput = { state?: string; reason?: string }
+export type ConvertVersionOutput = { state?: string; reason?: string; pending?: boolean }
 
 export type ConvertVersionError = never
 

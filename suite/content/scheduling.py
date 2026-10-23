@@ -132,10 +132,10 @@ def sweep(
     request_overdue(app, method, limit)
 
 
-def enqueue(method: str, job_id: str, **kwargs: object) -> None:
+def enqueue(method: str, job_id: str, *, timeout: int = TIMEOUT, **kwargs: object) -> None:
     """Queue a collaboration job, once per `job_id`, on the compaction queue where the bench has one."""
     queue = "collab" if "collab" in frappe.conf.get("workers", {}) else "default"
-    frappe.enqueue(method, queue=queue, timeout=TIMEOUT, job_id=job_id, deduplicate=True, **kwargs)
+    frappe.enqueue(method, queue=queue, timeout=timeout, job_id=job_id, deduplicate=True, **kwargs)
 
 
 def request_compaction(app: str, doc_id: str, method: str) -> None:
