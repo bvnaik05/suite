@@ -30,7 +30,7 @@ from suite.writer.api import docs
 from suite.writer.content import conversion
 from suite.writer.content.readable_copy import is_html_complete
 from suite.writer.content.tests.drive_callback_case import DriveCallbackCase
-from suite.writer.content.tests.support import WRITER, call_route, read_open
+from suite.writer.content.tests.support import OUTSIDER, READER, WRITER, call_route, read_open
 from suite.writer.http import routes as writer_routes
 
 TIME = 1_690_000_000_000
@@ -639,6 +639,44 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(manager_sees, {"reason": "crashed"})
         self.assertEqual(self.crashes_logged(node), [f"{node} v{seq}: RuntimeError"])
 
+    def test_converts_a_version_only_for_an_editor_though_a_reader_reads_it(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        grant(node, READER, drive.READ, Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)))
+        frappe.db.commit()
+
+        frappe.set_user(READER)
+        with drive.read_version(node, seq) as stream:
+            self.assertIn(b"Hello world", stream.read())
+
+        with patch.object(scheduling, "enqueue") as enqueue, self.assertRaises(drive.DriveForbidden):
+            docs.convert_version(node, seq)
+
+        enqueue.assert_not_called()
+        frappe.set_user(OUTSIDER)
+        with self.assertRaises(drive.DriveNotFound):
+            drive.read_version(node, seq)
+
+    def test_answers_a_refused_version_with_its_reason_only_to_a_system_manager(self):
+        refusals = {
+            "check": {"return_value": convert.Refused("check")},
+            "unavailable": {"return_value": None},
+            "converter_changed": {"side_effect": convert.ConverterChanged("2")},
+        }
+        for reason, converting in refusals.items():
+            node = self.old_document("<p>Hello world</p>")
+            seq = drive.take_version(node)
+            frappe.db.commit()
+            with patch.object(convert, "convert", **converting):
+                writer_sees = self.poll_conversion(node, seq)
+
+            frappe.set_user("Administrator")
+            with patch.object(frappe.local, "job", None):
+                manager_sees = docs.convert_version(node, seq)
+
+            frappe.set_user(WRITER)
+            self.assertEqual((writer_sees, manager_sees), ({}, {"reason": reason}), msg=reason)
+
     def crashes_logged(self, node: str) -> list[str]:
         return frappe.get_all(
             "Error Log",
@@ -863,6 +901,16 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(conversion.convert_document(node), "check")
 
         self.assertEqual(len(self.records(node)), 2)
+
+    def test_a_refusal_after_a_failed_run_updates_the_bodys_one_record(self):
+        node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
+        with patch.object(convert, "convert", side_effect=RuntimeError("down")):
+            self.assertRaises(RuntimeError, conversion.convert_document, node)
+
+        self.assertEqual(conversion.convert_document(node), "check")
+
+        self.assertEqual(self.records(node), (("check", "orphan", None),))
+        self.assertEqual(self.failures(node), [1])
 
     def test_tells_the_reader_an_old_document_waits_for_the_converter(self):
         node = self.old_document("<p>Hello world</p>")
