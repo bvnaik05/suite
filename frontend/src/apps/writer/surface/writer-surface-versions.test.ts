@@ -8,6 +8,7 @@ import { client } from '@/api'
 import { downloadHTML } from './exports'
 import {
   buttonLabelled,
+  discardCopies,
   liveRoom,
   oneVersion,
   openedSurface,
@@ -59,6 +60,8 @@ vi.mock('./exports', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./exports')>()),
   downloadHTML: vi.fn(),
 }))
+
+const { keepPageCopy, listCopies } = await import('@/apps/writer/recovery/copies')
 
 afterEach(resetSurface)
 
@@ -218,6 +221,45 @@ describe('Writer surface', () => {
     name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
     await vi.waitFor(() => expect(create).toHaveBeenCalledWith('named', 'After review'))
     expect(root.querySelector('[data-preview]')).toBeNull()
+  })
+
+  it.each([
+    [
+      'the document menu',
+      (root: Element) => root.querySelector<HTMLElement>('[data-save-version]')!,
+    ],
+    [
+      'the Versions panel',
+      (root: Element) => buttonLabelled(root.querySelector('aside')!, 'Save version')!,
+    ],
+  ])('closes a shown recovery copy before naming a version from %s', async (_, saveButton) => {
+    liveRoom()
+    keepPageCopy('node-1', 'Quarterly plan', '<p>Typed while offline</p>')
+    const [copy] = await listCopies('node-1')
+    const key = encodeURIComponent(copy.key)
+    const create = vi.fn(async () => ({}))
+    const root = await openedSurface(
+      { ...oneVersion, create } as unknown as Versions,
+      `/d/node-1?recovery=${key}`,
+    )
+    await vi.waitFor(() => expect(root.textContent).toContain('Viewing recovery copy from'))
+    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+
+    saveButton(root).click()
+    await vi.waitFor(() =>
+      expect(root.querySelector('input[aria-label="Version name"]')).not.toBeNull(),
+    )
+    expect(root.textContent).not.toContain('Viewing recovery copy from')
+    expect(root.querySelector<HTMLElement>('[data-editor]')!.style.display).not.toBe('none')
+
+    const name = root.querySelector<HTMLInputElement>('input[aria-label="Version name"]')!
+    name.value = 'After review'
+    name.dispatchEvent(new Event('input'))
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await vi.waitFor(() => expect(create).toHaveBeenCalledWith('named', 'After review'))
+    expect(root.textContent).not.toContain('Viewing recovery copy from')
+    await discardCopies()
   })
 
   it('shows a version in place of the editor until Current version', async () => {
