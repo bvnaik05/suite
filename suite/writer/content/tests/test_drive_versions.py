@@ -135,7 +135,7 @@ class TestWriterDriveVersions(DriveCallbackCase):
         restore, row = self.restoring_without_a_log()
         before = row()
 
-        refusal = "This version can be restored only while collaboration is on"
+        refusal = "This version can be restored once the document is converted"
         with self.assertRaisesRegex(drive.DriveConflict, refusal):
             restore(record)
 
