@@ -348,6 +348,107 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual([type(error) for error in errors], [drive.DriveConflict])
         self.assertEqual(str(errors[0]), "Open the document to restore this version")
 
+    def purge_as_writer(self, node: str) -> None:
+        owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        _trash(owner, node)
+        purge(owner, node)
+
+    def purge_elsewhere(self, site: str, node: str, heavier: bool, errors: list, release: threading.Event):
+        frappe.init(site=site)
+        frappe.connect()
+        frappe.set_user(WRITER)
+        try:
+            if heavier:
+                # More locks than the conversion holds, so InnoDB rolls the conversion back instead
+                frappe.db.sql("SELECT `name` FROM `tabDocField` FOR UPDATE")
+
+            self.purge_as_writer(node)
+            release.wait(60)
+            frappe.db.commit()
+        except Exception as error:
+            errors.append(error)
+        finally:
+            frappe.destroy()
+
+    # Convert `page` and, once the conversion locks its first node, purge that node from another connection
+    def purge_while_converting(self, page: list[str], heavier: bool, release: threading.Event) -> list:
+        node = page[0]
+        errors: list[Exception] = []
+        purger = threading.Thread(
+            target=self.purge_elsewhere, args=(frappe.local.site, node, heavier, errors, release)
+        )
+        writer = spec_of(writer_content.APP).conversion
+        real_sql = frappe.db.sql
+
+        def sql(query, *args, **kwargs):
+            answer = real_sql(query, *args, **kwargs)
+            if "`tabDrive Node` WHERE `name` = %s FOR UPDATE" in str(query) and purger.ident is None:
+                purger.start()
+                time.sleep(2)
+
+            return answer
+
+        rows = [frappe._dict(node=name) for name in page]
+        with patch.object(frappe.db, "sql", sql):
+            self.assertTrue(convert.convert_page(writer_content.APP, writer, rows, time.monotonic() + 600))
+
+        release.set()
+        purger.join(30)
+        self.assertFalse(purger.is_alive())
+        return errors
+
+    def test_a_conversion_rolled_back_by_a_purge_deadlock_loses_nothing_and_the_run_goes_on(self):
+        node = self.old_document("<p>Hello world</p>")
+        self.addCleanup(self.delete_document, node)
+        [other] = self.old_documents(1)
+        self.forget_logged(f"{node}: QueryDeadlockError")
+        before = {**self.as_before(node), "state": "Active", "records": ()}
+        release = threading.Event()
+        during: dict = {}
+
+        # Look at the document once the run reaches the next one, before the purge commits
+        def converting(*args, **kwargs):
+            if not during and self.records(other):
+                during.update(self.as_before(node), state=frappe.db.get_value("Drive Node", node, "state"))
+                during["records"] = self.records(node)
+                release.set()
+
+            return REAL_CONVERT(*args, **kwargs)
+
+        with patch.object(convert, "convert", side_effect=converting):
+            errors = self.purge_while_converting([node, other], heavier=True, release=release)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(during, before)
+        deadlock = {
+            "method": "Collab conversion: writer did not run",
+            "error": ("like", f"%{node}: QueryDeadlockError%"),
+        }
+        self.assertTrue(frappe.db.exists("Error Log", deadlock))
+        self.assertEqual(self.records(other), (("converted", None, "[]"),))
+        self.assertFalse(frappe.db.exists("Drive Node", node))
+        self.assertFalse(frappe.db.exists("Writer Document", {"node": node}))
+
+    def test_a_purge_rolled_back_by_a_conversion_deadlock_writes_nothing_and_goes_through_again(self):
+        node = self.old_document("<p>Hello world</p>")
+        release = threading.Event()
+        release.set()
+
+        errors = self.purge_while_converting([node], heavier=False, release=release)
+
+        self.assertEqual([type(error) for error in errors], [frappe.QueryDeadlockError])
+        self.assertEqual(frappe.db.get_value("Drive Node", node, "state"), "Active")
+        self.assertEqual(self.records(node), (("converted", None, "[]"),))
+        self.assertEqual(
+            frappe.db.sql("SELECT `mode` FROM `__writer_content_doc` WHERE `node` = %s", node), (("active",),)
+        )
+        self.purge_as_writer(node)
+        frappe.db.commit()
+        self.assertFalse(frappe.db.exists("Drive Node", node))
+        self.assertEqual(
+            frappe.db.sql("SELECT `mode` FROM `__writer_content_doc` WHERE `node` = %s", node), (("purged",),)
+        )
+
     def test_converts_a_collaborative_version_from_its_yjs_body_not_its_stale_html(self):
         node = self.new_document()
         self.delete_log(node)

@@ -103,6 +103,11 @@ Ordering, which callers must respect to stay deadlock-free:
 A caller that takes its own locks in the same transaction takes them in that
 order: `User`, then its own tables, then Drive.
 
+app→Drive callers (restore/purge) can deadlock against conversion, which locks
+its row and node before the tree; InnoDB rolls one back, pinned by
+`test_a_conversion_rolled_back_by_a_purge_deadlock_loses_nothing_and_the_run_goes_on`
+and `test_a_purge_rolled_back_by_a_conversion_deadlock_writes_nothing_and_goes_through_again`.
+
 Drive's HTTP and WebDAV write requests run at READ COMMITTED
 (`framework.begin_drive_write`). Under REPEATABLE READ the range reads and
 range updates of a tree write also lock the gaps beside the rows they touch,
