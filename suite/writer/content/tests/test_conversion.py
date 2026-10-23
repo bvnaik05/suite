@@ -7,7 +7,7 @@ import os
 import threading
 import time
 from datetime import timedelta
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
 
 import frappe
 import pycrdt
@@ -18,7 +18,7 @@ from werkzeug.wrappers import Request
 
 from suite import drive
 from suite.composition import lifecycle
-from suite.content import checker, compaction, convert, copies, jobs, live, log, scheduling
+from suite.content import checker, compaction, convert, copies, jobs, live, log, scheduling, selftest
 from suite.content.editors import spec_of
 from suite.content.http import routes
 from suite.drive._core.access import grant
@@ -1465,6 +1465,54 @@ class TestConversion(DriveCallbackCase):
             convert.run_pending(writer_content.APP, writer)
 
         ready.assert_not_called()
+
+    def refused_for(self, reason: str, *patches) -> None:
+        self.forget_logged(reason)
+        logged = self.reasons_logged(reason)
+        [node] = self.old_documents(1)
+
+        with contextlib.ExitStack() as stack:
+            for target, name, value in patches:
+                stack.enter_context(patch.object(target, name, value))
+
+            self.assertEqual(self.run_on([node]), [])
+
+        self.assertIsNone(log.find(writer_content.APP, node))
+        self.assertEqual(self.records(node), ())
+        self.assertEqual(self.reasons_logged(reason), logged + 1)
+
+    def test_converts_nothing_on_a_database_other_than_mariadb(self):
+        self.refused_for("the database isn't MariaDB", (frappe.db, "db_type", "postgres"))
+
+    def test_converts_nothing_and_raises_nothing_while_a_content_table_is_missing(self):
+        tables = [name for name in frappe.db.get_tables(cached=False) if name != "__writer_content_copy"]
+        missing = MagicMock(return_value=tables)
+
+        self.refused_for("content table __writer_content_copy is missing", (frappe.db, "get_tables", missing))
+
+    def test_converts_nothing_while_the_self_test_fails(self):
+        mismatch = MagicMock(return_value="content_mismatch")
+
+        self.refused_for(
+            "the collaboration self-test fails: content_mismatch", (selftest, "compaction_check", mismatch)
+        )
+
+    def test_converts_nothing_under_another_pycrdt_version(self):
+        self.refused_for(
+            "the collaboration self-test fails: pycrdt 0.14.6, expected 0.14.8",
+            (pycrdt, "__version__", "0.14.6"),
+        )
+
+    def test_runs_no_self_test_when_no_document_waits(self):
+        writer = spec_of(writer_content.APP).conversion
+
+        with (
+            patch.object(convert, "pending_page", return_value=[]),
+            patch.object(selftest, "compaction_check", wraps=selftest.compaction_check) as checking,
+        ):
+            convert.run_pending(writer_content.APP, writer)
+
+        checking.assert_not_called()
 
     def test_reads_a_refused_body_again_only_once_it_changes(self):
         [node] = self.old_documents(1)
