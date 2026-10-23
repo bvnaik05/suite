@@ -79,6 +79,7 @@ def before_migrate() -> None:
 
 
 def after_migrate():
+    from suite.content import convert
     from suite.content import ensure_tables as ensure_content_tables
     from suite.content.editors import editors as content_editors
     from suite.drive.framework import validate_content_registry
@@ -89,6 +90,7 @@ def after_migrate():
     _run("mail.after_migrate", mail_after_migrate)
     _run("content.editors", content_editors)
     _run("content.ensure_tables", ensure_content_tables)
+    _run("content.check_blocks", convert.check_after_migrate)
     _run("drive.index_group_membership", index_group_membership)
     _run("drive.validate_content_registry", validate_content_registry)
     _run("slides.seed_system_templates", seed_system_templates)

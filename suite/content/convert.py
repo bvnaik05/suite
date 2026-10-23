@@ -26,6 +26,7 @@ every migrate, and System Managers get one notification per cause until it is fi
 """
 
 import base64
+import contextlib
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -163,7 +164,16 @@ def log_reason(app: str, reason: str) -> None:
 
 
 def check_before_migrate() -> None:
-    """Print what stops documents waiting to convert, and tell System Managers once; never raises."""
+    """Print what stops documents waiting to convert, and tell System Managers once; quiet when it can't check yet."""
+    with contextlib.suppress(Exception):
+        tell_blocks()
+
+
+def check_after_migrate() -> None:
+    """Check as before_migrate does unless it already told this migrate, as on a first upgrade; never raises."""
+    if frappe.flags.suite_collab_blocks_checked:
+        return
+
     try:
         tell_blocks()
     except Exception as error:
@@ -186,6 +196,8 @@ def tell_blocks() -> None:
 
         print(f"Collaborative documents can't be upgraded: {BLOCKS[cause]}")
         report_block(cause)
+
+    frappe.flags.suite_collab_blocks_checked = True
 
 
 def any_waiting() -> bool:
