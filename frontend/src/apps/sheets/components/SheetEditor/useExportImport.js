@@ -1,4 +1,4 @@
-import { DEFAULT_COL_W, DEFAULT_ROW_H } from '../../core/view-model.js'
+import { DEFAULT_COL_W, DEFAULT_ROW_H, MIN_COL_W, MIN_ROW_H } from '../../core/view-model.js'
 import { renameSheetsInFormula } from '../../engine/formula-adjust.js'
 import { fromXlsxCell, numFmtFromEngine, numFmtToZ, toXlsxCell } from '../../engine/xlsx-io.js'
 import {
@@ -7,6 +7,7 @@ import {
   colWidthFromXlsx,
   colWidthToXlsx,
   commonFont,
+  customHeightRows,
   refToRects,
   rowHeightFromXlsx,
   rowHeightToXlsx,
@@ -74,6 +75,45 @@ function _dateZ(fmt) {
 async function _excel() {
   const mod = await import('exceljs')
   return mod.default ?? mod
+}
+
+// An .xls or .ods file as .xlsx bytes, through SheetJS.
+async function _toXlsx(buf) {
+  const { read, write } = await import('xlsx')
+  // No cellDates: see fromXlsxCell (ISSUES #58).
+  const wb = read(buf, { type: 'array', cellFormula: true, cellNF: true })
+  return write(wb, { type: 'array', bookType: 'xlsx' })
+}
+
+// Each worksheet's hand-set rows (customHeightRows) by sheet name, read from
+// the file's XML (ExcelJS drops customHeight); null when it can't be read.
+async function _customHeights(buf) {
+  try {
+    const mod = await import('jszip')
+    const zip = await (mod.default ?? mod).loadAsync(buf)
+    const text = async (path) => (await zip.file(path)?.async('string')) ?? ''
+    const attr = (tag, name) => tag.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1]
+    const targets = {}
+    for (const [tag] of (await text('xl/_rels/workbook.xml.rels')).matchAll(
+      /<Relationship\b[^>]*>/g,
+    ))
+      targets[attr(tag, 'Id')] = attr(tag, 'Target')
+    const out = new Map()
+    for (const [tag] of (await text('xl/workbook.xml')).matchAll(/<sheet\b[^>]*>/g)) {
+      const target = targets[attr(tag, 'r:id')]
+      if (!target) continue
+      const path = target.startsWith('/') ? target.slice(1) : `xl/${target}`
+      out.set(_unescapeXml(attr(tag, 'name')), customHeightRows(await text(path)))
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
+function _unescapeXml(s = '') {
+  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+  return s.replace(/&(amp|lt|gt|quot|apos);/g, (_, n) => named[n])
 }
 
 // A cell format as an ExcelJS style, its number format included.
@@ -363,11 +403,16 @@ export function useExportImport({
     if (!file) return
     try {
       const ExcelJS = await _excel()
+      let buf = await file.arrayBuffer()
+      // The picker takes .xls and .ods too, which only SheetJS reads: they
+      // come in through the .xlsx it writes of them (values, formulas,
+      // number formats and merges; no styles).
+      if (!/\.xls[xm]$/i.test(file.name || 'book.xlsx')) buf = await _toXlsx(buf)
       const wb = new ExcelJS.Workbook()
       // A number under a date code comes in as a UTC Date, which _cellIn
       // turns back into its day serial: no local-time shift (ISSUES #58).
-      await wb.xlsx.load(await file.arrayBuffer())
-      await _ingestWorkbook(wb)
+      await wb.xlsx.load(buf)
+      await _ingestWorkbook(wb, await _customHeights(buf))
     } finally {
       e.target.value = '' // always reset so re-picking the same file re-fires
     }
@@ -377,7 +422,8 @@ export function useExportImport({
   // current sheets are untouched. Each cell carries its value/formula, number
   // format and style, and each sheet its sizes, hides, freeze, merges and
   // conditional formats.
-  async function _ingestWorkbook(wb) {
+  // heights: each sheet's hand-set rows (customHeightRows), by name.
+  async function _ingestWorkbook(wb, heights) {
     const stores = {
       formats: getFormats?.(),
       merge: getMerge?.(),
@@ -403,7 +449,7 @@ export function useExportImport({
         const name = renames[ws.name]
         cells.addSheet(name)
         if (!firstAdded) firstAdded = name
-        views[name] = await _ingestWorksheet(ws, stores, name, renames)
+        views[name] = await _ingestWorksheet(ws, stores, name, renames, heights?.get(ws.name))
       }
     } finally {
       // The tab list is the engine's as of its last apply, so wait for the
@@ -424,7 +470,14 @@ export function useExportImport({
   }
 
   // Ingests one worksheet and returns its view (sizes, hides, freeze).
-  async function _ingestWorksheet(ws, { formats, merge, condFormat, theme }, name, renames) {
+  // custom: its hand-set rows, or undefined when unknown (all count as set).
+  async function _ingestWorksheet(
+    ws,
+    { formats, merge, condFormat, theme },
+    name,
+    renames,
+    custom,
+  ) {
     const view = {
       colW: {},
       rowH: {},
@@ -432,22 +485,28 @@ export function useExportImport({
       freezeCols: 0,
       hiddenRows: [],
       hiddenCols: [],
+      manualRows: [],
     }
     // includeEmpty: a filled cell with no value still carries a format.
     const all = []
     ws.eachRow({ includeEmpty: true }, (row) => {
-      // A default size reads as none (we write it on hidden rows and columns).
+      const r = row.number - 1
+      // A default height reads as none (we write it on hidden rows), and a
+      // hidden row squashed to nothing keeps ours.
       const h = row.height && rowHeightFromXlsx(row.height)
-      if (h && h !== DEFAULT_ROW_H) view.rowH[row.number - 1] = h
-      if (row.hidden) view.hiddenRows.push(row.number - 1)
+      if (h && h !== DEFAULT_ROW_H && !(row.hidden && h < MIN_ROW_H)) {
+        view.rowH[r] = Math.max(MIN_ROW_H, h)
+        // Set by hand: kept from auto-fitting. One Excel fitted to its text
+        // refits here as well.
+        if (!custom || custom.has(r)) view.manualRows.push(r)
+      }
+      if (row.hidden) view.hiddenRows.push(r)
       // A merged cell reads as its top-left cell (value, formula, style), so
       // only the top-left one is the merge's own.
       row.eachCell({ includeEmpty: true }, (cell) => {
         if (!cell.isMerged || cell.master === cell) all.push(cell)
       })
     })
-    // A height in the file is one somebody set: keep it from auto-fitting.
-    view.manualRows = Object.keys(view.rowH).map(Number)
     // The font most cells use reads as no font (Google writes Arial 10).
     const opts = { theme, font: commonFont(all.map((c) => c.style)) }
 
@@ -467,8 +526,11 @@ export function useExportImport({
     // Column and row formats before the cells' own, which win over them.
     ;(ws.columns || []).forEach((col, c) => {
       // isCustomWidth: ExcelJS reads a <col> with no width as 9 characters.
+      // A hidden column squashed to nothing keeps ours; a visible one is no
+      // narrower than one can be dragged to.
       const w = col.isCustomWidth && colWidthFromXlsx(col.width)
-      if (w && w !== DEFAULT_COL_W) view.colW[c] = w
+      if (w && w !== DEFAULT_COL_W && !(col.hidden && w < MIN_COL_W))
+        view.colW[c] = Math.max(MIN_COL_W, w)
       if (col.hidden) view.hiddenCols.push(c)
       const f = _withNumFmt(
         styleFromXlsx(col.style, opts),

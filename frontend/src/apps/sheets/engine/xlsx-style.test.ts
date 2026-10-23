@@ -7,6 +7,7 @@ import {
   colWidthFromXlsx,
   colWidthToXlsx,
   commonFont,
+  customHeightRows,
   refToRects,
   rowHeightFromXlsx,
   rowHeightToXlsx,
@@ -121,6 +122,15 @@ describe('sizes', () => {
   })
 })
 
+describe('customHeightRows', () => {
+  it('lists the rows whose height was set by hand (customHeight), 0-based', () => {
+    const xml =
+      '<sheetData><row r="1" ht="30" customHeight="1"><c r="A1"/></row>' +
+      '<row r="2" ht="21"><c r="A2"/></row><row customHeight="true" ht="40" r="5"/></sheetData>'
+    expect([...customHeightRows(xml)]).toEqual([0, 4])
+  })
+})
+
 describe('refToRects', () => {
   it('reads a multi-range sqref, absolute refs and single cells', () => {
     expect(refToRects('A1:B5 $D$2')).toEqual([
@@ -205,6 +215,35 @@ describe('cfToXlsx / cfFromXlsx', () => {
       formulae: ['NOT(ISERROR(SEARCH("say ""hi""",D2)))'],
     })
     expect(cfFromXlsx(x)).toEqual([{ range, condition: rule.condition, format: green }])
+  })
+
+  // An Excel formula rule is worked out for each cell, relative to the
+  // range's top-left one. Ours can't evaluate formulas, so one that only
+  // compares that cell becomes the matching rule; any other is kept as it
+  // is, so it goes back out to Excel unchanged.
+  it("reads a formula rule on the range's own cell as the matching rule", () => {
+    const read = (f: string) =>
+      cfFromXlsx({ ref: 'D2:D6', rules: [{ type: 'expression', formulae: [f], style: {} }] })[0]
+        ?.condition
+    expect(read('D2>100')).toEqual({ type: 'gt', value: '100' })
+    expect(read('D2<=-2.5')).toEqual({ type: 'lte', value: '-2.5' })
+    expect(read('D2<>0')).toEqual({ type: 'neq', value: '0' })
+    expect(read('ISBLANK(D2)')).toEqual({ type: 'empty' })
+    expect(read('LEN(TRIM(D2))=0')).toEqual({ type: 'empty' })
+    expect(read('NOT(ISBLANK(D2))')).toEqual({ type: 'notempty' })
+    expect(read('LEN(TRIM(D2))>0')).toEqual({ type: 'notempty' })
+    // Another cell, or text: kept as the formula.
+    expect(read('$C2>100')).toEqual({ type: 'formula', value: '=$C2>100' })
+    expect(read('D2="Done"')).toEqual({ type: 'formula', value: '=D2="Done"' })
+    expect(read('D3>100')).toEqual({ type: 'formula', value: '=D3>100' })
+  })
+
+  it('writes a kept formula rule back unchanged', () => {
+    const rule = { id: 1, range, condition: { type: 'formula', value: '=$C2>100' }, format: green }
+    expect(cfToXlsx(rule as never)!.rules[0]).toMatchObject({
+      type: 'expression',
+      formulae: ['$C2>100'],
+    })
   })
 
   it("reads Excel's containsText rule by its text", () => {

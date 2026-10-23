@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import JSZip from 'jszip'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { createCondFormatEngine } from '../../engine/cond-format.js'
@@ -16,8 +17,8 @@ async function written(build: () => Promise<ArrayBuffer>, sheet = 'Sheet1') {
   return wb.Sheets[sheet] as unknown as Record<string, XCell>
 }
 
-function file(buf: ArrayBuffer | Uint8Array) {
-  return { target: { files: [{ arrayBuffer: async () => buf }], value: '' } }
+function file(buf: ArrayBuffer | Uint8Array, name = 'book.xlsx') {
+  return { target: { files: [{ name, arrayBuffer: async () => buf }], value: '' } }
 }
 
 // Typing $1.50, 15% or 1,000 stores the number with IronCalc's format and
@@ -377,5 +378,65 @@ describe('xlsx round trip of styling, sizes, freeze, merges and conditional form
     expect(back.formats.get('A2', 'Sales')).toEqual({})
     expect(back.formats.get('A4', 'Sales')).toEqual({ fontSize: 21 })
     expect(back.state.views.Sales).toMatchObject({ colW: { 0: 158 }, freezeRows: 1, freezeCols: 0 })
+  })
+
+  // The file picker takes .xls and .ods too, which only SheetJS reads; with
+  // ExcelJS alone they failed without a word.
+  for (const [ext, bookType] of [
+    ['xls', 'biff8'],
+    ['ods', 'ods'],
+  ] as const) {
+    it(`imports a .${ext} file`, async () => {
+      const { utils, write } = await import('xlsx')
+      const wb = utils.book_new()
+      const ws = {
+        '!ref': 'A1:B2',
+        A1: { t: 's', v: 'Region' },
+        B1: { t: 'n', v: 0.25, z: '0.00%' },
+        A2: { t: 's', v: 'North' },
+        B2: { t: 'n', v: 46037, z: 'd mmm yyyy' },
+      }
+      utils.book_append_sheet(wb, ws, 'Sales')
+      const buf = write(wb, { type: 'array', bookType })
+      const back = editor({})
+      await back.importXLSX(file(buf, `report.${ext}`))
+      expect(back.writes.Sales).toMatchObject({ A1: 'Region', B1: '0.25', A2: 'North' })
+      // SheetJS's own .ods writer leaves the number formats out, so only the
+      // .xls has them to bring in.
+      if (ext === 'xls') {
+        expect(back.writes.Sales?.B2).toBe('2026-01-15')
+        expect(back.formats.get('B1', 'Sales')).toEqual({ numberFormat: 'percentage' })
+        expect(back.formats.get('B2', 'Sales')).toEqual({ numberFormat: 'date:long' })
+      }
+    })
+  }
+
+  it("keeps hand-set row heights, lets Excel's auto-fitted ones refit, and no 5 px columns", async () => {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Sales')
+    ws.getCell('A1').value = 'Title'
+    ws.getRow(1).height = 30 // set by hand
+    ws.getCell('A2').value = 'Big text'
+    ws.getRow(2).height = 21 // Excel's own fit to a larger font
+    ws.getCell('A4').value = 'x' // ExcelJS drops a row with no cells
+    ws.getRow(4).height = 0.5 // hidden by squashing
+    ws.getRow(4).hidden = true
+    ws.getColumn(2).width = 1 // a 12 px spacer
+    ws.getColumn(4).width = 0 // hidden column, as Excel writes it
+    ws.getColumn(4).hidden = true
+    // ExcelJS marks every height it writes as set by hand; take it off row 2.
+    const zip = await JSZip.loadAsync(await wb.xlsx.writeBuffer())
+    const path = 'xl/worksheets/sheet1.xml'
+    const xml = await zip.file(path)!.async('string')
+    zip.file(path, xml.replace(/(<row r="2"[^>]*?) customHeight="1"/, '$1'))
+    const back = editor({})
+    await back.importXLSX(file(await zip.generateAsync({ type: 'arraybuffer' })))
+    expect(back.state.views.Sales).toMatchObject({
+      colW: { 1: 30 },
+      rowH: { 0: 40, 1: 28 },
+      manualRows: [0],
+      hiddenRows: [3],
+      hiddenCols: [3],
+    })
   })
 })

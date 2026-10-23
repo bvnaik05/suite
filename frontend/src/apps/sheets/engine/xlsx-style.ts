@@ -13,7 +13,7 @@
 import { cellId, parseCellId } from '../utils/cells.js'
 import { FONT_FAMILY_STACK } from '../utils/font-stacks.js'
 import { displayNumber } from '../utils/format-number.js'
-import type { CfRule } from './cond-format.js'
+import type { CfCondition, CfRule } from './cond-format.js'
 import type { Format } from './formats.js'
 import type { Rect } from './types.js'
 
@@ -348,6 +348,20 @@ export function rowHeightFromXlsx(pt: number): number {
   return Math.round((pt * 4) / 3)
 }
 
+/**
+ * The rows (0-based) of a worksheet's XML whose height was set by hand
+ * (`customHeight`). Excel also writes a height for rows it fitted to their
+ * text, and ExcelJS reads both the same.
+ */
+export function customHeightRows(sheetXml: string): Set<number> {
+  const rows = new Set<number>()
+  for (const [tag] of sheetXml.matchAll(/<row\b[^>]*>/g)) {
+    const r = tag.match(/\br="(\d+)"/)?.[1]
+    if (r && /\bcustomHeight="(1|true)"/.test(tag)) rows.add(Number(r) - 1)
+  }
+  return rows
+}
+
 // ── Conditional formats ──────────────────────────────────────────────────────
 
 const OPERATOR: Record<string, string> = {
@@ -513,6 +527,28 @@ function _stop(v: XCfvo | undefined): number | null {
   return null
 }
 
+const COMPARE: Record<string, string> = {
+  '>': 'gt',
+  '<': 'lt',
+  '>=': 'gte',
+  '<=': 'lte',
+  '=': 'eq',
+  '<>': 'neq',
+}
+
+// An Excel formula rule is worked out for each cell of its range, relative
+// to the range's top-left cell `tl`. One that only tests that cell against a
+// number or for blank is the matching rule of ours; null for any other
+// (ours can't evaluate formulas).
+function _selfCondition(f: string, tl: string): CfCondition | null {
+  const s = f.replace(/\s+/g, '').toUpperCase()
+  const cmp = s.match(/^([A-Z]+\d+)(>=|<=|<>|>|<|=)(-?\d+(?:\.\d+)?)$/)
+  if (cmp && cmp[1] === tl) return { type: COMPARE[cmp[2]!]!, value: cmp[3]! }
+  if (s === `ISBLANK(${tl})` || s === `LEN(TRIM(${tl}))=0`) return { type: 'empty' }
+  if (s === `NOT(ISBLANK(${tl}))` || s === `LEN(TRIM(${tl}))>0`) return { type: 'notempty' }
+  return null
+}
+
 /** One ExcelJS conditional formatting → our rules (one per range and rule), id-less. */
 export function cfFromXlsx(
   cf: XConditionalFormatting,
@@ -578,10 +614,11 @@ export function cfFromXlsx(
       // Our "contains" and "does not contain", as written above.
       const search = f.match(/^(NOT\()?ISERROR\(SEARCH\(("(?:[^"]|"")*"),[A-Z]+\d+\)\)(\))?$/i)
       const contains = search && !!search[1] === !!search[3]
+      const tl = rects[0] && cellId(rects[0].r0, rects[0].c0)
       rule = {
         condition: contains
           ? { type: search[1] ? 'contains' : 'notcontains', value: _value(search[2]) }
-          : { type: 'formula', value: '=' + f },
+          : (tl && _selfCondition(f, tl)) || { type: 'formula', value: '=' + f },
         format: _format(x.style, theme),
       }
     }
