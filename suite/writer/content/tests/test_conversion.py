@@ -1,5 +1,7 @@
 import base64
+import contextlib
 import dataclasses
+import io
 import json
 import os
 import threading
@@ -15,7 +17,8 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
 from suite import drive
-from suite.content import checker, compaction, convert, copies, jobs, log, scheduling
+from suite.composition import lifecycle
+from suite.content import checker, compaction, convert, copies, jobs, live, log, scheduling
 from suite.content.editors import spec_of
 from suite.content.http import routes
 from suite.drive._core.access import grant
@@ -851,7 +854,7 @@ class TestConversion(DriveCallbackCase):
                 self.assertRaises(RuntimeError, conversion.convert_document, node)
                 self.assertEqual(self.records(node), ((None, None, None),))
                 self.assertEqual(self.failures(node), [failures])
-                self.assertEqual(conversion.conversion_status(node), {"state": "pending"})
+                self.assertEqual(conversion.conversion_status(node)["state"], "pending")
 
             self.assertRaises(RuntimeError, conversion.convert_document, node)
             self.assertIsNone(conversion.convert_document(node))
@@ -874,7 +877,7 @@ class TestConversion(DriveCallbackCase):
 
         self.assertEqual(self.as_before(node), before)
         self.assertEqual(self.records(node), ())
-        self.assertEqual(conversion.conversion_status(node), {"state": "pending"})
+        self.assertEqual(conversion.conversion_status(node)["state"], "pending")
 
     def test_tries_a_failed_child_body_again_and_keeps_its_reason_at_the_third_failure(self):
         for reason in ("child_timeout", "child_crash"):
@@ -937,10 +940,204 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(self.records(node), (("check", "orphan", None),))
         self.assertEqual(self.failures(node), [1])
 
-    def test_tells_the_reader_an_old_document_waits_for_the_converter(self):
-        node = self.old_document("<p>Hello world</p>")
+    def test_gives_a_reader_the_rooms_a_waiting_document_is_told_its_outcome_on(self):
+        [waiting] = self.old_documents(1)
+        refused = self.refused_document()
+        grant(waiting, READER, drive.READ, Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)))
+        frappe.db.commit()
 
-        self.assertEqual(writer_routes.document(self.docname_of(node))["conversion"], {"state": "pending"})
+        frappe.set_user(READER)
+        reader_sees = writer_routes.document(self.docname_of(waiting))["conversion"]
+        frappe.set_user(OUTSIDER)
+        self.assertRaises(frappe.PermissionError, writer_routes.document, self.docname_of(waiting))
+        frappe.set_user(WRITER)
+
+        self.assertEqual(writer_routes.document(self.docname_of(refused))["conversion"], {"state": "refused"})
+        self.assertEqual(sorted(reader_sees), ["rooms", "state"])
+        self.assertEqual(reader_sees["state"], "pending")
+        self.assertEqual(len(set(reader_sees["rooms"]["keys"])), 2)
+        for key in reader_sees["rooms"]["keys"]:
+            self.assertRegex(key, r"^sc:[A-Za-z0-9_-]{32}$")
+
+    def refused_document(self) -> str:
+        node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
+        self.addCleanup(self.delete_document, node)
+        self.assertEqual(conversion.convert_document(node), "check")
+        return node
+
+    def heard(self, node: str, run) -> list[tuple]:
+        keys = writer_routes.document(self.docname_of(node))["conversion"]["rooms"]["keys"]
+        told: list[tuple] = []
+
+        def publish(event, message, room=None, **kwargs):
+            if event != "suite_collab_converted":
+                return
+
+            # Anything not yet committed is gone, as for a tab that reloads on hearing it
+            frappe.db.rollback()
+            committed = [outcome for outcome, _reason, _dropped in self.records(node)]
+            told.append((message, room in keys, committed))
+
+        with patch("frappe.publish_realtime", side_effect=publish):
+            run(node)
+
+        return told
+
+    def test_tells_the_tabs_waiting_on_a_document_its_outcome_once_committed(self):
+        converted, too_large, child_crash, stale = self.old_documents(4)
+        orphan = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
+        self.addCleanup(self.delete_document, orphan)
+        stale_start = frappe.utils.now_datetime() - conversion.STALE_ATTEMPT - timedelta(seconds=1)
+        conversion.start_attempt(stale, conversion.read_old(stale).fingerprint, stale_start, retry=False)
+
+        def thrice(node):
+            for _ in range(3):
+                conversion.convert_document(node)
+
+        self.assertEqual(
+            self.heard(converted, conversion.convert_document),
+            [({"state": "converted"}, True, ["converted"])],
+        )
+        self.assertEqual(
+            self.heard(orphan, conversion.convert_document), [({"state": "refused"}, True, ["check"])]
+        )
+        self.assertEqual(
+            self.heard(stale, conversion.convert_document), [({"state": "refused"}, True, ["crashed"])]
+        )
+        with patch.object(convert, "convert", return_value=convert.Refused("too_large")):
+            told = self.heard(too_large, conversion.convert_document)
+
+        self.assertEqual(told, [({"state": "refused"}, True, ["too_large"])])
+        with patch.object(convert, "convert", return_value=convert.Refused("child_crash")):
+            told = self.heard(child_crash, thrice)
+
+        self.assertEqual(told, [({"state": "refused"}, True, ["child_crash"])])
+
+    def forget_blocks(self) -> None:
+        def forget():
+            for cause in ("node", "scheduler"):
+                frappe.db.set_global(f"suite_collab_blocked_{cause}", None)
+
+            frappe.db.delete(
+                "Notification Log", {"subject": ("like", "Collaborative documents can't be upgraded%")}
+            )
+            frappe.db.commit()
+
+        forget()
+        self.addCleanup(forget)
+
+    def make_manager(self) -> None:
+        frappe.set_user("Administrator")
+        frappe.get_doc("User", WRITER).add_roles("System Manager")
+        frappe.set_user(WRITER)
+
+        def unmake():
+            frappe.set_user("Administrator")
+            frappe.get_doc("User", WRITER).remove_roles("System Manager")
+            frappe.db.commit()
+
+        self.addCleanup(unmake)
+
+    def notified(self, cause: str) -> int:
+        subject = f"Collaborative documents can't be upgraded: {cause}"
+        return frappe.db.count("Notification Log", {"for_user": WRITER, "subject": subject})
+
+    def reason_for_a_manager(self, node: str) -> str | None:
+        frappe.set_user("Administrator")
+        try:
+            return writer_routes.document(self.docname_of(node))["conversion"].get("reason")
+        finally:
+            frappe.set_user(WRITER)
+
+    def test_gives_only_a_system_manager_why_waiting_documents_do_not_convert(self):
+        self.forget_blocks()
+        [node] = self.old_documents(1)
+        convert.report_block("scheduler")
+
+        self.assertNotIn("reason", writer_routes.document(self.docname_of(node))["conversion"])
+        self.assertEqual(self.reason_for_a_manager(node), "scheduler")
+
+    def test_a_run_without_node_tells_system_managers_once_until_node_is_fixed(self):
+        no_node = "Node 22.13 or newer is missing"
+        self.forget_blocks()
+        self.forget_logged(no_node)
+        self.make_manager()
+        logged = self.reasons_logged(no_node)
+        [node] = self.old_documents(1)
+        convert.report_block("scheduler")
+
+        with patch.object(checker, "usable_node", return_value=None):
+            self.assertEqual(self.run_on([node]), [])
+            self.assertEqual(self.run_on([node]), [])
+
+        self.assertEqual(self.records(node), ())
+        self.assertEqual(self.reasons_logged(no_node), logged + 1)
+        self.assertEqual((self.notified(no_node), self.notified("the scheduler is off")), (1, 1))
+        self.assertEqual(self.reason_for_a_manager(node), "node")
+
+        with patch.object(convert, "bundle_ready", return_value=True):
+            self.run_on([])
+
+        self.assertIsNone(self.reason_for_a_manager(node))
+        with patch.object(checker, "usable_node", return_value=None):
+            self.run_on([])
+
+        self.assertEqual(self.notified(no_node), 2)
+
+    def migrate_output(self) -> list[str]:
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertIsNone(lifecycle.before_migrate())
+
+        return [line for line in printed.getvalue().splitlines() if "upgrade" in line]
+
+    def blocked_migrate_output(self, enabled: bool, **pending) -> list[str]:
+        with (
+            patch.object(log, "enabled", return_value=enabled),
+            patch.object(checker, "usable_node", return_value=None),
+            patch.object(convert, "is_scheduler_disabled", return_value=True),
+            patch.object(convert, "pending_page", **pending),
+        ):
+            return self.migrate_output()
+
+    def test_before_migrate_prints_each_cause_every_time_and_tells_system_managers_once(self):
+        self.forget_blocks()
+        self.make_manager()
+        [node] = self.old_documents(1)
+        lines = [
+            "Collaborative documents can't be upgraded: Node 22.13 or newer is missing",
+            "Collaborative documents can't be upgraded: the scheduler is off",
+        ]
+
+        self.assertEqual(self.blocked_migrate_output(True, wraps=convert.pending_page), lines)
+        self.assertEqual(self.blocked_migrate_output(True, wraps=convert.pending_page), lines)
+
+        self.assertEqual(
+            (self.notified("Node 22.13 or newer is missing"), self.notified("the scheduler is off")), (1, 1)
+        )
+        self.assertEqual(self.reason_for_a_manager(node), "node")
+
+        with (
+            patch.object(log, "enabled", return_value=True),
+            patch.object(convert, "is_scheduler_disabled", return_value=False),
+        ):
+            self.assertEqual(self.migrate_output(), [])
+
+        self.assertIsNone(self.reason_for_a_manager(node))
+
+    def test_before_migrate_says_nothing_with_nothing_to_convert_and_goes_on_when_its_check_fails(self):
+        self.forget_blocks()
+        [node] = self.old_documents(1)
+
+        off = self.blocked_migrate_output(False, wraps=convert.pending_page)
+        none_waits = self.blocked_migrate_output(True, return_value=[])
+        failed = self.blocked_migrate_output(True, side_effect=RuntimeError("Hello world"))
+
+        self.assertEqual((off, none_waits), ([], []))
+        self.assertEqual(
+            failed, ["Couldn't check whether collaborative documents can be upgraded: RuntimeError"]
+        )
+        self.assertIsNone(self.reason_for_a_manager(node))
 
     def test_gives_the_reason_for_a_refusal_only_to_a_system_manager(self):
         node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
@@ -1157,8 +1354,8 @@ class TestConversion(DriveCallbackCase):
         self.assertNotIn("Crash text", logged)
         self.assertEqual(new_logs(), [logged])
 
-    def test_without_node_or_the_bundle_writes_nothing_and_logs_once_an_hour(self):
-        reason = "no Node, or no converter bundle of this version"
+    def test_without_the_bundle_writes_nothing_and_logs_once_an_hour(self):
+        reason = "no converter bundle of this version"
         self.forget_logged(reason)
         logged = self.reasons_logged(reason)
         [node] = self.old_documents(1)
