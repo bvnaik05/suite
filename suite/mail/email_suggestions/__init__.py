@@ -5,7 +5,7 @@ from frappe.utils.caching import redis_cache
 
 from suite.mail.doctype.contact_card.contact_card import fetch_contact_cards
 from suite.mail.email_suggestions.ranking import rank_email_addresses
-from suite.mail.jmap import get_account_client
+from suite.mail.jmap import JMAP_REFUSALS, format_method_error, get_account_client
 from suite.mail.store import get_email_address_index
 from suite.mail.store.indexes.email_address import matches_email_address
 from suite.mail.utils import log_mail_error
@@ -35,11 +35,18 @@ class EmailSuggestions:
         if not query or self.is_recent_miss(query):
             return []
 
-        suggestions = (
-            self.get_local_suggestions(query, limit)
-            or self.get_contact_suggestions(query, limit)
-            or self.get_mail_suggestions(query, limit)
-        )
+        if suggestions := self.get_local_suggestions(query, limit):
+            return suggestions
+
+        try:
+            suggestions = self.get_contact_suggestions(query, limit)
+            suggestions = suggestions or self.get_mail_suggestions(query, limit)
+        except JMAP_REFUSALS as e:
+            # Asked on every keystroke, so a refusal shows no suggestions instead of an error. It is
+            # not remembered as a miss: the server may answer the next time.
+            log_mail_error(_("Failed to look up email suggestions"), format_method_error(e))
+            return []
+
         if not suggestions:
             frappe.cache.set_value(self.get_miss_key(query), True, expires_in_sec=MISS_TTL)
 

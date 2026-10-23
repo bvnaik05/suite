@@ -10,6 +10,7 @@ from unittest import mock
 import frappe
 from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import CallbackManager
+from jmap import MethodError
 
 from suite.mail import email_suggestions
 from suite.mail.email_suggestions import EmailSuggestions, get_directory_addresses
@@ -30,6 +31,7 @@ class Suggestions(UnitTestCase):
             ("get_directory_addresses", lambda: self.directory),
             ("fetch_contact_cards", mock.Mock(side_effect=lambda *args: (self.cards, len(self.cards)))),
             ("get_account_client", mock.Mock(return_value=self.client)),
+            ("log_mail_error", mock.Mock()),
         ):
             patcher = mock.patch.object(email_suggestions, target, value)
             setattr(self, target, patcher.start())
@@ -118,6 +120,35 @@ class Suggestions(UnitTestCase):
         suggestions.get_suggestions("nobody2")
 
         self.assertEqual(self.fetch_contact_cards.call_count, 2)
+
+    def test_a_refused_mail_lookup_shows_nothing_and_is_logged(self):
+        batch = self.client.batch.return_value.__enter__.return_value
+        batch.mail.email.get.side_effect = None
+        type(batch.mail.email.get.return_value).result = mock.PropertyMock(
+            side_effect=MethodError("serverFail", "c1", {"description": "down"})
+        )
+
+        self.assertEqual(self.suggest("priya"), [])
+        self.log_mail_error.assert_called_once()
+
+    def test_a_refused_contact_lookup_shows_nothing_and_skips_mail(self):
+        self.fetch_contact_cards.side_effect = MethodError("forbidden", "c0", {})
+
+        self.assertEqual(self.suggest("ann"), [])
+        self.get_account_client.assert_not_called()
+        self.log_mail_error.assert_called_once()
+
+    def test_a_refused_lookup_is_not_remembered_as_a_miss(self):
+        suggestions = EmailSuggestions(frappe.generate_hash())
+        self.fetch_contact_cards.side_effect = MethodError("serverFail", "c0", {})
+        suggestions.get_suggestions("ann")
+
+        self.fetch_contact_cards.side_effect = lambda *args: (self.cards, len(self.cards))
+        self.cards = [{"full_name": "Ann Lee", "emails": [{"address": "ann@example.com"}]}]
+
+        self.assertEqual(
+            suggestions.get_suggestions("ann"), [{"name": "Ann Lee", "email": "ann@example.com"}]
+        )
 
     def test_blank_query_asks_no_source(self):
         self.assertEqual(self.suggest("   "), [])
