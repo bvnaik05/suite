@@ -1181,6 +1181,18 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(lines, ["Collaborative documents can't be upgraded: Node 22.13 or newer is missing"])
         self.assertEqual(self.notified("Node 22.13 or newer is missing"), 1)
 
+    def test_a_notice_that_fails_to_send_is_sent_on_the_next_migrate(self):
+        self.forget_blocks()
+        self.make_manager()
+        self.old_documents(1)
+        on = {"return_value": True}
+        with patch.object(convert, "make_notification_logs", side_effect=RuntimeError("Hello world")):
+            self.migrate_once(on, on)
+
+        self.migrate_once(on, on)
+
+        self.assertEqual(self.notified("Node 22.13 or newer is missing"), 1)
+
     def test_a_migrate_whose_checks_both_fail_says_so_once(self):
         self.forget_blocks()
         self.old_documents(1)
