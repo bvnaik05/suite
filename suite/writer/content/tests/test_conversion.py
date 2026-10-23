@@ -20,6 +20,7 @@ from suite.drive._core.nodes import _restore, _trash, purge
 from suite.drive._core.principals import Principals
 from suite.drive._core.roots import lock_trees
 from suite.drive._core.versions import read_version, restore_version
+from suite.drive.framework import begin_drive_write
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
 from suite.writer import content as writer_content
 from suite.writer.api import docs
@@ -351,6 +352,73 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(str(errors[0]), "Open the document to restore this version")
         frappe.db.rollback()
         self.assertEqual(self.as_before(node), converted_state)
+
+    def test_refuses_a_desk_save_read_before_the_conversion_committed_its_log(self):
+        node = self.old_document("<p>Hello world</p>")
+
+        errors = self.save_while_converting(node, read_committed=False)
+
+        self.assertEqual([type(error) for error in errors], [drive.DriveConflict])
+        self.assertNotEqual(
+            frappe.db.get_value("Writer Document", {"node": node}, "content"), "<p>Edited</p>"
+        )
+
+    def test_refuses_a_drive_write_save_read_before_the_conversion_committed_its_log(self):
+        node = self.old_document("<p>Hello world</p>")
+
+        errors = self.save_while_converting(node, read_committed=True)
+
+        self.assertEqual([type(error) for error in errors], [drive.DriveConflict])
+        self.assertNotEqual(
+            frappe.db.get_value("Writer Document", {"node": node}, "content"), "<p>Edited</p>"
+        )
+
+    def save_while_converting(self, node: str, read_committed: bool) -> list[Exception]:
+        errors: list[Exception] = []
+        read = threading.Event()
+        converted = threading.Event()
+        args = (frappe.local.site, self.docname_of(node), read_committed, errors, read, converted)
+        saver = threading.Thread(target=self.save_elsewhere, args=args)
+        saver.start()
+        read.wait(10)
+        try:
+            self.assertEqual(conversion.convert_document(node), "converted")
+        finally:
+            converted.set()
+            saver.join(30)
+
+        self.assertFalse(saver.is_alive())
+        frappe.db.rollback()
+        return errors
+
+    def save_elsewhere(
+        self,
+        site: str,
+        docname: str,
+        read_committed: bool,
+        errors: list,
+        read: threading.Event,
+        converted: threading.Event,
+    ):
+        frappe.init(site=site)
+        frappe.connect()
+        frappe.set_user(WRITER)
+        try:
+            if read_committed:
+                begin_drive_write()
+
+            # The form's copy, read before the conversion commits
+            doc = frappe.get_doc("Writer Document", docname)
+            doc.content = "<p>Edited</p>"
+            read.set()
+            converted.wait(60)
+            doc.save()
+            frappe.db.commit()
+        except Exception as error:
+            errors.append(error)
+        finally:
+            read.set()
+            frappe.destroy()
 
     def purge_as_writer(self, node: str) -> None:
         owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))

@@ -34,7 +34,7 @@ class WriterDocument(drive.DriveContent, Document):
         if (
             not self.is_new()
             and any(self.has_value_changed(field) for field in LOGGED_FIELDS)
-            and content.find(APP, self.node)
+            and content.find(APP, self.node, for_update=True)
         ):
             raise drive.DriveConflict(frappe._("This document saves as you edit; reload it to keep editing"))
 
