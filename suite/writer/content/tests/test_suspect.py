@@ -417,25 +417,28 @@ class TestSuspect(CheckpointCase):
             with self.subTest(marked=marked, error=error.__name__):
                 self.assert_judge_failure(marked, held, verdict, error)
 
+    def assert_left_for_the_sweep(self, marked: str):
+        node = self.new_document()
+        Pen(self, node).append_block(paragraph("alpha"))
+        doc_id = self.doc_row(node).id
+        self.set_doc(node, suspect=marked)
+        titles = ("suspect held: checker_failed", "suspect unjudged: checker_failed")
+        alerts_before = [self.alert_count(title) for title in titles]
+
+        with patch.object(checker, "judge", side_effect=checker.CheckerBusy("waited")):
+            self.assertEqual(self.judge(node), "busy")
+
+        doc = self.doc_row(node)
+        self.assertEqual((doc.suspect, doc.suspect_held, doc.verdict), (marked, None, None))
+        self.assertEqual([self.alert_count(title) for title in titles], alerts_before)
+        self.requested.clear()
+        jobs.sweep()
+        self.assertIn((JUDGE, doc_id), self.requested)
+
     def test_a_judge_that_waits_out_a_busy_checker_leaves_the_document_suspect_for_the_sweep(self):
         for marked in ("unreadable", "client"):
             with self.subTest(marked=marked):
-                node = self.new_document()
-                Pen(self, node).append_block(paragraph("alpha"))
-                doc_id = self.doc_row(node).id
-                self.set_doc(node, suspect=marked)
-                titles = ("suspect held: checker_failed", "suspect unjudged: checker_failed")
-                alerts_before = [self.alert_count(title) for title in titles]
-
-                with patch.object(checker, "judge", side_effect=checker.CheckerBusy("waited")):
-                    self.assertEqual(self.judge(node), "busy")
-
-                doc = self.doc_row(node)
-                self.assertEqual((doc.suspect, doc.suspect_held, doc.verdict), (marked, None, None))
-                self.assertEqual([self.alert_count(title) for title in titles], alerts_before)
-                self.requested.clear()
-                jobs.sweep()
-                self.assertIn((JUDGE, doc_id), self.requested)
+                self.assert_left_for_the_sweep(marked)
 
     def test_a_compaction_that_fails_again_after_a_clean_verdict_holds_the_document(self):
         node = self.new_document()

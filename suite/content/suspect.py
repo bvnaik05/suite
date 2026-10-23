@@ -108,7 +108,7 @@ def judge_until_settled(
 
 
 def judge(app: str, doc_id: str, part_map: Mapping[str, type], bundle: Path) -> str | None:
-    """Judge a suspect document in a compaction place, `busy` without one, or None when it isn't suspect."""
+    """Judge a suspect document in a compaction place, `busy` without one or a free checker, or None when not suspect."""
     suspect_reason = suspect_of(app, doc_id)
     if not suspect_reason:
         return None
@@ -213,6 +213,8 @@ def judge_rows(judging: Judging, suspect_reason: str) -> str | None:
     rows = snapshot.payloads()
     try:
         verdict = checker.judge(judging.bundle, snapshot.checkpoint, rows)
+    except checker.CheckerBusy:
+        return "busy"
     except checker.CheckerFailed as error:
         return unsettled(app, doc_id, suspect_reason, "checker_failed", repr(error))
 
