@@ -13,7 +13,7 @@ from suite.store import (
 )
 from suite.store.blob_store import BlobStore
 from suite.store.data_store import DataStore
-from suite.utils import enqueue_job
+from suite.utils import enqueue_job, user_context
 
 # Root namespace segment under which all of mail's stores live, e.g. ``mail/<account>``.
 # Destroying this segment clears every mail store while leaving other apps' stores intact.
@@ -151,11 +151,19 @@ def rebuild_email_address_index(account: str, in_background: bool = True) -> Non
     # Imported lazily: these modules import this package, so a top-level import would be circular.
     from suite.mail.doctype.contact_card.contact_card import _contact_addresses
     from suite.mail.doctype.mail_message.mail_message import _message_addresses
+    from suite.mail.doctype.user_account.user_account import get_enabled_account_user
     from suite.mail.utils.user import get_account_emails
 
     index = get_email_address_index(account)
     store = get_data_store(account)
-    own_addresses = set(get_account_emails(account))
+
+    # Read the account's addresses as a user who can connect: a job runs as Administrator, which
+    # resolves the account to its owner, who may be disabled. With no such user nobody can open the
+    # account, so its recipients are left undated; a later rebuild dates them.
+    own_addresses = set()
+    if user := get_enabled_account_user(account):
+        with user_context(user):
+            own_addresses = set(get_account_emails(account))
 
     messages = list(store.scan(Entity.EMAIL).values())
     for batch in create_batch(messages, _REBUILD_BATCH_SIZE):
