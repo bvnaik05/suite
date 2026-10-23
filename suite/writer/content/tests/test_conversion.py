@@ -6,19 +6,23 @@ import json
 import os
 import threading
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from html import escape
 from unittest.mock import MagicMock, call, patch
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import frappe
 import pycrdt
 from bs4 import BeautifulSoup
-from frappe.utils import get_datetime, get_system_timezone
+from frappe.tests.test_api import make_request
+from frappe.utils import get_datetime, get_system_timezone, get_test_client
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
 from suite import drive
 from suite.composition import lifecycle
+from suite.composition.contract import _contract_path
 from suite.content import checker, compaction, convert, copies, jobs, live, log, scheduling, selftest
 from suite.content.editors import spec_of
 from suite.content.http import routes
@@ -28,6 +32,7 @@ from suite.drive._core.principals import Principals
 from suite.drive._core.roots import lock_trees
 from suite.drive._core.versions import read_version, restore_version
 from suite.drive.framework import begin_drive_write
+from suite.drive.http.tests.test_dispatch import DriveHTTPCase
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
 from suite.writer import content as writer_content
 from suite.writer.api import docs
@@ -975,6 +980,54 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(len(set(reader_sees["rooms"]["keys"])), 2)
         for key in reader_sees["rooms"]["keys"]:
             self.assertRegex(key, r"^sc:[A-Za-z0-9_-]{32}$")
+
+    def test_a_page_reading_a_document_gets_its_conversion_and_last_save(self):
+        node = self.old_document("<p>Hello world</p>")
+        frappe.db.set_value(
+            "Drive Node", node, "content_modified", "2026-10-01 10:00:00", update_modified=False
+        )
+        frappe.db.commit()
+
+        response = self.contract_request("documents.get", WRITER, name=self.docname_of(node))
+
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        row = response.json["data"]
+        self.assertLessEqual({"conversion", "content_modified"}, row.keys())
+        self.assertEqual(row["conversion"]["state"], "pending")
+        saved = datetime(2026, 10, 1, 10, tzinfo=ZoneInfo(get_system_timezone()))
+        self.assertEqual(datetime.fromisoformat(row["content_modified"]), saved)
+
+    def test_a_page_saving_settings_keeps_them_for_an_editor_only(self):
+        docname = self.docname_of(self.old_document("<p>Hello world</p>"))
+        settings = json.dumps({"fullWidth": True})
+
+        saved = self.contract_request("documents.updateSettings", WRITER, name=docname, data=settings)
+        refused = self.contract_request("documents.updateSettings", OUTSIDER, name=docname, data="{}")
+
+        self.assertEqual(saved.status_code, 200, saved.get_data(as_text=True))
+        self.assertIn(refused.status_code, (403, 404))
+        frappe.db.commit()
+        self.assertEqual(frappe.db.get_value("Writer Document", docname, "settings"), settings)
+
+    def contract_request(self, public_name: str, user: str, **params):
+        contract = json.loads(_contract_path("writer").read_text())
+        [operation] = [row for row in contract["operations"] if row["publicName"] == public_name]
+        path = operation["path"]
+        if not path.startswith("/"):
+            path = contract["prefix"] + path
+
+        for name in operation["pathParams"]:
+            value = quote(params.pop(name), safe="")
+            path = path.replace("{" + name + "}", value)
+
+        sid = DriveHTTPCase.session_for(user)
+        sent = {"method": operation["method"], "headers": {"Cookie": f"sid={sid}"}}
+        if operation["method"] == "GET":
+            sent["query_string"] = params
+        else:
+            sent["json"] = params
+
+        return make_request(target=get_test_client(use_cookies=False).open, args=(path,), kwargs=sent)
 
     def refused_document(self) -> str:
         node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
