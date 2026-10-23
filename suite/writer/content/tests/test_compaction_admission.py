@@ -122,3 +122,36 @@ class TestCompactionAdmission(CompactionCase):
 
         soft, _ = resource.getrlimit(resource.RLIMIT_AS)
         self.assertEqual(soft, size_kb * 1024 + admission.PER_COMPACTION)
+
+    def test_a_job_under_another_jobs_horse_id_leaves_the_process_address_space_alone(self):
+        before = resource.getrlimit(resource.RLIMIT_AS)
+        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
+        job = Job.create(admission.limit_memory, connection=get_redis_conn())
+        size_kb = 2**30
+        status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
+        worker = threading.Thread(target=job.perform)
+
+        # RQ sets RQ_JOB_ID in the forking worker too, so a process can carry the id of a horse it forked earlier
+        with (
+            patch.dict(os.environ, RQ_JOB_ID="an-earlier-job"),
+            patch.object(admission, "open", create=True, return_value=status),
+        ):
+            os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
+            worker.start()
+            worker.join()
+
+        self.assertEqual(resource.getrlimit(resource.RLIMIT_AS), before)
+
+    def test_outside_a_job_leaves_the_process_address_space_alone(self):
+        before = resource.getrlimit(resource.RLIMIT_AS)
+        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
+        size_kb = 2**30
+        status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
+
+        # As a web request runs it, with no RQ job at all
+        with patch.dict(os.environ), patch.object(admission, "open", create=True, return_value=status):
+            os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
+            os.environ.pop("RQ_JOB_ID", None)
+            admission.limit_memory()
+
+        self.assertEqual(resource.getrlimit(resource.RLIMIT_AS), before)
