@@ -1383,6 +1383,37 @@ describe('convertLegacy on pasted HTML span colours, read as on the Yjs path', (
     ])
     expect(result.dropped).toEqual([])
   })
+
+  it('keeps an HTML span font family in closed quotes, with a declaration after it', () => {
+    const html = '<p>a<span style=\'font-family: "Inter"; color: red\'>b</span></p>'
+
+    const result = convert({ content: null, html, collab: 0, ycomments: null })
+
+    const [{ content }] = bodyOf(result.state).content
+    const fonts = content.map(({ text, marks = [] }: JSONContent) => [
+      text,
+      marks.map(({ attrs }) => attrs?.fontFamily).filter(Boolean),
+    ])
+    expect(fonts).toEqual([
+      ['a', []],
+      ['b', ['Inter']],
+    ])
+    expect(drawnColours(content)).toEqual([
+      ['a', []],
+      ['b', [['textStyle', 'red']]],
+    ])
+    expect(result.dropped).toEqual([])
+  })
+
+  // tiptap splits the style on ';' with no quote handling, so the family reads as `"A`
+  it('refuses an HTML span font family whose quotes hold a semicolon', () => {
+    const html = '<p>a<span style="font-family: &quot;A;B&quot;; color: red">b</span></p>'
+
+    expect(convertLegacy({ content: null, html, collab: 0, ycomments: null }, MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
 })
 
 describe('convertLegacy on an HTML font family whose quote never closes', () => {
@@ -1429,8 +1460,11 @@ describe('convertLegacy on an HTML font family whose quote never closes', () => 
     expect(refused('font-family: &quot;; x: &quot;y')).toEqual({ kind: 'failed', reason: 'check' })
   })
 
-  it('refuses a family that names itself to the end of the style text', () => {
-    expect(refused('font-family: &quot;Arial')).toEqual({ kind: 'failed', reason: 'check' })
+  it('keeps a family that names itself to the end of the style text, its quote dropped', () => {
+    expect(runs('<p>a<span style="font-family: &quot;Arial">b</span></p>')).toEqual([
+      ['a', {}],
+      ['b', { fontFamily: 'Arial' }],
+    ])
   })
 
   it('reads a line end as ending the quote before a later one opens', () => {

@@ -160,7 +160,12 @@ function styleOf(element: Element) {
   const { style } = element as HTMLElement
   const found: Record<string, unknown> = {}
   for (const property of style) {
-    const value = style.getPropertyValue(property)
+    let value = style.getPropertyValue(property)
+    if (property === 'font-family') {
+      // Read as the editor's font family reads it, quotes dropped
+      value = value.replace(/['"]+/g, '')
+    }
+
     const priority = style.getPropertyPriority(property)
     if (!COLOUR_PROPS.has(property)) {
       found[property] = withPriority(value, priority)

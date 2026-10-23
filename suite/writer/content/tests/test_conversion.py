@@ -684,6 +684,21 @@ class TestConversion(DriveCallbackCase):
 
         self.assertEqual(self.records(node), (("too_large", None, None),) * 2)
 
+    def test_converts_a_quoted_font_family_body_refused_under_converter_2(self):
+        node = self.old_document("<p>a<span style='font-family: \"Inter\"'>b</span></p>")
+        self.addCleanup(self.delete_document, node)
+        fingerprint = conversion.read_old(node).fingerprint
+        frappe.db.sql(
+            """INSERT INTO `__writer_content_conversion`
+            (`node`, `fingerprint`, `converter_version`, `started`, `finished`, `outcome`, `reason`)
+            VALUES (%s, %s, '2', NOW(), NOW(), 'check', NULL)""",
+            (node, fingerprint),
+        )
+        frappe.db.commit()
+
+        self.assertEqual(conversion.convert_document(node), "converted")
+        self.assertIsNotNone(log.find(writer_content.APP, node))
+
     def test_records_a_body_crashed_once_its_attempt_outlives_the_job_and_skips_a_running_one(self):
         running, crashed = self.old_documents(2)
         now = frappe.utils.now_datetime()
