@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { applyNumberFmt } from '../utils/format-number.js'
-import {
-  fromXlsxCell,
-  mergesFromXlsx,
-  mergesToXlsx,
-  numFmtFromEngine,
-  numFmtToZ,
-  toXlsxCell,
-  zToNumFmt,
-} from './xlsx-io.js'
+import { fromXlsxCell, numFmtFromEngine, numFmtToZ, toXlsxCell, zToNumFmt } from './xlsx-io.js'
 
 describe('numFmtToZ — our format → Excel z', () => {
   it('General / empty → null', () => expect(numFmtToZ('')).toBe(null))
@@ -232,23 +224,5 @@ describe('date round-trip is timezone-independent', () => {
       value: '2026-01-15',
       fmt: 'date:mdy',
     })
-  })
-})
-
-describe('merge mapping', () => {
-  it('engine masterMap → SheetJS !merges', () => {
-    expect(mergesToXlsx({ A1: { r: 0, c: 0, rowSpan: 2, colSpan: 3 } })).toEqual([
-      { s: { r: 0, c: 0 }, e: { r: 1, c: 2 } },
-    ])
-  })
-  it('!merges → engine rects', () => {
-    expect(mergesFromXlsx([{ s: { r: 0, c: 0 }, e: { r: 1, c: 2 } }])).toEqual([
-      { r0: 0, c0: 0, r1: 1, c1: 2 },
-    ])
-  })
-  it('round-trips', () => {
-    const master = { B2: { r: 1, c: 1, rowSpan: 3, colSpan: 2 } }
-    const [rect] = mergesFromXlsx(mergesToXlsx(master))
-    expect(rect).toEqual({ r0: 1, c0: 1, r1: 3, c1: 2 })
   })
 })

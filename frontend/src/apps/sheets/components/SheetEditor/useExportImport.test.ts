@@ -1,13 +1,24 @@
+import ExcelJS from 'exceljs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { createCondFormatEngine } from '../../engine/cond-format.js'
+import { createFormatsEngine } from '../../engine/formats.js'
+import { createMergeEngine } from '../../engine/merge.js'
 import { useExportImport } from './useExportImport.js'
 
-// The workbook SheetJS was asked to write.
-const written = vi.hoisted(() => ({ wb: null as null | { Sheets: Record<string, unknown> } }))
-vi.mock('xlsx', async (load) => {
-  const real = await load<typeof import('xlsx')>()
-  return { ...real, writeFile: (wb: typeof written.wb) => (written.wb = wb) }
-})
+type Sheet = { inputs: string[][]; displays: string[][]; numFmts: string[][] }
+type XCell = { t: string; v: unknown; z?: string; f?: string }
+
+// The cells of the file buildXLSX wrote, as SheetJS reads them back.
+async function written(build: () => Promise<ArrayBuffer>, sheet = 'Sheet1') {
+  const { read } = await import('xlsx')
+  const wb = read(await build(), { type: 'array', cellFormula: true, cellNF: true })
+  return wb.Sheets[sheet] as unknown as Record<string, XCell>
+}
+
+function file(buf: ArrayBuffer | Uint8Array) {
+  return { target: { files: [{ arrayBuffer: async () => buf }], value: '' } }
+}
 
 // Typing $1.50, 15% or 1,000 stores the number with IronCalc's format and
 // nothing in the side store; =B1*2 shows $3.00. The export kept neither: the
@@ -22,7 +33,7 @@ describe('exportXLSX', () => {
     const readSheet = vi.fn(async (_sn: string, opts?: { numFmts?: boolean }) =>
       opts?.numFmts ? sheet : { inputs: sheet.inputs, displays: sheet.displays },
     )
-    const { exportXLSX } = useExportImport({
+    const { buildXLSX } = useExportImport({
       cells: { readSheet },
       sheetNames: () => ['Sheet1'],
       currentSheet: { value: 'Sheet1' },
@@ -35,17 +46,17 @@ describe('exportXLSX', () => {
       syncFlags: vi.fn(),
       isDirty: { value: false },
     })
-    await exportXLSX()
-    const ws = written.wb?.Sheets.Sheet1 as Record<string, { t: string; v: unknown; z?: string }>
+    const ws = await written(buildXLSX)
     expect(ws.A1).toMatchObject({ t: 'n', v: 1.5, z: '"$"#,##0.00' })
     expect(ws.B1).toMatchObject({ t: 'n', v: 0.15, z: '0%' })
     expect(ws.C1).toMatchObject({ t: 'n', v: 1000, z: '#,##0' })
-    expect(ws.D1).toMatchObject({ t: 'n', v: 3, z: '"$"#,##0.00' })
+    expect(ws.D1).toMatchObject({ f: 'A1*2', t: 'n', v: 3, z: '"$"#,##0.00' })
     expect(ws.E1).toMatchObject({ t: 's', v: 'x' })
-    expect(ws.E1?.z).toBeUndefined()
+    expect(ws.E1?.z).toBe('General')
     // A typed date is the day serial with its date code, not the text.
-    expect(ws.F1).toEqual({ t: 'n', v: 46000, z: 'yyyy-mm-dd' })
-    expect(ws.G1).toEqual({ f: 'DATE(2025,12,9)', t: 'n', v: 46000, z: 'm/d/yyyy' })
+    expect(ws.F1).toMatchObject({ t: 'n', v: 46000, z: 'yyyy-mm-dd' })
+    expect(ws.F1?.f).toBeUndefined()
+    expect(ws.G1).toMatchObject({ f: 'DATE(2025,12,9)', t: 'n', v: 46000, z: 'm/d/yyyy' })
   })
 })
 
@@ -62,10 +73,7 @@ describe('xlsx dates in a timezone ahead of UTC', () => {
     process.env.TZ = tz
   })
 
-  function editor(
-    sheet: { inputs: string[][]; displays: string[][]; numFmts: string[][] },
-    tabs = ['Sheet1'],
-  ) {
+  function editor(sheet: Sheet, tabs = ['Sheet1']) {
     const writes: Record<string, Record<string, string>> = {}
     const fmts: Record<string, string> = {}
     const opts = {
@@ -95,15 +103,14 @@ describe('xlsx dates in a timezone ahead of UTC', () => {
   }
 
   it('exports a date as its whole day serial, with no time', async () => {
-    const { exportXLSX } = editor({
+    const { buildXLSX } = editor({
       inputs: [['2026-01-15', '=DATE(2026,4,1)']],
       displays: [['2026-01-15', '4/1/2026']],
       numFmts: [['yyyy-mm-dd', 'm/d/yyyy']],
     })
-    await exportXLSX()
-    const ws = written.wb?.Sheets.Sheet1 as Record<string, { t: string; v: unknown; z?: string }>
-    expect(ws.A1).toEqual({ t: 'n', v: 46037, z: 'd mmm yyyy' })
-    expect(ws.B1).toEqual({ f: 'DATE(2026,4,1)', t: 'n', v: 46113, z: 'd mmm yyyy' })
+    const ws = await written(buildXLSX)
+    expect(ws.A1).toMatchObject({ t: 'n', v: 46037, z: 'd mmm yyyy' })
+    expect(ws.B1).toMatchObject({ f: 'DATE(2026,4,1)', t: 'n', v: 46113, z: 'd mmm yyyy' })
   })
 
   it('imports a date serial as that date, not text from the day before', async () => {
@@ -117,11 +124,21 @@ describe('xlsx dates in a timezone ahead of UTC', () => {
     }
     utils.book_append_sheet(wb, ws, 'Sales')
     const buf = write(wb, { type: 'array', bookType: 'xlsx' })
-    const file = { arrayBuffer: async () => buf }
     const ed = editor({ inputs: [], displays: [], numFmts: [] })
-    await ed.importXLSX({ target: { files: [file], value: '' } })
+    await ed.importXLSX(file(buf))
     expect(ed.writes.Sales).toEqual({ A1: '2026-01-15', B1: '2026-01-15', C1: '46037.75' })
     expect(ed.fmts).toEqual({ A1: 'date:long', B1: 'date:mdy', C1: 'datetime:ymd_hm' })
+  })
+
+  it('round-trips a date and a formula giving a date', async () => {
+    const out = editor({
+      inputs: [['2026-01-15', '=A1+1']],
+      displays: [['2026-01-15', '2026-01-16']],
+      numFmts: [['yyyy-mm-dd', 'yyyy-mm-dd']],
+    })
+    const back = editor({ inputs: [], displays: [], numFmts: [] }, [])
+    await back.importXLSX(file(await out.buildXLSX()))
+    expect(back.writes.Sheet1).toEqual({ A1: '2026-01-15', B1: '=A1+1' })
   })
 })
 
@@ -164,7 +181,7 @@ describe('importXLSX into a workbook with the same sheet names', () => {
       syncFlags: vi.fn(),
       isDirty: { value: false },
     })
-    await importXLSX({ target: { files: [{ arrayBuffer: async () => buf }], value: '' } })
+    await importXLSX(file(buf))
     expect(Object.keys(writes)).toEqual(['Sales (2)', 'Rates (2)', 'Rates (2) (2)'])
     expect(writes['Sales (2)']).toEqual({
       A1: "=VLOOKUP(A2,'Rates (2)'!A:B,2,FALSE)",
@@ -175,5 +192,190 @@ describe('importXLSX into a workbook with the same sheet names', () => {
       B2: `="Rates!"&'Rates (2)'!A1`,
     })
     expect(writes['Rates (2) (2)']).toEqual({ A1: "='Sales (2)'!A1" })
+  })
+})
+
+// ISSUES #56 / #57. The SheetJS community build wrote no styles, and the side
+// stores (formats, view, conditional formats) were never passed to it, so a
+// round trip through Excel or Google lost all of it, and import lost merges.
+describe('xlsx round trip of styling, sizes, freeze, merges and conditional formats', () => {
+  // A workbook with real side stores; the cells come from `sheets`.
+  function editor(sheets: Record<string, Sheet>, views: Record<string, unknown> = {}) {
+    const writes: Record<string, Record<string, string>> = {}
+    const formats = createFormatsEngine()
+    const merge = createMergeEngine()
+    const condFormat = createCondFormatEngine()
+    const state = { views }
+    const opts = {
+      cells: {
+        readSheet: async (sn: string) => sheets[sn] ?? { inputs: [], displays: [], numFmts: [] },
+        write: (sn: string, map: Record<string, string>) =>
+          (writes[sn] = { ...writes[sn], ...map }),
+        addSheet: vi.fn(),
+        idle: async () => {},
+      },
+      sheetNames: () => Object.keys(sheets),
+      currentSheet: { value: Object.keys(sheets)[0] ?? 'Sheet1' },
+      getCurrentTitle: () => 't',
+      getFormats: () => formats,
+      getMerge: () => merge,
+      getCondFormat: () => condFormat,
+      getViews: () => state.views,
+      setViews: (v: Record<string, unknown>) => (state.views = v),
+      repopulateGrid: vi.fn(),
+      syncNames: vi.fn(),
+      switchSheet: vi.fn(),
+      syncFlags: vi.fn(),
+      isDirty: { value: false },
+    }
+    return { ...useExportImport(opts), writes, formats, merge, condFormat, state }
+  }
+
+  const sales: Sheet = {
+    inputs: [
+      ['Region', 'Revenue', 'Title', ''],
+      ['North', '30000', '', ''],
+      ['Total', '=SUM(B2:B2)', '', ''],
+    ],
+    displays: [
+      ['Region', 'Revenue', 'Title', ''],
+      ['North', '30000', '', ''],
+      ['Total', '30000', '', ''],
+    ],
+    numFmts: [[], [], []],
+  }
+  const header = { bold: true, backgroundColor: '#cfe2f3' }
+  const total = { bold: true, italic: true, color: '#ff0000' }
+  const title = {
+    fontSize: 21,
+    underline: true,
+    strikethrough: true,
+    align: 'center',
+    valign: 'top',
+    textWrap: 'wrap',
+    borderBottom: { style: 'medium', color: '#000000' },
+  }
+
+  async function roundTrip() {
+    const out = editor(
+      { Sales: sales },
+      {
+        Sales: {
+          colW: { 0: 200, 2: 64 },
+          rowH: { 0: 40 },
+          freezeRows: 1,
+          freezeCols: 1,
+          hiddenRows: [5],
+          hiddenCols: [6],
+        },
+      },
+    )
+    out.formats.set('A1', header, 'Sales')
+    out.formats.set('B1', header, 'Sales')
+    out.formats.set('A3', total, 'Sales')
+    out.formats.set('B3', { ...total, numberFormat: 'currency:INR:2' }, 'Sales')
+    out.formats.set('C1', title, 'Sales')
+    out.formats.set('E7', { backgroundColor: '#ffff00' }, 'Sales') // a filled, empty cell
+    out.formats.setCol(3, { italic: true }, 'Sales')
+    out.merge.merge(0, 2, 0, 3, 'Sales')
+    out.condFormat.addRule(
+      {
+        range: { r0: 1, c0: 1, r1: 2, c1: 1 },
+        condition: { type: 'gt', value: '30000' },
+        format: { backgroundColor: '#b7e1cd' },
+      },
+      'Sales',
+    )
+    out.condFormat.addRule(
+      { range: { r0: 1, c0: 1, r1: 2, c1: 1 }, kind: 'data-bar', bar: { color: '#638ec6' } },
+      'Sales',
+    )
+    const buf = await out.buildXLSX()
+    const back = editor({})
+    await back.importXLSX(file(buf))
+    return { buf, back }
+  }
+
+  it('keeps bold, italic, colour, fill, font size, alignment, wrap and borders', async () => {
+    const { back } = await roundTrip()
+    const f = (id: string) => back.formats.get(id, 'Sales')
+    expect(f('A1')).toEqual(header)
+    expect(f('B1')).toEqual(header)
+    expect(f('A3')).toEqual(total)
+    expect(f('B3')).toEqual({ ...total, numberFormat: 'currency:INR:2' })
+    expect(f('C1')).toEqual(title)
+    expect(f('E7')).toEqual({ backgroundColor: '#ffff00' })
+    expect(f('A2')).toEqual({})
+    // The column layer comes back as the column's format.
+    expect(f('D40')).toEqual({ italic: true })
+    expect(back.writes.Sales).toMatchObject({ A1: 'Region', B2: '30000', B3: '=SUM(B2:B2)' })
+  })
+
+  it('keeps column widths, row heights, hidden rows and columns and the freeze', async () => {
+    const { back } = await roundTrip()
+    expect(back.state.views.Sales).toEqual({
+      colW: { 0: 200, 2: 64 },
+      rowH: { 0: 40 },
+      freezeRows: 1,
+      freezeCols: 1,
+      hiddenRows: [5],
+      hiddenCols: [6],
+      manualRows: [0],
+    })
+  })
+
+  it('keeps merges and conditional formats', async () => {
+    const { back } = await roundTrip()
+    // ExcelJS gives a merged cell its top-left cell's value: not ours to copy.
+    expect(back.writes.Sales?.D1).toBeUndefined()
+    expect(back.merge.snapshot().Sales?.masterMap).toEqual({
+      C1: { r: 0, c: 2, rowSpan: 1, colSpan: 2 },
+    })
+    expect(back.condFormat.getRules('Sales').map(({ id: _, ...r }) => r)).toEqual([
+      {
+        range: { r0: 1, c0: 1, r1: 2, c1: 1 },
+        condition: { type: 'gt', value: '30000' },
+        format: { backgroundColor: '#b7e1cd' },
+      },
+      { range: { r0: 1, c0: 1, r1: 2, c1: 1 }, kind: 'data-bar', bar: { color: '#638ec6' } },
+    ])
+  })
+
+  it('gives unsized columns a width that fits a currency, not 8.43', async () => {
+    const { buf } = await roundTrip()
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as ArrayBuffer)
+    const ws = wb.getWorksheet('Sales')!
+    expect(ws.properties.defaultColWidth).toBe(13.57)
+    expect(ws.getColumn(1).width).toBe(27.86)
+  })
+
+  it("imports Google's export: Arial 10 everywhere reads as no font", async () => {
+    // What Google Sheets writes: every cell Arial (size only on the
+    // default font), theme 1 (black) text, a frozen header row.
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Sales', { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] })
+    const arial = { name: 'Arial', color: { theme: 1 } }
+    ws.getCell('A1').value = 'Region'
+    ws.getCell('A1').font = { ...arial, bold: true }
+    ws.getCell('A1').fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFCFE2F3' },
+      bgColor: { argb: 'FFCFE2F3' },
+    }
+    ws.getCell('A2').value = 'North'
+    ws.getCell('A2').font = arial
+    ws.getCell('A3').value = 'South'
+    ws.getCell('A3').font = arial
+    ws.getCell('A4').value = 'Title'
+    ws.getCell('A4').font = { ...arial, size: 16 }
+    ws.getColumn(1).width = 21.88
+    const back = editor({})
+    await back.importXLSX(file(await wb.xlsx.writeBuffer()))
+    expect(back.formats.get('A1', 'Sales')).toEqual({ bold: true, backgroundColor: '#cfe2f3' })
+    expect(back.formats.get('A2', 'Sales')).toEqual({})
+    expect(back.formats.get('A4', 'Sales')).toEqual({ fontSize: 21 })
+    expect(back.state.views.Sales).toMatchObject({ colW: { 0: 158 }, freezeRows: 1, freezeCols: 0 })
   })
 })

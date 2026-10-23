@@ -1,13 +1,20 @@
+import { DEFAULT_COL_W, DEFAULT_ROW_H } from '../../core/view-model.js'
 import { renameSheetsInFormula } from '../../engine/formula-adjust.js'
+import { fromXlsxCell, numFmtFromEngine, numFmtToZ, toXlsxCell } from '../../engine/xlsx-io.js'
 import {
-  fromXlsxCell,
-  mergesFromXlsx,
-  mergesToXlsx,
-  numFmtFromEngine,
-  numFmtToZ,
-  toXlsxCell,
-} from '../../engine/xlsx-io.js'
-import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
+  cfFromXlsx,
+  cfToXlsx,
+  colWidthFromXlsx,
+  colWidthToXlsx,
+  commonFont,
+  refToRects,
+  rowHeightFromXlsx,
+  rowHeightToXlsx,
+  styleFromXlsx,
+  styleToXlsx,
+  themePalette,
+} from '../../engine/xlsx-style.js'
+import { cellId, parseCellId } from '../../utils/cells.js'
 import { dateSerialFromShown, parseNumberFmt } from '../../utils/format-number.js'
 
 // ── private helpers ────────────────────────────────────────────────────────────
@@ -63,6 +70,44 @@ function _dateZ(fmt) {
   return ['date', 'time', 'datetime'].includes(parseNumberFmt(fmt).type) ? numFmtToZ(fmt) : null
 }
 
+// ExcelJS, loaded on the first export or import (it is ~250 kB gzipped).
+async function _excel() {
+  const mod = await import('exceljs')
+  return mod.default ?? mod
+}
+
+// A cell format as an ExcelJS style, its number format included.
+function _xStyle(fmt) {
+  const style = styleToXlsx(fmt)
+  const z = numFmtToZ(fmt?.numberFormat)
+  if (z) style.numFmt = z
+  return style
+}
+
+// An imported format with its number format, or null when it has neither.
+function _withNumFmt(fmt, numberFormat) {
+  const out = numberFormat ? { ...fmt, numberFormat } : fmt
+  return Object.keys(out).length ? out : null
+}
+
+// An ExcelJS cell as the SheetJS-shaped cell fromXlsxCell reads. A Date
+// (what ExcelJS makes of a number under a date code, in UTC) goes back to
+// its day serial.
+function _cellIn(cell) {
+  let v = cell.value
+  if (v && typeof v === 'object' && !(v instanceof Date)) {
+    if ('formula' in v || 'sharedFormula' in v || 'result' in v) v = v.result
+    else if (v.richText) v = v.richText.map((r) => r.text).join('')
+    // A hyperlink keeps its text.
+    else if ('text' in v) v = v.text
+    else if ('error' in v) v = v.error
+  }
+  if (v instanceof Date) v = v.getTime() / 86400000 + 25569
+  const t = typeof v === 'boolean' ? 'b' : typeof v === 'number' ? 'n' : 's'
+  // .formula is a shared formula translated to this cell.
+  return { t, v, f: cell.formula, z: cell.numFmt }
+}
+
 // ── composable ────────────────────────────────────────────────────────────────
 
 /**
@@ -86,6 +131,9 @@ export function useExportImport({
   getCurrentTitle,
   getFormats,
   getMerge,
+  getCondFormat,
+  getViews,
+  setViews,
   repopulateGrid,
   syncNames,
   switchSheet,
@@ -119,22 +167,28 @@ export function useExportImport({
     _download(new Blob([csv], { type: 'text/csv' }), 'csv')
   }
 
-  // Build a SheetJS worksheet from one sub-sheet, preserving value types,
-  // formulas (with their computed value), number formats, and merges — the
-  // lossy display-string path only round-tripped visible text.
-  async function _buildWorksheet(formats, merge, sn) {
+  // Fill an ExcelJS worksheet from one sub-sheet: value types, formulas (with
+  // their computed value), number formats, cell/column/row formats, sizes,
+  // hides, merges and conditional formats. The freeze is set on creation.
+  async function _buildWorksheet(ws, sn, { formats, merge, condFormat, view }) {
     // numFmts: IronCalc's own format of a typed $1.50 or 15%, used where
     // the side store has none.
     const { inputs, displays, numFmts } = await cells.readSheet(sn, { numFmts: true })
-    const ws = {}
-    let maxR = 0,
-      maxC = 0
+    // Column and row formats first: ExcelJS copies them onto the cells made
+    // after, and each cell below then gets its whole resolved format.
+    const layers = formats?.snapshot?.()?.[sn]
+    for (const [c, fmt] of Object.entries(layers?.cols || {}))
+      ws.getColumn(Number(c) + 1).style = _xStyle(fmt)
+    for (const [r, fmt] of Object.entries(layers?.rows || {}))
+      ws.getRow(Number(r) + 1).style = _xStyle(fmt)
+
     inputs.forEach((row, r) =>
       row.forEach((raw, c) => {
         if (raw === '') return
         const id = cellId(r, c)
         const computed = raw.startsWith('=') ? displays[r][c] : null
-        const ours = formats?.get(id, sn)?.numberFormat
+        const own = formats?.get(id, sn)
+        const ours = own?.numberFormat
         const engineCode = numFmts?.[r]?.[c]
         // A date IronCalc formatted (a typed 2025-12-09, =TODAY()) goes out
         // as its day serial with IronCalc's code, which is Excel's grammar,
@@ -150,32 +204,78 @@ export function useExportImport({
             }
           : toXlsxCell(raw, computed, ours || numFmtFromEngine(engineCode) || '')
         if (!cell) return
-        ws[id] = cell
-        if (r > maxR) maxR = r
-        if (c > maxC) maxC = c
+        const x = ws.getCell(r + 1, c + 1)
+        x.value = cell.f ? { formula: cell.f, result: cell.v } : cell.v
+        x.style = { ...styleToXlsx(own), ...(cell.z && { numFmt: cell.z }) }
       }),
     )
-    ws['!ref'] = `A1:${colLabel(maxC)}${maxR + 1}`
-    const merges = merge ? mergesToXlsx(merge.snapshot()?.[sn]?.masterMap) : []
-    if (merges.length) ws['!merges'] = merges
-    return ws
+    // Cells with a format and no value: a fill, a border.
+    for (const id of Object.keys(layers?.cells || {})) {
+      const p = parseCellId(id)
+      if (!p || inputs[p.row]?.[p.col]) continue
+      const style = _xStyle(formats.get(id, sn))
+      if (Object.keys(style).length) ws.getCell(p.row + 1, p.col + 1).style = style
+    }
+
+    for (const m of Object.values(merge?.snapshot()?.[sn]?.masterMap || {}))
+      ws.mergeCells(m.r + 1, m.c + 1, m.r + m.rowSpan, m.c + m.colSpan)
+    for (const rule of condFormat?.getRules(sn) || []) {
+      const cf = cfToXlsx(rule)
+      if (cf) ws.addConditionalFormatting(cf)
+    }
+
+    // ExcelJS gives a column it writes 9 characters unless told, and drops
+    // a row with no cells and no height, hidden or not: so every column and
+    // row written gets its size, ours or the default.
+    const colW = view?.colW || {}
+    const rowH = view?.rowH || {}
+    for (const c of view?.hiddenCols || []) ws.getColumn(c + 1).hidden = true
+    for (const r of view?.hiddenRows || []) ws.getRow(r + 1).hidden = true
+    ws.columns?.forEach((col, c) => (col.width = colWidthToXlsx(colW[c] ?? DEFAULT_COL_W)))
+    for (const [c, px] of Object.entries(colW))
+      ws.getColumn(Number(c) + 1).width = colWidthToXlsx(px)
+    for (const r of view?.hiddenRows || []) ws.getRow(r + 1).height = rowHeightToXlsx(DEFAULT_ROW_H)
+    for (const [r, px] of Object.entries(rowH))
+      ws.getRow(Number(r) + 1).height = rowHeightToXlsx(px)
+  }
+
+  // The workbook as .xlsx bytes.
+  async function buildXLSX() {
+    const formats = getFormats?.()
+    const merge = getMerge?.()
+    const condFormat = getCondFormat?.()
+    const views = getViews?.() || {}
+    const ExcelJS = await _excel()
+    const wb = new ExcelJS.Workbook()
+    const used = new Set()
+    for (const sn of sheetNames()) {
+      const view = views[sn]
+      const rows = view?.freezeRows || 0
+      const cols = view?.freezeCols || 0
+      const ws = wb.addWorksheet(_excelSheetName(sn, used), {
+        // Our default sizes, so an unsized column fits what fits here
+        // (Excel's 8.43 showed ######## in every amount and date).
+        properties: {
+          defaultColWidth: colWidthToXlsx(DEFAULT_COL_W),
+          defaultRowHeight: rowHeightToXlsx(DEFAULT_ROW_H),
+        },
+        views:
+          rows || cols
+            ? [{ state: 'frozen', xSplit: cols, ySplit: rows, topLeftCell: cellId(rows, cols) }]
+            : [],
+      })
+      await _buildWorksheet(ws, sn, { formats, merge, condFormat, view })
+    }
+    return wb.xlsx.writeBuffer()
   }
 
   async function exportXLSX() {
-    const formats = getFormats?.()
-    const merge = getMerge?.()
-    const { utils, writeFile } = await import('xlsx')
-    const wb = utils.book_new()
-    const used = new Set()
-    for (const sn of sheetNames()) {
-      const ws = await _buildWorksheet(formats, merge, sn)
-      utils.book_append_sheet(wb, ws, _excelSheetName(sn, used))
-    }
-    writeFile(wb, `${getCurrentTitle() || 'sheet'}.xlsx`)
+    const type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    _download(new Blob([await buildXLSX()], { type }), 'xlsx')
   }
 
   // Excel caps sheet names at 31 chars, bans []:*?/\ and duplicates. Coerce to
-  // a safe, unique name so book_append_sheet never throws mid-export.
+  // a safe, unique name so addWorksheet never throws mid-export.
   function _excelSheetName(name, used) {
     let base =
       String(name || 'Sheet')
@@ -262,13 +362,11 @@ export function useExportImport({
     const file = e.target.files?.[0]
     if (!file) return
     try {
-      const { read } = await import('xlsx')
-      const buf = await file.arrayBuffer()
-      // cellFormula keeps `=…` and cellNF the number-format code. No
-      // cellDates: SheetJS builds those Dates in local time, so a date came
-      // in as the day before at 18:29:50 in India (ISSUES #58). A date
-      // stays its day serial, and fromXlsxCell reads it under its code.
-      const wb = read(buf, { type: 'array', cellFormula: true, cellNF: true })
+      const ExcelJS = await _excel()
+      const wb = new ExcelJS.Workbook()
+      // A number under a date code comes in as a UTC Date, which _cellIn
+      // turns back into its day serial: no local-time shift (ISSUES #58).
+      await wb.xlsx.load(await file.arrayBuffer())
       await _ingestWorkbook(wb)
     } finally {
       e.target.value = '' // always reset so re-picking the same file re-fires
@@ -277,28 +375,35 @@ export function useExportImport({
 
   // Import every worksheet as a NEW sub-sheet — non-destructive, so the user's
   // current sheets are untouched. Each cell carries its value/formula, number
-  // format, and the sheet's merges.
+  // format and style, and each sheet its sizes, hides, freeze, merges and
+  // conditional formats.
   async function _ingestWorkbook(wb) {
-    const formats = getFormats?.()
-    const merge = getMerge?.()
+    const stores = {
+      formats: getFormats?.(),
+      merge: getMerge?.(),
+      condFormat: getCondFormat?.(),
+      // ExcelJS keeps the file's theme only as its XML.
+      theme: themePalette(wb._themes?.theme1),
+    }
     const existing = new Set(sheetNames().map((n) => n.toLowerCase()))
     // Every tab's name first: a formula may name a sheet later in the file,
     // and must follow it when it gets a new name (`Sales` → `Sales (2)`).
     const renames = {}
-    for (const wsName of wb.SheetNames) {
-      if (!wb.Sheets[wsName]) continue
-      renames[wsName] = _uniqueSheetName(wsName, existing)
-      existing.add(renames[wsName].toLowerCase())
+    for (const ws of wb.worksheets) {
+      renames[ws.name] = _uniqueSheetName(ws.name, existing)
+      existing.add(renames[ws.name].toLowerCase())
     }
+    const views = {}
     let firstAdded = null
     // finally: even if a worksheet throws mid-import, resync the tab bar so the
     // engine and UI never disagree about which sheets exist, and surface what
     // was already ingested.
     try {
-      for (const [wsName, name] of Object.entries(renames)) {
+      for (const ws of wb.worksheets) {
+        const name = renames[ws.name]
         cells.addSheet(name)
         if (!firstAdded) firstAdded = name
-        await _ingestWorksheet(wb.Sheets[wsName], formats, merge, name, renames)
+        views[name] = await _ingestWorksheet(ws, stores, name, renames)
       }
     } finally {
       // The tab list is the engine's as of its last apply, so wait for the
@@ -306,6 +411,8 @@ export function useExportImport({
       // workbook, or a throw before the first add, must not mark it dirty).
       await cells.idle().catch(() => {})
       syncNames?.()
+      // Before the switch, which applies the first new sheet's view.
+      if (setViews && Object.keys(views).length) setViews({ ...getViews?.(), ...views })
       if (firstAdded) {
         switchSheet?.(firstAdded)
         syncFlags()
@@ -316,24 +423,83 @@ export function useExportImport({
     }
   }
 
-  async function _ingestWorksheet(ws, formats, merge, name, renames) {
+  // Ingests one worksheet and returns its view (sizes, hides, freeze).
+  async function _ingestWorksheet(ws, { formats, merge, condFormat, theme }, name, renames) {
+    const view = {
+      colW: {},
+      rowH: {},
+      freezeRows: 0,
+      freezeCols: 0,
+      hiddenRows: [],
+      hiddenCols: [],
+    }
+    // includeEmpty: a filled cell with no value still carries a format.
+    const all = []
+    ws.eachRow({ includeEmpty: true }, (row) => {
+      // A default size reads as none (we write it on hidden rows and columns).
+      const h = row.height && rowHeightFromXlsx(row.height)
+      if (h && h !== DEFAULT_ROW_H) view.rowH[row.number - 1] = h
+      if (row.hidden) view.hiddenRows.push(row.number - 1)
+      // A merged cell reads as its top-left cell (value, formula, style), so
+      // only the top-left one is the merge's own.
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        if (!cell.isMerged || cell.master === cell) all.push(cell)
+      })
+    })
+    // A height in the file is one somebody set: keep it from auto-fitting.
+    view.manualRows = Object.keys(view.rowH).map(Number)
+    // The font most cells use reads as no font (Google writes Arial 10).
+    const opts = { theme, font: commonFont(all.map((c) => c.style)) }
+
     const out = _writer(name)
     const fmts = []
     let n = 0
-    for (const [id, cell] of Object.entries(ws)) {
-      if (id[0] === '!') continue // !ref, !merges, !cols meta keys
-      if (!parseCellId(id)) continue
-      const { value, fmt } = fromXlsxCell(cell)
+    for (const cell of all) {
+      const id = cellId(cell.row - 1, cell.col - 1)
+      const { value, fmt } = fromXlsxCell(_cellIn(cell))
       if (value !== '' && value != null) out.add(id, renameSheetsInFormula(value, renames))
-      if (fmt) fmts.push([id, fmt])
+      const f = _withNumFmt(styleFromXlsx(cell.style, opts), fmt)
+      if (f) fmts.push([id, f])
       if (++n % CHUNK_ROWS === 0) await _yield()
     }
     out.flush()
-    if (formats) for (const [id, fmt] of fmts) formats.set(id, { numberFormat: fmt }, name)
-    if (merge && Array.isArray(ws['!merges'])) {
-      for (const { r0, c0, r1, c1 } of mergesFromXlsx(ws['!merges']))
-        merge.merge(r0, c0, r1, c1, name)
+
+    // Column and row formats before the cells' own, which win over them.
+    ;(ws.columns || []).forEach((col, c) => {
+      // isCustomWidth: ExcelJS reads a <col> with no width as 9 characters.
+      const w = col.isCustomWidth && colWidthFromXlsx(col.width)
+      if (w && w !== DEFAULT_COL_W) view.colW[c] = w
+      if (col.hidden) view.hiddenCols.push(c)
+      const f = _withNumFmt(
+        styleFromXlsx(col.style, opts),
+        fromXlsxCell({ z: col.style?.numFmt }).fmt,
+      )
+      if (f) formats?.setCol(c, f, name)
+    })
+    if (formats) {
+      ws.eachRow({ includeEmpty: true }, (row) => {
+        const f = _withNumFmt(
+          styleFromXlsx(row.style, opts),
+          fromXlsxCell({ z: row.style?.numFmt }).fmt,
+        )
+        if (f) formats.setRow(row.number - 1, f, name)
+      })
+      for (const [id, f] of fmts) formats.set(id, f, name)
     }
+
+    const frozen = (ws.views || []).find((v) => v.state === 'frozen')
+    if (frozen) {
+      view.freezeRows = frozen.ySplit || 0
+      view.freezeCols = frozen.xSplit || 0
+    }
+    // ExcelJS keeps merges only privately, keyed by their top-left cell.
+    if (merge)
+      for (const m of Object.values(ws._merges || {}))
+        for (const { r0, c0, r1, c1 } of refToRects(m.range)) merge.merge(r0, c0, r1, c1, name)
+    if (condFormat)
+      for (const cf of ws.conditionalFormattings || [])
+        for (const rule of cfFromXlsx(cf, { theme })) condFormat.addRule(rule, name)
+    return view
   }
 
   // Ensure an imported worksheet name doesn't collide with an existing sheet.
@@ -376,5 +542,5 @@ export function useExportImport({
     isDirty.value = true
   }
 
-  return { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX }
+  return { exportCSV, exportXLSX, buildXLSX, exportPDF, importCSV, importXLSX }
 }

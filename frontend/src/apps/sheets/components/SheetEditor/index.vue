@@ -852,6 +852,7 @@ import { createValidationEngine } from '../../engine/validation.js'
 import { numFmtFromEngine } from '../../engine/xlsx-io.js'
 import { cellHistory as fetchCellHistory } from '../../services/versions.js'
 import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
+import { FONT_FAMILY_STACK } from '../../utils/font-stacks.js'
 import { applyNumberFmt, buildNumberFmt, parseNumberFmt } from '../../utils/format-number.js'
 import { AC_FUN_KEYS } from '../../utils/formula-ac.js'
 import { autoCloseKey } from '../../utils/formula-autoclose.js'
@@ -1267,7 +1268,8 @@ const freezeCols = ref(0)
 const justSaved = ref(false)
 
 // Short keys keep the select narrow; the full CSS stack lives in FONT_FAMILY_STACK
-// so the persisted format value is still a complete font-family string.
+// (utils/font-stacks.ts) so the persisted format value is still a complete
+// font-family string.
 const FONT_FAMILY_OPTIONS = [
   {
     label: 'Inter',
@@ -1286,12 +1288,6 @@ const FONT_FAMILY_OPTIONS = [
     value: 'system',
   },
 ]
-const FONT_FAMILY_STACK = {
-  inter: 'InterVar, Inter, ui-sans-serif, system-ui, sans-serif',
-  serif: 'ui-serif, Georgia, "Times New Roman", serif',
-  mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-  system: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-}
 // `activeFontFamilyKey` is defined further down — after the useToolbar() call
 // that creates `activeFormat`. See "Composables" block.
 
@@ -1646,6 +1642,10 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
   getCurrentTitle: () => currentTitle.value,
   getFormats: () => formats,
   getMerge: () => merge,
+  getCondFormat: () => condFormat,
+  // Every sheet's view; _sheetTabs is set by useSheetTabs further down.
+  getViews: () => _sheetTabs?.viewSnapshot(),
+  setViews: (views) => _sheetTabs?.viewRestore(views),
   repopulateGrid: _repopulateGrid,
   // Defined later by useSheetTabs — lazy-wrapped so they resolve at call time.
   syncNames: () => syncNames(),

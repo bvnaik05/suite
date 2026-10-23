@@ -85,6 +85,7 @@
     "docx": "^9.5.1",
     "dompurify": "^3.2.6",
     "echarts": "^6.1.0",
+    "exceljs": "4.4.0",
     "file-saver": "^2.0.5",
     "firebase": "^12.2.1",
     "frappe-ui": "^1.0.0",
