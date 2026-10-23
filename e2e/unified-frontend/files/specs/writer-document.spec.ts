@@ -117,7 +117,11 @@ test("losing edit access freezes the editor and cancels the pending save", async
 
 	const writes = seen.requests
 		.slice(trashedAt)
-		.filter((line) => /\/method\/(save_doc|save_html|new_version|update_settings)/.test(line));
+		.filter(
+			(line) =>
+				/\/method\/(save_doc|save_html|new_version|update_settings)/.test(line) ||
+				/^POST .*\/api\/suite\/content\/[^/?]+\/updates/.test(line),
+		);
 	expect(writes).toEqual([]);
 
 	// The recovery copy has a way out: an HTML file of the unsaved work.
