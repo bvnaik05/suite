@@ -18,6 +18,7 @@ from suite.content.editors import spec_of
 from suite.content.http import routes
 from suite.drive._core.nodes import _restore, _trash, purge
 from suite.drive._core.principals import Principals
+from suite.drive._core.roots import lock_trees
 from suite.drive._core.versions import read_version, restore_version
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
 from suite.writer import content as writer_content
@@ -280,7 +281,7 @@ class TestConversion(DriveCallbackCase):
             frappe.connect()
             frappe.set_user(WRITER)
             try:
-                # A plain read, as a request makes, takes the snapshot before the conversion commits
+                # A plain read at REPEATABLE READ, as a job makes, snapshots before the conversion commits
                 frappe.db.get_value("Drive Node", node, "state")
                 read.set()
                 converted.wait(60)
@@ -340,6 +341,7 @@ class TestConversion(DriveCallbackCase):
         read.wait(10)
         try:
             self.assertEqual(conversion.convert_document(node), "converted")
+            converted_state = self.as_before(node)
         finally:
             converted.set()
             restorer.join(30)
@@ -347,13 +349,23 @@ class TestConversion(DriveCallbackCase):
         self.assertFalse(restorer.is_alive())
         self.assertEqual([type(error) for error in errors], [drive.DriveConflict])
         self.assertEqual(str(errors[0]), "Open the document to restore this version")
+        frappe.db.rollback()
+        self.assertEqual(self.as_before(node), converted_state)
 
     def purge_as_writer(self, node: str) -> None:
         owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
         _trash(owner, node)
         purge(owner, node)
 
-    def purge_elsewhere(self, site: str, node: str, heavier: bool, errors: list, release: threading.Event):
+    def purge_elsewhere(
+        self,
+        site: str,
+        node: str,
+        heavier: bool,
+        errors: list,
+        locked: threading.Event,
+        release: threading.Event,
+    ):
         frappe.init(site=site)
         frappe.connect()
         frappe.set_user(WRITER)
@@ -362,20 +374,25 @@ class TestConversion(DriveCallbackCase):
                 # More locks than the conversion holds, so InnoDB rolls the conversion back instead
                 frappe.db.sql("SELECT `name` FROM `tabDocField` FOR UPDATE")
 
+            # The tree lock the trash takes first, held before the conversion asks for it
+            lock_trees(frappe.db.get_value("Drive Node", node, "root"))
+            locked.set()
             self.purge_as_writer(node)
             release.wait(60)
             frappe.db.commit()
         except Exception as error:
             errors.append(error)
         finally:
+            locked.set()
             frappe.destroy()
 
     # Convert `page` and, once the conversion locks its first node, purge that node from another connection
     def purge_while_converting(self, page: list[str], heavier: bool, release: threading.Event) -> list:
         node = page[0]
         errors: list[Exception] = []
+        locked = threading.Event()
         purger = threading.Thread(
-            target=self.purge_elsewhere, args=(frappe.local.site, node, heavier, errors, release)
+            target=self.purge_elsewhere, args=(frappe.local.site, node, heavier, errors, locked, release)
         )
         writer = spec_of(writer_content.APP).conversion
         real_sql = frappe.db.sql
@@ -384,16 +401,20 @@ class TestConversion(DriveCallbackCase):
             answer = real_sql(query, *args, **kwargs)
             if "`tabDrive Node` WHERE `name` = %s FOR UPDATE" in str(query) and purger.ident is None:
                 purger.start()
-                time.sleep(2)
+                locked.wait(10)
 
             return answer
 
         rows = [frappe._dict(node=name) for name in page]
-        with patch.object(frappe.db, "sql", sql):
-            self.assertTrue(convert.convert_page(writer_content.APP, writer, rows, time.monotonic() + 600))
+        try:
+            with patch.object(frappe.db, "sql", sql):
+                self.assertTrue(
+                    convert.convert_page(writer_content.APP, writer, rows, time.monotonic() + 600)
+                )
+        finally:
+            release.set()
+            purger.join(30)
 
-        release.set()
-        purger.join(30)
         self.assertFalse(purger.is_alive())
         return errors
 
