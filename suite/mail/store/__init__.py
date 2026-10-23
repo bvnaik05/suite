@@ -128,15 +128,12 @@ def destroy_search_index() -> None:
 
 
 def rebuild_email_address_index(account: str, in_background: bool = True) -> None:
-    """Rebuild an account's email-address index from scratch.
+    """Re-index every cached mail message and contact card into the account's email-address index.
 
-    Drops the existing index, then re-indexes every cached mail message and contact card in
-    batches (bounding memory and the size of each index commit). Runs in a background job by
-    default; pass `in_background=False` to run inline (e.g. from within the job itself).
-
-    Correspondence counts are recomputed from the messages the cache holds now, so a rebuild both
-    clears the drift a re-fetched message leaves behind and forgets the addresses an evicted one
-    contributed. They rank suggestions against each other; they are not a record of every message.
+    Indexing is safe to repeat, so this upserts on top of what is indexed and keeps the addresses
+    evicted messages contributed; clear the account's search indexes first for a clean slate. Runs
+    in batches (bounding memory and commit size) in a background job by default; pass
+    `in_background=False` to run inline (e.g. from within the job itself).
     """
 
     if in_background:
@@ -154,20 +151,19 @@ def rebuild_email_address_index(account: str, in_background: bool = True) -> Non
     # Imported lazily: these modules import this package, so a top-level import would be circular.
     from suite.mail.doctype.contact_card.contact_card import _contact_addresses
     from suite.mail.doctype.mail_message.mail_message import _message_addresses
+    from suite.mail.utils.user import get_account_emails
 
-    # Drop the stale index, then take a fresh handle so its directory is recreated before writing.
-    get_email_address_index(account).drop()
     index = get_email_address_index(account)
-
     store = get_data_store(account)
+    own_addresses = set(get_account_emails(account))
 
     messages = list(store.scan(Entity.EMAIL).values())
     for batch in create_batch(messages, _REBUILD_BATCH_SIZE):
-        index.index_addresses(_message_addresses(batch))
+        index.index_addresses(_message_addresses(batch, own_addresses))
 
     contact_cards = list(store.scan(Entity.CONTACT_CARD).values())
     for batch in create_batch(contact_cards, _REBUILD_BATCH_SIZE):
-        index.index_addresses(_contact_addresses(batch), count=False)
+        index.index_addresses(_contact_addresses(batch))
 
 
 @frappe.whitelist()
