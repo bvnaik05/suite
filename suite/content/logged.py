@@ -375,7 +375,7 @@ class ContentCallbacks:
         prefix = record_prefix(self.app())
         head = read_head(stream, len(prefix))
         if head == prefix:
-            raise drive.DriveConflict(_("This version can be restored only while collaboration is on"))
+            raise drive.DriveConflict(_("This version can be restored once the document is converted"))
 
         self.base_restore_version(docname, cast(IO[bytes], ReplayedStream(head, stream)))
 
