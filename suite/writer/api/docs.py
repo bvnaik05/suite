@@ -34,10 +34,14 @@ class OldBody(TypedDict):
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def old_body(node: str) -> OldBody:
-    """Answer the Yjs body of the latest `writer-document/1` version, the one conversion kept."""
+    """Answer the Yjs body of the latest `writer-document/1` version, the one conversion kept; none past one too large."""
     drive.check(node, drive.READ)
     payloads = (version_object(node, seq) for seq in version_seqs(node))
-    payload = next((found for found in payloads if found.get("schema") == VERSION_SCHEMA), {})
+    try:
+        payload = next((found for found in payloads if found.get("schema") == VERSION_SCHEMA), {})
+    except frappe.ValidationError:
+        return {}
+
     body: OldBody = {}
     if payload.get("content"):
         body["content"] = payload["content"]
@@ -57,10 +61,10 @@ def version_seqs(node: str) -> Iterator[int]:
 
 
 def version_object(node: str, seq: int) -> dict:
-    """Read version `seq` as its JSON object; an HTML version, or one too large to read, reads as an empty one."""
+    """Read version `seq` as its JSON object; an HTML version reads as an empty one."""
     try:
         payload = json.loads(_read_bounded(drive.read_version(node, seq)))
-    except (ValueError, frappe.ValidationError):
+    except ValueError:
         return {}
 
     if not isinstance(payload, dict):
