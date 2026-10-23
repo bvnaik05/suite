@@ -865,9 +865,9 @@ class TestWriterInDrive(IntegrationTestCase):
         before = frappe.db.get_value(DOCTYPE, document.name, "html")
         update(self.admin, node, state="Trashed")
 
-        for write in (lambda: document.update_settings('{"collab": false}'),):
-            with self.subTest(write=write), self.assertRaises(DriveForbidden):
-                write()
+        with self.assertRaises(DriveForbidden):
+            document.update_settings('{"collab": false}')
+
         self.assertEqual(frappe.db.get_value(DOCTYPE, document.name, "html"), before)
 
     def test_a_trashed_document_refuses_the_generic_orm_write_too(self):
