@@ -288,6 +288,11 @@ function tailStart(lastId: string | undefined): { base: string; n: number } {
   return { base: lastId, n: 0 }
 }
 
+/** Whether an id was grown past the end (e7, x7p2.3) rather than inserted. */
+export function isTailId(id: string): boolean {
+  return ROOT_TAIL.test(id) || SUFFIX_TAIL.test(id)
+}
+
 function tailId(base: string, n: number): string {
   return base === 'e' ? `e${n}` : `${base}.${n}`
 }
