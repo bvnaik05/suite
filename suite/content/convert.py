@@ -219,7 +219,6 @@ def report_block(cause: str) -> None:
     if frappe.db.get_global(block_key(cause)):
         return
 
-    frappe.db.set_global(block_key(cause), 1)
     notice = {
         "type": "Alert",
         "document_type": "Suite Collab Settings",
@@ -227,6 +226,7 @@ def report_block(cause: str) -> None:
         "subject": f"Collaborative documents can't be upgraded: {BLOCKS[cause]}",
     }
     make_notification_logs(notice, get_system_managers(only_name=True))
+    frappe.db.set_global(block_key(cause), 1)
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
