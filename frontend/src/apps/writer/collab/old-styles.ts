@@ -410,6 +410,47 @@ export function mapOldCellStyles(body: XmlFragment) {
   return cells.every(mapCellStyle)
 }
 
+const SPANS = ['colspan', 'rowspan']
+
+// A stored span as a browser draws it: its leading whole number, or 1
+function drawnSpan(value: unknown) {
+  const span = Number.parseInt(String(value), 10)
+  return span >= 1 ? span : 1
+}
+
+export function repairOldCellSpans(body: XmlFragment) {
+  const cells = [
+    ...body.createTreeWalker((type) => type instanceof XmlElement && CELLS.has(type.nodeName)),
+  ] as XmlElement[]
+  const cellSpans = cells.flatMap((cell) => SPANS.map((name) => [cell, name] as const))
+  let repairedSpans = 0
+  for (const [cell, name] of cellSpans) {
+    const value: unknown = cell.getAttribute(name)
+    if (value !== undefined && drawnSpan(value) !== value) {
+      cell.setAttribute(name, drawnSpan(value) as never)
+      repairedSpans += 1
+    }
+  }
+
+  return repairedSpans
+}
+
+export function repairHtmlCellSpans(body: HTMLElement) {
+  const cellSpans = [...body.querySelectorAll('td, th')].flatMap((cell) =>
+    SPANS.map((name) => [cell, name] as const),
+  )
+  let repairedSpans = 0
+  for (const [cell, name] of cellSpans) {
+    const value = cell.getAttribute(name)
+    if (value !== null && String(drawnSpan(value)) !== value) {
+      cell.setAttribute(name, String(drawnSpan(value)))
+      repairedSpans += 1
+    }
+  }
+
+  return repairedSpans
+}
+
 // Whether formatting holds a text style value with a ';', which would end its declaration where
 // it's drawn
 function holdsStyleBreak({ textStyle }: Attributes = {}) {

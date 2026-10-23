@@ -1822,11 +1822,11 @@ describe('convertLegacy on table cell spans', () => {
     }
   })
 
-  it('still refuses a table its repaired spans leave broken', () => {
-    expect(convertLegacy(yTable(yCell('tableCell', { rowspan: '2' })), MAX_STATE)).toEqual({
-      kind: 'failed',
-      reason: 'check',
-    })
+  it('converts a table its repaired spans leave uneven, as it stands', () => {
+    const result = convert(yTable(yCell('tableCell', { rowspan: '2' })))
+
+    expect(cellOf(result.state).attrs).toMatchObject({ rowspan: 2 })
+    expect(result.dropped).toEqual(REPAIRED)
   })
 })
 

@@ -77,6 +77,8 @@ import {
   moveSpanHighlights,
   readOldHighlights,
   readOldTextColours,
+  repairHtmlCellSpans,
+  repairOldCellSpans,
 } from '@/apps/writer/collab/old-styles'
 import { readOldThreads, type OldComment } from '@/apps/writer/collab/old-threads'
 import { placeThread } from '@/apps/writer/collab/places'
@@ -94,7 +96,8 @@ const schema = getSchema(extensions)
  * What the conversion couldn't carry over: Drive's table of contents, rebuilt from the headings, a
  * part holding nothing, a change Yjs held back, the words of an old comment's copy away from its
  * anchor, the place of an old comment whose words are gone, a Yjs body holding nothing, read past
- * for the HTML, or a property or attribute on the noise list.
+ * for the HTML, a property or attribute on the noise list, or the count of table cell spans set
+ * to the span a browser drew.
  */
 export type Dropped =
   | { kind: 'toc-hint' }
@@ -104,6 +107,7 @@ export type Dropped =
   | { kind: 'comment-deleted'; id: string }
   | { kind: 'empty-yjs' }
   | { kind: 'noise'; name: string }
+  | { kind: 'table-span'; count: number }
 
 /** A thread Drive kept only in its 2023 comment marks, under a key its far copies name */
 export interface OldThread {
@@ -383,6 +387,7 @@ function fromYjs(old: Doc) {
   const isAtomDeclared = hasDeclaredAtomKeys(body)
   const isColourMapped = mapOldColours(body)
   const isCellStyleMapped = mapOldCellStyles(body)
+  const repairedSpans = repairOldCellSpans(body)
   const { node, hidden, lost } = placeFragment(body, schema)
   const isMediaKept = mediaSources(body) === media
   const setAside = [...hidden, ...lost.filter(isDroppable)]
@@ -406,7 +411,13 @@ function fromYjs(old: Doc) {
         return null
       }
 
-      return [...uploadIds, ...floats, ...mentionData, ...droppedImages(threads)]
+      return [
+        ...uploadIds,
+        ...floats,
+        ...mentionData,
+        ...droppedImages(threads),
+        ...droppedSpans(repairedSpans),
+      ]
     },
   }
 }
@@ -733,10 +744,12 @@ function fromHtml(html: string) {
   const hasUnreadableThreads = !threads || !!body.querySelector(ANNOTATION_TAG)
   const isFontRead = dropUnclosedFonts(body)
   const mentionTypes = readOldMentions(body)
+  const repairedSpans = repairHtmlCellSpans(body)
   // Before the defaults go, since dropping one rewrites the style text from the parse
   const raw = rawStyles(body)
   const floats = droppedHtmlFloats(body)
-  const isRewritten = !!threads?.threads.length || isFontRead || mentionTypes.length > 0
+  const isRewritten =
+    !!threads?.threads.length || isFontRead || mentionTypes.length > 0 || repairedSpans > 0
   const node = schema.nodeFromJSON(generateJSON(readableHtml(body, html, isRewritten), extensions))
   const uploadMarks = dropUploadMarks(body)
   const mentionAuthors = dropMentionAuthors(body)
@@ -764,7 +777,11 @@ function fromHtml(html: string) {
         ...floats,
         ...droppedNoise(body, result),
       ]
-      return [...names.map((name): Dropped => ({ kind: 'noise', name })), ...droppedImages(threads)]
+      return [
+        ...names.map((name): Dropped => ({ kind: 'noise', name })),
+        ...droppedImages(threads),
+        ...droppedSpans(repairedSpans),
+      ]
     },
   }
 }
@@ -835,6 +852,14 @@ function read(choice: Exclude<LegacyRead, { case: 'unreadable-yjs' }>, comments:
 }
 
 type ReadComments = Pick<ReturnType<typeof read>, 'threads' | 'marked' | 'placeListed'>
+
+function droppedSpans(count: number): Dropped[] {
+  if (!count) {
+    return []
+  }
+
+  return [{ kind: 'table-span', count }]
+}
 
 function deletedComment(id: string): Dropped {
   return { kind: 'comment-deleted', id }
