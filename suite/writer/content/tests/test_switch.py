@@ -1,6 +1,9 @@
+from unittest.mock import patch
+
 import frappe
 from frappe.tests import IntegrationTestCase
 
+from suite.composition import lifecycle
 from suite.content import log
 from suite.writer.content import APP, turn_on
 from suite.writer.patches import turn_collaboration_on
@@ -31,6 +34,19 @@ class TestWriterSwitch(IntegrationTestCase):
         self.assertEqual(log.mode(APP), "off")
 
         turn_on()
+
+        self.assertEqual(log.mode(APP), "on")
+
+    def test_a_fresh_install_turns_writer_on(self):
+        remove_writers_row()
+
+        # The site already holds their rate limits, which they can't insert twice
+        with (
+            patch("suite.mail.install.after_install"),
+            patch("suite.calendar.install.after_install"),
+            patch("suite.meet.install.after_install"),
+        ):
+            lifecycle.after_install()
 
         self.assertEqual(log.mode(APP), "on")
 
