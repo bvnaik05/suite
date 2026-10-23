@@ -478,6 +478,7 @@ export class ParticipantConnection {
     conflictId?: string,
   ): Promise<boolean> {
     const generation = this.lifecycleGeneration
+    const wasBuffering = this.initialSyncInProgress
     // Rejoin removes the server's old transports. Buffer producer events until
     // the replacement media side is ready and setupExistingParticipants syncs it.
     this.initialSyncInProgress = true
@@ -495,6 +496,18 @@ export class ParticipantConnection {
       console.log('Successfully joined room:', this.meetingId)
       return true
     } catch (error) {
+      if (generation === this.lifecycleGeneration) {
+        this.initialSyncInProgress = wasBuffering
+        if (!wasBuffering) {
+          for (const event of this.bufferedReconciliationEvents.splice(0)) {
+            this.applyReconciliationEvent(event)
+          }
+          this.flushBufferedMediaStateUpdates()
+          await this.flushBufferedProducers().catch((flushError) => {
+            console.warn('Failed to resume subscriptions after rejected rejoin:', flushError)
+          })
+        }
+      }
       console.error('Failed to join room:', error)
       throw error
     }
