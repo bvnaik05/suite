@@ -191,11 +191,11 @@ class TestWriterDriveVersions(DriveCallbackCase):
 
         self.assertEqual(docs.old_body(node), {"content": "bmV3ZXI="})
 
-    def test_the_old_body_is_the_latest_row_version_past_newer_ones_too_large_to_read(self):
+    def test_no_old_body_past_a_version_too_large_to_read(self):
         node = self.old_document_with_versions("b2xkZXI=", "A" * 4000)
 
         with patch.object(writer_drive, "MAX_VERSION_BYTES", 2000):
-            self.assertEqual(docs.old_body(node), {"content": "b2xkZXI="})
+            self.assertEqual(docs.old_body(node), {})
 
     def test_a_reader_gets_the_old_body(self):
         node = self.old_document_with_versions("b2xkZXI=")
