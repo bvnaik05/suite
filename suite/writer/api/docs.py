@@ -9,7 +9,7 @@ import mimemapper
 from suite import drive
 from suite.content import convert, scheduling
 from suite.writer import content as writer_content
-from suite.writer.drive import VERSION_SCHEMA, _read_bounded, _version_payload
+from suite.writer.drive import VERSION_SCHEMA, VersionTooLarge, _read_bounded, _version_payload
 
 # To be moved to mimemapper
 QUICK_MAP = {
@@ -39,7 +39,7 @@ def old_body(node: str) -> OldBody:
     payloads = (version_object(node, seq) for seq in version_seqs(node))
     try:
         payload = next((found for found in payloads if found.get("schema") == VERSION_SCHEMA), {})
-    except frappe.ValidationError:
+    except VersionTooLarge:
         return {}
 
     body: OldBody = {}

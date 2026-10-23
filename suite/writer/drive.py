@@ -118,6 +118,10 @@ class UnreadableBody(frappe.ValidationError):
     """One Writer body pycrdt refused to read."""
 
 
+class VersionTooLarge(frappe.ValidationError):
+    """One Writer version past `MAX_VERSION_BYTES`, refused before it is held."""
+
+
 def create_empty(node: str) -> str:
     """Insert one empty Writer document bound to `node`."""
     document = frappe.new_doc(DOCTYPE)
@@ -277,7 +281,7 @@ def _read_bounded(stream) -> bytes:
             _("That Writer version is larger than {0} MB and cannot be read").format(
                 MAX_VERSION_BYTES // (1024 * 1024)
             ),
-            frappe.ValidationError,
+            VersionTooLarge,
         )
     return raw
 
