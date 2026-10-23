@@ -1,13 +1,14 @@
 import { getSchema } from '@tiptap/core'
 import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
+import { client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
 
 import { writerSchema } from '../schema'
-import { readVersion, storedVersionHTML } from './versions'
+import { convertedVersion, readVersion, storedVersionHTML } from './versions'
 
 const schema = getSchema(writerSchema())
 
@@ -223,5 +224,49 @@ describe('storedVersionHTML', () => {
     const session = serving(() => new Response(null, { status: 500 }))
 
     await expect(storedVersionHTML(session, 1, null)).rejects.toThrow('HTTP 500')
+  })
+})
+
+// The server's answers to each ask, in order, then "still converting" for every ask after
+function converting(...answers: object[]) {
+  return vi
+    .spyOn(client, 'mutation')
+    .mockImplementation(async () => answers.shift() ?? { pending: true })
+}
+
+const asking = { nodeId: 'n1', credentials: { context: {} } } as unknown as DocumentSession
+
+describe('convertedVersion', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('asks again every two seconds while the server converts, then reads its state', async () => {
+    vi.useFakeTimers()
+    const asked = converting({ pending: true }, { pending: true }, { state: 'AAA=' })
+
+    const answer = convertedVersion(asking, 4)
+    await vi.advanceTimersByTimeAsync(4000)
+
+    expect([await answer, asked.mock.calls.length]).toEqual([
+      { body: { lineage: '', state: new Uint8Array([0, 0]) } },
+      3,
+    ])
+  })
+
+  it('gives up once the server has converted for 150 seconds', async () => {
+    vi.useFakeTimers()
+    converting()
+    let isSettled = false
+
+    const answer = convertedVersion(asking, 4).finally(() => {
+      isSettled = true
+    })
+    await vi.advanceTimersByTimeAsync(149_999)
+    const isSettledEarly = isSettled
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect([isSettledEarly, await answer]).toEqual([false, { isPending: true }])
   })
 })

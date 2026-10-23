@@ -5,17 +5,20 @@ import os
 import threading
 import time
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import frappe
 import pycrdt
 from bs4 import BeautifulSoup
 from frappe.utils import get_datetime, get_system_timezone
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
 from suite import drive
-from suite.content import checker, compaction, convert, copies, jobs, log
+from suite.content import checker, compaction, convert, copies, jobs, log, scheduling
 from suite.content.editors import spec_of
 from suite.content.http import routes
+from suite.drive._core.access import grant
 from suite.drive._core.nodes import _restore, _trash, purge
 from suite.drive._core.principals import Principals
 from suite.drive._core.roots import lock_trees
@@ -561,12 +564,79 @@ class TestConversion(DriveCallbackCase):
         seq = drive.take_version(node)
         frappe.db.commit()
 
-        answer = docs.convert_version(node, seq)
+        self.assertEqual(
+            self.restored_body(self.poll_conversion(node, seq)), "<paragraph>Yjs text</paragraph>"
+        )
 
+    # Asks for version `seq` as the page does, outside a job, runs the job it queued, and asks again
+    def poll_conversion(self, node: str, seq: int) -> dict:
+        with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue") as enqueue:
+            self.assertEqual(docs.convert_version(node, seq), {"pending": True})
+            queued = call(
+                "suite.writer.api.docs.run_version_conversion",
+                f"suite-writer-convert-version-{node}-{seq}",
+                timeout=300,
+                node=node,
+                seq=seq,
+            )
+            self.assertEqual(enqueue.call_args_list, [queued])
+
+        docs.run_version_conversion(node=node, seq=seq)
+        with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue") as enqueue:
+            answer = docs.convert_version(node, seq)
+            enqueue.assert_not_called()
+
+        return answer
+
+    def restored_body(self, answer: dict) -> str:
         restored = pycrdt.Doc()
         restored.apply_update(base64.b64decode(answer["state"]))
-        body = str(restored.get("default", type=pycrdt.XmlFragment))
-        self.assertEqual(body, "<paragraph>Yjs text</paragraph>")
+        return str(restored.get("default", type=pycrdt.XmlFragment))
+
+    def test_converts_an_old_version_in_a_job_the_page_waits_on(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        frappe.db.commit()
+
+        self.assertEqual(
+            self.restored_body(self.poll_conversion(node, seq)), "<paragraph>Hello world</paragraph>"
+        )
+
+    def test_converts_an_old_version_for_an_editor_who_holds_only_an_edit_link(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        admin = Principals("Administrator", ("Administrator",), (), is_admin=True)
+        code = grant(node, "$LINK", drive.EDIT, admin)["principal"].removeprefix("$LINK:")
+        frappe.db.commit()
+        environ = EnvironBuilder(path="/api/v2/method/suite.writer.api.docs.convert_version")
+        previous = getattr(frappe.local, "request", None)
+        self.addCleanup(setattr, frappe.local, "request", previous)
+        frappe.set_user("Guest")
+
+        frappe.local.request = Request(environ.get_environ())
+        with self.assertRaises(drive.DriveError):
+            docs.convert_version(node, seq)
+
+        environ.headers["X-Drive-Links"] = code
+        frappe.local.request = Request(environ.get_environ())
+        self.assertEqual(
+            self.restored_body(self.poll_conversion(node, seq)), "<paragraph>Hello world</paragraph>"
+        )
+
+    def test_answers_crashed_only_to_a_system_manager_when_the_conversion_job_raises(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        frappe.db.commit()
+
+        with patch.object(convert, "convert", side_effect=RuntimeError("Hello world")):
+            writer_sees = self.poll_conversion(node, seq)
+
+        frappe.set_user("Administrator")
+        with patch.object(frappe.local, "job", None):
+            manager_sees = docs.convert_version(node, seq)
+
+        self.assertEqual(writer_sees, {})
+        self.assertEqual(manager_sees, {"reason": "crashed"})
 
     def edit_while_converting(self, node: str, edits: int):
         docname = self.docname_of(node)

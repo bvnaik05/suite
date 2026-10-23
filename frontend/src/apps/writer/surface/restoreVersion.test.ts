@@ -186,6 +186,23 @@ describe('restoreVersion', () => {
     },
   )
 
+  it('restores nothing while the server is still upgrading an old version', async () => {
+    const room = fakeRoom({ outcome: 'landed' })
+
+    const notice = await restoreVersion(room, 4, oldVersion(), [], () =>
+      Promise.resolve({ isPending: true }),
+    )
+
+    expect([notice, room.restoreVersion.mock.calls.length]).toEqual([
+      {
+        isRestored: false,
+        message: 'This version is still being upgraded. Try restoring it again in a minute.',
+        anchors: {},
+      },
+      0,
+    ])
+  })
+
   it.each([0, 1])(
     'restores an old version (collab %s) as the converter made it, not its stored HTML',
     async (collab) => {
