@@ -9,7 +9,7 @@
       "page": null,
       "envelope": "data",
       "method": "GET",
-      "path": "/api/v2/document/Writer Document/{name}",
+      "path": "documents/{name}",
       "pathParams": [
         "name"
       ],
@@ -140,20 +140,23 @@
         "title": "WriterRow",
         "type": "object"
       },
-      "errors": [],
+      "errors": [
+        "DoesNotExistError",
+        "PermissionError"
+      ],
       "entity": null,
       "nodeParams": [],
       "stream": false,
       "bytes": false
     },
     {
-      "id": "update_settings",
+      "id": "document_settings",
       "kind": "mutation",
       "publicName": "documents.updateSettings",
       "page": null,
       "envelope": "data",
       "method": "POST",
-      "path": "/api/v2/document/Writer Document/{name}/method/update_settings",
+      "path": "documents/{name}/settings",
       "pathParams": [
         "name"
       ],
@@ -174,7 +177,12 @@
       "output": {
         "type": "null"
       },
-      "errors": [],
+      "errors": [
+        "DoesNotExistError",
+        "DriveNotFound",
+        "DriveForbidden",
+        "DriveLocked"
+      ],
       "entity": null,
       "nodeParams": [],
       "stream": false,

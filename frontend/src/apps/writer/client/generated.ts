@@ -27,7 +27,7 @@ export type DocumentOutput = {
   content_modified?: string
 }
 
-export type DocumentError = never
+export type DocumentError = 'DoesNotExistError' | 'PermissionError'
 
 const operationDocument: QueryRef<DocumentInput, DocumentOutput, DocumentError> = {
   id: 'document',
@@ -35,39 +35,40 @@ const operationDocument: QueryRef<DocumentInput, DocumentOutput, DocumentError> 
   kind: 'query',
   publicName: 'documents.get',
   method: 'GET',
-  path: '/api/v2/document/Writer Document/{name}',
+  path: 'documents/{name}',
   prefix: '/api/suite/writer/',
   pathParams: ['name'],
   nodeParams: [],
   entity: null,
-  errors: [],
+  errors: ['DoesNotExistError', 'PermissionError'],
   loadValidators: async () => (await import('./validators')).operationDocument,
 }
 
-export type UpdateSettingsInput = { data: string; name: string }
+export type DocumentSettingsInput = { data: string; name: string }
 
-export type UpdateSettingsOutput = null
+export type DocumentSettingsOutput = null
 
-export type UpdateSettingsError = never
+export type DocumentSettingsError =
+  'DoesNotExistError' | 'DriveNotFound' | 'DriveForbidden' | 'DriveLocked'
 
-const operationUpdateSettings: MutationRef<
-  UpdateSettingsInput,
-  UpdateSettingsOutput,
-  UpdateSettingsError
+const operationDocumentSettings: MutationRef<
+  DocumentSettingsInput,
+  DocumentSettingsOutput,
+  DocumentSettingsError
 > = {
-  id: 'update_settings',
+  id: 'document_settings',
   owner: 'writer',
   kind: 'mutation',
   publicName: 'documents.updateSettings',
   empty: true,
   method: 'POST',
-  path: '/api/v2/document/Writer Document/{name}/method/update_settings',
+  path: 'documents/{name}/settings',
   prefix: '/api/suite/writer/',
   pathParams: ['name'],
   nodeParams: [],
   entity: null,
-  errors: [],
-  loadValidators: async () => (await import('./validators')).operationUpdateSettings,
+  errors: ['DoesNotExistError', 'DriveNotFound', 'DriveForbidden', 'DriveLocked'],
+  loadValidators: async () => (await import('./validators')).operationDocumentSettings,
 }
 
 export type OldBodyInput = { node: string }
@@ -119,7 +120,7 @@ const operationConvertVersion: MutationRef<
 export const api = {
   documents: {
     get: operationDocument,
-    updateSettings: operationUpdateSettings,
+    updateSettings: operationDocumentSettings,
     oldBody: operationOldBody,
   },
   versions: {

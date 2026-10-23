@@ -7,10 +7,10 @@ import type {
   ConvertVersionOutput,
   DocumentInput,
   DocumentOutput,
+  DocumentSettingsInput,
+  DocumentSettingsOutput,
   OldBodyInput,
   OldBodyOutput,
-  UpdateSettingsInput,
-  UpdateSettingsOutput,
 } from './generated'
 
 export const operationDocument: Validators<DocumentInput, DocumentOutput> = {
@@ -80,24 +80,25 @@ export const operationDocument: Validators<DocumentInput, DocumentOutput> = {
   },
 }
 
-export const operationUpdateSettings: Validators<UpdateSettingsInput, UpdateSettingsOutput> = {
-  validateInput(value: unknown): asserts value is UpdateSettingsInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: { data: { title: 'Data', type: 'string' }, name: { type: 'string' } },
-        required: ['data', 'name'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'update_settings input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is UpdateSettingsOutput {
-    assertSchema(value, { type: 'null' }, 'update_settings output')
-  },
-}
+export const operationDocumentSettings: Validators<DocumentSettingsInput, DocumentSettingsOutput> =
+  {
+    validateInput(value: unknown): asserts value is DocumentSettingsInput {
+      assertSchema(
+        value,
+        {
+          type: 'object',
+          properties: { data: { title: 'Data', type: 'string' }, name: { type: 'string' } },
+          required: ['data', 'name'],
+          additionalProperties: false,
+          $defs: {},
+        },
+        'document_settings input',
+      )
+    },
+    validateOutput(value: unknown): asserts value is DocumentSettingsOutput {
+      assertSchema(value, { type: 'null' }, 'document_settings output')
+    },
+  }
 
 export const operationOldBody: Validators<OldBodyInput, OldBodyOutput> = {
   validateInput(value: unknown): asserts value is OldBodyInput {

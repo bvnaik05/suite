@@ -5,14 +5,15 @@ from typing import NotRequired, TypedDict
 from zoneinfo import ZoneInfo
 
 import frappe
+from frappe import _
 from frappe.utils import get_datetime, get_system_timezone
 
+from suite import drive
 from suite.composition.http import Route
 from suite.content import log
 from suite.writer import content as writer_content
 from suite.writer.api.docs import OldBody, VersionConversion, convert_version, old_body
 from suite.writer.content.conversion import ConversionStatus, conversion_status
-from suite.writer.doctype.writer_document.writer_document import WriterDocument
 
 
 class WriterRow(TypedDict):
@@ -39,6 +40,7 @@ class ConvertVersion(TypedDict):
     seq: int
 
 
+@frappe.whitelist(allow_guest=True, methods=["GET"])
 def document(name: str) -> WriterRow:
     doc = frappe.get_doc("Writer Document", name)
     doc.check_permission("read")
@@ -55,27 +57,42 @@ def document(name: str) -> WriterRow:
     return row
 
 
-update_settings = WriterDocument.update_settings
+@frappe.whitelist(methods=["POST"])
+def document_settings(name: str, data: str) -> None:
+    """Save a document's editor settings."""
+    frappe.get_doc("Writer Document", name).update_settings(data)
 
-CONTRACT_ROUTES = (
+
+@frappe.whitelist(allow_guest=True, methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
+def unknown() -> None:
+    """Answer an address no route names as not found."""
+    raise frappe.DoesNotExistError(_("That Writer address does not exist"))
+
+
+ROUTES = (
     Route(
         "GET",
-        "/api/v2/document/Writer Document/{name}",
+        "documents/{name}",
         "document",
         output=WriterRow,
+        errors=(frappe.DoesNotExistError, frappe.PermissionError),
         kind="query",
         public_name="documents.get",
         allow_guest=True,
     ),
     Route(
         "POST",
-        "/api/v2/document/Writer Document/{name}/method/update_settings",
-        "update_settings",
+        "documents/{name}/settings",
+        "document_settings",
         body=SaveSettings,
         output=type(None),
+        errors=(frappe.DoesNotExistError, drive.DriveNotFound, drive.DriveForbidden, drive.DriveLocked),
         kind="mutation",
         public_name="documents.updateSettings",
     ),
+)
+
+CONTRACT_ROUTES = (
     Route(
         "GET",
         "/api/v2/method/suite.writer.api.docs.old_body",

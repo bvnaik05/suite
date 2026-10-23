@@ -493,6 +493,7 @@ ALLOWED_WILDCARD_PATHS = [
     "/api/suite/mail/",
     "/api/suite/calendar/",
     "/api/suite/meet/",
+    "/api/suite/writer/",
     "/api/method/suite.writer.api.",
     # writer — backward-compatible prefix for embed URLs stored in old documents
     # (see override_whitelisted_methods).
