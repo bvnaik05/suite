@@ -419,6 +419,14 @@ describe('workbook — deleting rows or columns shrinks the ranges that span the
       deleteFirstRow(wb, 118)
     })
 
+    // Moving rows 25–34 up by 10 pushes rows 15–24 down by 10.
+    it('pushed down by rows moved up past it', () => {
+      const wb = start()
+      wb.apply(cmd(CommandTypes.moveRows, { sheet: 'Sheet1', row: 25, count: 10, delta: -10 }))
+      expect(wb.getInput('Sheet1', 29, 2)).toBe('=SUM(A1:A10)')
+      deleteFirstRow(wb, 28)
+    })
+
     it('brought back down by undo', () => {
       const wb = start()
       del(wb, 'deleteRows', 'Sheet1', 12, 5)

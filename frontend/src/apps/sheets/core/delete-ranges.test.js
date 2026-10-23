@@ -73,6 +73,9 @@ describe('shrinkRangesForDelete — rows', () => {
     // A sheet name with letters outside A–Z is still a sheet name.
     expect(rows('=SUM(Été!A1:A3)')).toBe('=SUM(Été!A1:A3)')
     expect(rows('=SUM(Été!A1:A3)', 1, 1, { sheet: 'Été' })).toBe('=SUM(Été!A2:A3)')
+    // IronCalc keeps a digit-led name unquoted.
+    expect(rows('=SUM(2024!A1:A3)')).toBe('=SUM(2024!A1:A3)')
+    expect(rows('=SUM(2024!A1:A3)', 1, 1, { sheet: '2024' })).toBe('=SUM(2024!A2:A3)')
   })
 
   it('does not read function names or single cells as ranges', () => {

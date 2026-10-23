@@ -248,14 +248,17 @@ export function createWorkbook({
     // the batch ends.
     const pause = !inBatch
     if (pause) model.pauseEvaluation()
+    // If a rewrite or the delete fails, put back the formulas rewritten so far.
+    let done = 0
     try {
-      for (const f of fixes) setFormula(f, f.after)
-      try {
-        del()
-      } catch (e) {
-        for (const f of fixes) setFormula(f, f.before)
-        throw e
+      for (const f of fixes) {
+        setFormula(f, f.after)
+        done++
       }
+      del()
+    } catch (e) {
+      for (const f of fixes.slice(0, done)) setFormula(f, f.before)
+      throw e
     } finally {
       if (pause) {
         model.resumeEvaluation()
@@ -397,7 +400,8 @@ export function createWorkbook({
       }
       case CommandTypes.moveRows: {
         const p = cmd.payload
-        raiseFormulaRowBound(p.row + p.count - 1 + p.delta)
+        // Moving up pushes the rows passed over down, to at most the block's old end.
+        raiseFormulaRowBound(p.row + p.count - 1 + Math.max(0, p.delta))
         model.moveRows(sheetIndex(p.sheet), p.row, p.count, p.delta)
         return
       }

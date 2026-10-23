@@ -21,14 +21,14 @@ export interface DeleteSpan {
 }
 
 // A string literal ("..." with "" for a quote), or a range: an optional sheet
-// name ('quoted' or bare, any letters), then A1:B2, A:B or 1:2. The
+// name ('quoted' or bare: any letters or digits), then A1:B2, A:B or 1:2. The
 // lookbehind keeps a match from starting inside a name, or after a sheet name
 // the pattern didn't take (it must not fall back to the formula's sheet); the
 // lookahead keeps it from ending inside a name.
 const TOKEN = new RegExp(
   [
     '("(?:[^"]|"")*")',
-    "(?<![\\p{L}\\p{N}_.$'!])((?:'(?:[^']|'')+'|[\\p{L}_][\\p{L}\\p{N}_.]*)!)?" +
+    "(?<![\\p{L}\\p{N}_.$'!])((?:'(?:[^']|'')+'|[\\p{L}\\p{N}_][\\p{L}\\p{N}_.]*)!)?" +
       '(?:(\\$?[A-Za-z]{1,3})(\\$?\\d+):(\\$?[A-Za-z]{1,3})(\\$?\\d+)' +
       '|(\\$?[A-Za-z]{1,3}):(\\$?[A-Za-z]{1,3})' +
       '|(\\$?\\d+):(\\$?\\d+))(?![\\p{L}\\p{N}_.(!])',
