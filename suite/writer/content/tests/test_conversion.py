@@ -212,6 +212,8 @@ class TestConversion(DriveCallbackCase):
             ("relative iframe", "iframe", "/files/talk.mp4"),
             ("svg data picture", "image", "data:image/svg+xml;base64,PHN2Zy8+"),
             ("html data picture", "image", "data:text/html,<p>Hi</p>"),
+            ("upper case html data picture", "image", "DATA:text/html,<p>Hi</p>"),
+            ("spaced html data picture", "image", " \tdata:text/html,<p>Hi</p>"),
         ):
             with self.subTest(name):
                 node = self.old_yjs_document(
