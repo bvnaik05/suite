@@ -843,6 +843,7 @@ jobs:
       - name: Run E2E tests
         working-directory: ${{ github.workspace }}/e2e
         run: |
+          yarn typecheck
           status=0
           for suite in shell files home; do
             yarn "test:unified-$suite" || status=1

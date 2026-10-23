@@ -17,6 +17,8 @@ import { MOBILE_VIEWPORT } from "../../helpers/shell";
 /** Stage 9: the Drive share dialog (unified spec §7), opened from a /d/ surface. */
 
 test.describe.configure({ mode: "serial" });
+// Exercise end-of-day conversion in a timezone with a non-hour UTC offset.
+test.use({ timezoneId: "Asia/Kolkata" });
 
 interface Grant {
 	name?: string;
@@ -134,7 +136,7 @@ test("a person's access ends on a chosen day, and a role change keeps it", async
 	await page.getByRole("menuitem", { name: "Comment", exact: true }).click();
 	await expect(accessButton(row)).toHaveAccessibleName(/: Comment$/);
 	const stored = (await grants(file.name)).find((grant) => grant.principal === PERSON)!;
-	expect(stored).toMatchObject({ role: 20, expires_on: "2031-01-15T23:59:59Z" });
+	expect(stored).toMatchObject({ role: 20, expires_on: "2031-01-15T18:29:59Z" });
 });
 
 test("removing a person's grant takes them off the list and the server", async ({ page }) => {
@@ -177,7 +179,7 @@ test("a password link keeps its password when its expiry changes", async ({ page
 
 	await expect(row.getByText(/Until/)).toBeVisible();
 	const stored = (await grants(file.name)).find((grant) => grant.name === link.name)!;
-	expect(stored.expires_on).toBe("2031-01-15T23:59:59Z");
+	expect(stored.expires_on).toBe("2031-01-15T18:29:59Z");
 	expect(stored.has_password).toBe(true);
 	await expect(row.getByText(/Password set/)).toBeVisible();
 });

@@ -231,7 +231,10 @@ test("another user's rename refreshes an open shared folder without navigation",
 		await page.getByRole("button", { name: `Actions for ${file.title}` }).click();
 		await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
 		const dialog = page.getByRole("dialog");
-		await dialog.getByRole("textbox").fill("after-remote-rename.txt");
+		const name = dialog.getByRole("textbox");
+		await name.click();
+		await name.fill("after-remote-rename.txt");
+		await expect(name).toHaveValue("after-remote-rename.txt");
 		const changed = socket.waitForEvent("framereceived", {
 			predicate: (frame) => String(frame.payload).includes('"drive:changed"'),
 		});

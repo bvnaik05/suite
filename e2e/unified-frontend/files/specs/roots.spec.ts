@@ -66,7 +66,8 @@ test("a personal-only site hides Organization files and its Trash tabs", async (
 	await expect(locations.getByRole("link", { name: "Organization files" })).toHaveCount(0);
 
 	await page.goto("/drive/trash");
-	await expect(page.getByText("Trash is empty")).toBeVisible();
+	// Other parallel journeys may have items in Trash; only the root controls matter here.
+	await expect(page.getByRole("button", { name: "Empty trash", exact: true })).toBeVisible();
 	await expect(page.getByRole("radio", { name: "Organization files" })).toHaveCount(0);
 });
 
