@@ -266,6 +266,16 @@ def comment_threads(principals: Principals, node: str) -> list[dict]:
     return listed
 
 
+def has_blank_old_comment(new_threads: list[dict]) -> bool:
+    """Answer whether any old comment in `new_threads` stores as blank text."""
+    for thread in new_threads:
+        converted = [html_comment_text(comment["content"]) for comment in thread["comments"]]
+        if any(not text.strip() for text, _span_ids in converted):
+            return True
+
+    return False
+
+
 def install_threads(
     principals: Principals, node: str, anchors: dict[str, str], new_threads: list[dict]
 ) -> list[str]:
@@ -332,7 +342,11 @@ def validate_old_comment(comment: object) -> None:
     if not isinstance(comment, dict):
         frappe.throw(_("An old Drive comment must be an object"), frappe.ValidationError)
 
-    _validate_text(comment.get("content"))
+    text = comment.get("content")
+    if isinstance(text, str):
+        text, _span_ids = html_comment_text(text)
+
+    _validate_text(text)
     name = comment.get("author_name")
     if not isinstance(name, str) or not name.strip() or len(name) > MAX_AUTHOR_NAME_CHARS:
         frappe.throw(
@@ -796,8 +810,7 @@ def html_comment_text(text: str) -> tuple[str, list[str]]:
     parts: list[str] = []
     mentions: list[str] = []
     append_comment_text(soup, parts, mentions)
-    # Never trade a comment for nothing, though no stored one converts blank
-    converted = "".join(parts).rstrip("\n") or text
+    converted = "".join(parts).rstrip("\n")
     return converted, list(dict.fromkeys(mentions))
 
 

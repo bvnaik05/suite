@@ -16,9 +16,9 @@ which supplies the node id, the node title, `drive_check`, `drive_touch`, and
 title, the grants, the lifecycle, the versions, the comments, and the byte
 charge; the app owns the body.
 
-The twelve calls an app makes are `check`, `touch`, `take_version`,
+The thirteen calls an app makes are `check`, `touch`, `take_version`,
 `create_document`, `import_document`, `copy`, `adopt_media`, `read_file`,
-`push_preview`, `record_comment`, `comment_threads`, and `install_threads`. Nothing lower flows from an app to Drive. The `ContentTypeSpec` callbacks flow the other
+`push_preview`, `record_comment`, `comment_threads`, `has_blank_old_comment`, and `install_threads`. Nothing lower flows from an app to Drive. The `ContentTypeSpec` callbacks flow the other
 way, when Drive asks an app to work with its own document body. Each one
 imports its workflow inside the call, so importing `suite.drive` for byte
 accounting alone does not load the node, preview, and imaging modules.
@@ -441,6 +441,13 @@ def comment_threads(node: str) -> list[dict]:
     return _comment_threads(_principals(), node)
 
 
+def has_blank_old_comment(new_threads: list[dict]) -> bool:
+    """Answer whether any old comment in `new_threads` stores as blank text."""
+    from suite.drive._core.comments import has_blank_old_comment as _has_blank_old_comment
+
+    return _has_blank_old_comment(new_threads)
+
+
 def install_threads(node: str, anchors: dict[str, str], new_threads: list[dict]) -> list[str]:
     """Move threads and add old ones under the node's owner at their own times, telling no one; needs EDIT."""
     from suite.drive._core.comments import install_threads as _install_threads
@@ -539,6 +546,7 @@ __all__ = (
     "get_storage_reservation",
     "get_storage_usage",
     "grow_storage_reservation",
+    "has_blank_old_comment",
     "import_document",
     "install_threads",
     "legacy_node",

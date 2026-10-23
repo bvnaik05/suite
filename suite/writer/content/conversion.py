@@ -299,11 +299,15 @@ def write_conversion(node: str, old: OldDocument, converted: convert.Converted) 
     if None in anchors:
         raise ConversionRefused("check", "orphan")
 
+    threads = [old_thread(thread) for thread in converted.threads]
+    if drive.has_blank_old_comment(threads):
+        raise ConversionRefused("check")
+
     html = checked_html(old, converted)
     keep_old_version(node)
     doc_id = log.create(writer_content.APP, node)
     replace_start(writer_content.APP, doc_id, converted.state, writer_content.DECLARED["schema"])
-    drive.install_threads(node, anchors, [old_thread(thread) for thread in converted.threads])
+    drive.install_threads(node, anchors, threads)
     clear_ycomments(old.docname)
     if copies.replace_copy(writer_content.APP, doc_id, 1, html, writer_content.EDITOR.readable_copy) is None:
         raise ConversionRefused("check", "copy")

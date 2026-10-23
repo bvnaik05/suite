@@ -123,12 +123,14 @@ def _legacy_plan(node: str, row: dict, user_enabled: Callable[[str], bool | None
     own, so its `owner` is the author and its `creation` is the stamp.
     """
     text = row.get("content")
-    if not isinstance(text, str) or not text.strip():
+    if not isinstance(text, str):
         raise InvalidLegacyContent("legacy comment text is blank")
     if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:
         raise InvalidLegacyContent("legacy comment text exceeds the comment limit")
 
     text, span_ids = html_comment_text(text)
+    if not text.strip():
+        raise InvalidLegacyContent("legacy comment text is blank")
 
     author = row.get("owner") or "Guest"
     if len(author) > 140:
@@ -278,9 +280,9 @@ def _sheet_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
 
 
 def entry_text(value: dict) -> str:
-    """Answer a comment entry's text, refusing a blank one or one over the comment limit."""
+    """Answer a comment entry's text, refusing one that is not text or is over the comment limit."""
     text = value.get("text")
-    if not isinstance(text, str) or not text.strip():
+    if not isinstance(text, str):
         raise InvalidLegacyContent("comment text is blank")
 
     if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:
@@ -344,6 +346,9 @@ def comment_entry(
         raise InvalidLegacyContent("comment entry is not an object")
 
     text, span_ids = html_comment_text(entry_text(value))
+    if not text.strip():
+        raise InvalidLegacyContent("comment text is blank")
+
     source_author = value.get(owner_key)
     author, author_name = entry_author(value, source_author, name_key)
     source_complete = isinstance(source_author, str) and bool(source_author)
