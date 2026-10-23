@@ -7,6 +7,7 @@ import { createChartEngine } from '../../engine/charts.js'
 import { createCondFormatEngine } from '../../engine/cond-format.js'
 import { createFormatsEngine } from '../../engine/formats.js'
 import { createMergeEngine } from '../../engine/merge.js'
+import { createValidationEngine } from '../../engine/validation.js'
 import { useExportImport } from './useExportImport.js'
 
 vi.mock('frappe-ui', () => ({ toast: { info: vi.fn() } }))
@@ -445,8 +446,9 @@ describe('xlsx round trip of styling, sizes, freeze, merges and conditional form
   })
 })
 
-// ISSUES #73. Charts went neither out nor in.
-describe('xlsx charts', () => {
+// ISSUES #73 / #69. Charts went neither out nor in, and an import into a new
+// file kept its empty Sheet1 in front of the imported tabs.
+describe('xlsx charts, and importing into a new file', () => {
   const sales: Sheet = {
     inputs: [
       ['Region', 'Units'],
@@ -465,6 +467,7 @@ describe('xlsx charts', () => {
     const writes: Record<string, Record<string, string>> = {}
     const charts = createChartEngine()
     const formats = createFormatsEngine()
+    const validation = createValidationEngine()
     const tabs = Object.keys(sheets)
     const state = { views }
     const opts = {
@@ -473,6 +476,7 @@ describe('xlsx charts', () => {
         write: (sn: string, map: Record<string, string>) =>
           (writes[sn] = { ...writes[sn], ...map }),
         addSheet: vi.fn((name: string) => tabs.push(name)),
+        extent: async (sn: string) => (sheets[sn]?.inputs.length ? { maxRow: 0, maxCol: 0 } : null),
         idle: async () => {},
       },
       sheetNames: () => tabs,
@@ -481,8 +485,13 @@ describe('xlsx charts', () => {
       getFormats: () => formats,
       getMerge: () => null,
       getCharts: () => charts,
+      getSheetStores: () => [validation],
       getViews: () => state.views,
       setViews: (v: Record<string, unknown>) => (state.views = v),
+      renameSheet: vi.fn((from: string, to: string) => {
+        tabs[tabs.indexOf(from)] = to
+        return true
+      }),
       repopulateGrid: vi.fn(),
       syncNames: vi.fn(),
       switchSheet: vi.fn(),
@@ -532,6 +541,41 @@ describe('xlsx charts', () => {
     await back.importXLSX(file(await zip.generateAsync({ type: 'arraybuffer' })))
     expect(back.charts.list()).toEqual([])
     expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('1 chart'))
+  })
+
+  it("replaces a new file's empty Sheet1 instead of keeping it first", async () => {
+    const out = editor({ Sales: sales, Rates: sales })
+    const buf = await out.buildXLSX()
+    const back = editor({ Sheet1: { inputs: [], displays: [], numFmts: [] } })
+    await back.importXLSX(file(buf))
+    expect(back.opts.renameSheet).toHaveBeenCalledWith('Sheet1', 'Sales')
+    expect(back.tabs).toEqual(['Sales', 'Rates'])
+    expect(Object.keys(back.writes)).toEqual(['Sales', 'Rates'])
+  })
+
+  it('keeps a Sheet1 that has anything on it', async () => {
+    const buf = await editor({ Sales: sales }).buildXLSX()
+    const typed = editor({ Sheet1: sales })
+    await typed.importXLSX(file(buf))
+    expect(typed.tabs).toEqual(['Sheet1', 'Sales'])
+    const filled = editor({ Sheet1: { inputs: [], displays: [], numFmts: [] } })
+    filled.opts.getFormats().set('B2', { bg: '#ff0000' }, 'Sheet1')
+    await filled.importXLSX(file(buf))
+    expect(filled.tabs).toEqual(['Sheet1', 'Sales'])
+    expect(filled.opts.renameSheet).not.toHaveBeenCalled()
+    // A dropdown on empty cells would move onto the imported sheet.
+    const listed = editor({ Sheet1: { inputs: [], displays: [], numFmts: [] } })
+    listed.opts.getSheetStores()[0]!.set('B2', { type: 'list', values: ['a', 'b'] }, 'Sheet1')
+    await listed.importXLSX(file(buf))
+    expect(listed.tabs).toEqual(['Sheet1', 'Sales'])
+  })
+
+  it('keeps the blank sheet as it is spelled when the file differs only in case', async () => {
+    const buf = await editor({ sheet1: sales }).buildXLSX()
+    const back = editor({ Sheet1: { inputs: [], displays: [], numFmts: [] } })
+    await back.importXLSX(file(buf))
+    expect(back.tabs).toEqual(['Sheet1'])
+    expect(Object.keys(back.writes)).toEqual(['Sheet1'])
   })
 
   it('reads a chart whose refs spell the sheet in another case', async () => {

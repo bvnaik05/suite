@@ -153,8 +153,8 @@ function _cellIn(cell) {
  *   readSheet(sn, { numFmts }) → Promise<{ inputs, displays, numFmts? }>, rows
  *     from A1 to the last used cell ([] when the sheet is empty);
  *   write(sn, map) writes a {cellId: input} map; clear(sn) → Promise, empties
- *   the sheet's cells; addSheet(name) adds a sheet; idle() resolves once all
- *   of it applied.
+ *   the sheet's cells; addSheet(name) adds a sheet; extent(sn) → Promise of
+ *   its used extent, null when empty; idle() resolves once all of it applied.
  * @param {() => string[]} opts.sheetNames – the tab list
  * @param {() => string}  opts.getCurrentTitle – current document title
  * @param {() => void}    opts.repopulateGrid  – full canvas repaint
@@ -170,8 +170,10 @@ export function useExportImport({
   getMerge,
   getCondFormat,
   getCharts,
+  getSheetStores,
   getViews,
   setViews,
+  renameSheet,
   repopulateGrid,
   syncNames,
   switchSheet,
@@ -448,7 +450,8 @@ export function useExportImport({
   // Import every worksheet as a NEW sub-sheet — non-destructive, so the user's
   // current sheets are untouched. Each cell carries its value/formula, number
   // format and style, and each sheet its sizes, hides, freeze, merges and
-  // conditional formats, and the charts on it.
+  // conditional formats, and the charts on it. A new file's one blank sheet
+  // becomes the first imported sheet instead of staying in front of them.
   // zip: the file's zip (JSZip), for what ExcelJS doesn't read; may be null.
   async function _ingestWorkbook(wb, zip) {
     const stores = {
@@ -459,12 +462,21 @@ export function useExportImport({
       theme: themePalette(wb._themes?.theme1),
     }
     const heights = zip && (await _customHeights(zip))
-    const existing = new Set(sheetNames().map((n) => n.toLowerCase()))
+    let blank = wb.worksheets.length ? await _blankSheet() : null
+    const existing = new Set(
+      sheetNames()
+        .filter((n) => n !== blank)
+        .map((n) => n.toLowerCase()),
+    )
     // Every tab's name first: a formula may name a sheet later in the file,
     // and must follow it when it gets a new name (`Sales` → `Sales (2)`).
     const renames = {}
     for (const ws of wb.worksheets) {
       renames[ws.name] = _uniqueSheetName(ws.name, existing)
+      // The blank `Sheet1` taking the file's `sheet1` keeps its spelling:
+      // no rename by case alone.
+      if (ws === wb.worksheets[0] && blank?.toLowerCase() === renames[ws.name].toLowerCase())
+        renames[ws.name] = blank
       existing.add(renames[ws.name].toLowerCase())
     }
     const views = {}
@@ -475,7 +487,9 @@ export function useExportImport({
     try {
       for (const ws of wb.worksheets) {
         const name = renames[ws.name]
-        cells.addSheet(name)
+        // The blank sheet takes the first one's name (a no-op when it has it).
+        if (!blank || !renameSheet(blank, name)) cells.addSheet(name)
+        blank = null
         if (!firstAdded) firstAdded = name
         views[name] = await _ingestWorksheet(ws, stores, name, renames, heights?.get(ws.name))
       }
@@ -496,6 +510,26 @@ export function useExportImport({
         repopulateGrid()
       }
     }
+  }
+
+  // The workbook's only sheet when nothing is on it (no cells, formats,
+  // merges, rules, charts, notes, validation, protection, slicers): a new
+  // file's Sheet1. Else null.
+  async function _blankSheet() {
+    const names = sheetNames()
+    if (!renameSheet || !cells.extent || names.length !== 1) return null
+    const sn = names[0]
+    const layers = getFormats?.()?.snapshot?.()?.[sn] || {}
+    const used =
+      ['cells', 'cols', 'rows'].some((k) => Object.keys(layers[k] || {}).length) ||
+      Object.keys(getMerge?.()?.snapshot()?.[sn]?.masterMap || {}).length ||
+      getCondFormat?.()?.getRules(sn)?.length ||
+      getCharts?.()
+        ?.list()
+        .some((c) => c.position?.sheet === sn || c.sourceSheet === sn) ||
+      (getSheetStores?.() || []).some((s) => Object.keys(s.snapshot()?.[sn] || {}).length)
+    if (used) return null
+    return (await cells.extent(sn)) ? null : sn
   }
 
   // Adds the file's charts on the sheets they came in as, and says how many
