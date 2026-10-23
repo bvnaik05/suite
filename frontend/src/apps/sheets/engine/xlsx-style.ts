@@ -465,7 +465,13 @@ export function cfToXlsx(rule: CfRule): XConditionalFormatting | null {
       if (type === 'between') formulae.push(_operand(value2))
       x = { type: 'cellIs', operator: OPERATOR[type], formulae, style }
     } else if (type === 'contains') {
-      x = { type: 'containsText', operator: 'containsText', text: String(value ?? ''), style }
+      // As a formula: ExcelJS writes a containsText rule without its `text`
+      // attribute, which Google reads as "contains nothing" (every cell).
+      x = {
+        type: 'expression',
+        formulae: [`NOT(ISERROR(SEARCH(${_quote(value)},${tl})))`],
+        style,
+      }
     } else if (type === 'notcontains') {
       x = {
         type: 'expression',
@@ -569,11 +575,12 @@ export function cfFromXlsx(
         }
     } else if (x.type === 'expression' && x.formulae?.[0] != null) {
       const f = String(x.formulae[0])
-      // Our "does not contain", as written above.
-      const not = f.match(/^ISERROR\(SEARCH\(("(?:[^"]|"")*"),[A-Z]+\d+\)\)$/i)
+      // Our "contains" and "does not contain", as written above.
+      const search = f.match(/^(NOT\()?ISERROR\(SEARCH\(("(?:[^"]|"")*"),[A-Z]+\d+\)\)(\))?$/i)
+      const contains = search && !!search[1] === !!search[3]
       rule = {
-        condition: not
-          ? { type: 'notcontains', value: _value(not[1]) }
+        condition: contains
+          ? { type: search[1] ? 'contains' : 'notcontains', value: _value(search[2]) }
           : { type: 'formula', value: '=' + f },
         format: _format(x.style, theme),
       }

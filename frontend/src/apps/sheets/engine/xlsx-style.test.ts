@@ -194,6 +194,27 @@ describe('cfToXlsx / cfFromXlsx', () => {
     })
   })
 
+  // ExcelJS writes a containsText rule with no `text` attribute, which Google
+  // reads as "contains nothing" and fills every cell; a quote in the text
+  // also broke its formula.
+  it('writes "contains" as the formula Excel uses, with the text quoted', () => {
+    const rule = { id: 1, range, condition: { type: 'contains', value: 'say "hi"' }, format: green }
+    const x = cfToXlsx(rule as never)!
+    expect(x.rules[0]).toMatchObject({
+      type: 'expression',
+      formulae: ['NOT(ISERROR(SEARCH("say ""hi""",D2)))'],
+    })
+    expect(cfFromXlsx(x)).toEqual([{ range, condition: rule.condition, format: green }])
+  })
+
+  it("reads Excel's containsText rule by its text", () => {
+    const got = cfFromXlsx({
+      ref: 'D2:D6',
+      rules: [{ type: 'containsText', operator: 'containsText', text: 'North', style: {} }],
+    })
+    expect(got).toEqual([{ range, condition: { type: 'contains', value: 'North' }, format: {} }])
+  })
+
   it("reads Google's rule (fill in fgColor and bgColor) once per range", () => {
     const fill = {
       type: 'pattern',
