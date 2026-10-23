@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
+import type { DocumentThread } from '@/apps/drive'
+
 import { stored } from './writer-surface-fakes'
-import { liveRoom, openedSurface, resetSurface, stripTexts } from './writer-surface-fixtures'
+import {
+  liveRoom,
+  openedSurface,
+  resetSurface,
+  stripTexts,
+  type Comments,
+} from './writer-surface-fixtures'
 
 vi.hoisted(() => {
   vi.stubGlobal('__SUITE_BUILD__', '100')
@@ -75,6 +84,13 @@ function canSaveVersion(root: Element) {
   return !root.querySelector<HTMLButtonElement>('[data-save-version]')!.hidden
 }
 
+const REFUSED = "This document couldn't be upgraded, so it stays read-only."
+
+// Lets each poll a fake interval ran finish its reload
+async function pollsSettled() {
+  await new Promise((resolve) => setTimeout(resolve, 50))
+}
+
 describe('Writer surface', () => {
   it('shows a document awaiting conversion read-only, says it is being upgraded, and offers no Save version', async () => {
     oldDocument('Old text', { state: 'pending' })
@@ -141,5 +157,61 @@ describe('Writer surface', () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
 
     expect([editorText(root), stripTexts(root)]).toEqual([['Old text'], [UPGRADING]])
+  })
+
+  it('never reloads a document that opens refused', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    oldDocument('Old text', { state: 'refused' })
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([REFUSED]))
+
+    vi.advanceTimersByTime(45_000)
+    await pollsSettled()
+
+    expect(stored.reloads).toBe(0)
+  })
+
+  it('stops reloading once a poll finds the document refused', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    oldDocument('Old text', { state: 'pending' })
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([UPGRADING]))
+
+    stored.conversion = { state: 'refused' }
+    vi.advanceTimersByTime(15_000)
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([REFUSED]))
+    vi.advanceTimersByTime(30_000)
+    await pollsSettled()
+
+    expect(stored.reloads).toBe(1)
+  })
+
+  it("lets an editor change someone else's comment while the document awaits conversion", async () => {
+    oldDocument('Old text', { state: 'pending' })
+    const thread = {
+      name: 'about',
+      anchor: 'document',
+      resolved: false,
+      comments: [
+        {
+          name: 'c1',
+          author: 'ann@example.com',
+          author_name: null,
+          person: { full_name: 'Ann' },
+          content: 'About the plan',
+          creation: new Date().toISOString(),
+        },
+      ],
+    } as unknown as DocumentThread
+    const comments = { list: async () => ({ threads: [thread] }) } as unknown as Comments
+    const root = await openedSurface(undefined, '/d/node-1', comments)
+
+    root.querySelector<HTMLElement>('[data-open-comments]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('aside li')).not.toBeNull())
+    root.querySelector<HTMLElement>('aside li button')!.click()
+    await nextTick()
+
+    const actions = [...root.querySelectorAll('aside [data-menu] button')]
+    expect(actions.map((action) => action.textContent)).toEqual(['Edit', 'Delete'])
   })
 })

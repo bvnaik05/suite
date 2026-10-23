@@ -58,6 +58,31 @@ function shownText(root: Element) {
   return root.querySelector('[data-editor] .ProseMirror')!.textContent
 }
 
+// A live room that lands any restore, whose saved version 3 reads `text`
+async function roomRestoring(text: string) {
+  const room = Object.assign(liveRoom(), {
+    lineage: 'one',
+    isCommitted: () => true,
+    restoreVersion: vi.fn(async (_seq: number, edit: () => void) => {
+      edit()
+      return { outcome: 'landed' }
+    }),
+  })
+  const version = new Doc()
+  const paragraph = new XmlElement('paragraph')
+  paragraph.insert(0, [new XmlText(text)])
+  version.getXmlFragment('default').insert(0, [paragraph])
+  const raw = new Response(new Uint8Array(encodeStateAsUpdate(version))).body!
+  const zipped = await new Response(raw.pipeThrough(new CompressionStream('gzip'))).arrayBuffer()
+  const state = btoa(String.fromCharCode(...new Uint8Array(zipped)))
+  const body = JSON.stringify({ schema: 'writer-document/2', codec: 'yjs1', lineage: 'one', state })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(body)),
+  )
+  return room
+}
+
 describe('Writer surface', () => {
   it('shows the next page of versions after Load more', async () => {
     const pages: Record<string, unknown> = {
@@ -112,6 +137,7 @@ describe('Writer surface', () => {
   })
 
   it('opens the Versions panel from Save version in the document menu, with the cursor in the name box', async () => {
+    liveRoom()
     const root = await openedSurface(oneVersion)
 
     root.querySelector<HTMLElement>('[data-save-version]')!.click()
@@ -124,6 +150,7 @@ describe('Writer surface', () => {
   })
 
   it('opens the Versions name box from Save version on Current version, with the cursor in it', async () => {
+    liveRoom()
     const root = await openedSurface(oneVersion)
 
     root.querySelector<HTMLElement>('[data-open-versions]')!.click()
@@ -173,6 +200,25 @@ describe('Writer surface', () => {
       status.textContent?.includes('Viewing Before review'),
     )!
     expect(bar.querySelectorAll('button')).toHaveLength(0)
+  })
+
+  it('restores the shown version from the version bar', async () => {
+    const room = await roomRestoring('Back then')
+    const versions = { ...oneVersion, contentUrl: () => '/version/3' } as unknown as Versions
+    const root = await openedSurface(versions)
+
+    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+    versionRow(root, 'Before review').click()
+    await nextTick()
+    const bar = [...root.querySelectorAll('[role="status"]')].find((status) =>
+      status.textContent?.includes('Viewing Before review'),
+    )!
+    buttonLabelled(bar, 'Restore this version')!.click()
+
+    await vi.waitFor(() => expect(shownText(root)).toBe('Back then'))
+    expect(room.restoreVersion.mock.calls.map(([seq]) => seq)).toEqual([3])
+    expect(root.querySelector('[data-preview]')).toBeNull()
   })
 
   it('shows edits made in another tab while a version was previewed', async () => {

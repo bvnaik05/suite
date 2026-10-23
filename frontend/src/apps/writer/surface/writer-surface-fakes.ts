@@ -10,6 +10,7 @@ export const stored = {
   collab: 0,
   // Set while the document waits for, or was refused, conversion to collaboration
   conversion: null as { state: 'pending' | 'refused'; reason?: string } | null,
+  reloads: 0,
 }
 // Mounts the real editors, over a stand-in for CoreEditor, in place of the fakes below
 export const realEditors = { isOn: false }
@@ -171,6 +172,7 @@ export function fakeWriterDocument(original: typeof import('./writerDocument')) 
     const resources = reactive({
       doc: read(),
       reload: async () => {
+        stored.reloads++
         resources.doc = read()
       },
     })
@@ -192,6 +194,7 @@ export async function fakeCollabTextEditor(
     onBeforeUnmount,
     ref: mockRef,
     shallowRef,
+    watchEffect,
   } = await import('vue')
   const { Editor, EditorContent } = await import('@tiptap/vue-3')
   const { default: Document } = await import('@tiptap/extension-document')
@@ -199,7 +202,7 @@ export async function fakeCollabTextEditor(
   const { default: Text } = await import('@tiptap/extension-text')
   const { default: Collaboration } = await import('@tiptap/extension-collaboration')
   const fake = define({
-    props: { room: Object },
+    props: { room: Object, editable: Boolean },
     setup(props, { expose, slots }) {
       const room = props.room as { doc: Doc }
       const isFrozen = mockRef(false)
@@ -211,6 +214,7 @@ export async function fakeCollabTextEditor(
       const collaboration = Collaboration.configure({ document: room.doc, ySyncOptions })
       const extensions = [Document, Paragraph, Text, collaboration]
       const editor = shallowRef(new Editor({ extensions }))
+      watchEffect(() => editor.value.setEditable(props.editable))
       expose({ editor, isFrozen })
       onBeforeUnmount(() => editor.value.destroy())
 
@@ -241,16 +245,18 @@ export async function fakeDocumentMenu() {
   const { defineComponent: define, h: render } = await import('vue')
   return {
     default: define({
-      props: { canSaveVersion: Boolean },
+      props: { canSaveVersion: Boolean, editable: Boolean },
       emits: ['saveVersion'],
       setup:
         (props, { emit }) =>
-        () =>
+        () => [
           render('button', {
             'data-save-version': '',
             hidden: !props.canSaveVersion,
             onClick: () => emit('saveVersion'),
           }),
+          render('button', { 'data-import-docx': '', hidden: !props.editable }),
+        ],
     }),
   }
 }

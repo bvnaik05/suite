@@ -11,6 +11,7 @@ import {
   openedSurface,
   previewAndReturn,
   resetSurface,
+  serverMinBuilds,
   settled,
   stripTexts,
   type EditorElement,
@@ -90,6 +91,19 @@ function storeOldBody(text: string) {
 
 function editorText(root: Element) {
   return [...root.querySelectorAll('[data-editor] .ProseMirror')].map((body) => body.textContent)
+}
+
+// What the document menu offers: Save version, and Import DOCX, which writes the body
+function menuOffers(root: Element) {
+  function isShown(selector: string) {
+    return !root.querySelector<HTMLElement>(selector)!.hidden
+  }
+
+  return { saveVersion: isShown('[data-save-version]'), importDocx: isShown('[data-import-docx]') }
+}
+
+function isEditorEditable(root: Element) {
+  return root.querySelector('[data-editor] .ProseMirror')!.getAttribute('contenteditable')
 }
 
 describe('Writer surface', () => {
@@ -206,5 +220,36 @@ describe('Writer surface', () => {
     const root = await openedSurface()
 
     await vi.waitFor(() => expect(editorText(root)).toEqual(['Live text']))
+  })
+
+  it('offers no Save version or import when the open gives no live room', async () => {
+    storeOldBody('Old text')
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(editorText(root)).toEqual(['Old text']))
+
+    expect(menuOffers(root)).toEqual({ saveVersion: false, importDocx: false })
+  })
+})
+
+describe('Writer surface against the minimum Writer build', () => {
+  afterEach(() => serverMinBuilds({}))
+
+  it('edits a live document while the tab meets the minimum Writer build', async () => {
+    await serverMinBuilds({ writer: '100' })
+    liveRoom()
+    const root = await openedSurface()
+
+    expect([isEditorEditable(root), menuOffers(root)]).toEqual([
+      'true',
+      { saveVersion: true, importDocx: true },
+    ])
+  })
+
+  it('opens a live document read-only in a tab older than the minimum Writer build', async () => {
+    await serverMinBuilds({ writer: '150' })
+    liveRoom()
+    const root = await openedSurface()
+
+    expect([isEditorEditable(root), menuOffers(root).importDocx]).toEqual(['false', false])
   })
 })

@@ -19,6 +19,18 @@ Element.prototype.scrollIntoView = () => {}
 
 const { default: WriterSurface } = await import('./WriterSurface.vue')
 const { discardCopy, listCopies } = await import('@/apps/writer/recovery/copies')
+const { watchBuild } = await import('@/platform/build')
+
+// The server names `minBuilds` on a response, as it does on every request
+export async function serverMinBuilds(minBuilds: Record<string, string>) {
+  const headers = { 'X-Suite-Min-Builds': JSON.stringify(minBuilds) }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('{}', { headers })),
+  )
+  watchBuild()
+  await window.fetch('/api/method/ping')
+}
 
 export async function openedSurface(
   versions?: Versions,
@@ -79,6 +91,7 @@ export function resetSurface() {
   realEditors.isOn = false
   stored.content = ''
   stored.conversion = null
+  stored.reloads = 0
   vi.restoreAllMocks()
 }
 
