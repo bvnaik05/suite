@@ -197,6 +197,14 @@ class TestWriterDriveVersions(DriveCallbackCase):
         with patch.object(writer_drive, "MAX_VERSION_BYTES", 2000):
             self.assertEqual(docs.old_body(node), {})
 
+    def test_a_version_with_missing_bytes_fails_the_old_body(self):
+        node = self.old_document_with_versions("b2xkZXI=", "bmV3ZXI=")
+        frappe.db.set_value("Drive Node Version", {"node": node, "seq": 2}, "blob", "missing-blob")
+        frappe.db.commit()
+
+        with self.assertRaises(drive.DriveConflict):
+            docs.old_body(node)
+
     def test_a_reader_gets_the_old_body(self):
         node = self.old_document_with_versions("b2xkZXI=")
         grant(node, READER, drive.READ, Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)))
