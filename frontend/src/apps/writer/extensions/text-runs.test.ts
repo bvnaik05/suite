@@ -1,4 +1,4 @@
-import { Editor } from '@tiptap/core'
+import { Editor, type AnyExtension } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import {
   absolutePositionToRelativePosition,
@@ -9,7 +9,11 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as yjs from 'yjs'
 
+import type { DocumentThread } from '@/apps/drive'
+
+import { encodeAnchor } from '../collab/anchors'
 import { BODY_FIELD } from '../collab/field'
+import { redrawThreads, ThreadHighlights, type ThreadPlaces } from '../collab/highlights'
 import { writerEditorExtensions } from '../editor-extensions'
 
 vi.mock('@/apps/writer/utils', () => ({ insertTemplate: () => {} }))
@@ -45,7 +49,7 @@ function stored(...blocks: yjs.XmlElement[]) {
   return yjs.encodeStateAsUpdate(doc)
 }
 
-function open(state: Uint8Array): Tab {
+function open(state: Uint8Array, ...more: AnyExtension[]): Tab {
   const ydoc = new yjs.Doc()
   yjs.applyUpdate(ydoc, state, REMOTE)
   const extensions = writerEditorExtensions({
@@ -60,7 +64,7 @@ function open(state: Uint8Array): Tab {
   const collaboration = Collaboration.configure({ document: ydoc, field: BODY_FIELD })
   const mount = document.createElement('div')
   document.body.append(mount)
-  const editor = new Editor({ element: mount, extensions: [...extensions, collaboration] })
+  const editor = new Editor({ element: mount, extensions: [...extensions, collaboration, ...more] })
   editors.push(editor)
   return { ydoc, editor }
 }
@@ -312,6 +316,34 @@ describe('positions in neighbouring texts', () => {
     expect([before, after]).toEqual([
       [4, 6],
       [5, 7],
+    ])
+  })
+})
+
+describe('a thread across neighbouring texts', () => {
+  it('highlights the text it was made on, and places its card there', () => {
+    const threads: DocumentThread[] = []
+    let places: ThreadPlaces = new Map()
+    const highlights = ThreadHighlights.configure({
+      threads: () => threads,
+      onPlaced: (placed) => {
+        places = placed
+      },
+    })
+    const tab = open(stored(texts('ab', 'cd', 'ef')), highlights)
+    const [, second, third] = block(tab).toArray() as yjs.XmlText[]
+    const anchor = encodeAnchor(
+      yjs.createRelativePositionFromTypeIndex(second, 1),
+      yjs.createRelativePositionFromTypeIndex(third, 1),
+      '',
+    )
+    threads.push({ name: 'c1', anchor, resolved: false } as DocumentThread)
+    redrawThreads(tab.editor.view)
+
+    const highlight = tab.editor.view.dom.querySelectorAll('[data-thread="c1"]')
+    expect([[...highlight].map((mark) => mark.textContent).join(''), places.get('c1')]).toEqual([
+      'de',
+      expect.objectContaining({ kind: 'text', from: 4, to: 6 }),
     ])
   })
 })
