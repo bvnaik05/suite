@@ -110,16 +110,18 @@
           />
           <Switch v-model="accountRequest.send_invite" :label="__('Send Invite')" />
           <template v-if="!accountRequest.send_invite">
-            <FormControl
-              v-model="accountRequest.first_name"
-              :label="__('First Name')"
-              placeholder="John"
-            />
-            <FormControl
-              v-model="accountRequest.last_name"
-              :label="__('Last Name')"
-              placeholder="Doe"
-            />
+            <div class="grid grid-cols-2 gap-3">
+              <FormControl
+                v-model="accountRequest.first_name"
+                :label="__('First Name')"
+                placeholder="John"
+              />
+              <FormControl
+                v-model="accountRequest.last_name"
+                :label="__('Last Name')"
+                placeholder="Doe"
+              />
+            </div>
             <p class="text-sm text-ink-gray-6">
               {{
                 __(
