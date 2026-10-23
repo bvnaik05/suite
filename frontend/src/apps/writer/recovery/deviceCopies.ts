@@ -60,7 +60,8 @@ async function keepYjsCopy(session: DocumentSession, row: OldRow) {
 
   const base = rowDoc(await oldContent(session, row))
   const merged = mergedDoc(base, updates)
-  if (!isAhead(yjs.encodeStateVector(merged), yjs.encodeStateVector(base))) {
+  // Holds the base, so it differs only by what the device added or deleted
+  if (yjs.equalSnapshots(yjs.snapshot(merged), yjs.snapshot(base))) {
     return
   }
 
@@ -133,12 +134,6 @@ function rowDoc(content: string | null | undefined) {
   }
 
   return doc
-}
-
-function isAhead(device: Uint8Array, row: Uint8Array) {
-  const rowClocks = yjs.decodeStateVector(row)
-  const deviceClocks = [...yjs.decodeStateVector(device)]
-  return deviceClocks.some(([id, clock]) => clock > (rowClocks.get(id) ?? 0))
 }
 
 async function digest(bytes: Uint8Array) {
