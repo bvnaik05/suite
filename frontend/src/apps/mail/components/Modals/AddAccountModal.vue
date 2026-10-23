@@ -96,14 +96,12 @@
             placeholder="johndoe@personal.com"
             :description="__('Password resets and the invitation email are sent to this address.')"
           />
-          <div class="space-y-1.5">
-            <label class="text-ink-gray-5 block text-xs">{{ __('Groups') }}</label>
-            <MultiSelect v-model="groupIds" :options="groupOptions" />
-          </div>
-          <div class="space-y-1.5">
-            <label class="text-ink-gray-5 block text-xs">{{ __('Mailing Lists') }}</label>
-            <MultiSelect v-model="mailingListIds" :options="mailingListOptions" />
-          </div>
+          <MultiSelect v-model="groupIds" :label="__('Groups')" :options="groupOptions" />
+          <MultiSelect
+            v-model="mailingListIds"
+            :label="__('Mailing Lists')"
+            :options="mailingListOptions"
+          />
           <hr />
 
           <Switch
