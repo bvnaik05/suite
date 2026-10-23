@@ -13,6 +13,14 @@ from suite.writer.content.tests.support import call_route, read_open
 
 
 class TestWriterCheckpoints(CompactionCase):
+    def packet_limit_or_skip(self) -> int:
+        [[raw_packet_limit]] = frappe.db.sql("SELECT @@max_allowed_packet")
+        packet_limit = int(raw_packet_limit)
+        if packet_limit > 64 * 2**20:
+            self.skipTest(f"max_allowed_packet is {packet_limit} bytes, over 64 MiB")
+
+        return packet_limit
+
     def test_the_self_test_fixture_uses_the_part_map_writer_writes(self):
         from suite.content import selftest
 
@@ -111,10 +119,9 @@ class TestWriterCheckpoints(CompactionCase):
         self.assertEqual(self.opened(node).text, "one two")
 
     def test_a_fallback_larger_than_half_the_packet_limit_is_stored(self):
+        packet_limit = self.packet_limit_or_skip()
         node = self.new_document()
         self.type_into(node, ["one"])
-        [[raw_packet_limit]] = frappe.db.sql("SELECT @@max_allowed_packet")
-        packet_limit = int(raw_packet_limit)
         state = os.urandom(packet_limit // 2 + 2**20)
         compacted = compaction.Compacted(state=state, integrated=False, report={})
         doc_id = self.doc_row(node).id
@@ -125,9 +132,8 @@ class TestWriterCheckpoints(CompactionCase):
         self.assertEqual(self.checkpoints_of(node), [(1, state, 0)])
 
     def test_a_start_state_larger_than_half_the_packet_limit_is_stored(self):
+        packet_limit = self.packet_limit_or_skip()
         node = self.new_document()
-        [[raw_packet_limit]] = frappe.db.sql("SELECT @@max_allowed_packet")
-        packet_limit = int(raw_packet_limit)
         start_doc = pycrdt.Doc()
         blob_bytes = os.urandom(packet_limit // 2 + 2**20)
         start_doc["blob"] = pycrdt.Map({"bytes": blob_bytes})
@@ -138,13 +144,12 @@ class TestWriterCheckpoints(CompactionCase):
         self.assertEqual((self.body_of(node), self.checkpoints_of(node)), (state, []))
 
     def test_a_state_too_large_to_store_whole_is_refused(self):
+        packet_limit = self.packet_limit_or_skip()
         node = self.new_document()
         self.type_into(node, ["one"])
         [[sql_mode]] = frappe.db.sql("SELECT @@SESSION.sql_mode")
         frappe.db.sql("SET SESSION sql_mode = ''")
         self.addCleanup(frappe.db.sql, "SET SESSION sql_mode = %s", sql_mode)
-        [[raw_packet_limit]] = frappe.db.sql("SELECT @@max_allowed_packet")
-        packet_limit = int(raw_packet_limit)
         state = os.urandom(packet_limit + 2**20)
         compacted = compaction.Compacted(state=state, integrated=False, report={})
         doc_id = self.doc_row(node).id
