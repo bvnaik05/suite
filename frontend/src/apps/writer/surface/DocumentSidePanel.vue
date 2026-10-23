@@ -15,7 +15,7 @@ const props = defineProps<{
   canComment: boolean
   canEditDocument: boolean
   canRestoreVersion: boolean
-  canRenameVersion: boolean
+  canSaveVersion: boolean
   isRestoringVersion: boolean
   threads: DocumentThread[]
   /** When Drive's threads were read; null before the first read. */
@@ -54,7 +54,7 @@ const isCommentsPanel = computed(() => panel.value === 'comments')
 const title = computed(() => (isCommentsPanel.value ? 'Comments' : 'Versions'))
 const hasNoVersions = computed(() => !lists.versions.length)
 const showsVersionName = computed(() => isNamingVersion.value && panel.value === 'versions')
-const versionRename = computed(() => (props.canRenameVersion ? renameShownVersion : undefined))
+const versionRename = computed(() => (props.canSaveVersion ? renameShownVersion : undefined))
 const versionNameHint = computed(() =>
   isSavingVersion.value ? 'Saving first…' : 'Enter to save · Esc to cancel',
 )
@@ -199,7 +199,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
               :versions="lists.versions"
               :can-restore="canRestoreVersion"
               :is-restoring="isRestoringVersion"
-              :can-save-version="canEditDocument"
+              :can-save-version="canSaveVersion"
               :is-current-hidden="showsVersionName"
               :rename="versionRename"
               @restore="emit('restoreVersion', $event)"

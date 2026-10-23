@@ -112,7 +112,7 @@ async function openVersionsPanel(isRefusingVersions = false) {
       canComment: true,
       canEditDocument: false,
       canRestoreVersion: false,
-      canRenameVersion: false,
+      canSaveVersion: false,
       isRestoringVersion: false,
       threads: [],
       threadsReadAt: 1,
@@ -258,7 +258,7 @@ describe('renaming a version in the Versions panel', () => {
   } as unknown as DocumentVersion
 
   // The panel viewing an automatic version, recording each version it is told to show
-  async function openViewingPanel(canRenameVersion: boolean) {
+  async function openViewingPanel(canSaveVersion: boolean) {
     const shown: (string | null | undefined)[] = []
     const session = {
       comments: {},
@@ -279,7 +279,7 @@ describe('renaming a version in the Versions panel', () => {
         canComment: true,
         canEditDocument: false,
         canRestoreVersion: false,
-        canRenameVersion,
+        canSaveVersion,
         isRestoringVersion: false,
         threads: [],
         threadsReadAt: 1,
@@ -350,7 +350,7 @@ function panelWhileVersionsLoad(kind: DocumentPanel) {
       canComment: true,
       canEditDocument: false,
       canRestoreVersion: false,
-      canRenameVersion: false,
+      canSaveVersion: false,
       isRestoringVersion: false,
       threads: [],
       threadsReadAt: 1,

@@ -279,14 +279,15 @@ const editable = computed(
     writes.writable.value &&
     !isLocked(settings.value) &&
     allowsEditing.value &&
-    collabMode.value !== 'unconverted' &&
+    collabLive.value &&
     !belowMinBuild('writer'),
 )
 
 // Saving pauses don't hide it, so the person is told why no version was taken
-const canSaveVersion = computed(
-  () => readable.value && writes.writable.value && collabMode.value !== 'unconverted',
-)
+const canSaveVersion = computed(() => readable.value && writes.writable.value && collabLive.value)
+
+// Comments are Drive threads, not the body, so changing them needs no live room
+const canEditDocument = computed(() => readable.value && writes.writable.value)
 
 const showEditingPaused = computed(
   () => !editable.value && editingPaused.value && writes.writable.value,
@@ -607,11 +608,16 @@ const conversionBanner = computed(() => {
   return upgradingBanner(isUnreadable)
 })
 
+function isRefused() {
+  return documentResource.doc?.conversion?.state === 'refused'
+}
+
 // The row carries a conversion state until the document is collaborative, which then opens live
+// A refused document stays refused while it is open, so its poll stops
 let conversionPoll: ReturnType<typeof setInterval> | undefined
 watch(collabMode, (mode) => {
   clearInterval(conversionPoll)
-  if (mode !== 'unconverted') {
+  if (mode !== 'unconverted' || isRefused()) {
     return
   }
 
@@ -622,7 +628,9 @@ watch(collabMode, (mode) => {
       return
     }
 
-    if (collabMode.value === 'unconverted' && !documentResource.doc?.conversion) {
+    if (isRefused()) {
+      clearInterval(conversionPoll)
+    } else if (collabMode.value === 'unconverted' && !documentResource.doc?.conversion) {
       void openCollab()
     }
   }, CONVERSION_POLL_MS)
@@ -783,9 +791,9 @@ onBeforeUnmount(() => {
                 :previewed-version="preview.version"
                 :session="session"
                 :can-comment="canComment"
-                :can-edit-document="canSaveVersion"
+                :can-edit-document="canEditDocument"
                 :can-restore-version="canRestoreVersion"
-                :can-rename-version="canSaveVersion"
+                :can-save-version="canSaveVersion"
                 :is-restoring-version="isRestoringVersion"
                 :threads="threads"
                 :threads-read-at="threadsReadAt"
