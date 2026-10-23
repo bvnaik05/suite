@@ -16,9 +16,9 @@ which supplies the node id, the node title, `drive_check`, `drive_touch`, and
 title, the grants, the lifecycle, the versions, the comments, and the byte
 charge; the app owns the body.
 
-The thirteen calls an app makes are `check`, `touch`, `take_version`,
+The twelve calls an app makes are `check`, `touch`, `take_version`,
 `create_document`, `import_document`, `copy`, `adopt_media`, `read_file`,
-`push_preview`, `record_comment`, `comment_threads`, `has_blank_old_comment`, and `install_threads`. Nothing lower flows from an app to Drive. The `ContentTypeSpec` callbacks flow the other
+`push_preview`, `comment_threads`, `has_blank_old_comment`, and `install_threads`. Nothing lower flows from an app to Drive. The `ContentTypeSpec` callbacks flow the other
 way, when Drive asks an app to work with its own document body. Each one
 imports its workflow inside the call, so importing `suite.drive` for byte
 accounting alone does not load the node, preview, and imaging modules.
@@ -171,7 +171,6 @@ until the caller commits, so a caller must not keep a Drive transaction open
 across a network call.
 """
 
-from collections.abc import Iterable
 from datetime import datetime
 from typing import IO
 
@@ -420,20 +419,6 @@ def touch(doctype: str, docname: str) -> None:
     _touch(_principals(), doctype, docname)
 
 
-def record_comment(node: str, *, thread: str, comment: str, resolved: bool, mentions: Iterable[str]) -> None:
-    """Record a comment an app keeps in its own body and notify the people it mentions.
-
-    Writer's inline comments are anchored Yjs data only Writer can read, so
-    Writer stores them and reports each one here. Drive writes the same
-    `comment` activity a Drive thread writes, with the app's own `thread` and
-    `comment` ids in its detail, and each mentioned user gets the same
-    notification. Needs COMMENT on an Active document node.
-    """
-    from suite.drive._core.comments import record_comment as _record_comment
-
-    _record_comment(_principals(), node, thread=thread, comment=comment, resolved=resolved, mentions=mentions)
-
-
 def comment_threads(node: str) -> list[dict]:
     """Answer one document's threads in order as `{name, anchor, comments}`, comment ids only; needs READ."""
     from suite.drive._core.comments import comment_threads as _comment_threads
@@ -558,7 +543,6 @@ __all__ = (
     "push_preview",
     "read_file",
     "read_version",
-    "record_comment",
     "reduce_storage_reservation",
     "refuse_shared_child_rows",
     "refuse_shared_linked_rows",

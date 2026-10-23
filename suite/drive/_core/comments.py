@@ -1,7 +1,7 @@
 """Authorized comment threads attached to Drive content-document nodes."""
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -521,39 +521,6 @@ def delete_comment(principals: Principals, comment: str) -> None:
         frappe.db.release_savepoint(savepoint)
 
     announce_threads(node)
-
-
-def record_comment(
-    principals: Principals,
-    node: str,
-    *,
-    thread: str,
-    comment: str,
-    resolved: bool,
-    mentions: Iterable[str],
-) -> str:
-    """Record a comment a content app stores in its own body; answer the activity.
-
-    Writer's inline comments are anchored Yjs data only Writer can read, so
-    Writer keeps them and reports each one here (§10.2). The row is the same
-    `comment` activity a Drive thread writes, `thread` and `comment` are the
-    app's own ids, and the people it mentions get the same notification a
-    Drive comment's mention gets. Needs COMMENT on an Active document node,
-    as any comment does.
-    """
-    node_row = _comment_node(node)
-    via_link = require(node_row, COMMENT, principals)
-    _require_document(node_row)
-    _require_active(node_row)
-    activity = record(
-        principals,
-        node_row.name,
-        "comment",
-        detail={"thread": thread, "comment": comment, "resolved": resolved},
-        via_link=via_link,
-    )
-    notify_users(activity, mentions)
-    return activity
 
 
 def threads(

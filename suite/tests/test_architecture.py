@@ -697,7 +697,6 @@ class TestArchitecture(unittest.TestCase):
                 "push_preview",
                 "read_file",
                 "read_version",
-                "record_comment",
                 "reduce_storage_reservation",
                 "refuse_shared_child_rows",
                 "refuse_shared_linked_rows",
