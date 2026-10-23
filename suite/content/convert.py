@@ -18,7 +18,8 @@ document text, the words of a pending edit or a comment's copy, so it goes only 
 record, never to a log or report.
 
 `run_pending` is the scheduled job's loop: it pages through the app's documents that have no log, newest
-first, and hands each to the app's `convert_document`, which owns everything about one document.
+first, and hands each to the app's `convert_document`, which owns everything about one document. It
+passes over a document this converter refused unless the row changed after the refused attempt began.
 """
 
 import base64
@@ -66,6 +67,11 @@ class Refused:
 
 def run_pending(app: str, conversion: Conversion) -> None:
     """Convert the app's documents that have no log, page by page, until none is left or time runs out."""
+    deadline = time.monotonic() + RUN_FOR
+    page = pending_page(app, conversion.version, None)
+    if not page:
+        return
+
     try:
         ready = bundle_ready(conversion.build, conversion.version)
     except checker.CheckerFailed:
@@ -75,17 +81,8 @@ def run_pending(app: str, conversion: Conversion) -> None:
         log_reason(app, "no Node, or no converter bundle of this version")
         return
 
-    deadline = time.monotonic() + RUN_FOR
-    after = None
-    while True:
-        page = pending_page(app, after)
-        if not page:
-            return
-
-        if not convert_page(app, conversion, page, deadline):
-            return
-
-        after = page[-1]
+    while page and convert_page(app, conversion, page, deadline):
+        page = pending_page(app, conversion.version, page[-1])
 
 
 def convert_page(app: str, conversion: Conversion, page: list[frappe._dict], deadline: float) -> bool:
@@ -106,24 +103,30 @@ def convert_page(app: str, conversion: Conversion, page: list[frappe._dict], dea
     return True
 
 
-def pending_page(app: str, after: frappe._dict | None) -> list[frappe._dict]:
-    """Load the next page of the app's untrashed documents with no live log, newest first, after the row `after`."""
+def pending_page(app: str, version: str, after: frappe._dict | None) -> list[frappe._dict]:
+    """Load the next page of the app's untrashed documents with no live log or refusal, newest first, after `after`."""
     doctype = spec_of(app).doctype
     node_field = drive.node_field(doctype)
     doc_table = table(app, "doc")
+    conversion_table = table(app, "conversion")
     since = ""
-    values: tuple = ()
+    values: tuple = (version,)
     if after is not None:
-        since = "AND (`row`.`modified` < %s OR (`row`.`modified` = %s AND `row`.`name` > %s))"
-        values = (after.modified, after.modified, after.name)
+        since = "AND (`row`.`modified` < %s OR (`row`.`modified` = %s AND `row`.`name` < %s))"
+        values = (version, after.modified, after.modified, after.name)
 
     return frappe.db.sql(
         f"""SELECT `row`.`name`, `row`.`modified`, `row`.`{node_field}` AS `node`
         FROM `tab{doctype}` `row`
         JOIN `tabDrive Node` `node` ON `node`.`name` = `row`.`{node_field}` AND `node`.`state` = 'Active'
         LEFT JOIN `{doc_table}` `doc` ON `doc`.`node` = `row`.`{node_field}` AND `doc`.`mode` != 'purged'
-        WHERE `row`.`{node_field}` IS NOT NULL AND `doc`.`id` IS NULL {since}
-        ORDER BY `row`.`modified` DESC, `row`.`name` ASC
+        WHERE `row`.`{node_field}` IS NOT NULL AND `doc`.`id` IS NULL
+        AND NOT EXISTS (
+            SELECT 1 FROM `{conversion_table}` `record` WHERE `record`.`node` = `row`.`{node_field}`
+            AND `record`.`converter_version` = %s AND `record`.`outcome` IS NOT NULL
+            AND `record`.`started` > `row`.`modified`
+        ) {since}
+        ORDER BY `row`.`modified` DESC, `row`.`name` DESC
         LIMIT {PAGE}""",
         values,
         as_dict=True,

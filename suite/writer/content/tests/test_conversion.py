@@ -996,3 +996,28 @@ class TestConversion(DriveCallbackCase):
 
         enqueue.assert_not_called()
         running.assert_not_called()
+
+    def test_starts_no_node_when_no_document_waits(self):
+        writer = spec_of(writer_content.APP).conversion
+
+        with (
+            patch.object(convert, "pending_page", return_value=[]),
+            patch.object(convert, "bundle_ready") as ready,
+        ):
+            convert.run_pending(writer_content.APP, writer)
+
+        ready.assert_not_called()
+
+    def test_reads_a_refused_body_again_only_once_it_changes(self):
+        [node] = self.old_documents(1)
+        docname = self.docname_of(node)
+        frappe.db.set_value("Writer Document", docname, "ycomments", old_comments(("c1", "world", [])))
+        frappe.db.commit()
+        self.run_on([node])
+        self.assertEqual(self.records(node), (("check", "orphan", None),))
+
+        self.assertNotIn(node, self.run_on([node]))
+
+        frappe.db.set_value("Writer Document", docname, "html", "<p>Hello again</p>")
+        frappe.db.commit()
+        self.assertIn(node, self.run_on([node]))
