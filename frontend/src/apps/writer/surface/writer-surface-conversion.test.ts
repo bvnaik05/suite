@@ -4,7 +4,7 @@ import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
 import type { DocumentThread } from '@/apps/drive'
 
-import { downloaded, stored } from './writer-surface-fakes'
+import { downloaded, realtime, stored } from './writer-surface-fakes'
 import {
   liveRoom,
   openedSurface,
@@ -85,6 +85,15 @@ function canSaveVersion(root: Element) {
 }
 
 const REFUSED = "This document couldn't be upgraded, so it stays read-only."
+
+// The rooms the server names for telling a waiting document's tabs its outcome
+function told(keys: string[]) {
+  return { epoch: 1, keys, epoch_seconds: 150, server_time: 150 }
+}
+
+function joined() {
+  return [...realtime.socket.joined]
+}
 
 // Lets each poll a fake interval ran finish its reload
 async function pollsSettled() {
@@ -205,6 +214,59 @@ describe('Writer surface', () => {
     await pollsSettled()
 
     expect(stored.reloads).toBe(1)
+  })
+
+  it('opens the live room as soon as its rooms say the document converted, without a poll', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    oldDocument('Old text', { state: 'pending', rooms: told(['sc:a', 'sc:b']) })
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(joined()).toEqual(['sc:a', 'sc:b']))
+
+    stored.conversion = null
+    const room = liveRoom()
+    room.doc.getXmlFragment('default').insert(0, [paragraph('Live text')])
+    realtime.socket.hear('suite_collab_converted', { state: 'converted' })
+
+    await vi.waitFor(() => expect(editorText(root)).toEqual(['Live text']))
+    expect([stripTexts(root), canSaveVersion(root), joined()]).toEqual([[], true, []])
+  })
+
+  it('says a document stays read-only as soon as its rooms say it was refused', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    oldDocument('Old text', { state: 'pending', rooms: told(['sc:a', 'sc:b']) })
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(joined()).toEqual(['sc:a', 'sc:b']))
+
+    stored.conversion = { state: 'refused' }
+    realtime.socket.hear('suite_collab_converted', { state: 'refused' })
+
+    await vi.waitFor(() => expect(stripTexts(root)).toEqual([REFUSED]))
+    vi.advanceTimersByTime(30_000)
+    await pollsSettled()
+    expect([stored.reloads, joined()]).toEqual([1, []])
+  })
+
+  it('moves to the rooms each poll names while the document waits', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    oldDocument('Old text', { state: 'pending', rooms: told(['sc:a', 'sc:b']) })
+    await openedSurface()
+    await vi.waitFor(() => expect(joined()).toEqual(['sc:a', 'sc:b']))
+
+    stored.conversion = { state: 'pending', rooms: told(['sc:b', 'sc:c']) }
+    vi.advanceTimersByTime(15_000)
+
+    await vi.waitFor(() => expect(joined()).toEqual(['sc:b', 'sc:c']))
+  })
+
+  it('names why a document waits when the server gives a reason', async () => {
+    oldDocument('Old text', { state: 'pending', reason: 'node' })
+    const root = await openedSurface()
+
+    await vi.waitFor(() =>
+      expect(stripTexts(root)).toEqual([
+        `${UPGRADING} Reason: the server has no Node 22.13 or newer.`,
+      ]),
+    )
   })
 
   it("lets an editor change someone else's comment while the document awaits conversion", async () => {

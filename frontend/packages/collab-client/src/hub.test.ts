@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { Hub } from './hub'
+import { Hub, watchRooms } from './hub'
+import { fakeSocket } from './test-support'
 import type { LiveSocket } from './types'
 
 function memberWith(keys: { current: string[] }) {
@@ -38,5 +39,24 @@ describe('Hub', () => {
     keys.current = roomKeys(9)
     hub.sendRoomSet()
     expect(warn).toHaveBeenCalledTimes(2)
+  })
+
+  it('joins the rooms it watches, hears their event, and leaves them when stopped', () => {
+    const socket = fakeSocket({ answers: true })
+    const told: unknown[] = []
+    const watching = watchRooms(socket, ['sc:a', 'sc:b'], 'suite_collab_converted', (message) =>
+      told.push(message),
+    )
+    expect([...socket.joined]).toEqual(['sc:a', 'sc:b'])
+
+    socket.hear('suite_collab_converted', { state: 'converted' })
+    watching.setKeys(['sc:c'])
+    socket.drop()
+    socket.back()
+    expect([told, [...socket.joined]]).toEqual([[{ state: 'converted' }], ['sc:c']])
+
+    watching.stop()
+    socket.hear('suite_collab_converted', { state: 'refused' })
+    expect([told, [...socket.joined]]).toEqual([[{ state: 'converted' }], []])
   })
 })

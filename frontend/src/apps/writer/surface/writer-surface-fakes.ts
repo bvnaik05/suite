@@ -1,3 +1,4 @@
+import { fakeSocket } from '@suite/collab-client/test-support'
 import type { AnyExtension, Editor } from '@tiptap/core'
 import { reactive, type PropType } from 'vue'
 import type { Doc } from 'yjs'
@@ -9,9 +10,15 @@ export const stored = {
   content: '',
   collab: 0,
   // Set while the document waits for, or was refused, conversion to collaboration
-  conversion: null as { state: 'pending' | 'refused'; reason?: string } | null,
+  conversion: null as {
+    state: 'pending' | 'refused'
+    reason?: string
+    rooms?: { epoch: number; keys: string[]; epoch_seconds: number; server_time: number }
+  } | null,
   reloads: 0,
 }
+// The realtime socket a waiting document's tab listens on for its conversion
+export const realtime = { socket: fakeSocket({ answers: true }) }
 // Mounts the real editors, over a stand-in for CoreEditor, in place of the fakes below
 export const realEditors = { isOn: false }
 // What the document menu's Download took, as the HTML the real menu exports
@@ -150,8 +157,9 @@ export async function fakeCoreEditor() {
 }
 
 export async function fakeCollabPlatform() {
+  const client = await import('@suite/collab-client')
   return {
-    ...(await import('@suite/collab-client')),
+    ...client,
     openCollabRoom: async () => {
       if (rooms.next) {
         return { state: 'live', room: rooms.next }
@@ -164,6 +172,8 @@ export async function fakeCollabPlatform() {
       return { state: 'disabled' }
     },
     openSignedInDeviceStore: async () => null,
+    watchConversion: (keys: string[], onTold: (message: unknown) => void) =>
+      client.watchRooms(realtime.socket, keys, 'suite_collab_converted', onTold),
   }
 }
 

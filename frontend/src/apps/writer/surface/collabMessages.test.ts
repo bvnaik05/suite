@@ -572,12 +572,28 @@ describe('collab open failure copy', () => {
 
 describe('collab read-only copy for old documents', () => {
   it('says an old document is read-only until it is upgraded, and when its body was unreadable', () => {
-    expect(pageText(upgradingBanner(false))).toBe(
+    expect(pageText(upgradingBanner(null, false))).toBe(
       'This document is being upgraded for editing together. It is read-only until then.',
     )
-    expect(pageText(upgradingBanner(true))).toBe(
+    expect(pageText(upgradingBanner(null, true))).toBe(
       'This document is being upgraded for editing together. It is read-only until then.' +
         " Its saved body couldn't be read, so this is its last saved copy.",
+    )
+  })
+
+  it('names why an old document waits when the server gives a reason', () => {
+    expect(pageText(upgradingBanner('node', false))).toBe(
+      'This document is being upgraded for editing together. It is read-only until then.' +
+        ' Reason: the server has no Node 22.13 or newer.',
+    )
+    expect(pageText(upgradingBanner('scheduler', true))).toBe(
+      'This document is being upgraded for editing together. It is read-only until then.' +
+        ' Reason: the scheduler is off.' +
+        " Its saved body couldn't be read, so this is its last saved copy.",
+    )
+    expect(pageText(upgradingBanner('no converter bundle', false))).toBe(
+      'This document is being upgraded for editing together. It is read-only until then.' +
+        ' Reason: no converter bundle.',
     )
   })
 

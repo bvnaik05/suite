@@ -1,3 +1,4 @@
+import { fakeSocket } from '@suite/collab-client/test-support'
 import type { Editor as TiptapEditor } from '@tiptap/core'
 import { expect, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
@@ -6,7 +7,7 @@ import { Doc } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 
-import { downloaded, realEditors, rooms, stored } from './writer-surface-fakes'
+import { downloaded, realEditors, realtime, rooms, stored } from './writer-surface-fakes'
 
 export type Versions = DocumentSession['versions']
 export type Comments = DocumentSession['comments']
@@ -92,6 +93,7 @@ export function resetSurface() {
   stored.content = ''
   stored.conversion = null
   stored.reloads = 0
+  realtime.socket = fakeSocket({ answers: true })
   downloaded.html = null
   vi.restoreAllMocks()
 }
