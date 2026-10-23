@@ -76,12 +76,13 @@ def chain_next(previous: bytes, rev: int, payload_sha: bytes) -> bytes:
     return hashlib.sha256(previous + struct.pack(">Q", rev) + payload_sha).digest()
 
 
-def find(app: str, node: str) -> frappe._dict | None:
-    """`node`'s log, or None when it has none or its log is purged."""
+def find(app: str, node: str, for_update: bool = False) -> frappe._dict | None:
+    """`node`'s log, or None when it has none or its log is purged; `for_update` locks it and reads past the snapshot."""
     doc_table = table(app, "doc")
     rows = frappe.db.sql(
         f"""SELECT `id`, `lineage`, `head_rev`, `head_chain`, `q_epoch`, `verdict`, `judged`, `schema_steps`,
-        `suspect_held`, `state_bytes`, `tail_bound`, `trimmed_rev` FROM `{doc_table}` WHERE `node` = %s AND `mode` != 'purged'""",
+        `suspect_held`, `state_bytes`, `tail_bound`, `trimmed_rev` FROM `{doc_table}` WHERE `node` = %s AND `mode` != 'purged'"""
+        + (" FOR UPDATE" if for_update else ""),
         node,
         as_dict=True,
     )
@@ -106,7 +107,7 @@ def create(app: str, node: str) -> str:
 
 def mark_purged(app: str, node: str) -> str | None:
     """Mark `node`'s log purged in the caller's transaction, for `delete_purged` to remove; answers its id."""
-    doc = find(app, node)
+    doc = find(app, node, for_update=True)
     if not doc:
         return None
 

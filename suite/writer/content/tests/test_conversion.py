@@ -16,7 +16,7 @@ from suite import drive
 from suite.content import checker, compaction, convert, copies, jobs, log
 from suite.content.editors import spec_of
 from suite.content.http import routes
-from suite.drive._core.nodes import _restore, _trash
+from suite.drive._core.nodes import _restore, _trash, purge
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
@@ -266,6 +266,48 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(errors, [])
         [(_outcome, _reason, dropped)] = self.records(node)
         self.assertEqual(json.loads(dropped), [{"kind": "unknown-anchor", "thread": "late"}])
+
+    def test_purges_a_document_converted_after_the_purge_read_and_marks_its_new_log_purged(self):
+        node = self.old_document("<p>Hello world</p>")
+        owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        site = frappe.local.site
+        errors: list[Exception] = []
+        read = threading.Event()
+        converted = threading.Event()
+
+        def purge_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            frappe.set_user(WRITER)
+            try:
+                # A plain read, as a request makes, takes the snapshot before the conversion commits
+                frappe.db.get_value("Drive Node", node, "state")
+                read.set()
+                converted.wait(60)
+                _trash(owner, node)
+                purge(owner, node)
+                frappe.db.commit()
+            except Exception as error:
+                errors.append(error)
+            finally:
+                read.set()
+                frappe.destroy()
+
+        purger = threading.Thread(target=purge_elsewhere)
+        purger.start()
+        read.wait(10)
+        try:
+            self.assertEqual(conversion.convert_document(node), "converted")
+        finally:
+            converted.set()
+            purger.join(30)
+
+        self.assertFalse(purger.is_alive())
+        self.assertEqual(errors, [])
+        self.assertFalse(frappe.db.exists("Writer Document", {"node": node}))
+        self.assertEqual(
+            frappe.db.sql("SELECT `mode` FROM `__writer_content_doc` WHERE `node` = %s", node), (("purged",),)
+        )
 
     def test_converts_a_collaborative_version_from_its_yjs_body_not_its_stale_html(self):
         node = self.new_document()
