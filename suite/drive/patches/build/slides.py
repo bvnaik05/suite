@@ -676,7 +676,12 @@ def _thumbnail_file(deck, files, result, host=""):
 
     candidates = len({row.blob for row in winning})
     if candidates != 1:
-        skip_preview(result, deck, f"thumbnail {value!r} matches {candidates} different blobs")
+        rows = len(tier)
+        skip_preview(
+            result,
+            deck,
+            f"thumbnail {value!r} matches {candidates} different blobs; its {rows} File rows get no media node",
+        )
         return None, {row.name for row in tier}
 
     chosen = min(winning, key=lambda row: (str(row.creation or ""), row.name))
@@ -743,7 +748,7 @@ def thumbnail_preview(target, source):
         with Image.open(io.BytesIO(raw)) as probe:
             width, height = probe.size
     except Exception as error:
-        raise UnusableThumbnail("thumbnail is unreadable") from error
+        raise UnusableThumbnail(f"thumbnail is unreadable ({type(error).__name__})") from error
 
     if width * height > MAX_IMAGE_PIXELS:
         raise UnusableThumbnail("thumbnail is oversized")
@@ -759,7 +764,7 @@ def thumbnail_preview(target, source):
             output = io.BytesIO()
             image.convert("RGB").save(output, "WEBP")
     except Exception as error:
-        raise UnusableThumbnail("thumbnail is unreadable") from error
+        raise UnusableThumbnail(f"thumbnail is unreadable ({type(error).__name__})") from error
 
     return target.put_private_blob(output.getvalue(), f"{source.name}.webp")
 

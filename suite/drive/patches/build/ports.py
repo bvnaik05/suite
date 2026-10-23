@@ -144,14 +144,21 @@ class SiteStorage:
         return backfill.run(batch_size=batch_size)
 
     def has_local_file(self, file_url: str) -> bool:
-        """Whether the backfill would find a file on disk for this local URL."""
-        import os
-
+        """Whether the backfill would read a file on disk for this local URL."""
         from frappe.storage.backfill import locate
         from frappe.utils import get_files_path
 
         found = locate(file_url)
-        return bool(found) and os.path.isfile(get_files_path(found[1], is_private=found[0]))
+        if not found:
+            return False
+
+        try:
+            # path comes from locate(), which rejects absolute paths and any '..' segment
+            # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
+            with open(get_files_path(found[1], is_private=found[0]), "rb"):
+                return True
+        except OSError:
+            return False
 
     def claim_blob(self, checksum: str) -> ClaimedBlob | None:
         from frappe.storage.blob import revive_blob
