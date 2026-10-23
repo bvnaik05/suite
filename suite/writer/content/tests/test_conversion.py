@@ -1125,7 +1125,7 @@ class TestConversion(DriveCallbackCase):
 
         self.assertIsNone(self.reason_for_a_manager(node))
 
-    def test_before_migrate_says_nothing_with_nothing_to_convert_and_goes_on_when_its_check_fails(self):
+    def test_before_migrate_says_nothing_with_nothing_to_convert_or_when_its_check_fails(self):
         self.forget_blocks()
         [node] = self.old_documents(1)
 
@@ -1133,11 +1133,64 @@ class TestConversion(DriveCallbackCase):
         none_waits = self.blocked_migrate_output(True, return_value=[])
         failed = self.blocked_migrate_output(True, side_effect=RuntimeError("Hello world"))
 
-        self.assertEqual((off, none_waits), ([], []))
-        self.assertEqual(
-            failed, ["Couldn't check whether collaborative documents can be upgraded: RuntimeError"]
-        )
+        self.assertEqual((off, none_waits, failed), ([], [], []))
         self.assertIsNone(self.reason_for_a_manager(node))
+
+    def migrate_once(self, before: dict, after: dict) -> list[str]:
+        frappe.flags.pop("suite_collab_blocks_checked", None)
+        others = (
+            "suite.mail.install.after_migrate",
+            "suite.content.ensure_tables",
+            "suite.drive.install.index_group_membership",
+            "suite.drive.framework.validate_content_registry",
+            "suite.slides.install.seed_system_templates",
+        )
+        printed = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for other in others:
+                stack.enter_context(patch(other))
+
+            stack.enter_context(patch.object(checker, "usable_node", return_value=None))
+            stack.enter_context(patch.object(convert, "is_scheduler_disabled", return_value=False))
+            stack.enter_context(contextlib.redirect_stdout(printed))
+            with patch.object(log, "enabled", **before):
+                lifecycle.before_migrate()
+
+            with patch.object(log, "enabled", **after):
+                lifecycle.after_migrate()
+
+        return [line for line in printed.getvalue().splitlines() if "upgrade" in line]
+
+    def test_a_first_upgrade_is_told_once_from_after_migrate(self):
+        self.forget_blocks()
+        self.make_manager()
+        self.old_documents(1)
+
+        lines = self.migrate_once({"return_value": False}, {"return_value": True})
+
+        self.assertEqual(lines, ["Collaborative documents can't be upgraded: Node 22.13 or newer is missing"])
+        self.assertEqual(self.notified("Node 22.13 or newer is missing"), 1)
+
+    def test_a_migrate_with_collaboration_on_is_told_once_from_before_migrate(self):
+        self.forget_blocks()
+        self.make_manager()
+        self.old_documents(1)
+
+        lines = self.migrate_once({"return_value": True}, {"side_effect": RuntimeError("Hello world")})
+
+        self.assertEqual(lines, ["Collaborative documents can't be upgraded: Node 22.13 or newer is missing"])
+        self.assertEqual(self.notified("Node 22.13 or newer is missing"), 1)
+
+    def test_a_migrate_whose_checks_both_fail_says_so_once(self):
+        self.forget_blocks()
+        self.old_documents(1)
+        missing = frappe.db.TableMissingError(1146, "Table 'tabSuite Collab App' doesn't exist")
+
+        lines = self.migrate_once({"side_effect": missing}, {"side_effect": RuntimeError("Hello world")})
+
+        self.assertEqual(
+            lines, ["Couldn't check whether collaborative documents can be upgraded: RuntimeError"]
+        )
 
     def test_gives_the_reason_for_a_refusal_only_to_a_system_manager(self):
         node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
