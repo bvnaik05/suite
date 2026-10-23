@@ -250,11 +250,11 @@ BASELINE_DEBT = {
     ),
     **_debt(
         "Mail, Calendar, and Suite core owners",
-        "Remove when Mail declares a package-root interface and Suite settings reach Mail through composition.",
+        "Remove when Calendar uses Mail's public interfaces and Suite settings reach Mail through composition.",
         # Source: upstream `develop`, merged at a3dba155c and again at
-        # 082e84001 (the move to jmaplib). Mail has no package-root interface
-        # to import through, and `suite_core` reaching Mail needs a
-        # composition seam, so neither is a one-line fix.
+        # 082e84001 (the move to jmaplib). Mail exposes its email provider at
+        # package root, but these Calendar dependencies still use internal
+        # modules, and Suite settings need a composition seam.
         (
             "suite/calendar/doctype/calendar/calendar.py|import|suite.mail.utils",
             "suite/calendar/doctype/calendar_event/mailing_lists.py|import|suite.mail.directory",
