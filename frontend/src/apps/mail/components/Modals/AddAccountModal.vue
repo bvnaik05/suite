@@ -45,19 +45,9 @@
         >
           <div class="space-y-3">
             <div v-for="(email, index) in emails" :key="index" class="space-y-1.5">
-              <div class="flex items-center justify-between">
-                <label class="text-ink-gray-5 block text-xs">
-                  {{ index === 0 ? __('Primary Email') : __('Alias') }}
-                </label>
-                <Button
-                  v-if="index > 0"
-                  variant="ghost"
-                  theme="red"
-                  size="sm"
-                  :label="__('Remove')"
-                  @click="emails.splice(index, 1)"
-                />
-              </div>
+              <label class="text-ink-gray-5 block text-xs">
+                {{ index === 0 ? __('Primary Email') : __('Alias') }}
+              </label>
               <div class="flex items-center justify-between">
                 <FormControl v-model="email.username" placeholder="johndoe" class="w-full" />
                 <FeatherIcon class="text-ink-gray-3 mx-2.5 h-4 w-4" name="at-sign" />
@@ -68,6 +58,15 @@
                   class="w-full"
                   :options="domains.data"
                   :open-on-click="true"
+                />
+                <Button
+                  v-if="index > 0"
+                  icon="lucide-x"
+                  variant="ghost"
+                  size="sm"
+                  class="ml-2 shrink-0"
+                  :aria-label="__('Remove alias')"
+                  @click="emails.splice(index, 1)"
                 />
               </div>
             </div>
