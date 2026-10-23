@@ -26,7 +26,7 @@
 
 import { config } from './env.js'
 
-export const REQUEST_TIMEOUT_MS = 15_000
+const REQUEST_TIMEOUT_MS = 15_000
 
 async function call(method, params = {}, { headers = {} } = {}) {
 	const url = `${config.frappeBaseUrl}/api/method/${method}`

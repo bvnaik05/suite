@@ -52,14 +52,16 @@
     "suite/meet/sfu-server": {
       "entry": ["src/server/RecordingGrantPersistenceFile.ts"],
       "project": ["src/**/*.ts", "scripts/**/*.js"],
-      "ignoreBinaries": ["ffmpeg"]
+      "ignoreBinaries": ["ffmpeg", "biome", "nodemon", "ts-node"],
+      "ignoreDependencies": ["@biomejs/biome", "nodemon", "ts-node"]
     },
     "suite/meet/recorder-server": {
       "entry": ["src/integration/*.integration.ts"],
       "project": ["src/**/*.ts"]
     },
     "suite/sheets/collab-server": {
-      "project": ["*.js", "test/**/*.js"]
+      "project": ["*.js", "test/**/*.js"],
+      "ignoreDependencies": ["lib0", "yjs"]
     }
   }
 }
