@@ -331,15 +331,12 @@ emitter.on('print-file', () => {
   }
 })
 
-emitter.on('manual-save', manualSave)
-
 onBeforeUnmount(() => {
   const instance = editor.value
   if (edited.value && instance) {
     emit('save', false, instance.getHTML())
   }
   emitter.off('print-file')
-  emitter.off('manual-save')
   emit('cleanup')
 })
 </script>
