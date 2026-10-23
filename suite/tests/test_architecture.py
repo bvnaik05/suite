@@ -686,6 +686,7 @@ class TestArchitecture(unittest.TestCase):
                 "get_storage_reservation",
                 "get_storage_usage",
                 "grow_storage_reservation",
+                "has_blank_old_comment",
                 "import_document",
                 "install_threads",
                 "legacy_node",
