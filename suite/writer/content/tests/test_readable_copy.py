@@ -1,6 +1,8 @@
 import pycrdt
 from frappe.tests import UnitTestCase
+from frappe.utils.html_utils import sanitize_html
 
+from suite.content import copies
 from suite.writer import content as writer_content
 
 
@@ -37,3 +39,18 @@ class TestReadableCopy(UnitTestCase):
                 self.assertFalse(
                     writer_content.EDITOR.readable_copy.is_html_complete(linked_state(), html, "See the plan")
                 )
+
+    def test_cleans_a_copy_without_embeds_as_frappe_does(self):
+        html = (
+            '<h1 style="color: red; position: fixed; gap: 4px">Plan</h1>'
+            '<p class="lead" data-id="1" onclick="steal()">See <a href="https://example.com" target="_blank">it</a>'
+            ' <a href="javascript:steal()">this</a> <a href="mailto:ann@example.com">mail</a>'
+            ' <img src="/files/chart.png" alt="Chart" width="10" onerror="steal()"> <img src="cid:part1"></p>'
+            "<script>steal()</script><style>p { color: red }</style>"
+            '<table><tr><td colspan="2" style="background-image: url(x)">Cell</td></tr></table>'
+            '<svg><circle r="1"></circle></svg><object data="/x"></object><!-- note -->'
+        )
+
+        clean, _ = copies.cleaned(html)
+
+        self.assertEqual(clean, sanitize_html(html))

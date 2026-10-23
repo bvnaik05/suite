@@ -45,6 +45,7 @@ from suite.writer.http import routes as writer_routes
 TIME = 1_690_000_000_000
 OLD_THREAD = {"uuid": "u1", "comments": [{"userName": "Ann", "time": TIME, "content": "Old note"}]}
 REAL_CONVERT = convert.convert
+PNG_SOURCE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 
 def old_comments(*comments: tuple[str, str, list[str]]) -> str:
@@ -78,6 +79,24 @@ class TestConversion(DriveCallbackCase):
         node = self.new_document()
         self.delete_log(node)
         old = {"content": None, "html": html, "collab": 0, "ycomments": ycomments}
+        frappe.db.set_value("Writer Document", self.docname_of(node), old, update_modified=False)
+        frappe.db.commit()
+        return node
+
+    def old_yjs_document(self, *children: pycrdt.XmlElement) -> str:
+        node = self.new_document()
+        self.delete_log(node)
+        doc = pycrdt.Doc()
+        body = doc.get("default", type=pycrdt.XmlFragment)
+        for child in children:
+            body.children.append(child)
+
+        old = {
+            "content": base64.b64encode(doc.get_update()).decode(),
+            "html": "",
+            "collab": 1,
+            "ycomments": None,
+        }
         frappe.db.set_value("Writer Document", self.docname_of(node), old, update_modified=False)
         frappe.db.commit()
         return node
@@ -163,6 +182,47 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(self.before_collaboration(node), old)
         html = frappe.db.get_value("Writer Document", self.docname_of(node), "html")
         self.assertEqual(BeautifulSoup(html, "html.parser").get_text(), "")
+
+    def test_keeps_an_https_embed_and_a_png_data_picture_in_the_copy(self):
+        embed = "https://www.youtube.com/embed/abc"
+        node = self.old_yjs_document(
+            pycrdt.XmlElement("paragraph", None, [pycrdt.XmlText("Watch this")]),
+            pycrdt.XmlElement("iframe", {"src": embed}),
+            pycrdt.XmlElement("image", {"src": PNG_SOURCE}),
+        )
+
+        self.assertEqual(conversion.convert_document(node), "converted")
+
+        copy = BeautifulSoup(
+            frappe.db.get_value("Writer Document", self.docname_of(node), "html"), "html.parser"
+        )
+        iframe = copy.find("iframe")
+        self.assertEqual(
+            (iframe["src"], " ".join(iframe["sandbox"])),
+            (embed, "allow-scripts allow-same-origin allow-popups allow-forms allow-presentation"),
+        )
+        self.assertEqual(copy.find("img")["src"], PNG_SOURCE)
+
+    def test_refuses_a_body_whose_embed_or_picture_the_copy_cannot_keep(self):
+        for name, tag, src in (
+            # nh3 strips this scheme before kept_value sees it
+            ("javascript iframe", "iframe", "javascript:alert(1)"),
+            ("html data iframe", "iframe", "data:text/html,<p>Hi</p>"),
+            ("http iframe", "iframe", "http://www.youtube.com/embed/abc"),
+            ("relative iframe", "iframe", "/files/talk.mp4"),
+            ("svg data picture", "image", "data:image/svg+xml;base64,PHN2Zy8+"),
+            ("html data picture", "image", "data:text/html,<p>Hi</p>"),
+        ):
+            with self.subTest(name):
+                node = self.old_yjs_document(
+                    pycrdt.XmlElement("paragraph", None, [pycrdt.XmlText("Watch this")]),
+                    pycrdt.XmlElement(tag, {"src": src}),
+                )
+                before = self.as_before(node)
+
+                self.assertEqual(conversion.convert_document(node), "check")
+
+                self.assertEqual(self.as_before(node), before)
 
     def test_anchors_each_old_comment_on_the_drive_thread_build_made_for_it(self):
         for name, thread in (("kept", lambda node, id_: id_), ("renamed", renamed)):
