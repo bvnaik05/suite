@@ -215,6 +215,21 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(comment.content, f"Hi @[{WRITER}], see the doc (https://x.example/doc) & reply")
         self.assertEqual(json.loads(comment.mentions), [WRITER])
 
+    def test_a_blank_old_comment_in_any_form_stops_the_conversion(self):
+        for content in ("   ", "<p></p>", "<p><br></p>", "<p> </p>"):
+            with self.subTest(content=content):
+                old = {"uuid": "u1", "comments": [{"userName": "Ann", "time": TIME, "content": content}]}
+                data = escape(json.dumps(old))
+                node = self.old_document(f'<p>Hello <span data-comment="{data}">old</span> world</p>')
+                before = self.as_before(node)
+
+                self.assertEqual(conversion.convert_document(node), "check")
+
+                self.assertEqual(self.as_before(node), before)
+                self.assertEqual(self.threads_of(node), [])
+                self.assertEqual(frappe.db.count("Drive Comment", {"node": node}), 0)
+                self.assertEqual(self.records(node), (("check", None, None),))
+
     def test_refuses_an_old_comment_or_reply_no_drive_thread_holds(self):
         for name, held in (("comment", []), ("reply", ["c1"])):
             node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", ["r1"])))

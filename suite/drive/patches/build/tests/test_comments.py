@@ -443,6 +443,9 @@ class CommentTest(unittest.TestCase):
     def test_blank_and_oversized_comment_text_refuse_the_thread(self):
         cases = {
             "blank": ("   ", "text is blank"),
+            "empty paragraph": ("<p></p>", "text is blank"),
+            "line break": ("<p><br></p>", "text is blank"),
+            "blank paragraph": ("<p> </p>", "text is blank"),
             "oversized": ("x" * 65_536, "exceeds the comment limit"),
         }
         for label, (text, message) in cases.items():
@@ -716,12 +719,16 @@ class LegacyCommentTest(unittest.TestCase):
         self.assertEqual(self.record.legacy_comments_unported, 1)
 
     def test_a_blank_legacy_row_is_refused(self):
-        env, target = self.environment(FakeContent(timezone="UTC"))
-        target.node_rows["file-1"] = {"name": "file-1", "kind": "document"}
-        self.legacy_row(target, "orphan-1", text="   ")
+        for text in ("   ", "<p></p>", "<p><br></p>", "<p> </p>"):
+            env, target = self.environment(FakeContent(timezone="UTC"))
+            target.node_rows["file-1"] = {"name": "file-1", "kind": "document"}
+            self.legacy_row(target, "orphan-1", text=text)
 
-        with self.assertRaisesRegex(InvalidLegacyContent, "legacy comment text is blank"):
-            port_legacy_comments(env, self.record, batch_size=10)
+            with (
+                self.subTest(text=text),
+                self.assertRaisesRegex(InvalidLegacyContent, "legacy comment text is blank"),
+            ):
+                port_legacy_comments(env, self.record, batch_size=10)
 
     def ported(self, text, users=None):
         env, target = self.environment(FakeContent(users=users, timezone="UTC"))
