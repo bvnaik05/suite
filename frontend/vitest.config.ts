@@ -70,10 +70,14 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
+      reportOnFailure: true,
       include: ['src/**/*.{js,ts,vue}', 'recorder/**/*.{ts,vue}'],
       exclude: [
         '**/*.test.{js,ts}',
         '**/test-utils.{js,ts}',
+        '**/*.d.ts',
+        '**/__fixtures__/**',
+        'recorder/frappeUi.ts',
         'src/apps/sheets/core/ironcalc-gate/**',
         'src/test/**',
       ],

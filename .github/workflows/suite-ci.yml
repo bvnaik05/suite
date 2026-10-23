@@ -11,6 +11,7 @@ on:
       - "package.json"
       - "yarn.lock"
       - "pyproject.toml"
+      - ".coveragerc"
       - ".github/scripts/**"
       - ".github/workflows/suite-ci.yml"
   workflow_dispatch:
@@ -72,7 +73,7 @@ jobs:
             fi
             backend_paths="$(printf '%s\n' "$changed_files" \
               | grep -Ev '^(suite/meet/sfu-server/|suite/meet/recorder-server/|suite/meet/types/)' \
-              | grep -E '^(suite/|pyproject\.toml|\.github/scripts/|\.github/workflows/suite-ci\.yml)' || true)"
+              | grep -E '^(suite/|pyproject\.toml|\.coveragerc$|\.github/scripts/|\.github/workflows/suite-ci\.yml)' || true)"
             [ -n "$backend_paths" ] && run_backend=1 || run_backend=0
           fi
 
@@ -155,7 +156,6 @@ jobs:
         working-directory: /home/runner/frappe-bench
         run: |
           mkdir -p "$GITHUB_WORKSPACE/test-results/backend"
-          printf '[run]\nbranch = true\n' > "$RUNNER_TEMP/suite-coveragerc"
           bench --site test_site set-config allow_tests true
           # Frappe refuses a new User once 60 were created in the last hour.
           # The suite creates more than that, so the later modules would fail.
@@ -168,7 +168,7 @@ jobs:
           rm "$GITHUB_WORKSPACE/test-results/backend/junit-fragments.xml"
           exit "$status"
         env:
-          COVERAGE_RCFILE: ${{ runner.temp }}/suite-coveragerc
+          COVERAGE_RCFILE: ${{ github.workspace }}/.coveragerc
           TYPE: server
 
       - name: Check Background Worker
@@ -710,8 +710,8 @@ jobs:
         working-directory: frontend
         run: |
           mkdir -p test-results
-          yarn test:unified
-          yarn test:legacy
+          yarn test:ci
+          test -s test-results/coverage/cobertura-coverage.xml
 
       - name: Upload Frontend Evidence
         if: always() && steps.frontend-changes.outputs.run == '1'
