@@ -1,14 +1,18 @@
-import type { JSONContent } from '@tiptap/core'
+import { getSchema, type JSONContent } from '@tiptap/core'
 import { yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap'
 import { Doc } from 'yjs'
 
 import { api, client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
-import { loadVersion } from '@/apps/writer/collab/old-media'
+import { readLegacy, type LegacyBody } from '@/apps/writer/collab/legacy-read'
+import { loadVersion, withOldMediaConverted } from '@/apps/writer/collab/old-media'
 import type { DocumentMedia } from '@/apps/writer/extensions/drive-media'
 import { orderedHTML, storedFirstTabLabel } from '@/apps/writer/extensions/tabs'
+import { writerSchema } from '@/apps/writer/schema'
 import { previewEditor } from '@/apps/writer/utils/preview-editor'
+
+const schema = getSchema(writerSchema())
 
 /** What one stored version shows: HTML, or a document read from its Yjs state, and its first tab's label. */
 export interface StoredVersion {
@@ -16,9 +20,9 @@ export interface StoredVersion {
   firstTabLabel: string | null
 }
 
-/** A stored version's body: a Yjs state and the lineage it belongs to, or HTML; an old version's HTML is convertible. */
+/** A stored version's body: a Yjs state and the lineage it belongs to, or HTML; an old version also carries its row. */
 export type VersionBody =
-  { lineage: string; state: Uint8Array } | { html: string; isConvertible?: boolean }
+  { lineage: string; state: Uint8Array } | { html: string; legacy?: LegacyBody }
 
 /** An old version as the converter makes it, its refusal with the reason System Managers see, or still converting. */
 export type ConvertedVersion =
@@ -42,7 +46,10 @@ export async function fetchVersion(session: DocumentSession, seq: number): Promi
 export async function readVersion(bytes: Uint8Array): Promise<StoredVersion> {
   const body = await readVersionBody(bytes)
   if ('html' in body) {
-    return { content: body.html, firstTabLabel: null }
+    return {
+      content: (body.legacy && legacyContent(body.legacy)) ?? body.html,
+      firstTabLabel: null,
+    }
   }
 
   const ydoc = new Doc()
@@ -93,7 +100,13 @@ export async function readVersionBody(bytes: Uint8Array): Promise<VersionBody> {
     version.collab as number | boolean | undefined,
   )
   if (isHtmlVersion && hasContent && typeof version.html === 'string' && isKnownCollab) {
-    return { html: version.html, isConvertible: true }
+    const legacy = {
+      content: version.content as string,
+      html: version.html,
+      collab: Number(version.collab ?? 1),
+      ycomments: null,
+    }
+    return { html: version.html, legacy }
   }
 
   const isYjsVersion = version.schema === 'writer-document/2' && version.codec === 'yjs1'
@@ -134,6 +147,24 @@ function askToConvert(session: DocumentSession, seq: number) {
     { node: session.nodeId, seq },
     { context: session.credentials.context, silent: true },
   )
+}
+
+// An old version's Yjs text, as an old document opens read-only; null where only its HTML can show
+function legacyContent(legacy: LegacyBody): JSONContent | null {
+  const read = readLegacy(legacy)
+  if (read.case !== 'yjs') {
+    return null
+  }
+
+  try {
+    const content = yXmlFragmentToProsemirrorJSON(withOldMediaConverted(read.old))
+    schema.nodeFromJSON(content).check()
+    return content
+  } catch {
+    return null
+  } finally {
+    read.old.destroy()
+  }
 }
 
 function parsedOrNull(text: string): unknown {

@@ -109,10 +109,12 @@ describe('readVersion', () => {
     const element = new XmlElement('nonsense')
     element.insert(0, [new XmlText('Lost')])
     unplaceable.getXmlFragment(BODY_FIELD).insert(0, [element])
+    const blank = new Doc()
+    blank.getXmlFragment(BODY_FIELD).insert(0, [new XmlElement('paragraph')])
 
     for (const [name, version] of [
       ['unreadable', { ...oldCollabVersion(new Doc()), content: btoa('\xff\xff\xff') }],
-      ['empty', oldCollabVersion(new Doc())],
+      ['empty', oldCollabVersion(blank)],
       ['unplaceable', oldCollabVersion(unplaceable)],
     ] as const) {
       expect(await readVersion(encode(version)), name).toEqual({

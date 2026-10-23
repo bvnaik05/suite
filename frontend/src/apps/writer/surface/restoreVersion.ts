@@ -50,7 +50,7 @@ export async function restoreVersion(
     return { isRestored: false, message: "This version can't be restored.", anchors: {} }
   }
 
-  if ('isConvertible' in body) {
+  if ('legacy' in body) {
     const converted = await convert()
     if ('isPending' in converted) {
       return {
