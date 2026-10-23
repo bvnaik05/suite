@@ -195,7 +195,16 @@ function _cartesianOption(
       borderColor: tooltipBorder,
       textStyle: { color: tooltipText, fontFamily: ESPRESSO_FONT, fontSize: 12 },
     },
-    grid: { top: 56, left: 56, right: 24, bottom: 40, containLabel: true },
+    // ECharts 6's spelling of the old `containLabel: true`: axis labels fit
+    // inside the grid box. The old flag still works but logs a notice.
+    grid: {
+      top: 56,
+      left: 56,
+      right: 24,
+      bottom: 40,
+      outerBoundsMode: 'same',
+      outerBoundsContain: 'axisLabel',
+    },
     xAxis: {
       type: kind === 'scatter' ? 'value' : 'category',
       data: kind === 'scatter' ? undefined : xs.map(_toLabel),

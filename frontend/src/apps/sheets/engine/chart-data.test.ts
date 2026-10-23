@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { buildOption } from './chart-data.js'
 
@@ -61,5 +61,34 @@ describe('buildOption — formatted numbers', () => {
     const opt = buildOption(cfg({ options: { aggregate: 'sum' } }), rows)
     expect(opt.series[0].data).toEqual([1001.5, 0.5])
     expect(buildOption(cfg(), rows).series[0].data).toEqual([1.5, 1000, 0.5])
+  })
+})
+
+describe('buildOption — rendering', () => {
+  it('renders every chart kind without an ECharts console notice', async () => {
+    const { BarChart, LineChart, PieChart, ScatterChart } = await import('echarts/charts')
+    const { GridComponent, LegendComponent, TitleComponent, TooltipComponent } =
+      await import('echarts/components')
+    const { init, use } = await import('echarts/core')
+    const { SVGRenderer } = await import('echarts/renderers')
+    use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, LegendComponent])
+    use([TitleComponent, TooltipComponent, SVGRenderer])
+
+    const rows = [
+      ['Month', 'Sales'],
+      ['Jan', 10],
+      ['Feb', 20],
+    ]
+    const notices = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const chartType of ['bar', 'line', 'area', 'scatter', 'pie']) {
+      const chart = init(null, null, { renderer: 'svg', ssr: true, width: 480, height: 320 })
+      chart.setOption(buildOption(cfg({ chartType }), rows))
+      chart.dispose()
+    }
+    expect(notices.mock.calls).toEqual([])
+    expect(warnings.mock.calls).toEqual([])
+    notices.mockRestore()
+    warnings.mockRestore()
   })
 })
