@@ -4,7 +4,7 @@ import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
 import type { DocumentThread } from '@/apps/drive'
 
-import { stored } from './writer-surface-fakes'
+import { downloaded, stored } from './writer-surface-fakes'
 import {
   liveRoom,
   openedSurface,
@@ -121,6 +121,27 @@ describe('Writer surface', () => {
         "This document couldn't be upgraded, so it stays read-only. Reason: unknown_node: mystery.",
       ]),
     )
+  })
+
+  it('downloads a refused document as its text, not its out-of-date HTML', async () => {
+    oldDocument('Old text', { state: 'refused' })
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(editorText(root)).toEqual(['Old text']))
+
+    root.querySelector<HTMLElement>('[data-download]')!.click()
+
+    expect(downloaded.html).toBe('<p>Old text</p>')
+  })
+
+  it('downloads the last saved copy when the stored body does not decode', async () => {
+    oldDocument('Old text', { state: 'refused' })
+    stored.content = btoa('ÿÿÿ')
+    const root = await openedSurface()
+    await vi.waitFor(() => expect(editorText(root)).toEqual(['stale']))
+
+    root.querySelector<HTMLElement>('[data-download]')!.click()
+
+    expect(downloaded.html).toBe('<p>stale</p>')
   })
 
   it('says the last saved copy is shown when the stored body does not decode', async () => {

@@ -6,7 +6,7 @@ import { Doc } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 
-import { realEditors, rooms, stored } from './writer-surface-fakes'
+import { downloaded, realEditors, rooms, stored } from './writer-surface-fakes'
 
 export type Versions = DocumentSession['versions']
 export type Comments = DocumentSession['comments']
@@ -92,6 +92,7 @@ export function resetSurface() {
   stored.content = ''
   stored.conversion = null
   stored.reloads = 0
+  downloaded.html = null
   vi.restoreAllMocks()
 }
 

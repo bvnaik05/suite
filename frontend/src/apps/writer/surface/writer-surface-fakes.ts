@@ -1,4 +1,4 @@
-import type { AnyExtension } from '@tiptap/core'
+import type { AnyExtension, Editor } from '@tiptap/core'
 import { reactive, type PropType } from 'vue'
 import type { Doc } from 'yjs'
 
@@ -14,6 +14,8 @@ export const stored = {
 }
 // Mounts the real editors, over a stand-in for CoreEditor, in place of the fakes below
 export const realEditors = { isOn: false }
+// What the document menu's Download took, as the HTML the real menu exports
+export const downloaded = { html: null as string | null }
 
 export async function fakeFrappeUi() {
   const { defineComponent: define, h: render, ref: state } = await import('vue')
@@ -119,10 +121,13 @@ export async function fakeCoreEditor() {
   const { default: Text } = await import('@tiptap/extension-text')
   return {
     default: define({
-      props: { extensions: { type: Array as PropType<AnyExtension[]>, default: () => [] } },
+      props: {
+        extensions: { type: Array as PropType<AnyExtension[]>, default: () => [] },
+        rawContent: String,
+      },
       setup(props, { expose, slots }) {
         const extensions = [Document, Paragraph, Text, ...props.extensions]
-        const editor = shallowRef(new Editor({ extensions }))
+        const editor = shallowRef(new Editor({ extensions, content: props.rawContent }))
         expose({ editor })
         onBeforeUnmount(() => editor.value.destroy())
         return () => {
@@ -243,9 +248,14 @@ export async function fakeCollabTextEditor(
 
 export async function fakeDocumentMenu() {
   const { defineComponent: define, h: render } = await import('vue')
+  const { exportHTML } = await import('./exports')
   return {
     default: define({
-      props: { canSaveVersion: Boolean, editable: Boolean },
+      props: {
+        canSaveVersion: Boolean,
+        editable: Boolean,
+        editor: Object as PropType<Editor | null>,
+      },
       emits: ['saveVersion'],
       setup:
         (props, { emit }) =>
@@ -256,6 +266,14 @@ export async function fakeDocumentMenu() {
             onClick: () => emit('saveVersion'),
           }),
           render('button', { 'data-import-docx': '', hidden: !props.editable }),
+          render('button', {
+            'data-download': '',
+            onClick: () => {
+              if (props.editor) {
+                downloaded.html = exportHTML(props.editor, 'document')
+              }
+            },
+          }),
         ],
     }),
   }
