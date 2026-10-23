@@ -34,6 +34,7 @@ const emit = defineEmits<{
   closed: [panel: DocumentPanel]
   restoreVersion: [version: DocumentVersion]
   downloadVersion: [version: DocumentVersion]
+  saveVersion: []
 }>()
 const previewedVersion = defineModel<DocumentVersion | null>('previewedVersion', {
   required: true,
@@ -89,8 +90,6 @@ function closePanel() {
 
 // Opens a name box at the top of the list; Enter saves, Esc or an empty name cancels
 async function startNamingVersion() {
-  previewedVersion.value = null
-  await nextTick()
   isNamingVersion.value = true
   await nextTick()
   versionNameInput.value?.focus()
@@ -206,7 +205,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
               :rename="versionRename"
               @restore="emit('restoreVersion', $event)"
               @download="emit('downloadVersion', $event)"
-              @save-version="startNamingVersion"
+              @save-version="emit('saveVersion')"
             />
             <p v-if="hasNoVersions" class="px-3 text-sm text-ink-gray-5">No versions yet.</p>
             <Button
