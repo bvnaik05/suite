@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from datetime import timedelta
+from html import escape
 from unittest.mock import MagicMock, call, patch
 
 import frappe
@@ -192,6 +193,22 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual((comment.content, comment.author_name, comment.creation), ("Old note", "Ann", stamp))
         self.assertEqual(frappe.db.count("Drive Notification"), notifications)
         self.assertEqual(frappe.db.count("Drive Node Version", {"node": node, "kind": "milestone"}), 1)
+
+    def test_installs_an_html_2023_comment_as_text_with_its_mention(self):
+        content = (
+            f'<p>Hi <span data-type="mention" class="mention" data-id="{WRITER}" data-label="W">@W</span>, '
+            'see <a href="https://x.example/doc">the doc</a> &amp; reply</p>'
+        )
+        old = {"uuid": "u1", "comments": [{"userName": "Ann", "time": TIME, "content": content}]}
+        data = escape(json.dumps(old))
+        node = self.old_document(f'<p>Hello <span data-comment="{data}">old</span> world</p>')
+
+        self.assertEqual(conversion.convert_document(node), "converted")
+
+        [thread] = self.threads_of(node)
+        [comment] = frappe.get_all("Drive Comment", {"thread": thread.name}, ["content", "mentions"])
+        self.assertEqual(comment.content, f"Hi @[{WRITER}], see the doc (https://x.example/doc) & reply")
+        self.assertEqual(json.loads(comment.mentions), [WRITER])
 
     def test_refuses_an_old_comment_or_reply_no_drive_thread_holds(self):
         for name, held in (("comment", []), ("reply", ["c1"])):
