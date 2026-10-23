@@ -73,7 +73,6 @@
     "standard": "^17.0.0",
     "typescript": "^5.4.5",
     "y-protocols": "^1.0.5",
-    "y-webrtc": "^10.2.0",
     "yjs": "^13.5.38"
   },
   "engines": {
