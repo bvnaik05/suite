@@ -54,7 +54,10 @@ def update_password(
 def _update_password(
     new_password: str, logout_all_sessions: int, key: str | None, old_password: str | None
 ) -> Any:
-    from frappe.auth import MAX_PASSWORD_SIZE
+    try:
+        from frappe.utils.password import MAX_PASSWORD_SIZE
+    except ImportError:  # Frappe before frappe/frappe#44376
+        from frappe.auth import MAX_PASSWORD_SIZE
 
     if len(new_password) > MAX_PASSWORD_SIZE:
         frappe.throw(_("Password size exceeded the maximum allowed size."))
