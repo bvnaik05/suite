@@ -3,6 +3,7 @@ import { computed, inject, ref, type InjectionKey } from 'vue'
 
 import { api, client } from '@/api'
 import type { DocumentSession } from '@/apps/drive'
+import { randomId } from '@/platform/random-id'
 import { useSession } from '@/platform/session'
 import { translate as __ } from '@/platform/translation'
 import { TransportError } from '@/platform/transport'
@@ -38,7 +39,7 @@ export class DrawingPersistence {
     const identity = useSession()
     const user = identity.user.value?.id ?? ''
     this.prefix = `${user}:${session.contentDocname}`
-    this.key = `${this.prefix}:${crypto.randomUUID()}`
+    this.key = `${this.prefix}:${randomId()}`
     this.drawingTitle = session.title
     this.recoveryAllowed = computed(() => !!user && identity.user.value?.id === user)
     this.readable = computed(
@@ -85,7 +86,7 @@ export class DrawingPersistence {
         this.pending = {
           ...recovered,
           content: scene,
-          revision: crypto.randomUUID(),
+          revision: randomId(),
           updatedAt: Date.now(),
         }
         this.dirty.value = true
@@ -115,7 +116,7 @@ export class DrawingPersistence {
     this.pending = {
       content: parseScene(scene),
       baseModified: this.modified,
-      revision: crypto.randomUUID(),
+      revision: randomId(),
       updatedAt: Date.now(),
     }
     this.transient = true
