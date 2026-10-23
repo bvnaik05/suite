@@ -75,6 +75,39 @@ describe('ParticipantConnection', () => {
     E2EEMeeting.instance.wipeMeetingContext()
   })
 
+  it('buffers producers during rejoin until the replacement receive side is synchronized', async () => {
+    const { handlers, manager, mediaManager, participantManager, sfuClient } = createManager()
+    participantManager.addParticipant({
+      participantId: 'remote-1',
+      userData: { name: 'Remote', video_enabled: true },
+    })
+    await manager.connect('token')
+    sfuClient.getRoomParticipants.mockResolvedValueOnce([
+      { participantId: 'remote-1', userData: { name: 'Remote', video_enabled: true } },
+    ] as never)
+    sfuClient.joinRoom.mockImplementationOnce(async () => {
+      // Rejoin removes the old server transports before its acknowledgement.
+      await handlers.get('producer_created')?.({
+        participantId: 'remote-1',
+        producerId: 'encrypted-video',
+        kind: 'video',
+      })
+    })
+
+    await manager.joinRoom(
+      { userId: 'me', name: 'Me' },
+      { audio_enabled: true, video_enabled: true },
+    )
+
+    expect(mediaManager.subscribeToRemoteProducer).not.toHaveBeenCalled()
+    await manager.setupExistingParticipants()
+    expect(mediaManager.subscribeToRemoteProducer).toHaveBeenCalledWith({
+      participantId: 'remote-1',
+      producerId: 'encrypted-video',
+      isScreen: false,
+    })
+  })
+
   it('subscribes to remote audio producers', async () => {
     const { handlers, manager, mediaManager, participantManager } = createManager()
     participantManager.addParticipant({

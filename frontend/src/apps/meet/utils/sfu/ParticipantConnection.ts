@@ -478,6 +478,9 @@ export class ParticipantConnection {
     conflictId?: string,
   ): Promise<boolean> {
     const generation = this.lifecycleGeneration
+    // Rejoin removes the server's old transports. Buffer producer events until
+    // the replacement media side is ready and setupExistingParticipants syncs it.
+    this.initialSyncInProgress = true
     try {
       await this.sfuClient.joinRoom(this.meetingId ?? '', userData, mediaState, {
         connectionId: this.connectionId,
