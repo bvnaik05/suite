@@ -1012,6 +1012,16 @@ class TestConversion(DriveCallbackCase):
         saved = datetime(2026, 10, 1, 10, tzinfo=ZoneInfo(get_system_timezone()))
         self.assertEqual(datetime.fromisoformat(row["content_modified"]), saved)
 
+    def test_a_page_reading_a_logged_document_gets_no_body(self):
+        node = self.old_document("<p>Hello world</p>")
+        self.assertEqual(conversion.convert_document(node), "converted")
+        docname = self.docname_of(node)
+
+        response = self.contract_request("documents.get", WRITER, name=docname)
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertIsNone(response.json["data"]["content"])
+        self.assertTrue(frappe.db.get_value("Writer Document", docname, "content"))
+
     def test_a_page_saving_settings_keeps_them_for_an_editor_only(self):
         docname = self.docname_of(self.old_document("<p>Hello world</p>"))
         settings = json.dumps({"fullWidth": True})
