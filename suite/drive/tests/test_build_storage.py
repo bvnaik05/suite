@@ -212,6 +212,17 @@ class TestBuildStoragePreparation(IntegrationTestCase):
         self.assertEqual(predicted, {missing: False, present: True})
         self.assertEqual({name: bool(self.row(name).blob) for name in urls}, predicted)
 
+    def test_the_census_check_agrees_with_the_backfill_on_a_file_it_cannot_read(self):
+        unreadable, path = self.local_file(b"locked")
+        os.chmod(path, 0)
+        self.addCleanup(os.chmod, path, 0o644)
+        predicted = SiteStorage().has_local_file(self.row(unreadable).file_url)
+
+        self.prepare_local()
+
+        self.assertFalse(predicted)
+        self.assertIsNone(self.row(unreadable).blob)
+
     def test_the_census_check_finds_no_file_outside_the_files_folder(self):
         self.assertFalse(SiteStorage().has_local_file("/private/files/../../site_config.json"))
 

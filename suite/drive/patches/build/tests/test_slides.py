@@ -192,7 +192,7 @@ class SlidesTest(unittest.TestCase):
             any(issue.source == "Presentation:deck-1" and reason in issue.reason for issue in result.issues),
             result.issues,
         )
-        self.assertEqual(build_report(env)["evidence"]["content"]["deck_previews_skipped"], 1)
+        self.assertEqual(build_report(env)["deck_previews_skipped"], 1)
 
     def test_a_second_slides_phase_keeps_one_shot_repairs(self):
         result = ContentConversion(slide_elements_repaired=1)
@@ -1314,7 +1314,7 @@ class SlidesTest(unittest.TestCase):
 
         result = convert_slides_and_templates(env)
 
-        self.assert_preview_skipped(env, target, result, "unreadable")
+        self.assert_preview_skipped(env, target, result, "thumbnail is unreadable (DecompressionBombError)")
 
     def test_a_thumbnail_above_the_pixel_ceiling_is_reported_and_the_next_deck_converts(self):
         row = media("thumb", blob="thumb-blob", url="/files/thumb.png", field="thumbnail")
@@ -1474,7 +1474,7 @@ class SlidesTest(unittest.TestCase):
 
         result = convert_slides_and_templates(env)
 
-        self.assert_preview_skipped(env, target, result, "unreadable")
+        self.assert_preview_skipped(env, target, result, "thumbnail is unreadable (OSError)")
 
     def test_a_corrupt_thumbnail_is_reported_and_the_next_deck_converts(self):
         row = media("thumb", blob="thumb-blob", url="/files/thumb.png", field="thumbnail")
@@ -1483,7 +1483,7 @@ class SlidesTest(unittest.TestCase):
 
         result = convert_slides_and_templates(env)
 
-        self.assert_preview_skipped(env, target, result, "unreadable")
+        self.assert_preview_skipped(env, target, result, "thumbnail is unreadable (UnidentifiedImageError)")
 
     def test_a_thumbnail_with_a_broken_chunk_is_reported_and_the_next_deck_converts(self):
         row = media("thumb", blob="thumb-blob", url="/files/thumb.png", field="thumbnail")
@@ -1492,7 +1492,7 @@ class SlidesTest(unittest.TestCase):
 
         result = convert_slides_and_templates(env)
 
-        self.assert_preview_skipped(env, target, result, "unreadable")
+        self.assert_preview_skipped(env, target, result, "thumbnail is unreadable (SyntaxError)")
 
     def test_a_thumbnail_whose_blob_is_not_ready_is_reported_and_the_next_deck_converts(self):
         row = media("thumb", blob="thumb-blob", url="/files/thumb.webp", field="thumbnail")
@@ -1580,7 +1580,9 @@ class SlidesTest(unittest.TestCase):
 
         result = convert_slides_and_templates(env)
 
-        self.assert_preview_skipped(env, target, result, "matches 2 different blobs")
+        self.assert_preview_skipped(
+            env, target, result, "matches 2 different blobs; its 2 File rows get no media node"
+        )
         self.assertEqual(self.media_children(target, "deck-node"), [])
 
     def test_a_stale_thumbnail_marker_stays_ordinary_media(self):
