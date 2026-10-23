@@ -123,6 +123,7 @@ import { isMobile } from '@/shell/useIsMobile'
 
 const props = defineProps<{
   areas: readonly AreaDefinition[]
+  activeArea?: AreaDefinition
   badges: Readonly<Record<string, number>>
 }>()
 
@@ -134,7 +135,7 @@ const SuiteSettingsDialog = defineAsyncComponent(
 )
 const SuiteCommandPalette = defineAsyncComponent(() => import('@/shell/SuiteCommandPalette.vue'))
 const session = useSession()
-const activeArea = computed(() => props.areas.find((area) => area.id === route.meta.area))
+const activeArea = computed(() => props.activeArea)
 const unavailable = computed(() => {
   const area = activeArea.value
   if (!area || session.status.value !== 'authenticated') return null
