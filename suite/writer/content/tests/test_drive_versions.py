@@ -2,6 +2,7 @@ import base64
 import gzip
 import io
 import json
+from unittest.mock import patch
 
 import frappe
 import pycrdt
@@ -189,6 +190,12 @@ class TestWriterDriveVersions(DriveCallbackCase):
         self.add_html_version(node)
 
         self.assertEqual(docs.old_body(node), {"content": "bmV3ZXI="})
+
+    def test_the_old_body_is_the_latest_row_version_past_newer_ones_too_large_to_read(self):
+        node = self.old_document_with_versions("b2xkZXI=", "A" * 4000)
+
+        with patch.object(writer_drive, "MAX_VERSION_BYTES", 2000):
+            self.assertEqual(docs.old_body(node), {"content": "b2xkZXI="})
 
     def test_a_reader_gets_the_old_body(self):
         node = self.old_document_with_versions("b2xkZXI=")

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ref } from 'vue'
 import * as yjs from 'yjs'
 
@@ -17,7 +17,6 @@ vi.mock('@/platform/collab', async (importOriginal) => {
 
 const NODE = 'drive-file-1'
 const PAGE_PREFIX = 'suite:writer-recovery:'
-const KEPT_KEY = `suite:writer-device-copied:${NODE}`
 
 const session = {
   nodeId: NODE,
@@ -91,6 +90,28 @@ async function writeDraftSavedAt(id: string, html: string, saved: Date) {
   await put(db, 'content', { val: html, saved }, id)
 }
 
+// The browser's lock manager for one name at a time: a request waits for the one before it
+function queuedLocks() {
+  const last = new Map<string, Promise<unknown>>()
+  return {
+    request(name: string, hold: () => Promise<unknown>) {
+      const held = afterPrevious(last.get(name), hold)
+      last.set(name, held)
+      return held
+    },
+  }
+}
+
+async function afterPrevious(previous: Promise<unknown> | undefined, hold: () => Promise<unknown>) {
+  try {
+    await previous
+  } catch {
+    // A request that failed still lets the next one in
+  }
+
+  return hold()
+}
+
 async function keptTexts() {
   return (await listCopies(NODE)).map((copy) => copy.text)
 }
@@ -120,7 +141,10 @@ describe('keeping the old editor work on this device', () => {
     const copies = await listCopies(NODE)
     expect(copies.map((copy) => copy.text)).toEqual(['typed offline'])
     expect(copies[0].key.startsWith(PAGE_PREFIX)).toBe(false)
-    expect(localStorage.getItem(KEPT_KEY)).not.toBeNull()
+
+    await discardCopy(copies[0])
+    await keepDeviceCopies(session, row)
+    expect(await keptTexts()).toEqual([])
   })
 
   it('keeps the work as a page copy, not counted as kept, when there is no signed-in store', async () => {
@@ -132,7 +156,56 @@ describe('keeping the old editor work on this device', () => {
     const copies = await listCopies(NODE)
     expect(copies.map((copy) => copy.text)).toEqual(['typed offline'])
     expect(copies[0].key.startsWith(PAGE_PREFIX)).toBe(true)
-    expect(localStorage.getItem(KEPT_KEY)).toBeNull()
+
+    await keepDeviceCopies(session, row)
+    const kept = (await listCopies(NODE)).filter((copy) => !copy.key.startsWith(PAGE_PREFIX))
+    expect(kept.map((copy) => copy.text)).toEqual(['typed offline'])
+  })
+
+  it('keeps the work on a later open when the store refuses it', async () => {
+    await writeOldYjsStore(NODE, 'typed offline')
+    const refusing = { recover: vi.fn().mockRejectedValue(new Error('quota')) }
+    vi.mocked(openSignedInDeviceStore).mockResolvedValueOnce(
+      refusing as unknown as Awaited<ReturnType<typeof openSignedInDeviceStore>>,
+    )
+
+    await keepDeviceCopies(session, row)
+    expect(await keptTexts()).toEqual([])
+
+    await keepDeviceCopies(session, row)
+    expect(await keptTexts()).toEqual(['typed offline'])
+  })
+
+  it('keeps the draft when the old body cannot be fetched', async () => {
+    await writeOldYjsStore(NODE, 'typed offline')
+    await writeOldDraft(NODE, '<p>draft never saved</p>')
+    vi.spyOn(client, 'query').mockRejectedValue(new Error('offline'))
+
+    await keepDeviceCopies(session, { ...row, conversion: undefined })
+
+    expect(await keptTexts()).toEqual(['draft never saved'])
+  })
+
+  it('fetches the old body no more once the work is kept', async () => {
+    await writeOldYjsStore(NODE, 'typed offline')
+    const query = vi.spyOn(client, 'query').mockResolvedValue({})
+    const converted = { ...row, conversion: undefined }
+
+    await keepDeviceCopies(session, converted)
+    await keepDeviceCopies(session, converted)
+
+    expect(await keptTexts()).toEqual(['typed offline'])
+    expect(query).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the work once when two tabs open the document together', async () => {
+    await writeOldDraft(NODE, '<p>draft never saved</p>')
+    Object.defineProperty(navigator, 'locks', { value: queuedLocks(), configurable: true })
+    onTestFinished(() => Reflect.deleteProperty(navigator, 'locks'))
+
+    await Promise.all([keepDeviceCopies(session, row), keepDeviceCopies(session, row)])
+
+    expect(await keptTexts()).toEqual(['draft never saved'])
   })
 
   it('keeps the old plain editor draft stored under the Drive file name', async () => {
@@ -202,7 +275,7 @@ describe('keeping the old editor work on this device', () => {
     expect(await keptTexts()).toEqual([])
   })
 
-  it('compares a document not yet converted with the old body the server still holds', async () => {
+  it('compares a converted document with the old body the server still holds', async () => {
     const { content, stored } = oldBodyAndStore('saved words')
     await writeStoredBytes(NODE, stored)
     const live = { ...row, conversion: undefined }
