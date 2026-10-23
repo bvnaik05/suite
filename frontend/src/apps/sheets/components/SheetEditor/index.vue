@@ -549,7 +549,9 @@
       <FindReplace
         v-if="showFindReplace"
         ref="findReplaceRef"
+        :sheet="currentSheet"
         :find="_findCells"
+        :read="_readIds"
         :write="_replaceCells"
         :is-protected="(id) => _cellSilentlyProtected(id)"
         @close="closeFindReplace"
@@ -4011,14 +4013,14 @@ async function openCellHistory() {
 // ── Find & Replace ────────────────────────────────────────────────────────────
 
 // Cells on the open sheet whose input contains `query`, as [{ id, input }].
-async function _findCells(query) {
+async function _findCells(query, sheet) {
   if (!_client()) return []
-  const { cells } = await _client().findCells({ sheet: currentSheet.value, query })
+  const { cells } = await _client().findCells({ sheet, query })
   return cells.map(({ row, col, input }) => ({ id: cellId(row - 1, col - 1), input }))
 }
 // Replacements as one write and one undo step.
-function _replaceCells(before, after) {
-  const sn = currentSheet.value
+function _replaceCells(before, after, sn) {
+  if (sn !== currentSheet.value) return
   _writeInputs(sn, after)
   _pushEditOp(sn, before, after, 'Replace')
 }
