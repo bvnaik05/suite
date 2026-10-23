@@ -46,7 +46,6 @@
           :description="
             __('The group cannot receive emails. Mail addressed to it bounces back to the sender.')
           "
-          class="hover:!bg-surface-base !cursor-default !p-0"
         />
         <ErrorMessage
           :message="
