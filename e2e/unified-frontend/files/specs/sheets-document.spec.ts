@@ -158,6 +158,55 @@ test("losing edit access freezes the sheet, cancels the pending save and offers 
 	expect(seen.requests.filter((line) => line.includes("suite.drive.api"))).toEqual([]);
 });
 
+// An IME, the Windows symbol picker or a phone keyboard insert text with no
+// keydown. The grid used to drop it, or the first character (`₹250` → `250`).
+test("text typed without a keydown starts the edit, and grid keys still work", async ({ page, context }) => {
+	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+	const seen = watchPage(page);
+	await openSheet(page);
+	const nameBox = page.getByRole("textbox", { name: "Name box" });
+	const formulaBar = page.getByRole("textbox", { name: "Cell value or formula" });
+	const goTo = async (cell: string) => {
+		await nameBox.fill(cell);
+		await nameBox.press("Enter");
+	};
+
+	await page.locator("canvas").first().click({ position: { x: 80, y: 40 } });
+	await page.keyboard.insertText("₹250");
+	await page.keyboard.press("Enter");
+	await goTo("A1");
+	await expect(formulaBar).toHaveValue("250");
+	await expect(page.getByRole("button", { name: "Number format: Currency · INR" })).toBeVisible();
+
+	// An IME composition (Hindi): nothing is committed until it ends.
+	await goTo("A2");
+	const cdp = await context.newCDPSession(page);
+	await cdp.send("Input.imeSetComposition", { text: "नम", selectionStart: 2, selectionEnd: 2 });
+	await cdp.send("Input.imeSetComposition", { text: "नमस्", selectionStart: 4, selectionEnd: 4 });
+	await cdp.send("Input.insertText", { text: "नमस्ते" });
+	await page.keyboard.press("Enter");
+	await goTo("A2");
+	await expect(formulaBar).toHaveValue("नमस्ते");
+
+	// Keys still reach the grid and the app's shortcuts.
+	await page.keyboard.press("ArrowUp");
+	await page.keyboard.press("Control+c");
+	await page.keyboard.press("ArrowRight");
+	await page.keyboard.press("Control+v");
+	await expect(formulaBar).toHaveValue("250");
+	await page.keyboard.press("Control+b");
+	await expect(page.getByRole("button", { name: "Bold" })).toHaveAttribute("aria-pressed", "true");
+	await page.keyboard.press("Delete");
+	await expect(formulaBar).toHaveValue("");
+	await page.keyboard.press("Control+z");
+	await expect(formulaBar).toHaveValue("250");
+	await page.keyboard.press("F2");
+	await page.keyboard.type("0");
+	await page.keyboard.press("Escape");
+	await expect(formulaBar).toHaveValue("250");
+	expect(seen.errors).toEqual([]);
+});
+
 /** A signed-in person with no grant of their own. The spec makes them on first use. */
 const LINK_ONLY = { email: "sheets-link-e2e@example.com", password: "Sheets-Link-e2e-7731" };
 

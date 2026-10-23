@@ -12,7 +12,8 @@
 //   autofit.ts       fit-to-content sizes      overlay.ts    the editor textarea
 //   grid-actions.ts  helpers the input modules share
 //   input/           hit testing, mouse, drags, fill handle, keyboard,
-//                    in-cell editor, formula range picking and autocomplete
+//                    in-cell editor, formula range picking and autocomplete,
+//                    the hidden textarea that holds focus (text-sink.ts)
 
 import { createViewModel, DEFAULT_ROW_H } from '../core/view-model.js'
 import { cellId, colLabel, parseCellId } from '../utils/cells.js'
@@ -26,6 +27,7 @@ import { createHitTester } from './input/hit-test.js'
 import { createKeyboard, type Keyboard } from './input/keyboard.js'
 import { createMouse, type Mouse } from './input/mouse.js'
 import { createRangePicker } from './input/range-picker.js'
+import { createTextSink } from './input/text-sink.js'
 import { createMarchingAnts } from './marching-ants.js'
 import { createOverlay } from './overlay.js'
 import { createRenderLoop } from './render-loop.js'
@@ -176,6 +178,19 @@ export function createGrid(canvas: HTMLCanvasElement, opts: GridOptions = {}): G
     leave: (move) => keys?.afterEdit(move),
     focusGrid: () => canvas.focus(),
     render: () => render(),
+  })
+  // Holds the grid's focus so IME / symbol-picker text arrives (text-sink.ts).
+  // After the overlay, so the editor stays the wrapper's first textarea.
+  const sink = createTextSink({
+    parent,
+    canvas,
+    activeRect: () => {
+      const { r, c } = S.anchor
+      const z = vm.zoom
+      return { x: geo.colX(c) * z, y: geo.rowY(r) * z, w: geo.cw(c) * z, h: geo.rh(r) * z }
+    },
+    canEdit,
+    onText: (text) => editor.open(text),
   })
   const hits = createHitTester({
     geo,
@@ -552,6 +567,7 @@ export function createGrid(canvas: HTMLCanvasElement, opts: GridOptions = {}): G
     isLazyValues: () => lazy,
     destroy() {
       overlay.remove()
+      sink.destroy()
       scrollbars.destroy()
       ac.remove()
       loop.cancel()
