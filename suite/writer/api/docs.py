@@ -57,10 +57,10 @@ def version_seqs(node: str) -> Iterator[int]:
 
 
 def version_object(node: str, seq: int) -> dict:
-    """Read version `seq` as its JSON object; an HTML version reads as an empty one."""
+    """Read version `seq` as its JSON object; an HTML version, or one too large to read, reads as an empty one."""
     try:
         payload = json.loads(_read_bounded(drive.read_version(node, seq)))
-    except ValueError:
+    except (ValueError, frappe.ValidationError):
         return {}
 
     if not isinstance(payload, dict):

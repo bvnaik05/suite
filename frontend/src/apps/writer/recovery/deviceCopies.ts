@@ -31,8 +31,18 @@ const schema = getSchema(writerSchema())
 
 /** Keeps the old editor's unsaved work on this device as recovery copies of the document. */
 export async function keepDeviceCopies(session: DocumentSession, row: OldRow) {
-  await keepYjsCopy(session, row)
-  await keepDraftCopy(session.nodeId, session.title.value, row)
+  // Each store is kept on its own, so one that fails leaves the other's work kept
+  try {
+    await keepYjsCopy(session, row)
+  } catch {
+    // Tried again on the next open
+  }
+
+  try {
+    await keepDraftCopy(session.nodeId, session.title.value, row)
+  } catch {
+    // Tried again on the next open
+  }
 }
 
 async function keepYjsCopy(session: DocumentSession, row: OldRow) {
@@ -42,24 +52,28 @@ async function keepYjsCopy(session: DocumentSession, row: OldRow) {
     return
   }
 
-  const base = rowDoc(await oldContent(session, row))
-  const merged = mergedDoc(base, updates)
-  const vector = yjs.encodeStateVector(merged)
-  if (!isAhead(vector, yjs.encodeStateVector(base))) {
+  // Keyed by the device's own updates, so work already kept costs no fetch of the old body
+  const key = `yjs:${await digest(yjs.encodeStateVector(mergedDoc(new yjs.Doc(), updates)))}`
+  if (isKept(node, key)) {
     return
   }
 
-  const key = `yjs:${await digest(vector)}`
+  const base = rowDoc(await oldContent(session, row))
+  const merged = mergedDoc(base, updates)
+  if (!isAhead(yjs.encodeStateVector(merged), yjs.encodeStateVector(base))) {
+    return
+  }
+
   const state = yjs.encodeStateAsUpdate(merged)
   await keepOnce(node, key, () => keepState(node, session.title.value, state))
 }
 
-// A converted row's `content` is the new lineage, so the base is the old body conversion kept
 async function oldContent(session: DocumentSession, row: OldRow) {
   if (row.conversion) {
     return row.content
   }
 
+  // A converted row's `content` is the new lineage, so the base is the old body conversion kept
   const context = session.credentials.context
   const old = await client.query(
     api.writer.documents.oldBody,
@@ -132,15 +146,31 @@ async function digest(bytes: Uint8Array) {
   return btoa(String.fromCharCode(...hash))
 }
 
+function keptKeys(node: string): string[] {
+  return JSON.parse(localStorage.getItem(`${KEPT_PREFIX}${node}`) ?? '[]')
+}
+
+function isKept(node: string, key: string) {
+  return keptKeys(node).includes(key)
+}
+
 // Each piece of old work is kept once, so a discarded copy doesn't come back
 async function keepOnce(node: string, key: string, keep: () => Promise<boolean>) {
-  const storageKey = `${KEPT_PREFIX}${node}`
-  const kept: string[] = JSON.parse(localStorage.getItem(storageKey) ?? '[]')
-  if (kept.includes(key) || !(await keep())) {
+  // One tab at a time, so two tabs opening the document together keep the work once
+  if (!navigator.locks) {
+    await keepUnlessKept(node, key, keep)
     return
   }
 
-  localStorage.setItem(storageKey, JSON.stringify([...kept, key]))
+  await navigator.locks.request(`${KEPT_PREFIX}${node}`, () => keepUnlessKept(node, key, keep))
+}
+
+async function keepUnlessKept(node: string, key: string, keep: () => Promise<boolean>) {
+  if (isKept(node, key) || !(await keep())) {
+    return
+  }
+
+  localStorage.setItem(`${KEPT_PREFIX}${node}`, JSON.stringify([...keptKeys(node), key]))
 }
 
 async function keepState(node: string, title: string, state: Uint8Array) {
