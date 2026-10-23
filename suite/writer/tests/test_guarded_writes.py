@@ -40,7 +40,6 @@ KNOWN_WRITERS = {
     "suite/writer/patches/move_bodies_into_rows.py:empty_row": THE_LOG,
     "suite/drive/patches/build/ports.py:SiteContentTarget.update_writer_body": "migration build, run before any log",
     "suite/writer/content/e2e_api.py:enable_collab": "a test hook",
-    "suite/writer/content/e2e_api.py:make_legacy": "a test hook",
     "suite/writer/content/conversion.py:clear_ycomments": "clears the old comments once Drive holds them",
 }
 

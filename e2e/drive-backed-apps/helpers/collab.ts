@@ -63,11 +63,6 @@ export async function openForCollab(
 	await shareWriterDocument(owner, node, { user: collaborator, read: true, write: true });
 }
 
-/** Open `node` in the old, non-collaborative editor from now on. */
-export function makeLegacy(testApi: APIRequestContext, node: string) {
-	return callTestHook<number>(testApi, "make_legacy", node);
-}
-
 export function compactNow(testApi: APIRequestContext, node: string) {
 	return callTestHook<CollabState>(testApi, "compact_now", node);
 }

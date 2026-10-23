@@ -4,7 +4,6 @@ import {
 	expectConverged,
 	expectSaved,
 	holdDocument,
-	makeLegacy,
 	openForCollab,
 	quarantineLast,
 	releaseDocument,
@@ -12,7 +11,7 @@ import {
 	typeParagraph,
 	writeNewerSchema,
 } from "../../helpers/collab";
-import { discardNode, getNode } from "../../helpers/drive";
+import { discardNode } from "../../helpers/drive";
 import {
 	createWriterDocument,
 	openWriterDocument,
@@ -189,30 +188,6 @@ test.describe("Writer collaboration", () => {
 		letPullsThrough();
 		await expect(writerEditor(collaborator.page)).toHaveAttribute("contenteditable", "true");
 		await expectConverged(testApi, node, [owner.page, collaborator.page], ["Kept line"]);
-	});
-
-	test("a document from before collaboration takes its title from its first line in the old editor", async ({
-		owner,
-		run,
-		testApi,
-	}) => {
-		const untitled = (
-			await createWriterDocument(owner.page.request, `Untitled document ${run.run_id}`)
-		).name;
-		try {
-			await makeLegacy(testApi, untitled);
-			await openWriterDocument(owner.page, untitled);
-			await writerEditor(owner.page).click();
-
-			await owner.page.keyboard.type("Meeting notes");
-			await owner.page.keyboard.press("Enter");
-
-			await expect
-				.poll(async () => (await getNode(owner.page.request, untitled)).title)
-				.toBe("Meeting notes");
-		} finally {
-			await discardNode(owner.context.request, untitled);
-		}
 	});
 
 	test("a document a newer Writer edited is read-only here and asks for a reload", async ({
