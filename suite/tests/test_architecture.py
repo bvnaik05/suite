@@ -142,8 +142,8 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.nodes",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.versions",
-            # The conversion cases grant link and READ access, hold a tree's lock and
-            # open a Drive write in a race; none of these is a public call yet
+            # The conversion cases grant EDIT by link and READ to a reader, hold a tree's
+            # lock and open a Drive write in a race; none of these is a public call yet
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.access",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.roots",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive.framework",
@@ -194,8 +194,9 @@ BASELINE_DEBT = {
     **_debt(
         "Suite Writer",
         "Remove when `suite.composition.lifecycle` can run one product's hooks for one test.",
-        # The install and migrate cases run the whole lifecycle and stub the other
-        # products' hooks, which would otherwise insert rows the site already holds
+        # The migrate cases stub every other step, which would alter the schema, seed
+        # templates or check the whole site's content; the install cases stub the
+        # hooks that insert rate limits the site already holds
         (
             "suite/writer/content/tests/test_conversion.py|dotted-string|suite.drive.framework.validate_content_registry",
             "suite/writer/content/tests/test_conversion.py|dotted-string|suite.drive.install.index_group_membership",
