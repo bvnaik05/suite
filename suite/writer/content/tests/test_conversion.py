@@ -646,6 +646,13 @@ class TestConversion(DriveCallbackCase):
             pluck="error",
         )
 
+    def run_as_job(self, node: str, seq: int):
+        # As the job runner does when a job raises: a log with each frame's locals
+        try:
+            docs.run_version_conversion(node=node, seq=seq)
+        except Exception:
+            frappe.log_error(title="suite.writer.api.docs.run_version_conversion")
+
     def test_logs_no_document_text_when_the_conversion_job_cannot_keep_its_answer(self):
         node = self.old_document("<p>Hello world</p>")
         seq = drive.take_version(node)
@@ -654,14 +661,35 @@ class TestConversion(DriveCallbackCase):
         with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue"):
             docs.convert_version(node, seq)
 
-        # As the job runner does when a job raises: a log with each frame's locals
-        with patch.object(frappe.cache, "set_value", side_effect=ConnectionError):
-            try:
-                docs.run_version_conversion(node=node, seq=seq)
-            except ConnectionError:
-                frappe.log_error(title="suite.writer.api.docs.run_version_conversion")
+        with patch.object(frappe.cache, "set_value", side_effect=ConnectionError) as write:
+            self.run_as_job(node, seq)
+
+        state = write.call_args_list[0].args[1]["state"]
+        self.assertEqual(frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]}), logged_before)
+        self.assertEqual(frappe.db.count("Error Log", {"error": ["like", f"%{state[:40]}%"]}), 0)
+
+    def test_logs_no_document_text_when_the_conversion_job_cannot_read_its_input(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        frappe.db.commit()
+        logged_before = frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]})
+        with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue"):
+            docs.convert_version(node, seq)
+
+        read = frappe.cache.get_value
+
+        def failing_read(key, *args, **kwargs):
+            payload = read(key, *args, **kwargs)
+            if key == docs.version_key("input", node, seq):
+                raise ConnectionError(payload)
+
+            return payload
+
+        with patch.object(frappe.cache, "get_value", side_effect=failing_read):
+            self.run_as_job(node, seq)
 
         self.assertEqual(frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]}), logged_before)
+        self.assertEqual(self.crashes_logged(node), [f"{node} v{seq}: ConnectionError"])
 
     def edit_while_converting(self, node: str, edits: int):
         docname = self.docname_of(node)
