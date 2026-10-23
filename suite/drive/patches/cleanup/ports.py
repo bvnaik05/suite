@@ -789,13 +789,6 @@ class LegacyBucket:
         return deleted
 
 
-def legacy_bucket() -> LegacyBucket:
-    from frappe.storage.driver import get_driver
-
-    driver = get_driver("s3")
-    return LegacyBucket(driver.bucket, driver.client)
-
-
 class SiteDiskSettingsSnapshot:
     """`DiskSettingsSnapshot` over the live `Drive Disk Settings` singleton.
 
