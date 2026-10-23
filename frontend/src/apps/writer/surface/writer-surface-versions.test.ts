@@ -186,6 +186,40 @@ describe('Writer surface', () => {
     expect(document.activeElement).toBe(root.querySelector('input[aria-label="Version name"]'))
   })
 
+  it.each([
+    [
+      'the document menu',
+      (root: Element) => root.querySelector<HTMLElement>('[data-save-version]')!,
+    ],
+    [
+      'the Versions panel',
+      (root: Element) => buttonLabelled(root.querySelector('aside')!, 'Save version')!,
+    ],
+  ])('closes a shown version before naming one from %s', async (_, saveButton) => {
+    liveRoom()
+    const create = vi.fn(async () => ({}))
+    const root = await openedSurface({ ...oneVersion, create } as unknown as Versions)
+    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+    versionRow(root, 'Before review').click()
+    await nextTick()
+    expect(root.querySelector('[data-preview]')).not.toBeNull()
+
+    saveButton(root).click()
+    await vi.waitFor(() =>
+      expect(root.querySelector('input[aria-label="Version name"]')).not.toBeNull(),
+    )
+    expect(root.querySelector('[data-preview]')).toBeNull()
+    expect(root.querySelector<HTMLElement>('[data-editor]')!.style.display).not.toBe('none')
+
+    const name = root.querySelector<HTMLInputElement>('input[aria-label="Version name"]')!
+    name.value = 'After review'
+    name.dispatchEvent(new Event('input'))
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await vi.waitFor(() => expect(create).toHaveBeenCalledWith('named', 'After review'))
+    expect(root.querySelector('[data-preview]')).toBeNull()
+  })
+
   it('shows a version in place of the editor until Current version', async () => {
     const list = vi.fn(async () => ({
       rows: [{ seq: 3, kind: 'named', label: 'Before review' }],
