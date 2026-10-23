@@ -54,7 +54,7 @@ async function grants(node: string): Promise<Grant[]> {
 async function putGrant(node: string, principal: string, body: Record<string, unknown>): Promise<Grant> {
 	const response = await api.put(`${DRIVE}/nodes/${node}/grants/${encodeURIComponent(principal)}`, { data: body });
 	expect(response.ok(), await response.text()).toBe(true);
-	return ((await response.json()).data as { grant: Grant }).grant;
+	return (await response.json()).data as Grant;
 }
 
 async function openShare(page: Page, node: string) {

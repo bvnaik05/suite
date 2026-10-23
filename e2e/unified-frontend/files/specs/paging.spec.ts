@@ -1,4 +1,4 @@
-import { type APIRequestContext, expect, test } from "@playwright/test";
+import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 
 import { adminApi, createFolder, purge, roots, runTag, type DriveNode } from "../../helpers/drive";
 
@@ -30,48 +30,52 @@ test.afterAll(async () => {
 	await api.dispose();
 });
 
-test("the listing loads the next window when the sentinel becomes visible", async ({ page }) => {
+/** Hold the first cursor response so the 60-row window is observable even on a fast load. */
+async function openFirstWindow(page: Page): Promise<() => void> {
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => { release = resolve; });
+	await page.route(/\/children\?.*cursor=/, async (route) => {
+		await held;
+		await route.continue();
+	}, { times: 1 });
 	await page.goto(`/drive/f/${folder.name}?view=list&sort=title&dir=asc`);
-	const rows = page.locator("[data-node]");
-	await expect(rows).toHaveCount(60, { timeout: 20_000 });
+	await expect(page.locator("[data-node]")).toHaveCount(60, { timeout: 20_000 });
+	return release;
+}
 
-	// The sentinel loads on entering view. A background refresh can reset the
-	// listing while it is already in view, so scroll it out and back, as a reader would.
-	await expect(async () => {
-		await rows.first().scrollIntoViewIfNeeded();
-		await rows.last().scrollIntoViewIfNeeded();
-		await expect(rows).toHaveCount(TOTAL, { timeout: 3_000 });
-	}).toPass({ timeout: 20_000 });
+test("the listing loads the next window when the sentinel becomes visible", async ({ page }) => {
+	const release = await openFirstWindow(page);
+	const rows = page.locator("[data-node]");
+	const nextWindow = page.waitForResponse((response) => /\/children\?.*cursor=/.test(response.url()) && response.ok());
+	await rows.last().scrollIntoViewIfNeeded();
+	release();
+	await nextWindow;
+	await expect(rows).toHaveCount(TOTAL, { timeout: 20_000 });
 	await expect(page.getByText("row-065", { exact: true })).toBeVisible();
 });
 
 test("changing the sort restarts the listing without a cursor", async ({ page }) => {
-	await page.goto(`/drive/f/${folder.name}?view=list&sort=title&dir=asc`);
+	const release = await openFirstWindow(page);
 	const rows = page.locator("[data-node]");
-	await expect(rows).toHaveCount(60, { timeout: 20_000 });
 	await rows.last().scrollIntoViewIfNeeded();
+	release();
 	await expect(rows).toHaveCount(TOTAL, { timeout: 20_000 });
 
-	const requests: string[] = [];
-	page.on("request", (request) => {
-		if (/\/children\?/.test(request.url())) requests.push(request.url());
+	const restarted = page.waitForRequest((request) => {
+		const url = new URL(request.url());
+		return url.pathname.endsWith("/children") && url.searchParams.get("ascending") === "false";
 	});
-
 	await page.getByRole("button", { name: "Name" }).click();
+	const request = await restarted;
+	expect(new URL(request.url()).searchParams.has("cursor")).toBe(false);
 	await expect(page).toHaveURL(/dir=desc/);
-	await expect(rows).toHaveCount(60, { timeout: 20_000 });
-	await expect(page.getByText("row-065", { exact: true })).toBeVisible();
-	expect(requests.length).toBeGreaterThan(0);
-	expect(requests.filter((url) => url.includes("cursor="))).toEqual([]);
+	await expect(rows.first()).toContainText("row-065");
 });
 
 // The walk stops at the first failed window (fixed here). Before the fix it
 // retried the same cursor at 46 requests per 5 seconds.
 test("a failed next window keeps the loaded rows and offers a retry", async ({ page }) => {
-	await page.goto(`/drive/f/${folder.name}?view=list&sort=title&dir=asc`);
 	const rows = page.locator("[data-node]");
-	await expect(rows).toHaveCount(60, { timeout: 20_000 });
-
 	let failed = 0;
 	let failing = true;
 	await page.route(/\/children\?.*cursor=/, (route) => {
@@ -83,13 +87,10 @@ test("a failed next window keeps the loaded rows and offers a retry", async ({ p
 			body: JSON.stringify({ errors: [{ type: "InternalServerError", message: "Injected failure" }] }),
 		});
 	});
-	// As in the first test: a background refresh can reset the listing while the
-	// sentinel is already in view, so scroll it out and back until a window fails.
-	await expect(async () => {
-		await rows.first().scrollIntoViewIfNeeded();
-		await rows.last().scrollIntoViewIfNeeded();
-		expect(failed, "a next-window request was sent and failed").toBeGreaterThan(0);
-	}).toPass({ timeout: 20_000 });
+	await page.goto(`/drive/f/${folder.name}?view=list&sort=title&dir=asc`);
+	await expect(rows).toHaveCount(60, { timeout: 20_000 });
+	await rows.last().scrollIntoViewIfNeeded();
+	await expect.poll(() => failed, { message: "a next-window request was sent and failed" }).toBeGreaterThan(0);
 
 	await expect(page.getByRole("button", { name: "Retry loading more" })).toBeVisible();
 	await expect(rows).toHaveCount(60);
