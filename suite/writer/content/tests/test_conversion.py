@@ -637,6 +637,31 @@ class TestConversion(DriveCallbackCase):
 
         self.assertEqual(writer_sees, {})
         self.assertEqual(manager_sees, {"reason": "crashed"})
+        self.assertEqual(self.crashes_logged(node), [f"{node} v{seq}: RuntimeError"])
+
+    def crashes_logged(self, node: str) -> list[str]:
+        return frappe.get_all(
+            "Error Log",
+            filters={"method": "Writer: version conversion crashed", "error": ["like", f"{node}%"]},
+            pluck="error",
+        )
+
+    def test_logs_no_document_text_when_the_conversion_job_cannot_keep_its_answer(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        frappe.db.commit()
+        logged_before = frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]})
+        with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue"):
+            docs.convert_version(node, seq)
+
+        # As the job runner does when a job raises: a log with each frame's locals
+        with patch.object(frappe.cache, "set_value", side_effect=ConnectionError):
+            try:
+                docs.run_version_conversion(node=node, seq=seq)
+            except ConnectionError:
+                frappe.log_error(title="suite.writer.api.docs.run_version_conversion")
+
+        self.assertEqual(frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]}), logged_before)
 
     def edit_while_converting(self, node: str, edits: int):
         docname = self.docname_of(node)

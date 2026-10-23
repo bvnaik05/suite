@@ -101,9 +101,28 @@ def convert_version(node: str, seq: int) -> VersionConversion:
 
 def run_version_conversion(node: str, seq: int) -> None:
     """Convert the version `convert_version` read, and keep the answer for its next ask."""
+    try:
+        if not keep_conversion(node, seq):
+            return
+    except Exception as error:
+        crashed = type(error).__name__
+    else:
+        frappe.cache.delete_value(version_key("input", node, seq))
+        return
+
+    # Outside the except, so no frame or chained error left to log holds the document's text
+    frappe.log_error(title="Writer: version conversion crashed", message=f"{node} v{seq}: {crashed}")
+    frappe.cache.set_value(
+        version_key("answer", node, seq), {"reason": "crashed"}, expires_in_sec=CONVERSION_KEPT
+    )
+    frappe.cache.delete_value(version_key("input", node, seq))
+
+
+def keep_conversion(node: str, seq: int) -> bool:
+    """Convert the cached version and cache its answer; False once its input has expired."""
     legacy = frappe.cache.get_value(version_key("input", node, seq))
     if legacy is None:
-        return
+        return False
 
     try:
         converted = convert.convert(
@@ -113,12 +132,6 @@ def run_version_conversion(node: str, seq: int) -> None:
         )
     except convert.ConverterChanged:
         converted = convert.Refused("converter_changed")
-    except Exception as error:
-        # By type only, as a traceback's locals could carry the document's text
-        frappe.log_error(
-            title="Writer: version conversion crashed", message=f"{node} v{seq}: {type(error).__name__}"
-        )
-        converted = convert.Refused("crashed")
 
     answer = {"reason": "unavailable"}
     if isinstance(converted, convert.Converted):
@@ -127,7 +140,7 @@ def run_version_conversion(node: str, seq: int) -> None:
         answer = {"reason": converted.reason}
 
     frappe.cache.set_value(version_key("answer", node, seq), answer, expires_in_sec=CONVERSION_KEPT)
-    frappe.cache.delete_value(version_key("input", node, seq))
+    return True
 
 
 def version_key(kind: str, node: str, seq: int) -> str:
