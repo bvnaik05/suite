@@ -78,6 +78,26 @@ describe('undo: own steps', () => {
     await expectConverged(a, b)
   })
 
+  it('undoes a row delete that shrank a range: the range comes back whole', async () => {
+    const [a, b, ua] = await undoTabs()
+    await type(a, 'Sheet1', 'A1', '10')
+    await type(a, 'Sheet1', 'A2', '20')
+    await type(a, 'Sheet1', 'B3', '=SUM(A1:A10)')
+    a.glue.dispatch(cmd('deleteRows', { sheet: 'Sheet1', row: 1, count: 1 }))
+    await a.glue.commit()
+    expect(await inputs(a)).toEqual({ 'Sheet1!A1': '20', 'Sheet1!B2': '=SUM(A1:A9)' })
+    await sync(a, b)
+    expect(await inputs(b)).toEqual(await inputs(a))
+    await ua.undo()
+    expect(await inputs(a)).toEqual({
+      'Sheet1!A1': '10',
+      'Sheet1!A2': '20',
+      'Sheet1!B3': '=SUM(A1:A10)',
+    })
+    expect((await displays(a))['Sheet1!B3']).toBe('30')
+    await expectConverged(a, b)
+  })
+
   it('undoes adding a sheet', async () => {
     const [a, b, ua] = await undoTabs()
     a.glue.dispatch(cmd('addSheet', { name: 'Two' }))
