@@ -115,14 +115,7 @@
             :label="__('Send Invite')"
             class="hover:!bg-surface-base !cursor-default !p-0"
           />
-          <FormControl
-            v-if="accountRequest.send_invite"
-            v-model="accountRequest.expires_at"
-            :label="__('Expires At')"
-            type="datetime-local"
-            :description="__('The invitation link stops working after this time.')"
-          />
-          <template v-else>
+          <template v-if="!accountRequest.send_invite">
             <FormControl
               v-model="accountRequest.first_name"
               :label="__('First Name')"
@@ -193,7 +186,7 @@ import { api, useMutation, useQuery, type InputOf } from '@/api'
 import { useAccountOptions } from '@/apps/mail/composables/useAccountOptions'
 import { useEnabledDomains } from '@/apps/mail/composables/useEnabledDomains'
 import { raiseToast } from '@/apps/mail/utils'
-import { fromLocalInput, toLocalInput, utcFromNow } from '@/apps/mail/utils/datetime'
+import { utcFromNow } from '@/apps/mail/utils/datetime'
 
 const show = defineModel<boolean>()
 const temporaryPassword = ref('')
@@ -212,7 +205,6 @@ const ROLE_OPTIONS = [
 const defaultAccountRequest = {
   role: 'user',
   send_invite: true,
-  expires_at: '',
   backup_email: '',
   quota_gb: '',
   disable_receiving: false,
@@ -278,11 +270,7 @@ watch(show, () => {
   setupError.value = ''
   addMember.reset()
   if (show.value) {
-    // Shown and typed in the user's zone (converted to UTC on submit), and seeded here rather
-    // than in the default shape so a dialog opened later gets a fresh expiry.
-    Object.assign(accountRequest, defaultAccountRequest, {
-      expires_at: toLocalInput(utcFromNow(7, 'day')),
-    })
+    Object.assign(accountRequest, defaultAccountRequest)
     emails.value = [
       {
         username: '',
@@ -307,7 +295,7 @@ async function addMemberSubmit() {
     aliases,
     groups: groupIds.value,
     mailing_lists: mailingListIds.value,
-    expires_at: fromLocalInput(accountRequest.expires_at),
+    expires_at: utcFromNow(7, 'day'),
     quota_gb: 0,
     // Blank means "server default" for both, which the API spells as null.
     locale: accountRequest.locale || null,
