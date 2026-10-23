@@ -89,6 +89,8 @@ function closePanel() {
 
 // Opens a name box at the top of the list; Enter saves, Esc or an empty name cancels
 async function startNamingVersion() {
+  previewedVersion.value = null
+  await nextTick()
   isNamingVersion.value = true
   await nextTick()
   versionNameInput.value?.focus()
