@@ -2,10 +2,13 @@ import base64
 import json
 import os
 import tempfile
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
 import frappe
+from filelock import FileLock
 from frappe.tests import UnitTestCase
 
 from suite.content import capacity, checker, convert
@@ -23,6 +26,10 @@ GOOD = {
     "html": "<p>a</p>",
     "version": "1",
 }
+
+
+def checker_lock() -> FileLock:
+    return FileLock(frappe.get_site_path("locks", "collab_checker.lock"))
 
 
 class TestConvert(UnitTestCase):
@@ -215,3 +222,33 @@ class TestConvert(UnitTestCase):
     def test_bundle_ready_fails_loudly_on_a_child_that_crashes(self):
         with self.assertRaises(checker.CheckerFailed):
             convert.bundle_ready(self.bundle("process.exit(3)"), "1")
+
+    def test_starts_its_child_only_once_another_child_on_the_site_ends(self):
+        good = json.dumps(GOOD)
+        stamped = self.bundle(
+            "process.stdin.resume().on('end', () =>\n"
+            f"  process.stdout.write(JSON.stringify({{ ...{good}, dropped: [{{ kind: 'at', at: Date.now() }}] }}))\n"
+            ")"
+        )
+        lock = checker_lock()
+        held = threading.Event()
+        ended: list[float] = []
+
+        def other_child():
+            with lock:
+                held.set()
+                time.sleep(1)
+                ended.append(time.time() * 1000)
+
+        other = threading.Thread(target=other_child)
+        other.start()
+        self.assertTrue(held.wait(5))
+        result = convert.convert(stamped, "1", LEGACY)
+        other.join()
+
+        self.assertGreaterEqual(result.dropped[0]["at"], ended[0])
+
+    def test_runs_no_child_while_another_child_outlasts_the_wait(self):
+        with checker_lock(), patch.object(checker, "WAIT_S", 0.1):
+            self.assertRaises(checker.CheckerBusy, convert.convert, self.answering(GOOD), "1", LEGACY)
+            self.assertRaises(checker.CheckerFailed, checker.judge, self.answering(GOOD), None, [])

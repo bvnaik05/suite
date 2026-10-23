@@ -602,6 +602,20 @@ class TestConversion(DriveCallbackCase):
             self.restored_body(self.poll_conversion(node, seq)), "<paragraph>Hello world</paragraph>"
         )
 
+    def test_queues_a_version_again_once_another_child_kept_its_job_waiting(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        frappe.db.commit()
+        with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue"):
+            docs.convert_version(node, seq)
+
+        with patch.object(checker, "ask", side_effect=checker.CheckerBusy("busy")):
+            docs.run_version_conversion(node=node, seq=seq)
+
+        self.assertEqual(
+            self.restored_body(self.poll_conversion(node, seq)), "<paragraph>Hello world</paragraph>"
+        )
+
     def test_converts_an_old_version_for_an_editor_who_holds_only_an_edit_link(self):
         node = self.old_document("<p>Hello world</p>")
         seq = drive.take_version(node)
@@ -850,6 +864,17 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(self.as_before(node), before)
         self.assertEqual(self.records(node), (("crashed", None, None), (None, None, None)))
         self.assertEqual(self.failures(node), [3, 1])
+
+    def test_leaves_a_body_to_the_next_run_counting_nothing_while_another_child_runs(self):
+        [node] = self.old_documents(1)
+        before = self.as_before(node)
+
+        with patch.object(checker, "ask", side_effect=checker.CheckerBusy("busy")):
+            self.assertIsNone(conversion.convert_document(node))
+
+        self.assertEqual(self.as_before(node), before)
+        self.assertEqual(self.records(node), ())
+        self.assertEqual(conversion.conversion_status(node), {"state": "pending"})
 
     def test_tries_a_failed_child_body_again_and_keeps_its_reason_at_the_third_failure(self):
         for reason in ("child_timeout", "child_crash"):
