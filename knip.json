@@ -52,8 +52,7 @@
     "suite/meet/sfu-server": {
       "entry": ["src/server/RecordingGrantPersistenceFile.ts"],
       "project": ["src/**/*.ts", "scripts/**/*.js"],
-      "ignoreBinaries": ["ffmpeg", "biome", "nodemon", "ts-node"],
-      "ignoreDependencies": ["@biomejs/biome", "nodemon", "ts-node"]
+      "ignoreBinaries": ["ffmpeg"]
     },
     "suite/meet/recorder-server": {
       "entry": ["src/integration/*.integration.ts"],
