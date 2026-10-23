@@ -1643,6 +1643,7 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
   getFormats: () => formats,
   getMerge: () => merge,
   getCondFormat: () => condFormat,
+  getCharts: () => charts,
   // Every sheet's view; _sheetTabs is set by useSheetTabs further down.
   getViews: () => _sheetTabs?.viewSnapshot(),
   setViews: (views) => _sheetTabs?.viewRestore(views),
