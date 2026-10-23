@@ -85,6 +85,14 @@ export function useClipboard({
     const destSel = getGrid().getSelection()
     const sn = currentSheet.value
 
+    // Copied something else since (in another app, or a cell editor's
+    // text)? Paste that, not the old copy.
+    if (clipboard.isStale(e.clipboardData?.getData('text/plain'))) {
+      clipboard.clear()
+      clipboardHas.value = false
+      getGrid().setMarchingAnts(null)
+    }
+
     // Pasting a copied pivot mints a new live pivot at the anchor rather than
     // writing cells, so the op-based cell-diff undo below can't capture it (it
     // would leave the rendered cells without their _pivots registry entry).

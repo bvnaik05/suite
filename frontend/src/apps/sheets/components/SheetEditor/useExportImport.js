@@ -1,12 +1,14 @@
+import { renameSheetsInFormula } from '../../engine/formula-adjust.js'
 import {
   fromXlsxCell,
   mergesFromXlsx,
   mergesToXlsx,
   numFmtFromEngine,
+  numFmtToZ,
   toXlsxCell,
 } from '../../engine/xlsx-io.js'
 import { cellId, colLabel, parseCellId } from '../../utils/cells.js'
-import { dateSerialFromShown } from '../../utils/format-number.js'
+import { dateSerialFromShown, parseNumberFmt } from '../../utils/format-number.js'
 
 // ── private helpers ────────────────────────────────────────────────────────────
 
@@ -54,6 +56,11 @@ function _parseCSV(text) {
     rows.push(row)
   }
   return rows
+}
+
+// The Excel code of one of our date, time or datetime formats, else null.
+function _dateZ(fmt) {
+  return ['date', 'time', 'datetime'].includes(parseNumberFmt(fmt).type) ? numFmtToZ(fmt) : null
 }
 
 // ── composable ────────────────────────────────────────────────────────────────
@@ -130,10 +137,17 @@ export function useExportImport({
         const ours = formats?.get(id, sn)?.numberFormat
         const engineCode = numFmts?.[r]?.[c]
         // A date IronCalc formatted (a typed 2025-12-09, =TODAY()) goes out
-        // as its day serial with IronCalc's code, which is Excel's grammar.
-        const serial = ours ? NaN : dateSerialFromShown(displays[r][c], engineCode)
+        // as its day serial with IronCalc's code, which is Excel's grammar,
+        // or with ours when the toolbar gave it a date format.
+        const oursZ = ours ? _dateZ(ours) : null
+        const serial = ours && !oursZ ? NaN : dateSerialFromShown(displays[r][c], engineCode)
         const cell = !isNaN(serial)
-          ? { ...(raw.startsWith('=') && { f: raw.slice(1) }), t: 'n', v: serial, z: engineCode }
+          ? {
+              ...(raw.startsWith('=') && { f: raw.slice(1) }),
+              t: 'n',
+              v: serial,
+              z: oursZ || engineCode,
+            }
           : toXlsxCell(raw, computed, ours || numFmtFromEngine(engineCode) || '')
         if (!cell) return
         ws[id] = cell
@@ -250,9 +264,11 @@ export function useExportImport({
     try {
       const { read } = await import('xlsx')
       const buf = await file.arrayBuffer()
-      // cellFormula keeps `=…`, cellDates yields Date objects, cellNF keeps the
-      // number-format code — all three are what makes the import lossless.
-      const wb = read(buf, { type: 'array', cellFormula: true, cellDates: true, cellNF: true })
+      // cellFormula keeps `=…` and cellNF the number-format code. No
+      // cellDates: SheetJS builds those Dates in local time, so a date came
+      // in as the day before at 18:29:50 in India (ISSUES #58). A date
+      // stays its day serial, and fromXlsxCell reads it under its code.
+      const wb = read(buf, { type: 'array', cellFormula: true, cellNF: true })
       await _ingestWorkbook(wb)
     } finally {
       e.target.value = '' // always reset so re-picking the same file re-fires
@@ -266,19 +282,23 @@ export function useExportImport({
     const formats = getFormats?.()
     const merge = getMerge?.()
     const existing = new Set(sheetNames().map((n) => n.toLowerCase()))
+    // Every tab's name first: a formula may name a sheet later in the file,
+    // and must follow it when it gets a new name (`Sales` → `Sales (2)`).
+    const renames = {}
+    for (const wsName of wb.SheetNames) {
+      if (!wb.Sheets[wsName]) continue
+      renames[wsName] = _uniqueSheetName(wsName, existing)
+      existing.add(renames[wsName].toLowerCase())
+    }
     let firstAdded = null
     // finally: even if a worksheet throws mid-import, resync the tab bar so the
     // engine and UI never disagree about which sheets exist, and surface what
     // was already ingested.
     try {
-      for (const wsName of wb.SheetNames) {
-        const ws = wb.Sheets[wsName]
-        if (!ws) continue
-        const name = _uniqueSheetName(wsName, existing)
-        existing.add(name.toLowerCase())
+      for (const [wsName, name] of Object.entries(renames)) {
         cells.addSheet(name)
         if (!firstAdded) firstAdded = name
-        await _ingestWorksheet(ws, formats, merge, name)
+        await _ingestWorksheet(wb.Sheets[wsName], formats, merge, name, renames)
       }
     } finally {
       // The tab list is the engine's as of its last apply, so wait for the
@@ -296,7 +316,7 @@ export function useExportImport({
     }
   }
 
-  async function _ingestWorksheet(ws, formats, merge, name) {
+  async function _ingestWorksheet(ws, formats, merge, name, renames) {
     const out = _writer(name)
     const fmts = []
     let n = 0
@@ -304,7 +324,7 @@ export function useExportImport({
       if (id[0] === '!') continue // !ref, !merges, !cols meta keys
       if (!parseCellId(id)) continue
       const { value, fmt } = fromXlsxCell(cell)
-      if (value !== '' && value != null) out.add(id, value)
+      if (value !== '' && value != null) out.add(id, renameSheetsInFormula(value, renames))
       if (fmt) fmts.push([id, fmt])
       if (++n % CHUNK_ROWS === 0) await _yield()
     }

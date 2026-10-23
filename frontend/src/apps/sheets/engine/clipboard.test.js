@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { colLabel } from '../utils/cells.js'
 import { createClipboard } from './clipboard.js'
@@ -393,5 +393,28 @@ describe('clipboard — carries the format IronCalc gave a typed value', () => {
     await t.cb.copy({ r0: 0, c0: 0, r1: 0, c1: 1 })
     await t.cb.paste('A3', null, 'all')
     expect(t.fmtStore.A3?.numberFormat).toBeUndefined()
+  })
+})
+
+// ISSUES #64: a copy outlives Esc, so a paste must know whether the system
+// clipboard still holds what the copy wrote, or something copied since.
+describe('clipboard — is the system clipboard still ours', () => {
+  it('matches the text the copy wrote, and nothing else', async () => {
+    const written = []
+    vi.stubGlobal('navigator', { clipboard: { writeText: async (t) => written.push(t) } })
+    try {
+      const sheet = makeSheet({ A1: '=D2*2', B1: 'x', A2: '3' })
+      const cb = createClipboard({ cells: sheet, getCurrentSheet: () => 'Sheet1' })
+      expect(cb.isStale('anything')).toBe(false) // nothing copied
+      await cb.copy({ r0: 0, c0: 0, r1: 1, c1: 1 })
+      await Promise.resolve()
+      expect(written).toEqual(['=D2*2\tx\n3\t'])
+      expect(cb.isStale('=D2*2\tx\n3\t')).toBe(false)
+      expect(cb.isStale('=D2*2\tx\r\n3\t\r\n')).toBe(false) // Windows line ends
+      expect(cb.isStale('copied elsewhere')).toBe(true)
+      expect(cb.isStale('')).toBe(false) // no text flavor to compare
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

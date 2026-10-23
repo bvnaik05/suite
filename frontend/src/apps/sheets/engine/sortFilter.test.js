@@ -187,6 +187,17 @@ describe('dates', () => {
     await sf.sort(0, 'asc', 'Sheet1')
     expect(cells.writes[0][1]).toEqual({ A2: '2025-12-09', A3: '2025-12-10', A4: '2026-01-05' })
   })
+
+  // ISSUES #53: greater/less-than compared `12/9/2025` as the number 12.
+  it('filters greater and less than a date, typed either way', async () => {
+    const sf = createSortFilter(datesCells(['12/10/2025', '1/5/2026', '12/9/2025'], 'm/d/yyyy'))
+    sf.setRange({ r0: 0, c0: 0, r1: 3, c1: 0 }, 'Sheet1')
+    await sf.refresh('Sheet1')
+    sf.setFilter(0, { operator: 'gt', value: '12/9/2025' }, 'Sheet1')
+    expect([...sf.computeHiddenRows('Sheet1')]).toEqual([3])
+    sf.setFilter(0, { operator: 'lt', value: '2026-01-01' }, 'Sheet1')
+    expect([...sf.computeHiddenRows('Sheet1')]).toEqual([2])
+  })
 })
 
 // Formats travel with their rows (ISSUES #48): sort reports the order it

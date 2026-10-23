@@ -49,7 +49,8 @@ export type SortFilter = ReturnType<typeof createSortFilter>
 export function createSortFilter(cells: CellPort) {
   const _byShet: SortFilterSnapshot = {} // { [sheetName]: { range, byCol } }
   // { [sheetName]: { rect, rows: string[][] } } display values
-  const _shown: Record<string, { rect: Rect; rows: string[][] }> = {}
+  const _shown: Record<string, { rect: Rect; rows: string[][]; codes?: string[][] | undefined }> =
+    {}
 
   function _entry(sn: string): SheetFilter {
     if (!_byShet[sn]) _byShet[sn] = { range: null, byCol: {} }
@@ -69,7 +70,7 @@ export function createSortFilter(cells: CellPort) {
       return
     }
     const rect = { ...range }
-    const { displays } = await cells.read(sheetName, rect)
+    const { displays, numFmts } = await cells.read(sheetName, rect, { numFmts: true })
     // A newer range replaced this one while reading: its own refresh wins.
     const now = getRange(sheetName)
     if (
@@ -80,7 +81,7 @@ export function createSortFilter(cells: CellPort) {
       now.c1 !== rect.c1
     )
       return
-    _shown[sheetName] = { rect, rows: displays }
+    _shown[sheetName] = { rect, rows: displays, codes: numFmts }
   }
 
   // Displayed value at (r, c) from the last refresh, '' when unknown.
@@ -88,6 +89,27 @@ export function createSortFilter(cells: CellPort) {
     const s = _shown[sheetName]
     if (!s) return ''
     return String(s.rows[r - s.rect.r0]?.[c - s.rect.c0] ?? '')
+  }
+
+  // The number at (r, c) for greater / less than, and the one typed into
+  // the filter: a date's day serial (it shows as `12/9/2025`, ISSUES #53),
+  // else the number shown. A typed date is read in the column's day order,
+  // or as 2026-01-31.
+  function _codeAt(sheetName: string, r: number, c: number) {
+    const s = _shown[sheetName]
+    return s?.codes?.[r - s.rect.r0]?.[c - s.rect.c0] ?? ''
+  }
+  function _asNumber(v: string, code: string) {
+    const n = displayNumber(v)
+    if (!isNaN(n)) return n
+    return dateSerialFromShown(v, /^\d{4}[-/.]/.test(v.trim()) ? 'yyyy-mm-dd' : code || 'm/d/yyyy')
+  }
+  function _compare(sheetName: string, r: number, c: number, spec: string) {
+    const shown = _shownAt(sheetName, r, c)
+    const code = _codeAt(sheetName, r, c)
+    const serial = dateSerialFromShown(shown, code)
+    const cell = isNaN(serial) ? displayNumber(shown) : serial
+    return cell - _asNumber(spec, isNaN(serial) ? '' : code)
   }
 
   // Sort data rows of the active filter range (range.r0 stays as the header)
@@ -188,8 +210,8 @@ export function createSortFilter(cells: CellPort) {
       const op = spec.operator
       if (op === 'contains' && !cellVal.toLowerCase().includes(specVal.toLowerCase())) return true
       else if (op === 'equals' && cellVal !== specVal) return true
-      else if (op === 'gt' && !(displayNumber(cellVal) > displayNumber(specVal))) return true
-      else if (op === 'lt' && !(displayNumber(cellVal) < displayNumber(specVal))) return true
+      else if (op === 'gt' && !(_compare(sheetName, r, +colId, specVal) > 0)) return true
+      else if (op === 'lt' && !(_compare(sheetName, r, +colId, specVal) < 0)) return true
       else if (op === 'empty' && cellVal !== '') return true
       else if (op === 'notempty' && cellVal === '') return true
       // Google-Sheets-style "Filter by values": spec.values is an array of the

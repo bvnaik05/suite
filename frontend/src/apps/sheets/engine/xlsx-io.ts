@@ -186,28 +186,45 @@ function _isNumeric(v: unknown) {
   return isFinite(Number(v)) && !/^[+0]\d/.test(v.trim())
 }
 
-// Parse loosely into a Date for date-typed export. Anchored to UTC so the
-// serial SheetJS writes and reads back (with cellDates:true) doesn't drift by a
-// timezone offset — a local-midnight Date would lose up to a full day on
-// round-trip in any non-UTC zone.
-function _toDate(v: unknown): Date | null {
-  if (v instanceof Date) return isNaN(v.getTime()) ? null : v
+// The day serial (days since 1899-12-30, the fraction the time of day) of a
+// calendar date and time. From the parts, not a Date's milliseconds:
+// SheetJS converts Date objects in the runner's local time, so a UTC
+// midnight went out as 05:30:10 in India (ISSUES #59).
+function _serial(y: number, mo: number, d: number, h = 0, mi = 0, s = 0): number {
+  return Date.UTC(y, mo, d) / 86400000 + 25569 + (h * 3600 + mi * 60 + s) / 86400
+}
+
+// Parse loosely into a day serial for date-typed export, or null.
+function _toSerial(v: unknown): number | null {
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null
+    return _serial(
+      v.getUTCFullYear(),
+      v.getUTCMonth(),
+      v.getUTCDate(),
+      v.getUTCHours(),
+      v.getUTCMinutes(),
+      v.getUTCSeconds(),
+    )
+  }
   const s = String(v).trim()
   if (!s) return null
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/)
-  if (m)
-    return new Date(
-      Date.UTC(
-        Number(m[1]),
-        Number(m[2]) - 1,
-        Number(m[3]),
-        Number(m[4] || 0),
-        Number(m[5] || 0),
-        Number(m[6] || 0),
-      ),
-    )
+  if (m) {
+    const [y, mo, d, h, mi, sec] = m.slice(1).map((x) => Number(x || 0)) as number[]
+    return _serial(y!, mo! - 1, d!, h, mi, sec)
+  }
+  // Any other text a Date can read ("1 Apr 2026") is local time.
   const d = new Date(s)
-  return isNaN(d.getTime()) ? null : d
+  if (isNaN(d.getTime())) return null
+  return _serial(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate(),
+    d.getHours(),
+    d.getMinutes(),
+    d.getSeconds(),
+  )
 }
 
 function _iso(d: Date) {
@@ -242,9 +259,10 @@ export function toXlsxCell(raw: unknown, computed: unknown, fmt: unknown): XlsxC
   const { type } = parseNumberFmt(fmt || '')
   // A number under a date format is a day serial, the same number Excel
   // stores, so it falls through to the number branch with its date code.
-  const asDate = DATE_TYPES.has(type) && !_isNumeric(src) ? _toDate(src) : null
-  if (asDate) {
-    cell.t = 'd'
+  // A date written as text goes out as its serial too.
+  const asDate = DATE_TYPES.has(type) && !_isNumeric(src) ? _toSerial(src) : null
+  if (asDate != null) {
+    cell.t = 'n'
     cell.v = asDate
   } else if (src === true || src === false || src === 'TRUE' || src === 'FALSE') {
     cell.t = 'b'
@@ -270,10 +288,19 @@ export function toXlsxCell(raw: unknown, computed: unknown, fmt: unknown): XlsxC
  */
 export function fromXlsxCell(cell: XlsxCellIn | null | undefined): { value: string; fmt: string } {
   if (!cell) return { value: '', fmt: '' }
-  const fmt = cell.z ? zToNumFmt(cell.z) : ''
+  let fmt = cell.z ? zToNumFmt(cell.z) : ''
+  // A date code ours has no exact variant for (m/d/yyyy) would paint as
+  // literal text under custom:, so take the nearest date format.
+  if (fmt.startsWith('custom:')) fmt = numFmtFromEngine(cell.z, { dates: true }) || fmt
+  const isDate = parseNumberFmt(fmt).type === 'date'
   let value: string
   if (cell.f != null && cell.f !== '') value = '=' + cell.f
   else if (cell.t === 'd' && cell.v instanceof Date) value = _iso(cell.v)
+  // A whole day serial under a date code is typed as the date, which
+  // IronCalc reads as a date (ISSUES #58: SheetJS's cellDates turned it into
+  // the day before at 18:29:50, as text). A time of day stays the serial.
+  else if (isDate && typeof cell.v === 'number' && Number.isInteger(cell.v))
+    value = _iso(new Date((cell.v - 25569) * 86400000))
   else if (cell.t === 'b') value = cell.v ? 'TRUE' : 'FALSE'
   else if (cell.v == null) value = ''
   else value = String(cell.v)
