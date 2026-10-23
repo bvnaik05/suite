@@ -107,11 +107,7 @@
           <Switch
             v-model="accountRequest.disable_receiving"
             :label="__('Disable Receiving')"
-            :description="
-              __(
-                'The account can send emails but cannot receive them. Mail addressed to it bounces back to the sender.',
-              )
-            "
+            :description="__('Reject incoming emails while allowing this account to send.')"
             class="hover:!bg-surface-base !cursor-default !p-0"
           />
           <Switch
