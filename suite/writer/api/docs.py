@@ -7,7 +7,7 @@ import frappe
 import mimemapper
 
 from suite import drive
-from suite.content import convert, scheduling
+from suite.content import checker, convert, scheduling
 from suite.writer import content as writer_content
 from suite.writer.drive import VERSION_SCHEMA, VersionTooLarge, _read_bounded, _version_payload
 
@@ -123,7 +123,7 @@ def run_version_conversion(node: str, seq: int) -> None:
 
 
 def keep_conversion(node: str, seq: int) -> bool:
-    """Convert the cached version and cache its answer; False once its input has expired."""
+    """Convert the cached version and cache its answer; False once its input has expired or the site's child stayed busy."""
     legacy = frappe.cache.get_value(version_key("input", node, seq))
     if legacy is None:
         return False
@@ -136,6 +136,8 @@ def keep_conversion(node: str, seq: int) -> bool:
         )
     except convert.ConverterChanged:
         converted = convert.Refused("converter_changed")
+    except checker.CheckerBusy:
+        return False
 
     answer = {"reason": "unavailable"}
     if isinstance(converted, convert.Converted):

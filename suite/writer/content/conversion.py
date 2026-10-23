@@ -25,7 +25,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from suite import drive
-from suite.content import compaction, convert, copies, log
+from suite.content import checker, compaction, convert, copies, log
 from suite.content.checkpoints import replace_start
 from suite.content.tables import table
 from suite.writer import content as writer_content
@@ -127,6 +127,9 @@ def run_converter(
     except convert.ConverterChanged:
         drop_attempt(node, old.fingerprint)
         raise
+    except checker.CheckerBusy:
+        drop_attempt(node, old.fingerprint)
+        return None
     except Exception:
         count_failure(node, old.fingerprint, "crashed")
         raise

@@ -160,6 +160,8 @@ def convert(
     request = {"legacy": {**legacy, "collab": legacy["collab"] or 0}, "maxState": max_state}
     try:
         answer = checker.ask(bundle, request, minimum=NODE_MIN)
+    except checker.CheckerBusy:
+        raise
     except checker.CheckerFailed as error:
         return Refused(failure_reason(error.__cause__))
 

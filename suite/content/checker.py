@@ -4,7 +4,8 @@ Yjs and the editor's schema.
 Node is optional: without Node 24 or later, or without the product's built bundle, there is no
 verdict and the caller keeps the document suspect. The child runs only from background jobs. It
 reads raw frames on stdin and answers on stdout, with an empty environment, a heap limit and a timeout,
-and it can't read files other than its bundle, write files or start processes.
+and it can't read files other than its bundle, write files or start processes. A site runs one child at
+a time, behind a file lock.
 
 The permission model doesn't cover the network: the child can still load Node's network modules.
 The bundle has no network code on the judging path, names no Node module but node:crypto and
@@ -26,12 +27,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import frappe
+from frappe.utils.file_lock import LockTimeoutError
+from frappe.utils.synchronization import filelock
 
 from suite.content.selftest import node_version
 
 NODE_MAJOR = 24
 HEAP_MB = 512
 TIMEOUT_S = 120
+LOCK = "collab_checker"
+# Longer than one child can run, and short enough that a restore job's own child still ends inside its 300 s
+WAIT_S = 150
 # A reason is a few words of the error, never document text, so it stops where quoted content could start
 REASON_END = re.compile(r"[^A-Za-z0-9 _.:,-]")
 
@@ -45,6 +51,10 @@ class Verdict:
 
 class CheckerFailed(Exception):
     """The child crashed, ran out of time or memory, or answered something unreadable."""
+
+
+class CheckerBusy(CheckerFailed):
+    """Another child on the site ran for the whole wait, so this one never started."""
 
 
 def judge(bundle: Path, checkpoint: bytes | None, rows: list[bytes]) -> Verdict | None:
@@ -96,25 +106,36 @@ def ask(
         return None
 
     try:
-        completed = subprocess.run(
-            node_command(node_path, bundle),
-            input=framed([json.dumps(header).encode(), checkpoint or b"", *rows]),
-            capture_output=True,
-            timeout=TIMEOUT_S,
-            env={},
-            check=True,
+        answer = json.loads(
+            run_child(node_path, bundle, framed([json.dumps(header).encode(), checkpoint or b"", *rows]))
         )
-        answer = json.loads(completed.stdout)
         if not isinstance(answer, dict):
             raise ValueError("the answer is not an object")
 
         return answer
+    except LockTimeoutError as error:
+        raise CheckerBusy(f"another child ran past {WAIT_S} s") from error
     except subprocess.CalledProcessError as error:
         last_stderr_line = error.stderr.decode(errors="replace").strip().rsplit("\n", 1)[-1]
         reason = plain_reason(last_stderr_line)
         raise CheckerFailed(f"exit {error.returncode}: {reason}") from error
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         raise CheckerFailed(repr(error)) from error
+
+
+def run_child(node_path: str, bundle: Path, frames: bytes) -> bytes:
+    """Run `bundle` on `frames` once no other child runs on the site, and answer what it printed."""
+    with filelock(LOCK, timeout=WAIT_S):
+        completed = subprocess.run(
+            node_command(node_path, bundle),
+            input=frames,
+            capture_output=True,
+            timeout=TIMEOUT_S,
+            env={},
+            check=True,
+        )
+
+    return completed.stdout
 
 
 def framed(parts: list[bytes]) -> bytes:
