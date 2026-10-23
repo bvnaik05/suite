@@ -10,8 +10,6 @@
 //   z  a number-format code (Excel's grammar, e.g. '#,##0.00', '0.00%')
 
 import { CURRENCIES, displayNumber, parseNumberFmt, type Currency } from '../utils/format-number.js'
-import type { MergeInfo } from './merge.js'
-import type { Rect } from './types.js'
 
 /** A SheetJS cell as this module writes it (see the field list above). */
 export interface XlsxCell {
@@ -27,12 +25,6 @@ export interface XlsxCellIn {
   v?: unknown
   f?: string | null | undefined
   z?: string | undefined
-}
-
-/** A SheetJS merge: start and end cells, 0-based and inclusive. */
-export interface XlsxMerge {
-  s: { r: number; c: number }
-  e: { r: number; c: number }
 }
 
 // ── Number-format mapping ────────────────────────────────────────────────────
@@ -305,19 +297,4 @@ export function fromXlsxCell(cell: XlsxCellIn | null | undefined): { value: stri
   else if (cell.v == null) value = ''
   else value = String(cell.v)
   return { value, fmt }
-}
-
-// ── Merge mapping ────────────────────────────────────────────────────────────
-
-// engine masterMap ({ id: { r, c, rowSpan, colSpan } }) → SheetJS !merges.
-export function mergesToXlsx(masterMap: Record<string, MergeInfo> | null | undefined): XlsxMerge[] {
-  return Object.values(masterMap || {}).map(({ r, c, rowSpan, colSpan }) => ({
-    s: { r, c },
-    e: { r: r + rowSpan - 1, c: c + colSpan - 1 },
-  }))
-}
-
-// SheetJS !merges → [{ r0, c0, r1, c1 }] for the merge engine's merge().
-export function mergesFromXlsx(merges: XlsxMerge[] | null | undefined): Rect[] {
-  return (merges || []).map(({ s, e }) => ({ r0: s.r, c0: s.c, r1: e.r, c1: e.c }))
 }
