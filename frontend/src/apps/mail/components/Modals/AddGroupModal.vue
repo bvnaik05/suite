@@ -19,7 +19,7 @@
         <FormControl
           v-model="name"
           :label="__('Name')"
-          placeholder="team"
+          :placeholder="__('e.g. support')"
           autocomplete="off"
           :description="__('Together with the domain, this forms the group\'s email address.')"
         />
