@@ -59,6 +59,7 @@ import {
   type Edge,
 } from '../canvas/rectangle-interactions'
 import {
+  copyFreeDraw,
   createId,
   diamondFromPoints,
   diamondPath,
@@ -69,6 +70,7 @@ import {
   lineFromPoints,
   linePath,
   linePointAt,
+  moveFreeDraw,
   rectangleFromPoints,
   type FreeDrawShape,
   type ImageShape,
@@ -799,15 +801,14 @@ function copyScene(
 ): SceneSnapshot {
   return {
     rectangles: scene.rectangles.map((rectangle) =>
-      isFreeDraw(rectangle)
-        ? {
-            ...rectangle,
-            points: rectangle.points.map((point) => ({ ...point })),
-            pressures: [...rectangle.pressures],
-          }
-        : { ...rectangle },
+      isFreeDraw(rectangle) ? copyFreeDraw(rectangle) : { ...rectangle },
     ),
-    lines: scene.lines.map((line) => ({ ...line, start: { ...line.start }, end: { ...line.end } })),
+    lines: scene.lines.map((line) => ({
+      ...line,
+      start: { ...line.start },
+      end: { ...line.end },
+      curve: typeof line.curve === 'object' && line.curve ? { ...line.curve } : line.curve,
+    })),
   }
 }
 
@@ -960,23 +961,11 @@ function insertScene(scene: SceneSnapshot, offset = 10, commit = true) {
   const clone = (shape: Shape): Shape => {
     const groupId = shape.groupId ? (groups.get(shape.groupId) ?? createId('group')) : undefined
     if (shape.groupId && groupId) groups.set(shape.groupId, groupId)
-    return isLine(shape)
-      ? {
-          ...shape,
-          id: createId('line'),
-          order: ++order,
-          groupId,
-          start: { x: shape.start.x + offset, y: shape.start.y + offset },
-          end: { x: shape.end.x + offset, y: shape.end.y + offset },
-        }
-      : {
-          ...shape,
-          id: createId('rectangle'),
-          order: ++order,
-          groupId,
-          x: shape.x + offset,
-          y: shape.y + offset,
-        }
+    const delta = { x: offset, y: offset }
+    if (isLine(shape))
+      return { ...moveLine(shape, delta), id: createId('line'), order: ++order, groupId }
+    const moved = isFreeDraw(shape) ? moveFreeDraw(shape, delta) : moveRectangle(shape, delta)
+    return { ...moved, id: createId('rectangle'), order: ++order, groupId }
   }
   const shapes = [...scene.lines, ...scene.rectangles]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -1267,13 +1256,7 @@ function moveSelectedShapes(scene: SceneSnapshot, delta: Point) {
     const original = scene.rectangles.find((candidate) => candidate.id === shape.id)
     if (!original || !selectedShapeIds.value.includes(shape.id)) return shape
     const moved = moveRectangle(original, delta)
-    return isFreeDraw(original)
-      ? {
-          ...original,
-          ...moved,
-          points: original.points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y })),
-        }
-      : moved
+    return isFreeDraw(original) ? moveFreeDraw(original, delta) : moved
   })
   lines.value = lines.value.map((shape) => {
     const original = scene.lines.find((candidate) => candidate.id === shape.id)

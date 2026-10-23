@@ -24,6 +24,14 @@ def _valid_point(value):
     return isinstance(value, dict) and _valid_number(value.get("x")) and _valid_number(value.get("y"))
 
 
+def _valid_pressures(value, point_count):
+    return (
+        isinstance(value, list)
+        and len(value) == point_count
+        and all(_valid_number(pressure) and 0 <= pressure <= 1 for pressure in value)
+    )
+
+
 class Drawing(drive.DriveContent, Document):
     def before_insert(self):
         self._check_node_assignment()
@@ -92,6 +100,8 @@ class Drawing(drive.DriveContent, Document):
                         or not all(_valid_point(point) for point in points)
                     ):
                         frappe.throw(_("A free draw object has invalid points."))
+                    if "pressures" in shape and not _valid_pressures(shape["pressures"], len(points)):
+                        frappe.throw(_("A free draw object has invalid pressure data."))
                 elif kind == "text":
                     if (
                         not isinstance(shape.get("text"), str)

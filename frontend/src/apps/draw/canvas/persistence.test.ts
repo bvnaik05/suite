@@ -29,8 +29,8 @@ const rectangle = {
 const scene = { rectangles: [rectangle], lines: [] }
 let unmount: (() => void) | undefined
 let persistence: DrawingPersistence
-async function editor() {
-  network.query.mockResolvedValue({ content: JSON.stringify(scene), modified: 'original' })
+async function editor(loadedScene: unknown = scene) {
+  network.query.mockResolvedValue({ content: JSON.stringify(loadedScene), modified: 'original' })
   network.mutation.mockResolvedValue({ modified: 'saved' })
   persistence = new DrawingPersistence({
     contentDocname: crypto.randomUUID(),
@@ -48,6 +48,33 @@ afterEach(() => {
   persistence?.dispose()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
+})
+
+it('loads legacy freehand artwork with no pressure samples', async () => {
+  const stroke = {
+    id: 'stroke',
+    kind: 'freedraw',
+    x: 12,
+    y: 23,
+    width: 28,
+    height: 27,
+    rotation: 0,
+    cornerRadius: 0,
+    points: [
+      { x: 12, y: 23 },
+      { x: 40, y: 50 },
+    ],
+    simulatePressure: true,
+  }
+  const legacyScene = { rectangles: [stroke], lines: [] }
+  const save = await editor(legacyScene)
+
+  expect(await save.loadDrawing()).toEqual({
+    rectangles: [{ ...stroke, pressures: [0.5, 0.5] }],
+    lines: [],
+  })
+  expect(save.loadError.value).toBe(false)
+  expect(legacyScene.rectangles[0]).toEqual(stroke)
 })
 
 it('keeps newer text drafts when an older scene save is acknowledged', async () => {

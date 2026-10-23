@@ -3,6 +3,7 @@ import { translate as __ } from '@/platform/translation'
 import type { Point } from './geometry'
 import { rectangleCenter, rectangleCorners, rotatePoint } from './rectangle-interactions'
 import {
+  DEFAULT_FREE_DRAW_PRESSURE,
   lineControlPoint,
   type FreeDrawShape,
   type ImageShape,
@@ -213,6 +214,24 @@ export function parseScene(value: unknown): Scene {
         !shape.points.flatMap((point) => [point.x, point.y]).every(Number.isFinite))
     )
       throw new Error(__('Invalid free draw'))
+    if (isFreeDraw(shape)) {
+      const pressures = (shape as { pressures?: unknown }).pressures
+      if (pressures === undefined) {
+        shape.pressures = shape.points.map(() => DEFAULT_FREE_DRAW_PRESSURE)
+      } else if (
+        !Array.isArray(pressures) ||
+        pressures.length !== shape.points.length ||
+        !pressures.every(
+          (pressure) =>
+            typeof pressure === 'number' &&
+            Number.isFinite(pressure) &&
+            pressure >= 0 &&
+            pressure <= 1,
+        )
+      ) {
+        throw new Error(__('Invalid free draw pressure'))
+      }
+    }
     const text = shape as TextShape
     if (text.kind === 'text') {
       if ((text as { fontFamily?: unknown }).fontFamily === 'monday') text.fontFamily = 'shantell'

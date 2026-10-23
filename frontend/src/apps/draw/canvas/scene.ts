@@ -82,6 +82,25 @@ export type FreeDrawShape = RectangleShape & {
   simulatePressure: boolean
 }
 
+export const DEFAULT_FREE_DRAW_PRESSURE = 0.5
+
+export function copyFreeDraw(shape: FreeDrawShape): FreeDrawShape {
+  return {
+    ...shape,
+    points: shape.points.map((point) => ({ ...point })),
+    pressures: shape.pressures?.slice() ?? shape.points.map(() => DEFAULT_FREE_DRAW_PRESSURE),
+  }
+}
+
+export function moveFreeDraw(shape: FreeDrawShape, delta: Point): FreeDrawShape {
+  return {
+    ...shape,
+    x: shape.x + delta.x,
+    y: shape.y + delta.y,
+    points: shape.points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y })),
+  }
+}
+
 export function isClosedFreeDraw(shape: FreeDrawShape): boolean {
   const first = shape.points[0]
   const last = shape.points.at(-1)
