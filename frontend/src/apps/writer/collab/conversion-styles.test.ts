@@ -1761,6 +1761,75 @@ describe('convertLegacy on table cell styles', () => {
   })
 })
 
+describe('convertLegacy on table cell spans', () => {
+  const REPAIRED = [{ kind: 'table-span', count: 1 }]
+
+  it.each([
+    [{ colspan: '2' }, { colspan: 2 }],
+    [{ colspan: 0 }, { colspan: 1 }],
+    [{ colspan: -1 }, { colspan: 1 }],
+    [{ colspan: '' }, { colspan: 1 }],
+    [{ colspan: 'abc' }, { colspan: 1 }],
+    [{ colspan: '2.5' }, { colspan: 2 }],
+    [{ colspan: ' 3 ' }, { colspan: 3 }],
+    [{ rowspan: '1' }, { rowspan: 1 }],
+    [{ rowspan: 0 }, { rowspan: 1 }],
+  ])('repairs an old Yjs cell span %o, recording it', (attributes, spans) => {
+    const result = convert(yTable(yCell('tableCell', attributes)))
+
+    expect(cellOf(result.state).attrs).toMatchObject(spans)
+    expect(result.dropped).toEqual(REPAIRED)
+  })
+
+  it.each([
+    ['colspan="0"', { colspan: 1 }],
+    ['colspan="-1"', { colspan: 1 }],
+    ['colspan="abc"', { colspan: 1 }],
+    ['colspan="2.5"', { colspan: 2 }],
+    ['colspan=" 3 "', { colspan: 3 }],
+    ['rowspan="0"', { rowspan: 1 }],
+  ])('repairs an HTML cell span "%s", recording it', (attributes, spans) => {
+    const result = convert({
+      content: null,
+      html: htmlCell(attributes),
+      collab: 0,
+      ycomments: null,
+    })
+
+    expect(cellOf(result.state).attrs).toMatchObject(spans)
+    expect(result.dropped).toEqual(REPAIRED)
+  })
+
+  it('records each span it repairs on an old Yjs cell', () => {
+    const result = convert(yTable(yCell('tableCell', { colspan: '2', rowspan: 0 })))
+
+    expect(cellOf(result.state).attrs).toMatchObject({ colspan: 2, rowspan: 1 })
+    expect(result.dropped).toEqual([{ kind: 'table-span', count: 2 }])
+  })
+
+  it('keeps a cell span it need not repair, recording nothing', () => {
+    const yjs = convert(yTable(yCell('tableCell', { colspan: 2 })))
+    const html = convert({
+      content: null,
+      html: htmlCell('colspan="2"'),
+      collab: 0,
+      ycomments: null,
+    })
+
+    for (const result of [yjs, html]) {
+      expect(cellOf(result.state).attrs).toMatchObject({ colspan: 2, rowspan: 1 })
+      expect(result.dropped).toEqual([])
+    }
+  })
+
+  it('still refuses a table its repaired spans leave broken', () => {
+    expect(convertLegacy(yTable(yCell('tableCell', { rowspan: '2' })), MAX_STATE)).toEqual({
+      kind: 'failed',
+      reason: 'check',
+    })
+  })
+})
+
 describe("convertLegacy on old Drive's class sets", () => {
   function list(classes: string) {
     return `<ul><li class="${classes}"><p>one</p></li></ul>`
