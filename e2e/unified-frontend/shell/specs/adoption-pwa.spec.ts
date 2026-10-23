@@ -36,6 +36,11 @@ const tabBar = (page: Page) => page.locator("nav").filter({ has: page.getByRole(
 const manifestLinks = (page: Page) => page.locator("link[rel='manifest']");
 
 test.describe("one Suite PWA", () => {
+	test.afterEach(async ({ page }) => {
+		// Account reads can outlive the final manifest assertion.
+		await page.unrouteAll({ behavior: "wait" });
+	});
+
 	test.beforeEach(async ({ page }) => {
 		await patchAccount(page, MAIL_ACCOUNT);
 	});

@@ -315,8 +315,13 @@ test("Delete forever on a mixed batch reports what failed and keeps it selected"
 	await select(page, first.title);
 	await select(page, second.title);
 	await expect(page.getByText("2 selected")).toBeVisible();
-	// Someone else deletes one of them first, so it fails in the batch.
-	await purge(api, second.name);
+	// Delete only after the batch captures both selected ids. A live refresh
+	// before the click can remove the missing item from the selection entirely.
+	await page.route(`**${DRIVE}/nodes/batch/purge`, async (route) => {
+		expect(route.request().postDataJSON().nodes.sort()).toEqual([first.name, second.name].sort());
+		await purge(api, second.name);
+		await route.continue();
+	}, { times: 1 });
 
 	await page.getByRole("button", { name: "Delete forever" }).click();
 	await page.getByRole("dialog").getByRole("button", { name: "Delete forever" }).click();

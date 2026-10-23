@@ -177,7 +177,7 @@ test("a password link keeps its password when its expiry changes", async ({ page
 
 	await expect(row.getByText(/Until/)).toBeVisible();
 	const stored = (await grants(file.name)).find((grant) => grant.name === link.name)!;
-	expect(stored.expires_on).toBe("2031-01-15 23:59:59");
+	expect(stored.expires_on).toBe("2031-01-15T23:59:59Z");
 	expect(stored.has_password).toBe(true);
 	await expect(row.getByText(/Password set/)).toBeVisible();
 });
