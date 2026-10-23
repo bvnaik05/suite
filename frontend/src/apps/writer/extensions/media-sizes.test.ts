@@ -4,7 +4,6 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
 import { prosemirrorJSONToYDoc, ySyncPluginKey } from '@tiptap/y-tiptap'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
 import * as yjs from 'yjs'
 
 import { writerEditorExtensions, type WriterEditorOptions } from '../editor-extensions'
@@ -89,7 +88,6 @@ function doc(...content: object[]): JSONContent {
 }
 
 function editorExtensions(ydoc: yjs.Doc | null) {
-  const commentsDoc = new yjs.Doc()
   const options: WriterEditorOptions = {
     isCollaborative: !!ydoc,
     mentionItems: () => [],
@@ -98,13 +96,6 @@ function editorExtensions(ydoc: yjs.Doc | null) {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    comments: commentsDoc.getMap('comments'),
-    ydoc: commentsDoc,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   }
   const baseExtensions = writerEditorExtensions(options)
   if (!ydoc) {

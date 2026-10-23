@@ -8,7 +8,6 @@ import {
   type UnplaceableReason,
 } from '@tiptap/y-tiptap'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
 import * as yjs from 'yjs'
 
 import { BODY_FIELD } from '../collab/field'
@@ -64,13 +63,6 @@ function open(state: Uint8Array): Tab {
     onAnchors: () => {},
     scrollParent: () => window,
     media: null,
-    comments: ydoc.getMap('comments'),
-    ydoc,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   })
   const freezes: UnplaceableReason[] = []
   const ySyncOptions = { onUnplaceable: (reason: UnplaceableReason) => freezes.push(reason) }

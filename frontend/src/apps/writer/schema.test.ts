@@ -2,7 +2,6 @@ import { Editor, getSchema } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import type { Schema } from '@tiptap/pm/model'
 import { describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
 import * as yjs from 'yjs'
 
 import { writerEditorExtensions, type WriterEditorOptions } from './editor-extensions'
@@ -21,13 +20,6 @@ function buildEditorSchema(isCollaborative: boolean) {
     onAnchors: () => {},
     scrollParent: () => null,
     media: null,
-    comments: ydoc.getMap('comments'),
-    ydoc,
-    activeComment: ref(null),
-    showComments: ref(false),
-    showResolved: ref(false),
-    edited: ref(false),
-    onCommentsPainted: () => {},
   }
   const extensions = writerEditorExtensions(options)
   if (isCollaborative) {
