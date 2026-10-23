@@ -55,7 +55,7 @@ test('coverage retains untested TypeScript and Vue sources with package subpaths
   }
 })
 
-test('the CI completeness check rejects missing TS and Vue sources but ignores test-only code', () => {
+test('the CI completeness check matches POSIX and Windows report paths and rejects missing sources', () => {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'suite-coverage-check-')))
   try {
     for (const folder of [
@@ -94,17 +94,19 @@ test('the CI completeness check rejects missing TS and Vue sources but ignores t
     assert.match(result.stderr, /src\/unused\.ts/)
     assert.match(result.stderr, /src\/Unused\.vue/)
 
-    fs.writeFileSync(
-      report,
-      JSON.stringify({
-        total: {},
-        [path.join(directory, 'src/unused.ts')]: {},
-        [path.join(directory, 'src/Unused.vue')]: {},
-      }),
-    )
-    result = check()
-    assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /Coverage includes all 2 eligible production sources/)
+    for (const separator of ['/', '\\']) {
+      const tsPath = path.join(directory, 'src/unused.ts').replaceAll(path.sep, separator)
+      const vuePath = path.join(directory, 'src/Unused.vue').replaceAll(path.sep, separator)
+      fs.writeFileSync(report, JSON.stringify({ total: {}, [tsPath]: {} }))
+      result = check()
+      assert.equal(result.status, 1)
+      assert.equal(result.stderr.trim(), 'Coverage omitted 1 production sources:\nsrc/Unused.vue')
+
+      fs.writeFileSync(report, JSON.stringify({ total: {}, [tsPath]: {}, [vuePath]: {} }))
+      result = check()
+      assert.equal(result.status, 0, result.stderr)
+      assert.match(result.stdout, /Coverage includes all 2 eligible production sources/)
+    }
   } finally {
     fs.rmSync(directory, { recursive: true, force: true })
   }

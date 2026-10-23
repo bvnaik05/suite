@@ -8,12 +8,16 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const summary = JSON.parse(
   fs.readFileSync(path.join(root, 'test-results/coverage/coverage-summary.json'), 'utf8'),
 )
-const reported = new Set(Object.keys(summary).map((file) => path.relative(root, file)))
+const reported = new Set(
+  Object.keys(summary).map((file) =>
+    path.relative(root, file.replaceAll('\\', '/')).replaceAll('\\', '/'),
+  ),
+)
 const eligible = ['src', 'recorder']
   .flatMap((directory) =>
     fs
       .readdirSync(path.join(root, directory), { recursive: true })
-      .map((file) => `${directory}/${file}`),
+      .map((file) => `${directory}/${file.replaceAll('\\', '/')}`),
   )
   .filter(
     (file) =>
