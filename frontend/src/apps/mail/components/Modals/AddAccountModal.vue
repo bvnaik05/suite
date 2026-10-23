@@ -129,13 +129,19 @@
             </p>
             <!-- Only set here when the account is created right away; an invited user picks
 					their own on the setup form. -->
-            <div class="space-y-1.5">
-              <label class="text-ink-gray-5 block text-xs">{{ __('Locale') }}</label>
-              <Combobox v-model="accountRequest.locale" :options="localeOptions" />
-            </div>
-            <div class="space-y-1.5">
-              <label class="text-ink-gray-5 block text-xs">{{ __('Time Zone') }}</label>
-              <Combobox v-model="accountRequest.time_zone" :options="timeZoneOptions" />
+            <div class="grid grid-cols-2 gap-3">
+              <Combobox
+                v-model="accountRequest.locale"
+                :label="__('Locale')"
+                :options="localeOptions"
+                class="min-w-0"
+              />
+              <Combobox
+                v-model="accountRequest.time_zone"
+                :label="__('Time Zone')"
+                :options="timeZoneOptions"
+                class="min-w-0"
+              />
             </div>
           </template>
           <ErrorMessage
