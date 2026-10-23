@@ -115,6 +115,7 @@ class EmailSuggestions:
         return f"mail:email_suggestions:miss:{self.account}:{query.lower()}"
 
 
+# Saves clear the cache; the TTL only backs up writes that skip doc events.
 @redis_cache(ttl=5 * 60)
 def get_directory_addresses() -> list[dict]:
     """Every enabled Suite user and every JMAP account named by an address, as colleagues."""
@@ -133,6 +134,15 @@ def get_directory_addresses() -> list[dict]:
     accounts = [{"name": None, "email": name} for name in frappe.get_all("JMAP Account", pluck="_name")]
 
     return _deduplicate([{**address, "is_colleague": True} for address in users + accounts])
+
+
+def clear_directory_addresses(*args) -> None:
+    """Doc event: drop the cached directory once the User or JMAP Account change commits.
+
+    Not before: a request between the save and the commit would cache the old rows again.
+    """
+
+    frappe.db.after_commit.add(get_directory_addresses.clear_cache)
 
 
 def _deduplicate(addresses: list[dict]) -> list[dict]:

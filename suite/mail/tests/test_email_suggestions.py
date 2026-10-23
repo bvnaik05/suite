@@ -9,6 +9,7 @@ from unittest import mock
 
 import frappe
 from frappe.tests import IntegrationTestCase, UnitTestCase
+from frappe.utils import CallbackManager
 
 from suite.mail import email_suggestions
 from suite.mail.email_suggestions import EmailSuggestions, get_directory_addresses
@@ -224,3 +225,41 @@ class DirectoryAddresses(IntegrationTestCase):
         self.assertEqual(addresses.get(enabled), "Directory Enabled")
         self.assertNotIn(disabled, addresses)
         self.assertNotIn("Administrator", addresses)
+
+    def listed(self):
+        return {address["email"] for address in get_directory_addresses()}
+
+    def commit_after(self, change):
+        """Make `change`, check the directory still serves its cached rows, then run what the change
+        queued for commit — the test's transaction is rolled back, so it never commits for real."""
+
+        before = self.listed()
+        with mock.patch.object(frappe.db, "after_commit", CallbackManager()) as after_commit:
+            change()
+
+        self.assertEqual(self.listed(), before)
+        after_commit.run()
+
+    def test_new_user_is_listed_once_the_insert_commits(self):
+        emails = []
+        self.commit_after(lambda: emails.append(self.create_user("Directory New")))
+
+        self.assertIn(emails[0], self.listed())
+
+    def test_disabled_user_is_dropped_once_the_update_commits(self):
+        email = self.create_user("Directory Leaver")
+        self.assertIn(email, self.listed())
+
+        self.commit_after(
+            lambda: frappe.get_doc("User", email).update({"enabled": 0}).save(ignore_permissions=True)
+        )
+
+        self.assertNotIn(email, self.listed())
+
+    def test_deleted_user_is_dropped_once_the_delete_commits(self):
+        email = self.create_user("Directory Deleted")
+        self.assertIn(email, self.listed())
+
+        self.commit_after(lambda: frappe.delete_doc("User", email, ignore_permissions=True, force=True))
+
+        self.assertNotIn(email, self.listed())
