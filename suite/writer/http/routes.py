@@ -44,6 +44,7 @@ class ConvertVersion(TypedDict):
 def document(name: str) -> WriterRow:
     doc = frappe.get_doc("Writer Document", name)
     doc.check_permission("read")
+    doc.apply_fieldlevel_read_permissions()
     row = doc.as_dict()
     if doc.node and not log.find(writer_content.APP, doc.node):
         row["conversion"] = conversion_status(doc.node)
