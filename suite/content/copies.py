@@ -6,14 +6,23 @@ An app with no readable copy skips all of it.
 """
 
 import hashlib
+import re
 from datetime import timedelta
 from http import HTTPStatus
 
 import frappe
+import nh3
 import pycrdt
+from bleach_allowlist import bleach_allowlist
 from bs4 import BeautifulSoup
 from frappe.utils import now_datetime
-from frappe.utils.html_utils import sanitize_html
+from frappe.utils.html_utils import (
+    acceptable_attributes,
+    acceptable_elements,
+    mathml_elements,
+    svg_attributes,
+    svg_elements,
+)
 
 from suite.content import compaction, db, stage
 from suite.content.app_row import copy_row, forget_cached, locked_app_row, write_copy
@@ -24,6 +33,8 @@ from suite.content.snapshot import Snapshot, read
 from suite.content.tables import table
 
 COPY_AGE = timedelta(seconds=60)
+# The sandbox the editor gives every embed
+IFRAME_SANDBOX = "allow-scripts allow-same-origin allow-popups allow-forms allow-presentation"
 
 
 def submit(app: str, doc_id: str, stage_id: str, user: str) -> tuple[int, dict]:
@@ -139,9 +150,40 @@ def install(
 
 
 def cleaned(html: str) -> tuple[str, str]:
-    """Sanitize a render and read its text, as the copy check takes them."""
-    clean = sanitize_html(html)
+    """Sanitize a render as frappe does but keep its safe embeds, and read its text, as the copy check takes them."""
+    clean = nh3.clean(
+        html,
+        tags=acceptable_elements
+        | svg_elements
+        | mathml_elements
+        | {"html", "head", "meta", "link", "body", "o:p", "iframe"},
+        attributes={"*": acceptable_attributes, "svg": svg_attributes},
+        generic_attribute_prefixes={"data-"},
+        strip_comments=False,
+        filter_style_properties=set(bleach_allowlist.all_styles) | {"gap", "row-gap"},
+        url_schemes=nh3.ALLOWED_URL_SCHEMES | {"cid", "data"},
+        attribute_filter=kept_value,
+        set_tag_attribute_values={"iframe": {"sandbox": IFRAME_SANDBOX}},
+    )
     return clean, BeautifulSoup(clean, "html.parser").get_text()
+
+
+def kept_value(tag: str, attribute: str, value: str) -> str | None:
+    """Keep an iframe's src only on https, and a data: value only as the src of a picture that is not svg."""
+    url = re.sub(r"[\t\n\r]|^[\x00-\x20]+|[\x00-\x20]+$", "", value).lower()
+    if tag == "iframe" and attribute == "src":
+        if url.startswith("https://"):
+            return value
+
+        return None
+
+    if not url.startswith("data:"):
+        return value
+
+    if tag == "img" and attribute == "src" and re.match(r"data:image/(?![^,;]*svg)", url):
+        return value
+
+    return None
 
 
 def renders_log(log_read: Snapshot, rev: int, lineage: str, q_epoch: int) -> bool:
