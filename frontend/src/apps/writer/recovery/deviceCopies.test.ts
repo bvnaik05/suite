@@ -226,6 +226,21 @@ describe('keeping the old editor work on this device', () => {
     expect(await keptTexts()).toEqual(['saved words and more'])
   })
 
+  it('keeps what the old store deleted from the saved body', async () => {
+    const doc = new yjs.Doc()
+    const paragraph = new yjs.XmlElement('paragraph')
+    const text = new yjs.XmlText('saved words')
+    paragraph.insert(0, [text])
+    doc.getXmlFragment(BODY_FIELD).insert(0, [paragraph])
+    const content = btoa(String.fromCharCode(...yjs.encodeStateAsUpdate(doc)))
+    text.delete(5, 6)
+    await writeStoredBytes(NODE, yjs.encodeStateAsUpdate(doc))
+
+    await keepDeviceCopies(session, { ...row, content })
+
+    expect(await keptTexts()).toEqual(['saved'])
+  })
+
   it('keeps nothing when the old store holds only the saved body', async () => {
     const { content, stored } = oldBodyAndStore('saved words')
     await writeStoredBytes(NODE, stored)
