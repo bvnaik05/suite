@@ -1,7 +1,11 @@
+import { toast } from 'frappe-ui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, ref } from 'vue'
 import { applyUpdate, Doc, encodeStateAsUpdate, encodeStateVector, XmlElement, XmlText } from 'yjs'
 
+import { client } from '@/api'
+
+import { downloadHTML } from './exports'
 import {
   buttonLabelled,
   liveRoom,
@@ -51,6 +55,10 @@ vi.mock('@/apps/writer/composables/useUsers', async (importOriginal) => {
 vi.mock('./VersionPreview.vue', async () =>
   (await import('./writer-surface-fakes')).fakeVersionPreview(),
 )
+vi.mock('./exports', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./exports')>()),
+  downloadHTML: vi.fn(),
+}))
 
 afterEach(resetSurface)
 
@@ -81,6 +89,20 @@ async function roomRestoring(text: string) {
     vi.fn(async () => new Response(body)),
   )
   return room
+}
+
+// Opens version 3 and presses Restore on its bar
+async function restoreFromTheBar(versions: Versions) {
+  const root = await openedSurface(versions)
+  root.querySelector<HTMLElement>('[data-open-versions]')!.click()
+  await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
+  versionRow(root, 'Before review').click()
+  await nextTick()
+  const bar = [...root.querySelectorAll('[role="status"]')].find((status) =>
+    status.textContent?.includes('Viewing Before review'),
+  )!
+  buttonLabelled(bar, 'Restore this version')!.click()
+  return root
 }
 
 describe('Writer surface', () => {
@@ -205,20 +227,63 @@ describe('Writer surface', () => {
   it('restores the shown version from the version bar', async () => {
     const room = await roomRestoring('Back then')
     const versions = { ...oneVersion, contentUrl: () => '/version/3' } as unknown as Versions
-    const root = await openedSurface(versions)
-
-    root.querySelector<HTMLElement>('[data-open-versions]')!.click()
-    await vi.waitFor(() => expect(root.textContent).toContain('Before review'))
-    versionRow(root, 'Before review').click()
-    await nextTick()
-    const bar = [...root.querySelectorAll('[role="status"]')].find((status) =>
-      status.textContent?.includes('Viewing Before review'),
-    )!
-    buttonLabelled(bar, 'Restore this version')!.click()
+    const root = await restoreFromTheBar(versions)
 
     await vi.waitFor(() => expect(shownText(root)).toBe('Back then'))
     expect(room.restoreVersion.mock.calls.map(([seq]) => seq)).toEqual([3])
     expect(root.querySelector('[data-preview]')).toBeNull()
+  })
+
+  it('offers the download of an old version the converter refuses, from the error it shows', async () => {
+    const room = await roomRestoring('Back then')
+    const old = { schema: 'writer-document/1', content: 'AAA=', html: '<p>Back then</p>' }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(old))),
+    )
+    vi.spyOn(client, 'mutation').mockResolvedValue({ reason: 'crashed' })
+    const error = vi.spyOn(toast, 'error')
+    await restoreFromTheBar({
+      ...oneVersion,
+      contentUrl: () => '/version/3',
+    } as unknown as Versions)
+
+    await vi.waitFor(() => expect(error).toHaveBeenCalledOnce())
+    const [message, options] = error.mock.calls[0] as [
+      string,
+      { action: { label: string; onClick: () => void } },
+    ]
+    expect([message, options.action.label]).toEqual([
+      "This version couldn't be upgraded, so it can't be restored. You can download it. Reason: crashed.",
+      'Download',
+    ])
+    expect(room.restoreVersion).not.toHaveBeenCalled()
+
+    options.action.onClick()
+    await vi.waitFor(() => expect(downloadHTML).toHaveBeenCalledOnce())
+    const [html, name] = vi.mocked(downloadHTML).mock.calls[0]
+    expect([html, name]).toEqual([
+      expect.stringContaining('Back then'),
+      'Quarterly plan (Before review)',
+    ])
+  })
+
+  it('says the version was not restored when the restore fails', async () => {
+    const room = await roomRestoring('Back then')
+    room.restoreVersion.mockRejectedValue(new Error('Socket closed'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = vi.spyOn(toast, 'error')
+    const success = vi.spyOn(toast, 'success')
+    await restoreFromTheBar({
+      ...oneVersion,
+      contentUrl: () => '/version/3',
+    } as unknown as Versions)
+
+    await vi.waitFor(() => expect(error).toHaveBeenCalledOnce())
+    expect([error.mock.calls[0], success.mock.calls]).toEqual([
+      ['The version was not restored.'],
+      [],
+    ])
   })
 
   it('shows edits made in another tab while a version was previewed', async () => {
