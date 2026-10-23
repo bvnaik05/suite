@@ -18,7 +18,7 @@ from suite.content.editors import spec_of
 from suite.content.http import routes
 from suite.drive._core.nodes import _restore, _trash, purge
 from suite.drive._core.principals import Principals
-from suite.drive._core.versions import read_version
+from suite.drive._core.versions import read_version, restore_version
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
 from suite.writer import content as writer_content
 from suite.writer.api import docs
@@ -308,6 +308,45 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(
             frappe.db.sql("SELECT `mode` FROM `__writer_content_doc` WHERE `node` = %s", node), (("purged",),)
         )
+
+    def test_refuses_a_restore_read_before_the_conversion_committed_its_log(self):
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        frappe.db.commit()
+        owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        site = frappe.local.site
+        errors: list[Exception] = []
+        read = threading.Event()
+        converted = threading.Event()
+
+        def restore_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            frappe.set_user(WRITER)
+            try:
+                frappe.db.get_value("Drive Node", node, "state")
+                read.set()
+                converted.wait(60)
+                restore_version(owner, node, seq)
+                frappe.db.commit()
+            except Exception as error:
+                errors.append(error)
+            finally:
+                read.set()
+                frappe.destroy()
+
+        restorer = threading.Thread(target=restore_elsewhere)
+        restorer.start()
+        read.wait(10)
+        try:
+            self.assertEqual(conversion.convert_document(node), "converted")
+        finally:
+            converted.set()
+            restorer.join(30)
+
+        self.assertFalse(restorer.is_alive())
+        self.assertEqual([type(error) for error in errors], [drive.DriveConflict])
+        self.assertEqual(str(errors[0]), "Open the document to restore this version")
 
     def test_converts_a_collaborative_version_from_its_yjs_body_not_its_stale_html(self):
         node = self.new_document()

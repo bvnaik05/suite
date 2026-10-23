@@ -369,7 +369,7 @@ class ContentCallbacks:
     def restore_version(self, docname: str, stream: IO[bytes]) -> None:
         """Restore a version into the app's row, refusing a document in a log and a log's version."""
         node = self.node_of(docname)
-        if node and log.find(self.app(), node):
+        if node and log.find(self.app(), node, for_update=True):
             raise drive.DriveConflict(_("Open the document to restore this version"))
 
         prefix = record_prefix(self.app())
