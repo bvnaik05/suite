@@ -131,19 +131,11 @@
 					their own on the setup form. -->
             <div class="space-y-1.5">
               <label class="text-ink-gray-5 block text-xs">{{ __('Locale') }}</label>
-              <Combobox
-                v-model="accountRequest.locale"
-                :options="localeOptions"
-                :placeholder="__('Select a locale')"
-              />
+              <Combobox v-model="accountRequest.locale" :options="localeOptions" />
             </div>
             <div class="space-y-1.5">
               <label class="text-ink-gray-5 block text-xs">{{ __('Time Zone') }}</label>
-              <Combobox
-                v-model="accountRequest.time_zone"
-                :options="timeZoneOptions"
-                :placeholder="__('Select a time zone')"
-              />
+              <Combobox v-model="accountRequest.time_zone" :options="timeZoneOptions" />
             </div>
           </template>
           <ErrorMessage
@@ -204,8 +196,8 @@ const defaultAccountRequest = {
   disable_receiving: false,
   first_name: '',
   last_name: '',
-  locale: '',
-  time_zone: '',
+  locale: 'en-US',
+  time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
 }
 const accountRequest = reactive({
   ...defaultAccountRequest,
