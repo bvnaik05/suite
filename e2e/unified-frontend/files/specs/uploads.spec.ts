@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { type APIRequestContext, type Locator, type Page, type Route, expect, test } from "@playwright/test";
@@ -184,9 +185,12 @@ test("a batch upload asks about a taken title and keeps both", async ({ page }) 
 	expect(legacy).toEqual([]);
 });
 
-test("a reload mid-upload leaves an interrupted entry that Resume finishes", async ({ page }) => {
+test("a reload mid-upload leaves an interrupted entry that Resume finishes", async ({ page }, testInfo) => {
 	await openFolder(page, home);
 	const big = Buffer.alloc(17 * 1024 * 1024, 7);
+	// Pick the same disk file twice so its modification time is preserved.
+	const bigPath = testInfo.outputPath("big.bin");
+	await writeFile(bigPath, big);
 	let chunks = 0;
 	await page.route(CHUNK_ROUTE, async (route) => {
 		chunks += 1;
@@ -196,10 +200,10 @@ test("a reload mid-upload leaves an interrupted entry that Resume finishes", asy
 
 	const chooser = page.waitForEvent("filechooser");
 	await useNewMenu(page, "Upload files");
-	await (await chooser).setFiles({ name: "big.bin", mimeType: "application/octet-stream", buffer: big });
+	await (await chooser).setFiles(bigPath);
 	await expect.poll(() => chunks).toBe(2);
-	await page.unroute(CHUNK_ROUTE);
 	await page.reload();
+	await page.unroute(CHUNK_ROUTE);
 
 	// The interrupted upload raises the red dot. The Drive item opens the tracker.
 	const drive = rail(page).getByRole("link", { name: /^Drive/ });
@@ -210,7 +214,7 @@ test("a reload mid-upload leaves an interrupted entry that Resume finishes", asy
 
 	const again = page.waitForEvent("filechooser");
 	await page.getByRole("button", { name: "Resume" }).click();
-	await (await again).setFiles({ name: "big.bin", mimeType: "application/octet-stream", buffer: big });
+	await (await again).setFiles(bigPath);
 	await expect(doneEntries(page)).toHaveCount(1, { timeout: 30_000 });
 
 	const rows = (await children(api, home.name)).rows;

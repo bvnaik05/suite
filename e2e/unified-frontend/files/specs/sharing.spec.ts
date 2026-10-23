@@ -156,7 +156,7 @@ test("an inherited grant shows its source; Deny access here, then Allow again", 
 	await accessButton(inherited).click();
 	await page.getByRole("menuitem", { name: "Deny access here" }).click();
 
-	const denied = rowFor(dialog, PERSON).filter({ hasText: "Denied here" });
+	const denied = rowFor(dialog, PERSON_NAME).filter({ hasText: "Denied here" });
 	await expect(denied).toBeVisible();
 	expect((await grants(file.name)).find((grant) => grant.principal === PERSON)?.role).toBe(0);
 

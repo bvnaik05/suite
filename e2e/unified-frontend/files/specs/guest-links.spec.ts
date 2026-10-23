@@ -138,7 +138,7 @@ test.describe("the server resolves a share link", () => {
 		let retryAfter = "";
 
 		for (let attempt = 0; attempt < 5; attempt++) {
-			const response = await guest.post(`${DRIVE}/links/${token}/unlock`, { data: { password: "guess" } });
+			const response = await guest.post(`${DRIVE}/links/unlock`, { data: { token, password: "guess" } });
 			statuses.push(response.status());
 			retryAfter = response.headers()["retry-after"] ?? "";
 		}

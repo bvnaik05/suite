@@ -95,14 +95,13 @@ test("a failed next window keeps the loaded rows and offers a retry", async ({ p
 	await expect(rows).toHaveCount(60);
 	await expect(page.getByText("Could not refresh files"), `failed next-window requests so far: ${failed}`).toBeVisible();
 
-	// Retry sits in the sentinel, already in view. Scrolling or an actionability
-	// wait would move the sentinel and set off a load of its own, so the windows
-	// stop failing only for the click itself.
+	// Bring the explicit retry into view while requests still fail.
 	const retry = page.getByRole("button", { name: "Retry loading more" });
+	await retry.scrollIntoViewIfNeeded();
 	await expect(retry).toBeInViewport();
 	failing = false;
 	const nextWindow = page.waitForResponse((response) => /\/children\?.*cursor=/.test(response.url()) && response.ok());
-	await retry.dispatchEvent("click");
+	await retry.click();
 	await nextWindow;
 	await expect(rows).toHaveCount(TOTAL, { timeout: 20_000 });
 });
