@@ -710,6 +710,7 @@ jobs:
         working-directory: frontend
         run: |
           mkdir -p test-results
+          yarn test:coverage-reporting
           yarn test:ci
           test -s test-results/coverage/cobertura-coverage.xml
 
