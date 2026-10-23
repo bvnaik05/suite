@@ -5,8 +5,8 @@ import resource
 import secrets
 
 import frappe
-from frappe.utils import sbool
 from frappe.utils.background_jobs import get_redis_conn
+from rq import get_current_job
 
 TIMEOUT = 120
 PLACES = 2
@@ -67,8 +67,10 @@ def enough_memory() -> bool:
 
 
 def limit_memory() -> None:
-    """Cap this work horse's address space, on Linux and only in a forked horse."""
-    if sbool(os.environ.get("FRAPPE_BACKGROUND_WORKERS_NOFORK", False)):
+    """Cap this work horse's address space, on Linux and only in a horse RQ forked for this job."""
+    # RQ sets RQ_JOB_ID only after forking a horse; a no-fork worker, threaded or not, runs in the site process
+    job = get_current_job()
+    if not job or os.environ.get("RQ_JOB_ID") != job.id:
         return
 
     try:

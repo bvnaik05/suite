@@ -1,10 +1,14 @@
+import io
 import os
+import resource
 import shutil
 import tempfile
+import threading
 from unittest.mock import patch
 
 import frappe
 from frappe.utils.background_jobs import get_redis_conn
+from rq.job import Job
 
 from suite.content import admission
 from suite.writer.content.tests.compaction_case import CompactionCase
@@ -85,3 +89,36 @@ class TestCompactionAdmission(CompactionCase):
                     (doc.last_compaction_error, self.row_count(node)), ("insufficient_memory", 1)
                 )
                 self.assertGreater(doc.next_compaction_at, frappe.utils.now_datetime())
+
+    def test_a_job_on_a_worker_thread_leaves_the_process_address_space_alone(self):
+        before = resource.getrlimit(resource.RLIMIT_AS)
+        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
+        job = Job.create(admission.limit_memory, connection=get_redis_conn())
+        size_kb = 2**30
+        status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
+        worker = threading.Thread(target=job.perform)
+
+        # As frappe's runner runs jobs: on a thread of the site process, the no-fork switch unset
+        with patch.dict(os.environ), patch.object(admission, "open", create=True, return_value=status):
+            os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
+            worker.start()
+            worker.join()
+
+        self.assertEqual(resource.getrlimit(resource.RLIMIT_AS), before)
+
+    def test_a_job_in_a_horse_forked_for_it_caps_its_address_space(self):
+        before = resource.getrlimit(resource.RLIMIT_AS)
+        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
+        job = Job.create(admission.limit_memory, connection=get_redis_conn())
+        size_kb = 2**30
+        status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
+
+        # As RQ leaves the horse it forked for a job
+        with (
+            patch.dict(os.environ, RQ_JOB_ID=job.id),
+            patch.object(admission, "open", create=True, return_value=status),
+        ):
+            job.perform()
+
+        soft, _ = resource.getrlimit(resource.RLIMIT_AS)
+        self.assertEqual(soft, size_kb * 1024 + admission.PER_COMPACTION)
