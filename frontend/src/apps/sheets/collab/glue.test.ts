@@ -18,6 +18,10 @@ import {
   type Tab,
 } from './test-tabs'
 
+// Each test drives real IronCalc workbooks through several round trips: ~2 s
+// locally, more on CI runners (vitest's 5 s default timed out there).
+const GLUE_TIMEOUT = 30_000
+
 // Both tabs hold the same cells and the same side stores.
 async function expectConverged(a: Tab, b: Tab) {
   expect(await inputs(b)).toEqual(await inputs(a))
@@ -26,7 +30,7 @@ async function expectConverged(a: Tab, b: Tab) {
   expect(a.client.sheets).toEqual(b.client.sheets)
 }
 
-describe('glue: cells', () => {
+describe('glue: cells', { timeout: GLUE_TIMEOUT }, () => {
   it("a tab's typing reaches the other tab, which recalculates", async () => {
     const [a, b] = await twoTabs()
     await type(a, 'Sheet1', 'B4', '500')
@@ -119,7 +123,7 @@ describe('glue: cells', () => {
   })
 })
 
-describe('glue: rows, columns and sheets', () => {
+describe('glue: rows, columns and sheets', { timeout: GLUE_TIMEOUT }, () => {
   async function numbers(a: Tab) {
     for (let r = 1; r <= 5; r++) await type(a, 'Sheet1', `A${r}`, String(r))
     await type(a, 'Sheet1', 'C1', '=SUM(A1:A5)')
@@ -255,7 +259,7 @@ describe('glue: rows, columns and sheets', () => {
   })
 })
 
-describe('glue: side stores', () => {
+describe('glue: side stores', { timeout: GLUE_TIMEOUT }, () => {
   it('a format, a comment and a merge reach the other tab', async () => {
     const [a, b] = await twoTabs()
     a.stores.formats.applyToRange(['B4'], { bold: true }, 'Sheet1')
@@ -347,7 +351,7 @@ describe('glue: side stores', () => {
   })
 })
 
-describe('glue: load', () => {
+describe('glue: load', { timeout: GLUE_TIMEOUT }, () => {
   it('a new tab builds its workbook and stores from the doc', async () => {
     const [a] = await twoTabs()
     a.glue.dispatch(cmd('addSheet', { name: 'Data' }))
