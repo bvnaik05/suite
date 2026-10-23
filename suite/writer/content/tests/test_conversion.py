@@ -32,8 +32,8 @@ from suite.drive._core.principals import Principals
 from suite.drive._core.roots import lock_trees
 from suite.drive._core.versions import read_version, restore_version
 from suite.drive.framework import begin_drive_write
-from suite.drive.http.tests.test_dispatch import DriveHTTPCase
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
+from suite.tests.utils import session_for
 from suite.writer import content as writer_content
 from suite.writer.api import docs
 from suite.writer.content import conversion
@@ -1009,10 +1009,11 @@ class TestConversion(DriveCallbackCase):
 
     def test_a_page_reading_a_document_gets_its_conversion_and_last_save(self):
         node = self.old_document("<p>Hello world</p>")
-        frappe.db.set_value(
-            "Drive Node", node, "content_modified", "2026-10-01 10:00:00", update_modified=False
-        )
+        frappe.set_user(WRITER)
+        self.addCleanup(frappe.set_user, "Administrator")
+        drive.touch("Writer Document", self.docname_of(node))
         frappe.db.commit()
+        stamped = frappe.db.get_value("Drive Node", node, "content_modified")
 
         response = self.contract_request("documents.get", WRITER, name=self.docname_of(node))
 
@@ -1020,7 +1021,7 @@ class TestConversion(DriveCallbackCase):
         row = response.json["data"]
         self.assertLessEqual({"conversion", "content_modified"}, row.keys())
         self.assertEqual(row["conversion"]["state"], "pending")
-        saved = datetime(2026, 10, 1, 10, tzinfo=ZoneInfo(get_system_timezone()))
+        saved = stamped.replace(tzinfo=ZoneInfo(get_system_timezone()))
         self.assertEqual(datetime.fromisoformat(row["content_modified"]), saved)
 
     def test_a_page_reading_a_logged_document_gets_no_body(self):
@@ -1056,7 +1057,7 @@ class TestConversion(DriveCallbackCase):
             value = quote(params.pop(name), safe="")
             path = path.replace("{" + name + "}", value)
 
-        sid = DriveHTTPCase.session_for(user)
+        sid = session_for(user)
         sent = {"method": operation["method"], "headers": {"Cookie": f"sid={sid}"}}
         if operation["method"] == "GET":
             sent["query_string"] = params

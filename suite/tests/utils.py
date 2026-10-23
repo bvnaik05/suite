@@ -1,7 +1,7 @@
 # Copyright (c) 2024, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 import frappe
 
@@ -39,3 +39,35 @@ def stub_db(db):
                 pass
         else:
             frappe.local.db = previous
+
+
+def session_for(user: str) -> str:
+    from frappe.auth import CookieManager, LoginManager
+    from frappe.utils import set_request
+
+    kept: dict[str, object] = {}
+    for name in ("request", "session", "login_manager", "cookie_manager"):
+        kept[name] = getattr(frappe.local, name, None)
+
+    set_request(path="/")
+    try:
+        frappe.local.cookie_manager = CookieManager()
+        frappe.local.login_manager = LoginManager()
+        frappe.local.login_manager.login_as(user)
+        sid = frappe.session.sid
+    finally:
+        for name, value in kept.items():
+            restore_local(name, value)
+
+    frappe.db.commit()
+    return sid
+
+
+def restore_local(name: str, value: object) -> None:
+    if value is not None:
+        setattr(frappe.local, name, value)
+        return
+
+    # `frappe.local` is a contextvar store, so deleting a name it never held raises
+    with suppress(AttributeError):
+        delattr(frappe.local, name)
