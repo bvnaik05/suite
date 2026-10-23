@@ -234,14 +234,18 @@ export function useShare(nodeId: string, options: ShareOptions = {}) {
         else await grants.put(principal, { role, ...keep(localGrant(principal)) })
       }),
 
-    /** Re-enabling inherited public access removes its deny (Drive spec §5.10). */
+    /** Disabling is permanent; re-enabling inherited public access removes its deny (§5.10). */
     setPublic(enabled: boolean) {
       const inherited = list.value?.inherited.find((entry) => entry.grant.principal === PUBLIC)
       const restore = enabled && localGrant(PUBLIC)?.role === 0 && (inherited?.grant.role ?? 0) > 0
       const role = restore ? null : enabled ? DRIVE_ROLES.read : 0
       return change(PUBLIC, { principal: PUBLIC, role }, async () => {
         if (role === null) await grants.remove(PUBLIC)
-        else await grants.put(PUBLIC, { role, ...keep(localGrant(PUBLIC)) })
+        else
+          await grants.put(PUBLIC, {
+            role,
+            ...(enabled ? keep(localGrant(PUBLIC)) : { expires_on: null }),
+          })
       })
     },
 
