@@ -251,4 +251,4 @@ class TestConvert(UnitTestCase):
     def test_runs_no_child_while_another_child_outlasts_the_wait(self):
         with checker_lock(), patch.object(checker, "WAIT_S", 0.1):
             self.assertRaises(checker.CheckerBusy, convert.convert, self.answering(GOOD), "1", LEGACY)
-            self.assertRaises(checker.CheckerFailed, checker.judge, self.answering(GOOD), None, [])
+            self.assertRaises(checker.CheckerBusy, checker.judge, self.answering(GOOD), None, [])
