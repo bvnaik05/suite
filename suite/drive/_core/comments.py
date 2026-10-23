@@ -7,6 +7,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import frappe
+from bs4 import BeautifulSoup, NavigableString, Tag
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import get_system_timezone, now_datetime
@@ -363,15 +364,16 @@ def insert_old_thread(node: str, owner: str, entry: dict, stamps: list[str]) -> 
 
 
 def insert_old_comment(thread: Document, owner: str, comment: dict, stamp: str, index: int) -> None:
+    text, _span_ids = html_comment_text(comment["content"])
     frappe.get_doc(
         {
             "doctype": "Drive Comment",
             "thread": thread.name,
             "node": thread.node,
-            "content": comment["content"],
+            "content": text,
             "author": owner,
             "author_name": comment["author_name"].strip(),
-            "mentions": frappe.as_json(_mentions(comment["content"])),
+            "mentions": frappe.as_json(_mentions(text)),
             "client_id": None,
             "owner": owner,
             "modified_by": owner,
@@ -780,6 +782,87 @@ def _guest_comment_link(comment: frappe._dict, via_link: str) -> bool:
         order_by="creation asc",
     )
     return any(_json_value(row.detail, {}).get("comment") == comment.name for row in rows)
+
+
+def html_comment_text(text: str) -> tuple[str, list[str]]:
+    """Turn an old HTML comment into text with `@[user]` tokens and the ids it mentions; keep other text."""
+    if not text.startswith("<"):
+        return text, []
+
+    soup = BeautifulSoup(text, "html.parser")
+    if soup.find() is None:
+        return text, []
+
+    parts: list[str] = []
+    mentions: list[str] = []
+    append_comment_text(soup, parts, mentions)
+    # Never trade a comment for nothing, though no stored one converts blank
+    converted = "".join(parts).rstrip("\n") or text
+    return converted, list(dict.fromkeys(mentions))
+
+
+def append_comment_text(node: Tag, parts: list[str], mentions: list[str]) -> None:
+    for child in node.children:
+        if isinstance(child, Tag):
+            append_tag_text(child, parts, mentions)
+        elif type(child) is NavigableString:
+            parts.append(str(child))
+
+
+def append_tag_text(tag: Tag, parts: list[str], mentions: list[str]) -> None:
+    name = tag.name
+    if name == "br":
+        parts.append("\n")
+    elif name in {"img", "iframe"}:
+        append_source(tag.get("src"), parts)
+    elif is_mention(tag):
+        parts.append(f"@[{tag['data-id']}]")
+        mentions.append(tag["data-id"])
+    elif name == "a":
+        parts.append(link_text(tag.get_text(), tag.get("href")))
+    elif name in {"ul", "ol"}:
+        append_list_items(tag, parts, mentions)
+    else:
+        append_comment_text(tag, parts, mentions)
+        if name == "p":
+            parts.append("\n")
+
+
+def append_source(source: str | None, parts: list[str]) -> None:
+    if not source:
+        return
+
+    if parts and not parts[-1].endswith("\n"):
+        parts.append("\n")
+
+    parts.append(f"{source}\n")
+
+
+def is_mention(tag: Tag) -> bool:
+    marked = tag.get("data-type") == "mention" or "mention" in tag.get_attribute_list("class")
+    return tag.name == "span" and marked and bool(tag.get("data-id"))
+
+
+def append_list_items(tag: Tag, parts: list[str], mentions: list[str]) -> None:
+    for number, item in enumerate(tag.find_all("li", recursive=False), 1):
+        marker = "- "
+        if tag.name == "ol":
+            marker = f"{number}. "
+
+        item_parts: list[str] = []
+        append_comment_text(item, item_parts, mentions)
+        item_text = "".join(item_parts).rstrip("\n")
+        parts.append(f"{marker}{item_text}\n")
+
+
+def link_text(text: str, href: str | None) -> str:
+    if not href:
+        return text
+
+    if text in {"", href}:
+        return href
+
+    return f"{text} ({href})"
 
 
 def _mentions(text: str) -> list[str]:

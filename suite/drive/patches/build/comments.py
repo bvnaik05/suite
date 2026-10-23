@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pycrdt
 
-from suite.drive._core.comments import MAX_COMMENT_BYTES
+from suite.drive._core.comments import MAX_COMMENT_BYTES, html_comment_text
 from suite.drive.patches.build.content_mapping import (
     InvalidLegacyContent,
     decode_sheets_data,
@@ -110,12 +110,13 @@ def _port_legacy(env, content, row: dict, batch_size: int) -> None:
     if not node or node.get("kind") != "document":
         content.record_legacy_comment(LegacyComment(row["name"], file))
         return
-    thread, comments = _legacy_plan(node["name"], row)
+
+    thread, comments = _legacy_plan(node["name"], row, env.content.user_enabled)
     _write_thread(env, thread, comments, batch_size)
     content.legacy_comments_ported += 1
 
 
-def _legacy_plan(node: str, row: dict) -> tuple[dict, list[dict]]:
+def _legacy_plan(node: str, row: dict, user_enabled: Callable[[str], bool | None]) -> tuple[dict, list[dict]]:
     """One thread of one comment, from one `Drive File.comments` child row.
 
     The old row carried `content` and `resolved` and nothing else of its
@@ -126,6 +127,8 @@ def _legacy_plan(node: str, row: dict) -> tuple[dict, list[dict]]:
         raise InvalidLegacyContent("legacy comment text is blank")
     if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:
         raise InvalidLegacyContent("legacy comment text exceeds the comment limit")
+
+    text, span_ids = html_comment_text(text)
 
     author = row.get("owner") or "Guest"
     if len(author) > 140:
@@ -139,7 +142,7 @@ def _legacy_plan(node: str, row: dict) -> tuple[dict, list[dict]]:
         "author": author,
         "author_name": None,
         "stamp": stamp,
-        "mentions": [],
+        "mentions": [user for user in span_ids if user_enabled(user) is not None],
         "source_complete": True,
     }
     return _thread_plan(node, row["name"], bool(row.get("resolved")), [entry], _lazy(lambda: (author, stamp)))
@@ -194,6 +197,7 @@ def _writer_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
                 time_key="creation",
                 fallback=fallback,
                 timezone=timezone,
+                user_enabled=env.content.user_enabled,
             )
             for entry in entries
         ]
@@ -263,6 +267,7 @@ def _sheet_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
                         time_key="ts",
                         fallback=fallback,
                         timezone=timezone,
+                        user_enabled=env.content.user_enabled,
                     )
                     entries.append(entry)
                 resolved = bool(raw_thread.get("resolved"))
@@ -332,12 +337,13 @@ def comment_entry(
     time_key: str,
     fallback: Callable[[], tuple[str, str]],
     timezone: str,
+    user_enabled: Callable[[str], bool | None],
 ) -> dict:
     """Normalize one legacy comment or reply into the entry a Drive thread row holds."""
     if not isinstance(value, dict):
         raise InvalidLegacyContent("comment entry is not an object")
 
-    text = entry_text(value)
+    text, span_ids = html_comment_text(entry_text(value))
     source_author = value.get(owner_key)
     author, author_name = entry_author(value, source_author, name_key)
     source_complete = isinstance(source_author, str) and bool(source_author)
@@ -347,7 +353,8 @@ def comment_entry(
         _author, stamp = fallback()
         source_complete = False
 
-    mention_ids = entry_mentions(value)
+    candidates = dict.fromkeys(entry_mentions(value) + span_ids)
+    mention_ids = [user for user in candidates if user_enabled(user) is not None]
     return {
         "id": identity,
         "text": text,
