@@ -142,6 +142,11 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.nodes",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.versions",
+            # The conversion cases grant link and READ access, hold a tree's lock and
+            # open a Drive write in a race; none of these is a public call yet
+            "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.access",
+            "suite/writer/content/tests/test_conversion.py|import|suite.drive._core.roots",
+            "suite/writer/content/tests/test_conversion.py|import|suite.drive.framework",
             # An embedded picture is a media node below the document (§9.4),
             # so the fixture builds roots and nodes and reads Drive's own
             # upload path; there is no upload fixture above it yet.
@@ -178,6 +183,27 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_conversion.py|drive-table-write|Drive Comment",
             "suite/writer/content/tests/test_conversion.py|drive-table-write|Drive Comment Thread",
             "suite/writer/content/tests/test_conversion.py|import|suite.drive.patches.build.content_mapping",
+        ),
+    ),
+    **_debt(
+        "Suite Writer",
+        "Remove when Drive can drop a version's bytes for one test.",
+        # The old-body case points one version at bytes that don't exist; no Drive call breaks a version
+        ("suite/writer/content/tests/test_drive_versions.py|drive-table-write|Drive Node Version",),
+    ),
+    **_debt(
+        "Suite Writer",
+        "Remove when `suite.composition.lifecycle` can run one product's hooks for one test.",
+        # The install and migrate cases run the whole lifecycle and stub the other
+        # products' hooks, which would otherwise insert rows the site already holds
+        (
+            "suite/writer/content/tests/test_conversion.py|dotted-string|suite.drive.framework.validate_content_registry",
+            "suite/writer/content/tests/test_conversion.py|dotted-string|suite.drive.install.index_group_membership",
+            "suite/writer/content/tests/test_conversion.py|dotted-string|suite.mail.install.after_migrate",
+            "suite/writer/content/tests/test_conversion.py|dotted-string|suite.slides.install.seed_system_templates",
+            "suite/writer/content/tests/test_switch.py|dotted-string|suite.calendar.install.after_install",
+            "suite/writer/content/tests/test_switch.py|dotted-string|suite.mail.install.after_install",
+            "suite/writer/content/tests/test_switch.py|dotted-string|suite.meet.install.after_install",
         ),
     ),
     **_debt(
