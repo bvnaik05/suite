@@ -14,9 +14,12 @@ const { user, showLimit = true } = defineProps<{
 }>()
 
 const used = computed(() => storageUsed(user))
-const percent = computed(() =>
-  user.cap_bytes ? Math.min(100, (used.value / user.cap_bytes) * 100) : 0,
-)
+const percent = computed(() => {
+  const limit = user.cap_bytes
+  if (!Number.isFinite(limit) || !limit || limit <= 0 || user.mail_bytes === null) return null
+  if (!Number.isFinite(used.value)) return null
+  return Math.max(0, Math.min(100, (used.value / limit) * 100))
+})
 </script>
 
 <template>
@@ -29,6 +32,18 @@ const percent = computed(() =>
         }}
       </span>
     </div>
-    <Progress v-if="user.cap_bytes !== null" :value="percent" size="md" />
+    <div
+      v-if="percent !== null"
+      role="progressbar"
+      :aria-label="__('Storage usage')"
+      :aria-valuenow="percent"
+      :aria-valuemin="0"
+      :aria-valuemax="100"
+      :aria-valuetext="
+        __('{0} of {1} used', [formatStorage(used), formatStorage(user.cap_bytes ?? 0)])
+      "
+    >
+      <Progress :value="percent" size="md" aria-hidden="true" />
+    </div>
   </div>
 </template>
