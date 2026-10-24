@@ -16,7 +16,7 @@ import { createCellProvider } from '../../core/cell-provider'
 import { createWorkbookClient } from '../../core/client'
 import { createDisplayCache } from '../../core/display-cache'
 import { MAX_VIEWPORT_CELLS } from '../../core/limits'
-import { definedNameFormula } from '../../engine/named-ranges.js'
+import { definedNameChanges } from '../../engine/named-ranges.js'
 import { parseSparkline } from '../../engine/sparkline.js'
 import { cellId, parseCellId } from '../../utils/cells.js'
 
@@ -49,7 +49,8 @@ export function useWorkbook({
     const offVersion = client.onVersion(() => onVersion())
     const offCrash = client.onCrash((reason) => onCrash(reason))
     engine = { client, provider, offSheets, offVersion, offCrash }
-    // The saved bytes may predate names being sent to IronCalc: send them all.
+    // Nothing is sent yet: the next sync sends every name. A load restores
+    // the names after this and syncs then (usePersistence).
     namesInEngine = new Map()
     syncDefinedNames()
     syncNames()
@@ -110,21 +111,12 @@ export function useWorkbook({
   // IronCalc whatever differs from what it was last sent, so calling it after
   // anything that may change the store (dialog, undo, load, sheet rename,
   // row/column ops) is cheap.
-  let namesInEngine = new Map() // name → formula
+  let namesInEngine = new Map() // name → formula ('' when dropped)
   function syncDefinedNames() {
     if (!engine) return
-    const want = new Map(
-      namedRanges()
-        .list()
-        .map((e) => [e.name, definedNameFormula(e)]),
-    )
-    const commands = []
-    for (const name of namesInEngine.keys())
-      if (!want.has(name)) commands.push(command('deleteDefinedName', { name }))
-    for (const [name, formula] of want)
-      if (namesInEngine.get(name) !== formula)
-        commands.push(command('setDefinedName', { name, formula }))
-    namesInEngine = want
+    const { sent, changes } = definedNameChanges(namesInEngine, namedRanges().list())
+    const commands = changes.map((c) => command(c.type, c.payload))
+    namesInEngine = sent
     if (commands.length === 1) engine.client.dispatch(commands[0])
     else if (commands.length > 1) engine.client.dispatch(command('batch', { commands }))
   }

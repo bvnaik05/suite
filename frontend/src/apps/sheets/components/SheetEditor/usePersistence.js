@@ -126,7 +126,12 @@ export function usePersistence({
       if (saved.view && applyViewState) applyViewState(saved.view)
       if (saved.pivot && pivot?.restore) pivot.restore(saved.pivot)
       if (saved.charts && charts?.restore) charts.restore(saved.charts)
-      if (saved.namedRanges && namedRanges?.restore) namedRanges.restore(saved.namedRanges)
+      if (saved.namedRanges && namedRanges?.restore) {
+        namedRanges.restore(saved.namedRanges)
+        // IronCalc started before the names were back, and its saved names
+        // can be out of date (one whose cells were deleted: ISSUES #74).
+        engine.syncDefinedNames?.()
+      }
       for (const [from, to] of renamed) {
         for (const store of [formats, ...sideStores]) store?.renameSheet?.(from, to)
       }

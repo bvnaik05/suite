@@ -456,9 +456,17 @@ export function createWorkbook({
         else model.newDefinedName(p.name, scope, p.formula)
         return
       }
-      case CommandTypes.deleteDefinedName:
-        model.deleteDefinedName(cmd.payload.name, scopeIndex(cmd.payload.scope))
+      // A name IronCalc doesn't hold is already deleted: the editor drops a
+      // name whose cells are gone without knowing whether it was sent.
+      case CommandTypes.deleteDefinedName: {
+        const p = cmd.payload
+        const scope = scopeIndex(p.scope)
+        const held = model
+          .getDefinedNameList()
+          .some((d) => d.name === p.name && (d.scope ?? null) === scope)
+        if (held) model.deleteDefinedName(p.name, scope)
         return
+      }
       case CommandTypes.batch: {
         model.pauseEvaluation()
         inBatch = true

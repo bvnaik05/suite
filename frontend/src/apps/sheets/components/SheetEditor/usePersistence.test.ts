@@ -156,6 +156,27 @@ describe('Sheets persistence', () => {
     expect(started).toEqual([new Uint8Array([7]), null])
   })
 
+  // IronCalc starts before the names are restored, and its saved names can be
+  // out of date (ISSUES #74: a name whose cells were deleted).
+  it('sends IronCalc the saved names once they are restored', async () => {
+    const order: string[] = []
+    const entries = { REVENUE: { name: 'Revenue', sheet: 'Sheet1', range: 'A1:A9' } }
+    server.answer = () => ({
+      name: 's',
+      title: 'T',
+      sheets_data: JSON.stringify({ engine: btoa('\x07'), namedRanges: { entries } }),
+    })
+    await persistence({
+      engine: {
+        start: async () => {},
+        toBytes: async () => WORKBOOK,
+        syncDefinedNames: () => order.push('sync'),
+      },
+      namedRanges: { restore: () => order.push('restore'), snapshot: () => ({}) },
+    }).loadSheet('s')
+    expect(order).toEqual(['restore', 'sync'])
+  })
+
   it('names both IronCalc versions when a body saved by another one does not open', async () => {
     const failing = (version?: string) => {
       server.answer = () => ({
