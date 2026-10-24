@@ -21,10 +21,12 @@ vi.mock('frappe-ui', async () => ({
 }))
 vi.mock('@/platform/area-sidebar', () => ({ openAreaSidebar: vi.fn() }))
 
+const requests = vi.hoisted((): RequestInit[] => [])
 vi.hoisted(() => {
-  globalThis.fetch = async (url: RequestInfo | URL) => {
+  globalThis.fetch = async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method && init.method !== 'GET') requests.push(init)
     const path = new URL(String(url), 'http://suite.test').pathname
-    if (path === '/api/suite/storage')
+    if (path === '/api/suite/storage' || path === '/api/suite/storage/default')
       return new Response(
         JSON.stringify({
           data: {
@@ -68,6 +70,7 @@ vi.hoisted(() => {
 let cleanup: (() => void) | undefined
 afterEach(() => {
   cleanup?.()
+  requests.length = 0
 })
 
 async function render() {
@@ -97,6 +100,48 @@ function button(label: string) {
 }
 
 describe('Storage actions', () => {
+  it('refuses invalid defaults visibly and preserves decimal byte conversion', async () => {
+    await render()
+    button('Default storage').click()
+    await vi.waitFor(() => expect(document.querySelector('input[type="number"]')).not.toBeNull())
+    const input = document.querySelector<HTMLInputElement>('input[type="number"]')!
+    input.value = '0'
+    input.stepDown()
+    expect(input.value).toBe('0')
+    for (const value of ['-1', '0']) {
+      input.value = value
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      button('Save').click()
+      await vi.waitFor(() =>
+        expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+          'Enter a storage limit greater than zero',
+        ),
+      )
+      expect(requests).toHaveLength(0)
+    }
+    input.value = '1.25'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    button('Save').click()
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    expect(String(requests[0]?.body)).toContain('1250000000')
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    for (const [value, capBytes] of [
+      ['', null],
+      ['2', 2_000_000_000],
+    ]) {
+      requests.length = 0
+      button('Default storage').click()
+      await vi.waitFor(() => expect(document.querySelector('input[type="number"]')).not.toBeNull())
+      const nextInput = document.querySelector<HTMLInputElement>('input[type="number"]')!
+      nextInput.value = String(value)
+      nextInput.dispatchEvent(new Event('input', { bubbles: true }))
+      button('Save').click()
+      await vi.waitFor(() => expect(requests).toHaveLength(1))
+      expect(JSON.parse(String(requests[0]?.body))).toEqual({ cap_bytes: capBytes })
+      await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    }
+  })
+
   it('shows each configured limit and offers no separate extra-storage actions', async () => {
     await render()
     expect(document.body.textContent).toContain('10 GB')

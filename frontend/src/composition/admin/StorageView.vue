@@ -199,10 +199,11 @@
           <FormControl
             v-model="defaultGB"
             type="number"
+            min="0"
             :label="__('Storage limit (GB)')"
             :placeholder="__('No limit')"
           />
-          <ErrorMessage :message="saveDefault.error?.message" />
+          <ErrorMessage :message="defaultValidationError || saveDefault.error?.message" />
         </div>
       </template>
       <template #actions>
@@ -289,6 +290,7 @@ const saveLocalQuota = useMutation(api.drive.roots.setQuota)
 // — future-user default —
 const defaultStorageOpen = ref(false)
 const defaultGB = ref('')
+const defaultValidationError = ref('')
 watch(
   () => report.data?.default_cap_bytes,
   (value) => {
@@ -298,12 +300,21 @@ watch(
 )
 
 function openDefaultStorage() {
+  defaultValidationError.value = ''
   saveDefault.reset()
   defaultStorageOpen.value = true
 }
 
 async function applyDefaultStorage() {
-  await saveDefault.run({ cap_bytes: cap(defaultGB.value) })
+  defaultValidationError.value = ''
+  let capBytes: number | null
+  try {
+    capBytes = cap(defaultGB.value)
+  } catch (error) {
+    defaultValidationError.value = error instanceof Error ? error.message : String(error)
+    return
+  }
+  await saveDefault.run({ cap_bytes: capBytes })
   defaultStorageOpen.value = false
 }
 
