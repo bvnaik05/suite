@@ -199,6 +199,8 @@ test("text typed without a keydown starts the edit, and grid keys still work", a
 	await page.keyboard.press("Delete");
 	await expect(formulaBar).toHaveValue("");
 	await page.keyboard.press("Control+z");
+	// Undo points the formula bar at A1 (it holds 250 too), so look at B1 itself.
+	await goTo("B1");
 	await expect(formulaBar).toHaveValue("250");
 	await page.keyboard.press("F2");
 	await page.keyboard.type("0");
