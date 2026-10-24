@@ -1014,6 +1014,7 @@ const {
   usedCellIds: _usedCellIds,
   usedExtent: _usedExtent,
   readWholeSheet: _readWholeSheet,
+  sheetExtent: _sheetExtent,
   readDisplays: _readDisplays,
   readSourceRange: _readSourceRange,
   clearRect: _clearRect,
@@ -1634,6 +1635,7 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
     write: _writeInputs,
     clear: _clearSheet,
     addSheet: (name) => _client()?.dispatch(_command('addSheet', { name })),
+    extent: _sheetExtent,
     idle: () => (_client() ? _client().idle() : Promise.resolve()),
   },
   // Lazy: useSheetTabs defines sheetNames further down.
@@ -1643,11 +1645,15 @@ const { exportCSV, exportXLSX, exportPDF, importCSV, importXLSX } = useExportImp
   getFormats: () => formats,
   getMerge: () => merge,
   getCondFormat: () => condFormat,
+  getCharts: () => charts,
+  // The other stores keyed by sheet name, for "is this sheet blank".
+  getSheetStores: () => [comments, validation, protection, slicers],
   // Every sheet's view; _sheetTabs is set by useSheetTabs further down.
   getViews: () => _sheetTabs?.viewSnapshot(),
   setViews: (views) => _sheetTabs?.viewRestore(views),
   repopulateGrid: _repopulateGrid,
   // Defined later by useSheetTabs — lazy-wrapped so they resolve at call time.
+  renameSheet: (from, to) => _renameSheet(from, to),
   syncNames: () => syncNames(),
   switchSheet: (n) => switchSheet(n),
   syncFlags,

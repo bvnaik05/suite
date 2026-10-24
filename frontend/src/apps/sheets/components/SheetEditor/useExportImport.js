@@ -1,5 +1,9 @@
+import { toast } from 'frappe-ui'
+
+import { COL_HEADER_H, ROW_HEADER_W } from '../../canvas/constants.js'
 import { DEFAULT_COL_W, DEFAULT_ROW_H, MIN_COL_W, MIN_ROW_H } from '../../core/view-model.js'
 import { renameSheetsInFormula } from '../../engine/formula-adjust.js'
+import { readCharts, sheetPaths, writeCharts } from '../../engine/xlsx-charts.js'
 import { fromXlsxCell, numFmtFromEngine, numFmtToZ, toXlsxCell } from '../../engine/xlsx-io.js'
 import {
   cfFromXlsx,
@@ -87,33 +91,26 @@ async function _toXlsx(buf) {
 
 // Each worksheet's hand-set rows (customHeightRows) by sheet name, read from
 // the file's XML (ExcelJS drops customHeight); null when it can't be read.
-async function _customHeights(buf) {
+async function _customHeights(zip) {
   try {
-    const mod = await import('jszip')
-    const zip = await (mod.default ?? mod).loadAsync(buf)
-    const text = async (path) => (await zip.file(path)?.async('string')) ?? ''
-    const attr = (tag, name) => tag.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1]
-    const targets = {}
-    for (const [tag] of (await text('xl/_rels/workbook.xml.rels')).matchAll(
-      /<Relationship\b[^>]*>/g,
-    ))
-      targets[attr(tag, 'Id')] = attr(tag, 'Target')
     const out = new Map()
-    for (const [tag] of (await text('xl/workbook.xml')).matchAll(/<sheet\b[^>]*>/g)) {
-      const target = targets[attr(tag, 'r:id')]
-      if (!target) continue
-      const path = target.startsWith('/') ? target.slice(1) : `xl/${target}`
-      out.set(_unescapeXml(attr(tag, 'name')), customHeightRows(await text(path)))
-    }
+    for (const [name, path] of await sheetPaths(zip))
+      out.set(name, customHeightRows((await zip.file(path)?.async('string')) ?? ''))
     return out
   } catch {
     return null
   }
 }
 
-function _unescapeXml(s = '') {
-  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
-  return s.replace(/&(amp|lt|gt|quot|apos);/g, (_, n) => named[n])
+// The .xlsx as a JSZip, for what ExcelJS neither reads nor writes (charts,
+// customHeight); null when it can't be opened.
+async function _zip(buf) {
+  try {
+    const mod = await import('jszip')
+    return await (mod.default ?? mod).loadAsync(buf)
+  } catch {
+    return null
+  }
 }
 
 // A cell format as an ExcelJS style, its number format included.
@@ -156,8 +153,8 @@ function _cellIn(cell) {
  *   readSheet(sn, { numFmts }) → Promise<{ inputs, displays, numFmts? }>, rows
  *     from A1 to the last used cell ([] when the sheet is empty);
  *   write(sn, map) writes a {cellId: input} map; clear(sn) → Promise, empties
- *   the sheet's cells; addSheet(name) adds a sheet; idle() resolves once all
- *   of it applied.
+ *   the sheet's cells; addSheet(name) adds a sheet; extent(sn) → Promise of
+ *   its used extent, null when empty; idle() resolves once all of it applied.
  * @param {() => string[]} opts.sheetNames – the tab list
  * @param {() => string}  opts.getCurrentTitle – current document title
  * @param {() => void}    opts.repopulateGrid  – full canvas repaint
@@ -172,8 +169,11 @@ export function useExportImport({
   getFormats,
   getMerge,
   getCondFormat,
+  getCharts,
+  getSheetStores,
   getViews,
   setViews,
+  renameSheet,
   repopulateGrid,
   syncNames,
   switchSheet,
@@ -288,11 +288,14 @@ export function useExportImport({
     const ExcelJS = await _excel()
     const wb = new ExcelJS.Workbook()
     const used = new Set()
+    // Our name → its name in the file.
+    const fileNames = new Map()
     for (const sn of sheetNames()) {
       const view = views[sn]
       const rows = view?.freezeRows || 0
       const cols = view?.freezeCols || 0
-      const ws = wb.addWorksheet(_excelSheetName(sn, used), {
+      fileNames.set(sn, _excelSheetName(sn, used))
+      const ws = wb.addWorksheet(fileNames.get(sn), {
         // Our default sizes, so an unsized column fits what fits here
         // (Excel's 8.43 showed ######## in every amount and date).
         properties: {
@@ -306,7 +309,33 @@ export function useExportImport({
       })
       await _buildWorksheet(ws, sn, { formats, merge, condFormat, view })
     }
-    return wb.xlsx.writeBuffer()
+    const buf = await wb.xlsx.writeBuffer()
+    return (await _withCharts(buf, fileNames, views)) ?? buf
+  }
+
+  // The file with each sheet's charts added (ExcelJS writes none), or null
+  // when there are none.
+  async function _withCharts(buf, fileNames, views) {
+    const all = getCharts?.()?.list() || []
+    if (!all.length) return null
+    const zip = await _zip(buf)
+    if (!zip) return null
+    // Overlay px → px from A1's top-left.
+    const sheets = [...fileNames].map(([sn, name]) => ({
+      name,
+      layout: views[sn],
+      charts: all
+        .filter((c) => c.position?.sheet === sn)
+        .map((c) => ({
+          spec: c,
+          x: c.position.x - ROW_HEADER_W,
+          y: c.position.y - COL_HEADER_H,
+          width: c.position.width,
+          height: c.position.height,
+        })),
+    }))
+    const n = await writeCharts(zip, sheets, (sn) => fileNames.get(sn))
+    return n ? zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' }) : null
   }
 
   async function exportXLSX() {
@@ -412,7 +441,7 @@ export function useExportImport({
       // A number under a date code comes in as a UTC Date, which _cellIn
       // turns back into its day serial: no local-time shift (ISSUES #58).
       await wb.xlsx.load(buf)
-      await _ingestWorkbook(wb, await _customHeights(buf))
+      await _ingestWorkbook(wb, await _zip(buf))
     } finally {
       e.target.value = '' // always reset so re-picking the same file re-fires
     }
@@ -421,9 +450,10 @@ export function useExportImport({
   // Import every worksheet as a NEW sub-sheet — non-destructive, so the user's
   // current sheets are untouched. Each cell carries its value/formula, number
   // format and style, and each sheet its sizes, hides, freeze, merges and
-  // conditional formats.
-  // heights: each sheet's hand-set rows (customHeightRows), by name.
-  async function _ingestWorkbook(wb, heights) {
+  // conditional formats, and the charts on it. A new file's one blank sheet
+  // becomes the first imported sheet instead of staying in front of them.
+  // zip: the file's zip (JSZip), for what ExcelJS doesn't read; may be null.
+  async function _ingestWorkbook(wb, zip) {
     const stores = {
       formats: getFormats?.(),
       merge: getMerge?.(),
@@ -431,12 +461,22 @@ export function useExportImport({
       // ExcelJS keeps the file's theme only as its XML.
       theme: themePalette(wb._themes?.theme1),
     }
-    const existing = new Set(sheetNames().map((n) => n.toLowerCase()))
+    const heights = zip && (await _customHeights(zip))
+    let blank = wb.worksheets.length ? await _blankSheet() : null
+    const existing = new Set(
+      sheetNames()
+        .filter((n) => n !== blank)
+        .map((n) => n.toLowerCase()),
+    )
     // Every tab's name first: a formula may name a sheet later in the file,
     // and must follow it when it gets a new name (`Sales` → `Sales (2)`).
     const renames = {}
     for (const ws of wb.worksheets) {
       renames[ws.name] = _uniqueSheetName(ws.name, existing)
+      // The blank `Sheet1` taking the file's `sheet1` keeps its spelling:
+      // no rename by case alone.
+      if (ws === wb.worksheets[0] && blank?.toLowerCase() === renames[ws.name].toLowerCase())
+        renames[ws.name] = blank
       existing.add(renames[ws.name].toLowerCase())
     }
     const views = {}
@@ -447,10 +487,13 @@ export function useExportImport({
     try {
       for (const ws of wb.worksheets) {
         const name = renames[ws.name]
-        cells.addSheet(name)
+        // The blank sheet takes the first one's name (a no-op when it has it).
+        if (!blank || !renameSheet(blank, name)) cells.addSheet(name)
+        blank = null
         if (!firstAdded) firstAdded = name
         views[name] = await _ingestWorksheet(ws, stores, name, renames, heights?.get(ws.name))
       }
+      if (zip) await _ingestCharts(zip, renames, views)
     } finally {
       // The tab list is the engine's as of its last apply, so wait for the
       // adds. Only dirty the doc when a sheet was actually added (an empty
@@ -467,6 +510,60 @@ export function useExportImport({
         repopulateGrid()
       }
     }
+  }
+
+  // The workbook's only sheet when nothing is on it (no cells, formats,
+  // merges, rules, charts, notes, validation, protection, slicers): a new
+  // file's Sheet1. Else null.
+  async function _blankSheet() {
+    const names = sheetNames()
+    if (!renameSheet || !cells.extent || names.length !== 1) return null
+    const sn = names[0]
+    const layers = getFormats?.()?.snapshot?.()?.[sn] || {}
+    const used =
+      ['cells', 'cols', 'rows'].some((k) => Object.keys(layers[k] || {}).length) ||
+      Object.keys(getMerge?.()?.snapshot()?.[sn]?.masterMap || {}).length ||
+      getCondFormat?.()?.getRules(sn)?.length ||
+      getCharts?.()
+        ?.list()
+        .some((c) => c.position?.sheet === sn || c.sourceSheet === sn) ||
+      (getSheetStores?.() || []).some((s) => Object.keys(s.snapshot()?.[sn] || {}).length)
+    if (used) return null
+    return (await cells.extent(sn)) ? null : sn
+  }
+
+  // Adds the file's charts on the sheets they came in as, and says how many
+  // it left out (types and layouts we can't draw: xlsx-charts.ts, or data
+  // on a sheet that isn't in the file).
+  async function _ingestCharts(zip, renames, views) {
+    const charts = getCharts?.()
+    if (!charts) return
+    // A sheet named in a ref matches its tab whatever the case.
+    const named = new Map(Object.entries(renames).map(([k, v]) => [k.toLowerCase(), v]))
+    const as = (sheet) => named.get(String(sheet).toLowerCase())
+    const read = await readCharts(zip, (sheet) => views[as(sheet)])
+    let skipped = read.skipped
+    for (const { sheet, spec, x, y, width, height } of read.charts) {
+      if (!as(sheet) || !as(spec.sourceSheet)) {
+        skipped++
+        continue
+      }
+      charts.add({
+        ...spec,
+        sourceSheet: as(spec.sourceSheet),
+        position: {
+          sheet: as(sheet),
+          x: x + ROW_HEADER_W,
+          y: y + COL_HEADER_H,
+          width,
+          height,
+        },
+      })
+    }
+    if (skipped)
+      toast.info(
+        `${skipped} chart${skipped === 1 ? ' was' : 's were'} not imported: only bar, line, area, pie and scatter charts over columns of the file's own sheets come in.`,
+      )
   }
 
   // Ingests one worksheet and returns its view (sizes, hides, freeze).
