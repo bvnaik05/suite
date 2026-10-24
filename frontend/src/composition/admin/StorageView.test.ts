@@ -232,14 +232,6 @@ describe('Storage actions', () => {
     const input = document.querySelector<HTMLInputElement>('input[type="number"]')!
     input.value = '20'
     input.dispatchEvent(new Event('input', { bubbles: true }))
-    await vi.waitFor(() =>
-      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-        'Maya: 11 GB used · limit 20 GB',
-      ),
-    )
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-      'Leah: 11 GB used · limit 20 GB',
-    )
     button('Save').click()
     await vi.waitFor(() => expect(requests).toHaveLength(1))
     expect(JSON.parse(String(requests[0]?.body))).toEqual({

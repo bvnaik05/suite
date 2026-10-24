@@ -61,13 +61,6 @@ watch(
   { immediate: true },
 )
 
-function bytes(value: number | null) {
-  return value === null
-    ? __('Unavailable')
-    : __('{0} GB', [
-        (value / 1_000_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 }),
-      ])
-}
 async function submit(retry = false) {
   validationError.value = ''
   if (!retry) {
@@ -111,15 +104,6 @@ function edit() {
         />
         <ul class="space-y-2">
           <li v-for="preview in previews" :key="preview.user.name" class="space-y-1">
-            <p class="text-p-sm text-ink-gray-7">
-              {{
-                __('{0}: {1} used · limit {2}', [
-                  preview.user.full_name,
-                  bytes(preview.user.combined_bytes),
-                  validCap == null ? __('No limit') : bytes(validCap),
-                ])
-              }}
-            </p>
             <Alert
               v-if="preview.blocked"
               theme="amber"
@@ -132,14 +116,6 @@ function edit() {
             />
           </li>
         </ul>
-        <p v-if="storage.data?.allowance_bytes" class="text-p-sm text-ink-gray-5">
-          {{
-            __('Workspace storage: {0} used · limit {1}', [
-              bytes(storage.data.combined_bytes),
-              bytes(storage.data.allowance_bytes),
-            ])
-          }}
-        </p>
         <ErrorMessage :message="validationError || save.error?.message || storage.error?.message" />
         <ul class="space-y-1" aria-live="polite">
           <li

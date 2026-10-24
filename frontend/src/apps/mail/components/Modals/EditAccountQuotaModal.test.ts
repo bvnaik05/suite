@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createApp, h, ref } from 'vue'
+import { createApp, h, nextTick, ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { api, client } from '@/api'
@@ -162,14 +162,13 @@ describe('Account storage limits', () => {
     const input = document.querySelector<HTMLInputElement>('input[type="number"]')!
     input.value = '10'
     input.dispatchEvent(new Event('input', { bubbles: true }))
-    await vi.waitFor(() => expect(document.body.textContent).toContain('11 GB used · limit 11 GB'))
+    await nextTick()
     expect(document.body.textContent).not.toContain('will need to free up space')
     input.value = '9'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain('Maya will need to free up space'),
     )
-    expect(document.body.textContent).toContain('11 GB used · limit 9.9 GB')
     expect(document.body.textContent).toContain('Mail will keep working')
     expect(document.body.textContent).not.toContain('Extra storage')
   })
