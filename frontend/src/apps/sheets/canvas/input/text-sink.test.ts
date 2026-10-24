@@ -80,6 +80,18 @@ describe('text sink', () => {
     expect(el.style.opacity).toBe('0')
   })
 
+  it('starts the edit once when the final input comes before compositionend', () => {
+    // Firefox and some Android keyboards send the committed text as an
+    // input with isComposing false, then compositionend.
+    const { el, onText } = setup()
+    el.dispatchEvent(new CompositionEvent('compositionstart', { data: '' }))
+    insertText(el, 'नमस्ते')
+    el.dispatchEvent(new CompositionEvent('compositionend', { data: 'नमस्ते' }))
+    expect(onText).toHaveBeenCalledTimes(1)
+    expect(onText).toHaveBeenCalledWith('नमस्ते')
+    expect(el.value).toBe('')
+  })
+
   it('a cancelled composition (Esc) starts nothing', () => {
     const { el, onText } = setup()
     el.dispatchEvent(new CompositionEvent('compositionstart', { data: '' }))

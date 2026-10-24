@@ -95,8 +95,13 @@ export function createTextSink(o: TextSinkOptions): TextSink {
     return text
   }
 
+  // Between compositionstart and compositionend the text is the IME's, even
+  // when an input says otherwise (Firefox and some Android keyboards send the
+  // committed text with isComposing false before compositionend).
+  let composing = false
+
   function onInput(e: Event): void {
-    if ((e as InputEvent).isComposing) return
+    if (composing || (e as InputEvent).isComposing) return
     const type = (e as InputEvent).inputType
     const text = take()
     // A paste or drop is the clipboard code's job (document listeners).
@@ -105,6 +110,7 @@ export function createTextSink(o: TextSinkOptions): TextSink {
   }
 
   function onCompositionStart(): void {
+    composing = true
     if (!o.canEdit()) return
     const r = o.activeRect()
     el.style.left = r.x + 'px'
@@ -120,6 +126,7 @@ export function createTextSink(o: TextSinkOptions): TextSink {
 
   // `data` is the committed text; empty when the user cancelled (Esc).
   function onCompositionEnd(e: CompositionEvent): void {
+    composing = false
     el.style.cssText = HIDDEN
     take()
     if (e.data) o.onText(e.data)
