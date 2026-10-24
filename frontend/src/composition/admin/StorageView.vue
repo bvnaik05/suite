@@ -123,7 +123,7 @@
                       variant="ghost"
                       icon="lucide-pencil"
                       :label="__('Edit storage limit for {0}', [user.full_name])"
-                      @click="editCap(user)"
+                      @click.stop="editCap(user)"
                     />
                   </div>
                 </ListCell>
@@ -338,7 +338,7 @@ function capNote(user: StorageUser): string | undefined {
   if (!user.cap_bytes || user.combined_bytes == null) return undefined
   if (user.combined_bytes < user.cap_bytes * 0.9) return undefined
   if (user.combined_bytes > (user.effective_cap_bytes ?? user.cap_bytes)) return __('Storage full')
-  if (user.combined_bytes > user.cap_bytes) return __('Using extra storage')
+  if (user.combined_bytes > user.cap_bytes) return __('Storage limit reached')
   return __('Almost full')
 }
 

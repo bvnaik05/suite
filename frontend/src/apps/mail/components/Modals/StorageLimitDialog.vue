@@ -104,6 +104,7 @@ function edit() {
         <FormControl
           v-model="limitGB"
           type="number"
+          min="0"
           :label="__('Storage limit (GB)')"
           :description="__('Leave blank to remove the limit.')"
           :disabled="!initialized || save.isPending || !!results.length"
@@ -115,7 +116,7 @@ function edit() {
                 __('{0}: {1} used · limit {2}', [
                   preview.user.full_name,
                   bytes(preview.user.combined_bytes),
-                  preview.threshold == null ? __('No limit') : bytes(preview.threshold),
+                  validCap == null ? __('No limit') : bytes(validCap),
                 ])
               }}
             </p>
@@ -135,7 +136,7 @@ function edit() {
           {{
             __('Workspace storage: {0} used · limit {1}', [
               bytes(storage.data.combined_bytes),
-              bytes(storage.data.effective_allowance_bytes),
+              bytes(storage.data.allowance_bytes),
             ])
           }}
         </p>

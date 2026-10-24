@@ -31,14 +31,14 @@ vi.hoisted(() => {
         JSON.stringify({
           data: {
             cloud: true,
-            drive_bytes: 18e9,
+            drive_bytes: 101e9,
             personal_drive_bytes: 18e9,
-            shared_drive_bytes: 0,
+            shared_drive_bytes: 83e9,
             group_mail_bytes: 0,
             pending_invitations: 0,
             reserved_bytes: 0,
             mail_bytes: 4e9,
-            combined_bytes: 22e9,
+            combined_bytes: 105e9,
             allowance_bytes: 100e9,
             effective_allowance_bytes: 110e9,
             default_cap_bytes: null,
@@ -61,6 +61,16 @@ vi.hoisted(() => {
               mail_fetched_at: null,
             })),
           },
+        }),
+      )
+    if (path === '/api/suite/storage/limits')
+      return new Response(
+        JSON.stringify({
+          data: JSON.parse(String(init?.body)).users.map((user: string) => ({
+            user,
+            success: true,
+            error: null,
+          })),
         }),
       )
     return new Response(JSON.stringify({ data: {} }))
@@ -142,9 +152,70 @@ describe('Storage actions', () => {
     }
   })
 
+  it('edits an individual combined quota and sends decimal GB without headroom', async () => {
+    await render()
+    document
+      .querySelector<HTMLButtonElement>('button[aria-label="Edit storage limit for Maya"]')!
+      .click()
+    await vi.waitFor(() => expect(document.querySelector('input[type="number"]')).not.toBeNull())
+    button('Cancel').click()
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    document
+      .querySelector<HTMLButtonElement>('button[aria-label="Edit storage limit for Maya"]')!
+      .click()
+    await vi.waitFor(() => expect(document.querySelector('input[type="number"]')).not.toBeNull())
+    const input = document.querySelector<HTMLInputElement>('input[type="number"]')!
+    await vi.waitFor(() => expect(input.disabled).toBe(false))
+    expect(input.value).toBe('10')
+    for (const value of ['-1', '0']) {
+      input.value = value
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      button('Save').click()
+      await vi.waitFor(() =>
+        expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+          'Enter a storage limit greater than zero.',
+        ),
+      )
+      expect(requests).toHaveLength(0)
+    }
+    input.value = '12.5'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.waitFor(() => expect(button('Save').disabled).toBe(false))
+
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('limit 12.5 GB')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('limit 100 GB')
+    button('Save').click()
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    expect(JSON.parse(String(requests[0]?.body))).toEqual({
+      users: ['maya@example.com'],
+      cap_bytes: 12500000000,
+    })
+  })
+
+  it('removes an individual cap with blank input', async () => {
+    await render()
+    document
+      .querySelector<HTMLButtonElement>('button[aria-label="Edit storage limit for Maya"]')!
+      .click()
+    await vi.waitFor(() => expect(document.querySelector('input[type="number"]')).not.toBeNull())
+    const input = document.querySelector<HTMLInputElement>('input[type="number"]')!
+    input.value = ''
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.waitFor(() => expect(button('Save').disabled).toBe(false))
+    button('Save').click()
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    expect(JSON.parse(String(requests[0]?.body))).toEqual({
+      users: ['maya@example.com'],
+      cap_bytes: null,
+    })
+  })
+
   it('shows each configured limit and offers no separate extra-storage actions', async () => {
     await render()
     expect(document.body.textContent).toContain('10 GB')
+    expect(document.body.textContent).not.toContain('110 GB')
+    expect(document.body.textContent).not.toContain('Extra storage')
+    expect(document.body.textContent).not.toContain('Using extra storage')
     const labels = [...document.querySelectorAll('button')].map((item) => item.textContent?.trim())
     expect(labels).not.toContain('Give 10% extra storage')
     expect(labels).not.toContain('Remove extra storage')
@@ -158,5 +229,22 @@ describe('Storage actions', () => {
       ),
     )
     expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Extra storage')
+    const input = document.querySelector<HTMLInputElement>('input[type="number"]')!
+    input.value = '20'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+        'Maya: 11 GB used · limit 20 GB',
+      ),
+    )
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Leah: 11 GB used · limit 20 GB',
+    )
+    button('Save').click()
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    expect(JSON.parse(String(requests[0]?.body))).toEqual({
+      users: ['maya@example.com', 'leah@example.com'],
+      cap_bytes: 20000000000,
+    })
   })
 })
