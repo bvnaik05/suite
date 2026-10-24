@@ -7,9 +7,7 @@ import { api, useMutation, useQuery, type InputOf, type OutputOf } from '@/api'
 import { translate as __ } from '@/platform/translation'
 
 const open = defineModel<boolean>('open', { default: false })
-const props = withDefaults(defineProps<{ users: string[]; closeOnSuccess?: boolean }>(), {
-  closeOnSuccess: true,
-})
+const props = defineProps<{ users: string[] }>()
 const emit = defineEmits<{ saved: [] }>()
 const storage = useQuery(api.suite.storage.get, () => (open.value ? {} : false))
 const save = useMutation(api.suite.storage.setLimits)
@@ -62,6 +60,7 @@ watch(
 )
 
 async function submit(retry = false) {
+  if (save.isPending) return
   validationError.value = ''
   if (!retry) {
     if (validCap.value === undefined) {
@@ -71,22 +70,22 @@ async function submit(retry = false) {
     request.value = { users: [...props.users], cap_bytes: validCap.value }
   }
   if (!request.value) return
-  const next = await save.run({
-    ...request.value,
-    users: retry ? failed.value : request.value.users,
-  })
+  let next
+  try {
+    next = await save.run({
+      ...request.value,
+      users: retry ? failed.value : request.value.users,
+    })
+  } catch {
+    return
+  }
   results.value = retry
     ? results.value.map((result) => next.find((item) => item.user === result.user) ?? result)
     : next
   if (results.value.length && results.value.every((result) => result.success)) {
     emit('saved')
-    if (props.closeOnSuccess) open.value = false
+    open.value = false
   }
-}
-function edit() {
-  results.value = []
-  request.value = undefined
-  save.reset()
 }
 </script>
 
@@ -131,17 +130,7 @@ function edit() {
     </template>
     <template #actions>
       <div class="flex justify-end gap-2">
-        <Button
-          :label="results.length ? __('Done') : __('Cancel')"
-          :disabled="save.isPending"
-          @click="open = false"
-        />
-        <Button
-          v-if="results.length"
-          :label="__('Edit limits')"
-          :disabled="save.isPending"
-          @click="edit"
-        />
+        <Button :label="__('Cancel')" :disabled="save.isPending" @click="open = false" />
         <Button
           v-if="failed.length"
           variant="solid"

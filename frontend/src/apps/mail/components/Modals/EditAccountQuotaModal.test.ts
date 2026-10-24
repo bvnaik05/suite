@@ -111,7 +111,6 @@ async function render(bulk = false) {
       bulk
         ? h(StorageLimitDialog, {
             users: ['maya@example.com', 'leah@example.com'],
-            closeOnSuccess: false,
             open: open.value,
             'onUpdate:open': (value: boolean) => {
               open.value = value
@@ -192,7 +191,6 @@ describe('Account storage limits', () => {
       { users: ['maya@example.com', 'leah@example.com'], cap_bytes: 10e9 },
       { users: ['leah@example.com'], cap_bytes: 10e9 },
     ])
-    expect(document.body.textContent).toContain('maya@example.com: Saved')
-    expect(document.body.textContent).toContain('leah@example.com: Saved')
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
   })
 })

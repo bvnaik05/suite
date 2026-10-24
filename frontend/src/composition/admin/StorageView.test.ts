@@ -8,6 +8,7 @@ import { translationPlugin } from '@/platform/translation'
 import StorageView from './StorageView.vue'
 
 vi.mock('frappe-ui', async () => ({
+  toast: { error: vi.fn() },
   ...(await import('../../../../node_modules/frappe-ui/src/components/Alert')),
   ...(await import('../../../../node_modules/frappe-ui/src/components/Avatar')),
   ...(await import('../../../../node_modules/frappe-ui/src/components/Badge')),
@@ -22,10 +23,16 @@ vi.mock('frappe-ui', async () => ({
 vi.mock('@/platform/area-sidebar', () => ({ openAreaSidebar: vi.fn() }))
 
 const requests = vi.hoisted((): RequestInit[] => [])
+const state = vi.hoisted(() => ({ reads: 0, fail: false, partial: false }))
 vi.hoisted(() => {
   globalThis.fetch = async (url: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method && init.method !== 'GET') requests.push(init)
     const path = new URL(String(url), 'http://suite.test').pathname
+    if (path === '/api/suite/storage') state.reads++
+    if (path === '/api/suite/storage/limits' && state.fail)
+      return new Response(JSON.stringify({ error: { message: 'Storage service unavailable' } }), {
+        status: 500,
+      })
     if (path === '/api/suite/storage' || path === '/api/suite/storage/default')
       return new Response(
         JSON.stringify({
@@ -68,8 +75,8 @@ vi.hoisted(() => {
         JSON.stringify({
           data: JSON.parse(String(init?.body)).users.map((user: string) => ({
             user,
-            success: true,
-            error: null,
+            success: !(state.partial && user === 'leah@example.com'),
+            error: state.partial && user === 'leah@example.com' ? 'Try again' : null,
           })),
         }),
       )
@@ -81,6 +88,8 @@ let cleanup: (() => void) | undefined
 afterEach(() => {
   cleanup?.()
   requests.length = 0
+  state.fail = false
+  state.partial = false
 })
 
 async function render() {
@@ -182,14 +191,17 @@ describe('Storage actions', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await vi.waitFor(() => expect(button('Save').disabled).toBe(false))
 
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('limit 12.5 GB')
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('limit 100 GB')
-    button('Save').click()
+    const reads = state.reads
+    const saveButton = button('Save')
+    saveButton.click()
+    saveButton.click()
     await vi.waitFor(() => expect(requests).toHaveLength(1))
     expect(JSON.parse(String(requests[0]?.body))).toEqual({
       users: ['maya@example.com'],
       cap_bytes: 12500000000,
     })
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    await vi.waitFor(() => expect(state.reads).toBeGreaterThan(reads))
   })
 
   it('removes an individual cap with blank input', async () => {
@@ -212,7 +224,10 @@ describe('Storage actions', () => {
 
   it('shows each configured limit and offers no separate extra-storage actions', async () => {
     await render()
-    expect(document.body.textContent).toContain('10 GB')
+    expect(document.body.textContent).toContain('of 10 GB')
+    expect(
+      [...document.querySelectorAll('[role=columnheader]')].map((item) => item.textContent?.trim()),
+    ).not.toContain('Limit')
     expect(document.body.textContent).not.toContain('110 GB')
     expect(document.body.textContent).not.toContain('Extra storage')
     expect(document.body.textContent).not.toContain('Using extra storage')
@@ -237,6 +252,45 @@ describe('Storage actions', () => {
     expect(JSON.parse(String(requests[0]?.body))).toEqual({
       users: ['maya@example.com', 'leah@example.com'],
       cap_bytes: 20000000000,
+    })
+  })
+  it('keeps failed saves open for retry', async () => {
+    await render()
+    document
+      .querySelector<HTMLButtonElement>('button[aria-label="Edit storage limit for Maya"]')!
+      .click()
+    await vi.waitFor(() => expect(document.querySelector('input[type="number"]')).not.toBeNull())
+    await vi.waitFor(() => expect(button('Save').disabled).toBe(false))
+    state.fail = true
+    button('Save').click()
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+        'Storage service unavailable',
+      ),
+    )
+    state.fail = false
+    button('Save').click()
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    expect(requests).toHaveLength(2)
+  })
+  it('retries only failed bulk targets', async () => {
+    await render()
+    document.querySelector<HTMLElement>('[aria-label="Select all"]')!.click()
+    await vi.waitFor(() => expect(button('Set limits').disabled).toBe(false))
+    button('Set limits').click()
+    await vi.waitFor(() => expect(document.querySelector('input[type="number"]')).not.toBeNull())
+    await vi.waitFor(() => expect(button('Save').disabled).toBe(false))
+    state.partial = true
+    button('Save').click()
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Try again'),
+    )
+    state.partial = false
+    button('Retry failed').click()
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull())
+    expect(JSON.parse(String(requests[1]?.body))).toEqual({
+      users: ['leah@example.com'],
+      cap_bytes: null,
     })
   })
 })

@@ -17,13 +17,12 @@
           <List
             selectable
             class="pointer-events-none -mx-3 list-row-px-3"
-            :columns="['minmax(0,1fr)', '11rem', '12rem']"
+            :columns="['minmax(0,1fr)', '23rem']"
             :row-height="72"
           >
             <ListHeader>
               <ListHeaderCell>{{ __('User') }}</ListHeaderCell>
               <ListHeaderCell>{{ __('Usage') }}</ListHeaderCell>
-              <ListHeaderCell>{{ __('Limit') }}</ListHeaderCell>
             </ListHeader>
             <ListRows v-slot="{ item }" :items="SKELETON_ROWS" row-key="id">
               <ListRow :value="item.id">
@@ -39,9 +38,6 @@
                     <DashboardSkeletonText class="text-base" width="60%" />
                     <DashboardSkeletonText class="text-p-sm" width="45%" />
                   </div>
-                </ListCell>
-                <ListCell>
-                  <DashboardSkeletonText class="flex-1 text-base" width="50%" />
                 </ListCell>
               </ListRow>
             </ListRows>
@@ -76,13 +72,12 @@
             v-model:selection="selected"
             selectable
             class="-mx-3 list-row-px-3"
-            :columns="['minmax(0,1fr)', '11rem', '12rem']"
+            :columns="['minmax(0,1fr)', '23rem']"
             :row-height="72"
           >
             <ListHeader>
               <ListHeaderCell>{{ __('User') }}</ListHeaderCell>
               <ListHeaderCell>{{ __('Usage') }}</ListHeaderCell>
-              <ListHeaderCell>{{ __('Limit') }}</ListHeaderCell>
             </ListHeader>
             <ListRows v-slot="{ item: user, value }" :items="report.data.users">
               <ListRow :value="value">
@@ -95,7 +90,7 @@
                 </ListCell>
                 <ListCell>
                   <div class="min-w-0 flex-1 space-y-1 pe-6">
-                    <StorageUsage :user="user" :show-limit="false" />
+                    <StorageUsage :user="user" />
                     <p v-if="user.mail_bytes !== null" class="truncate text-p-sm text-ink-gray-5">
                       {{ usageMeta(user) }}
                     </p>
@@ -111,21 +106,12 @@
                       <span class="truncate">{{ capNote(user) }}</span>
                     </p>
                   </div>
-                </ListCell>
-                <ListCell>
-                  <div class="flex min-w-0 items-center justify-between gap-2">
-                    <div class="min-w-0">
-                      <p class="truncate text-base text-ink-gray-7">
-                        {{ storageLimit(user) }}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      icon="lucide-pencil"
-                      :label="__('Edit storage limit for {0}', [user.full_name])"
-                      @click.stop="editCap(user)"
-                    />
-                  </div>
+                  <Button
+                    variant="ghost"
+                    icon="lucide-pencil"
+                    :label="__('Edit storage limit for {0}', [user.full_name])"
+                    @click.stop="editCap(user)"
+                  />
                 </ListCell>
               </ListRow>
             </ListRows>
@@ -223,7 +209,7 @@
       </template>
     </Dialog>
 
-    <StorageLimitDialog v-model:open="editing" :users="selected" :close-on-success="false" />
+    <StorageLimitDialog v-model:open="editing" :users="selected" />
 
     <Dialog
       v-model:open="localQuotaOpen"
@@ -274,7 +260,7 @@ import { translate as __ } from '@/platform/translation'
 
 import SiteStorageSummary from './SiteStorageSummary.vue'
 import SiteStorageSummarySkeleton from './SiteStorageSummarySkeleton.vue'
-import { formatStorage, storageLimit } from './storageFormat'
+import { formatStorage } from './storageFormat'
 import StorageUsage from './StorageUsage.vue'
 
 type StorageUser = OutputOf<typeof api.suite.storage.get>['users'][number]
