@@ -7,23 +7,6 @@
     <template #loading>
       <div class="mx-auto w-full max-w-5xl space-y-6 pb-10" aria-hidden="true">
         <SiteStorageSummarySkeleton />
-        <section
-          class="flex flex-col justify-between gap-4 border-b border-outline-gray-2 pb-6 sm:flex-row sm:items-center"
-        >
-          <div class="max-w-sm">
-            <h2 class="text-lg font-medium text-ink-gray-9">{{ __('Default for new users') }}</h2>
-            <p class="mt-1.5 text-p-sm text-ink-gray-5">
-              {{ __('Existing users and invitations won’t change.') }}
-            </p>
-          </div>
-          <div class="flex items-end gap-2">
-            <div class="w-40 space-y-1.5">
-              <DashboardSkeletonText class="text-sm" width="70%" />
-              <Skeleton class="h-7 w-full rounded-4" />
-            </div>
-            <Skeleton class="h-7 w-12 rounded-4" />
-          </div>
-        </section>
         <section class="space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-lg font-medium text-ink-gray-9">{{ __('User storage limits') }}</h2>
@@ -66,38 +49,12 @@
         </section>
       </div>
     </template>
-    <ErrorMessage :message="report.error?.message || saveDefault.error?.message" />
+    <ErrorMessage :message="report.error?.message" />
 
     <div v-if="report.data" class="mx-auto w-full max-w-5xl space-y-6 pb-10">
       <SiteStorageSummary :report="report.data" />
 
       <template v-if="report.data.cloud">
-        <section
-          class="flex flex-col justify-between gap-4 border-b border-outline-gray-2 pb-6 sm:flex-row sm:items-center"
-        >
-          <div class="max-w-sm">
-            <h2 class="text-lg font-medium text-ink-gray-9">{{ __('Default for new users') }}</h2>
-            <p class="mt-1.5 text-p-sm text-ink-gray-5">
-              {{ __('Existing users and invitations won’t change.') }}
-            </p>
-          </div>
-          <div class="flex items-center gap-2">
-            <FormControl
-              v-model="defaultGB"
-              type="number"
-              :label="__('Storage limit (GB)')"
-              :placeholder="__('No limit')"
-              class="w-40"
-            />
-            <Button
-              variant="subtle"
-              :label="__('Save')"
-              :loading="saveDefault.isPending"
-              @click="saveDefault.run({ cap_bytes: cap(defaultGB) })"
-            />
-          </div>
-        </section>
-
         <section class="space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-lg font-medium text-ink-gray-9">{{ __('User storage limits') }}</h2>
@@ -105,6 +62,7 @@
               <span v-if="selected.length" class="text-p-sm text-ink-gray-5">{{
                 __('{0} selected', [selected.length])
               }}</span>
+              <Button variant="subtle" :label="__('Default storage')" @click="openDefaultStorage" />
               <Button
                 variant="subtle"
                 :label="__('Set limits')"
@@ -228,6 +186,42 @@
       </section>
     </div>
 
+    <Dialog
+      v-model:open="defaultStorageOpen"
+      :title="__('Default storage for new users')"
+      :dismissible="!saveDefault.isPending"
+    >
+      <template #default>
+        <div class="space-y-4">
+          <p class="text-p-sm text-ink-gray-5">
+            {{ __('Existing users and invitations won’t change.') }}
+          </p>
+          <FormControl
+            v-model="defaultGB"
+            type="number"
+            :label="__('Storage limit (GB)')"
+            :placeholder="__('No limit')"
+          />
+          <ErrorMessage :message="saveDefault.error?.message" />
+        </div>
+      </template>
+      <template #actions>
+        <div class="flex justify-end gap-2">
+          <Button
+            :label="__('Cancel')"
+            :disabled="saveDefault.isPending"
+            @click="defaultStorageOpen = false"
+          />
+          <Button
+            variant="solid"
+            :label="__('Save')"
+            :loading="saveDefault.isPending"
+            @click="applyDefaultStorage"
+          />
+        </div>
+      </template>
+    </Dialog>
+
     <StorageLimitDialog v-model:open="editing" :users="selected" :close-on-success="false" />
 
     <Dialog
@@ -293,6 +287,7 @@ const saveDefault = useMutation(api.suite.storage.setDefault)
 const saveLocalQuota = useMutation(api.drive.roots.setQuota)
 
 // — future-user default —
+const defaultStorageOpen = ref(false)
 const defaultGB = ref('')
 watch(
   () => report.data?.default_cap_bytes,
@@ -301,6 +296,16 @@ watch(
   },
   { immediate: true },
 )
+
+function openDefaultStorage() {
+  saveDefault.reset()
+  defaultStorageOpen.value = true
+}
+
+async function applyDefaultStorage() {
+  await saveDefault.run({ cap_bytes: cap(defaultGB.value) })
+  defaultStorageOpen.value = false
+}
 
 // — personal caps —
 const selected = ref<string[]>([])
