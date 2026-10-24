@@ -1153,7 +1153,7 @@ const {
     isDirty.value = true
   },
   afterStructural: (sn) => _afterStructural(sn),
-  afterNavigate: () => _afterHistoryNavigate(),
+  afterNavigate: (id) => _afterHistoryNavigate(id),
 })
 
 // Forward-declaration: `useCollaboration` (further down the script) sets
@@ -3677,7 +3677,7 @@ function _syncViewMirrors() {
   manualHiddenCols.clear()
   for (const c of v.hiddenCols || []) manualHiddenCols.add(c)
 }
-function _afterHistoryNavigate() {
+function _afterHistoryNavigate(id) {
   _repopulateGrid()
   _applyHiddenRows() // filter state restored → re-apply to grid
   _syncViewMirrors()
@@ -3685,10 +3685,10 @@ function _afterHistoryNavigate() {
   // The comment panel holds a reference into the (now-replaced) engine thread —
   // close it so a stale index can't delete the wrong reply after undo/redo.
   commentPanel.open = false
-  activeCell.value = 'A1'
-  _showInputInFormulaBar('A1')
+  activeCell.value = id
+  _showInputInFormulaBar(id)
   refreshActiveFormat()
-  _syncNumberFormat('A1')
+  _syncNumberFormat(id)
   syncFlags()
   grid?.setMarchingAnts(null)
   clipboard.clear()

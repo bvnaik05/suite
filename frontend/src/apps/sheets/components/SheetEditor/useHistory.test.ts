@@ -47,3 +47,33 @@ describe('useHistory format maps', () => {
     expect(t.formats.getCellFormat('A1', 'Sheet1')).toEqual({ italic: true, bold: true })
   })
 })
+
+// After undo/redo the formula bar and format toolbar follow the cell the
+// grid still has selected, not A1 (ISSUES #78).
+describe('useHistory navigate', () => {
+  it("hands afterNavigate the grid's active cell", () => {
+    const afterNavigate = vi.fn()
+    const { history, undo, redo } = useHistory({
+      currentSheet: { value: 'Sheet1' },
+      engines: { formats: createFormatsEngine() },
+      getGrid: () => ({ getActiveCell: () => 'A5' }),
+      engineClient: () => null,
+      command: vi.fn(),
+      writeInputs: vi.fn(),
+      syncDefinedNames: vi.fn(),
+      addSheet: vi.fn(),
+      deleteSheet: vi.fn(),
+      getLocalTouches: () => null,
+      syncFlags: vi.fn(),
+      markDirty: vi.fn(),
+      afterStructural: vi.fn(),
+      afterNavigate,
+    })
+    history.pushOp({ opType: 'edit', subSheet: 'Sheet1', before: {}, after: {} })
+    history.pushOp({ opType: 'edit', subSheet: 'Sheet1', before: {}, after: {} })
+    undo()
+    expect(afterNavigate).toHaveBeenLastCalledWith('A5')
+    redo()
+    expect(afterNavigate).toHaveBeenLastCalledWith('A5')
+  })
+})
