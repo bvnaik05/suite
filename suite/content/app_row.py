@@ -59,7 +59,7 @@ def write_body(app: str, docname: str, state: bytes, *, edited_at: datetime | No
 
 
 def locked_app_row(app: str, doc_id: str, html_copy: ReadableCopy) -> frappe._dict | None:
-    """Lock and return the app's row of a log that isn't purged, the copy's rows as `written`; lock before any plain read in the transaction, or REPEATABLE READ answers that read's snapshot."""
+    """Lock an unpurged log's app row, its copy as `written`; lock before plain reads (REPEATABLE READ)."""
     spec = spec_of(app)
     doc_table = table(app, "doc")
     node_column = node_field(spec)

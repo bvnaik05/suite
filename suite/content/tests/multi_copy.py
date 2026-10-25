@@ -38,7 +38,7 @@ class MultiCopy:
 
 
 class LossyCopy(MultiCopy):
-    """Loses every write, so what it reads back is never what it was given."""
+    """Drops row `b` from every write, so what it reads back is neither the old copy nor the new one."""
 
     def write(self, doctype: str, docname: str, changed: Mapping[str, str | None]) -> None:
-        self.writes.append(dict(changed))
+        super().write(doctype, docname, {**changed, "b": None})

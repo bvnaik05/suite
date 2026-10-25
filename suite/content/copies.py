@@ -39,6 +39,10 @@ COPY_AGE = timedelta(seconds=60)
 IFRAME_SANDBOX = "allow-scripts allow-same-origin allow-popups allow-forms allow-presentation"
 
 
+class CopyMismatch(Exception):
+    """The app's copy read back other than written; the one argument is the read-back, serialized."""
+
+
 def submit(app: str, doc_id: str, stage_id: str, user: str) -> tuple[int, dict]:
     """Take a staged render to be checked, replacing older ones; stale when it can't become the copy."""
     if not stage.valid_id(stage_id):
@@ -210,7 +214,15 @@ def state_at(app: str, log_read: Snapshot, rev: int) -> bytes:
 def write(app: str, doc_id: str, rev: int, html: str, html_copy: ReadableCopy) -> bool:
     """T3a: lock the app's row, then the projection row; replace the copy if `rev` is newer than it."""
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    replaced = replace_copy(app, doc_id, rev, html, html_copy)
+    try:
+        replaced = replace_copy(app, doc_id, rev, html, html_copy)
+    except CopyMismatch as mismatch:
+        frappe.db.rollback()
+        keep_evidence(app, doc_id, "copy_mismatch", mismatch.args[0], rev)
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        db.alert("Collab readable copy: read back differently", f"{app} document {doc_id} at rev {rev}")
+        return False
+
     if replaced is None:
         frappe.db.rollback()
         return False
@@ -257,6 +269,9 @@ def project(
     changed |= {key: None for key in written if key not in rows}
     if changed:
         write_copy(app, docname, changed, html_copy)
+        stored = html_copy.serialized(html_copy.read(spec_of(app).doctype, docname))
+        if stored != html_copy.serialized(rows):
+            raise CopyMismatch(stored)
 
     frappe.db.sql(
         f"""UPDATE `{projection_table}` SET `projected_rev` = %s, `projection_hash` = UNHEX(%s),

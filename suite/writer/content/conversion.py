@@ -308,7 +308,14 @@ def write_conversion(node: str, old: OldDocument, converted: convert.Converted) 
     replace_start(writer_content.APP, doc_id, converted.state, writer_content.DECLARED["schema"])
     drive.install_threads(node, anchors, threads)
     clear_ycomments(old.docname)
-    if copies.replace_copy(writer_content.APP, doc_id, 1, html, writer_content.EDITOR.readable_copy) is None:
+    try:
+        replaced = copies.replace_copy(
+            writer_content.APP, doc_id, 1, html, writer_content.EDITOR.readable_copy
+        )
+    except copies.CopyMismatch:
+        raise ConversionRefused("check", "copy") from None
+
+    if replaced is None:
         raise ConversionRefused("check", "copy")
 
     named = set(names.values())

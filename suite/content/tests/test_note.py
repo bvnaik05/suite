@@ -239,13 +239,14 @@ class TestNoteEditor(IntegrationTestCase):
 
         with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=good)):
             self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 1, first, good))
+
         with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=lossy)):
             self.assertFalse(copies.write(note.EDITOR.app, self.doc_id, 2, second, lossy))
 
         projection_table = table(note.EDITOR.app, "projection")
         copy_table = table(note.EDITOR.app, "copy")
         recovery_table = table(note.EDITOR.app, "recovery")
-        self.assertEqual(self.html_field(), kept)
+        self.assertEqual(self.html_field(), '{"a":"<p>one</p>","b":"<p>two</p>"}')
         [[projected_rev, stored_hash]] = frappe.db.sql(
             f"SELECT `projected_rev`, `projection_hash` FROM `{projection_table}` WHERE `doc_id` = %s",
             self.doc_id,
@@ -260,7 +261,8 @@ class TestNoteEditor(IntegrationTestCase):
             f"SELECT `reason`, `payload` FROM `{recovery_table}` WHERE `doc_id` = %s", self.doc_id
         )
         self.assertEqual(
-            [(reason, bytes(payload)) for reason, payload in evidence], [("copy_mismatch", lost.encode())]
+            [(reason, bytes(payload)) for reason, payload in evidence],
+            [("copy_mismatch", b'{"a":"<p>one</p>"}')],
         )
 
         with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=good)):

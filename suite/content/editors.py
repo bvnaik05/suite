@@ -25,7 +25,7 @@ class ReadableCopy(Protocol):
         """Write only the `changed` rows, None removing a row."""
 
     def serialized(self, rows: Mapping[str, str]) -> str:
-        """Answer the copy as the one string hashed and kept as evidence; JSON with sorted keys and `(",", ":")` for several rows."""
+        """Answer the string hashed and kept as evidence; several rows as JSON, sorted keys, `(",", ":")`."""
 
     def rows(self, html: str) -> Mapping[str, str]:
         """Make a checked render into the copy's rows."""
