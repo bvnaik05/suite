@@ -384,7 +384,7 @@ def insert_old_thread(node: str, owner: str, entry: dict, stamps: list[str]) -> 
 
 
 def insert_old_comment(thread: Document, owner: str, comment: dict, stamp: str, index: int) -> None:
-    text, _span_ids = html_comment_text(comment["content"])
+    text, span_ids = html_comment_text(comment["content"])
     frappe.get_doc(
         {
             "doctype": "Drive Comment",
@@ -393,7 +393,9 @@ def insert_old_comment(thread: Document, owner: str, comment: dict, stamp: str, 
             "content": text,
             "author": owner,
             "author_name": comment["author_name"].strip(),
-            "mentions": frappe.as_json(_mentions(text)),
+            "mentions": frappe.as_json(
+                mentioned_users(span_ids, lambda user: frappe.db.exists("User", user))
+            ),
             "client_id": None,
             "owner": owner,
             "modified_by": owner,
@@ -849,6 +851,11 @@ def link_text(text: str, href: str | None) -> str:
         return href
 
     return f"{text} ({href})"
+
+
+def mentioned_users(ids: list[str], user_name: Callable[[str], str | None]) -> list[str]:
+    """Answer the stored name of each User in `ids` once, in first-seen order."""
+    return list(dict.fromkeys(filter(None, map(user_name, ids))))
 
 
 def _mentions(text: str) -> list[str]:

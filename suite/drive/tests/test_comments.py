@@ -370,7 +370,11 @@ class TestCommentWorkflows(IntegrationTestCase):
             {
                 "anchor": "kept",
                 "comments": [
-                    {"content": f"Ask @[{MENTIONED}]", "author_name": " Old Name ", "time": times[0]},
+                    {
+                        "content": f'<p>Ask <span data-type="mention" class="mention" data-id="{MENTIONED}">@M</span></p>',
+                        "author_name": " Old Name ",
+                        "time": times[0],
+                    },
                     {"content": "Answer", "author_name": "N" * 140, "time": times[1]},
                 ],
             },
@@ -418,6 +422,24 @@ class TestCommentWorkflows(IntegrationTestCase):
             ),
             (activity, notified),
         )
+
+    def test_an_old_comment_mentions_its_spans_once_by_name_and_not_a_typed_token(self):
+        span = '<span data-type="mention" class="mention" data-id="{0}">@M</span>'
+        text = (
+            "<p>"
+            + span.format("DRIVE-MENTIONED@EXAMPLE.COM")
+            + " "
+            + span.format(MENTIONED)
+            + f" @[{COMMENTER}]</p>"
+        )
+        new_threads = [{"anchor": "kept", "comments": [{"content": text, "author_name": "Ann", "time": 1}]}]
+        notified = frappe.db.count("Drive Notification", {"to_user": ["in", [MENTIONED, COMMENTER]]})
+
+        installed = install_threads(self.owner, self.document.name, {}, new_threads)
+
+        mentions = frappe.db.get_value("Drive Comment", {"thread": installed[0]}, "mentions")
+        after = frappe.db.count("Drive Notification", {"to_user": ["in", [MENTIONED, COMMENTER]]})
+        self.assertEqual((json.loads(mentions), after), ([MENTIONED], notified))
 
     def test_installing_moves_threads_and_tells_the_content_app_once_after_it_commits(self):
         thread = create_thread(self.owner, self.document.name, "old", "First").name
@@ -501,7 +523,7 @@ class TestCommentWorkflows(IntegrationTestCase):
         new_threads = [{"anchor": "kept", "comments": [{"content": "Old", "author_name": "Ann", "time": 0}]}]
 
         with (
-            patch.object(comments, "_mentions", side_effect=RuntimeError("down")),
+            patch.object(comments, "mentioned_users", side_effect=RuntimeError("down")),
             self.assertRaises(RuntimeError),
         ):
             install_threads(self.owner, self.document.name, {thread: "new"}, new_threads)

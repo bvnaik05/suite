@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pycrdt
 
-from suite.drive._core.comments import MAX_COMMENT_BYTES, html_comment_text
+from suite.drive._core.comments import MAX_COMMENT_BYTES, html_comment_text, mentioned_users
 from suite.drive.patches.build.content_mapping import (
     InvalidLegacyContent,
     decode_sheets_data,
@@ -144,7 +144,7 @@ def _legacy_plan(node: str, row: dict, user_name: Callable[[str], str | None]) -
         "author": author,
         "author_name": None,
         "stamp": stamp,
-        "mentions": list(dict.fromkeys(filter(None, map(user_name, span_ids)))),
+        "mentions": mentioned_users(span_ids, user_name),
         "source_complete": True,
     }
     return _thread_plan(node, row["name"], bool(row.get("resolved")), [entry], _lazy(lambda: (author, stamp)))
@@ -358,8 +358,7 @@ def comment_entry(
         _author, stamp = fallback()
         source_complete = False
 
-    candidates = entry_mentions(value) + span_ids
-    mention_ids = list(dict.fromkeys(filter(None, map(user_name, candidates))))
+    mention_ids = mentioned_users(entry_mentions(value) + span_ids, user_name)
     return {
         "id": identity,
         "text": text,

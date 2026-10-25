@@ -821,6 +821,21 @@ class LegacyCommentTest(unittest.TestCase):
         self.assertEqual(row["content"], "@[b@example.com] @[a@example.com]")
         self.assertEqual(json.loads(row["mentions"]), ["a@example.com", "b@example.com"])
 
+    def test_a_writer_comment_does_not_mention_a_typed_token(self):
+        ycomments = writer_update(
+            {"top": {"id": "top", "text": "Ask @[a@example.com]", "owner": OWNER, "creation": 1_000}}
+        )
+        document = ContentRow(
+            "Writer Document", "writer-1", ycomments=ycomments, modified=STAMP, modified_by=OWNER
+        )
+        users = {"a@example.com": True}
+        env, target = self.environment(FakeContent(documents=[document], users=users, timezone="UTC"))
+
+        convert_document_comments(env, self.record, document, "node-1", batch_size=10)
+
+        row = target.comment_rows["top"]
+        self.assertEqual((row["content"], json.loads(row["mentions"])), ("Ask @[a@example.com]", []))
+
     def test_two_spans_for_one_user_in_different_case_mention_the_user_once_by_its_name(self):
         span = '<span data-type="mention" data-id="{0}" data-label="Amy">@Amy</span>'
         text = "<p>" + span.format("AMY@example.com") + " " + span.format("amy@example.com") + "</p>"
