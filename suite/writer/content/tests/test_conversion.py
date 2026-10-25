@@ -255,6 +255,10 @@ class TestConversion(DriveCallbackCase):
         shouted = site.upper()
         domains = ["files.example.net", {"domain": "share.example.io"}]
         past_bad = {"domains": ["x" * 64 + ".example.com", "files.example.net"]}
+        ignored = site[:2] + "\U000e0100" + site[2:]
+        escaped = site[:2] + "%f3%a0%84%80" + site[2:]
+        capital = "%" + site[0].upper().encode().hex() + site[1:]
+        long_label = "x" * 64 + ".example.com"
         for name, src, conf in (
             ("site", f"https://{site}/files/x.html", {}),
             ("upper case", f"https://{shouted}/files/x.html", {}),
@@ -270,6 +274,11 @@ class TestConversion(DriveCallbackCase):
             ("domain entry", "https://share.example.io/x", {"domains": domains}),
             ("past a bad domain", "https://files.example.net/x", past_bad),
             ("no host", "https:///files/x.html", {}),
+            ("ignored char", f"https://{ignored}/files/x.html", {}),
+            ("ideographic dot", f"https://{site}\u3002/files/x.html", {}),
+            ("encoded ignored char", f"https://{escaped}/files/x.html", {}),
+            ("upper escape", f"https://{capital}/files/x.html", {}),
+            ("long label", f"https://{long_label}/x", {}),
         ):
             with self.subTest(name), patch.dict(frappe.local.conf, conf):
                 node = self.old_yjs_document(
