@@ -19,7 +19,8 @@ from pathlib import Path
 SUITE_ROOT = Path(__file__).resolve().parents[2]
 ROW_CALLS = frozenset({"set_value", "new_doc", "delete_doc", "delete", "bulk_insert", "bulk_update"})
 ROW_SQL = re.compile(
-    r"(UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+`tab(Writer Document|\{spec\.doctype\})`", re.IGNORECASE
+    r"(UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+`tab(Writer Document|\{spec\.doctype\}|\{doctype\})`",
+    re.IGNORECASE,
 )
 WRITER = "suite/writer/"
 WRITER_DOCUMENT = "suite/writer/doctype/writer_document/"
@@ -35,7 +36,7 @@ KNOWN_WRITERS = {
     "suite/writer/drive.py:on_purge": "deletes the row with its log",
     "suite/writer/drive.py:remap_media": "writes the body only without a log; a log is remapped instead",
     "suite/content/app_row.py:write_body": THE_LOG,
-    "suite/content/app_row.py:write_copy": "the log writes its own readable copy",
+    "suite/content/editors.py:HtmlCopy.write": "the log writes its own readable copy",
     "suite/writer/patches/move_bodies_into_rows.py:move_checkpoint": THE_LOG,
     "suite/writer/patches/move_bodies_into_rows.py:empty_row": THE_LOG,
     "suite/drive/patches/build/ports.py:SiteContentTarget.update_writer_body": "migration build, run before any log",
