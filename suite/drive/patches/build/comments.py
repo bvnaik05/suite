@@ -51,6 +51,8 @@ COMMENT_FIELDS = (
     "docstatus",
     "idx",
 )
+# Mentions follow the User table, which can change between a killed pass and its rerun
+RERUN_COMMENT_FIELDS = tuple(field for field in COMMENT_FIELDS if field != "mentions")
 
 
 def convert_document_comments(env, content, document, node: str, *, batch_size: int) -> int:
@@ -443,7 +445,8 @@ def _write_thread(env, planned, comments, batch_size) -> int:
     for row in comments:
         stored = stored_comments.get(row["name"])
         if stored and row["name"] not in superseded:
-            exact_fields(stored, row, COMMENT_FIELDS, f"comment {row['name']}")
+            exact_fields(stored, row, RERUN_COMMENT_FIELDS, f"comment {row['name']}")
+
     fresh = [row for row in comments if row["name"] not in stored_comments]
     if not stored_thread:
         first = fresh[: max(1, batch_size - 1)]

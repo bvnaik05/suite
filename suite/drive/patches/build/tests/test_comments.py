@@ -1006,6 +1006,54 @@ class CopiedDocumentIdTest(unittest.TestCase):
         self.assertEqual(again.comment_threads_renamed, self.record.comment_threads_renamed)
         self.assertEqual(again.comments_renamed, self.record.comments_renamed)
 
+    def test_a_rerun_keeps_the_first_mentions_of_a_user_removed_between_passes(self):
+        values = {
+            "top": {"id": "top", "text": "Ask", "owner": OWNER, "creation": 1_000, "mentions": ["a@x.com"]}
+        }
+        document = ContentRow(
+            "Writer Document", "writer-1", ycomments=writer_update(values), modified=STAMP, modified_by=OWNER
+        )
+        source = FakeContent(documents=[document], users={"a@x.com": True}, timezone="UTC")
+        env, target = self.environment(source)
+        convert_document_comments(env, self.record, document, "node-1", batch_size=100)
+        writes = target.commits
+        del source.users["a@x.com"]
+
+        convert_document_comments(env, ContentConversion(), document, "node-1", batch_size=100)
+
+        mentions = json.loads(target.comment_rows["top"]["mentions"])
+        self.assertEqual((mentions, target.commits), (["a@x.com"], writes))
+
+    def test_a_rerun_keeps_the_first_mentions_when_a_user_is_created_between_passes(self):
+        values = {
+            "top": {"id": "top", "text": "Ask", "owner": OWNER, "creation": 1_000, "mentions": ["a@x.com"]}
+        }
+        document = ContentRow(
+            "Writer Document", "writer-1", ycomments=writer_update(values), modified=STAMP, modified_by=OWNER
+        )
+        source = FakeContent(documents=[document], timezone="UTC")
+        env, target = self.environment(source)
+        convert_document_comments(env, self.record, document, "node-1", batch_size=100)
+        writes = target.commits
+        source.users["a@x.com"] = True
+
+        convert_document_comments(env, ContentConversion(), document, "node-1", batch_size=100)
+
+        mentions = json.loads(target.comment_rows["top"]["mentions"])
+        self.assertEqual((mentions, target.commits), ([], writes))
+
+    def test_a_rerun_still_refuses_a_stored_comment_whose_content_changed(self):
+        values = {"top": {"id": "top", "text": "Ask", "owner": OWNER, "creation": 1_000}}
+        document = ContentRow(
+            "Writer Document", "writer-1", ycomments=writer_update(values), modified=STAMP, modified_by=OWNER
+        )
+        env, target = self.environment(FakeContent(documents=[document], timezone="UTC"))
+        convert_document_comments(env, self.record, document, "node-1", batch_size=100)
+        target.comment_rows["top"]["content"] = "Changed"
+
+        with self.assertRaisesRegex(InvalidLegacyContent, "field content"):
+            convert_document_comments(env, ContentConversion(), document, "node-1", batch_size=100)
+
     def test_one_document_holding_one_id_twice_is_still_refused(self):
         # The rename answers a second *node*. Inside one document the id is
         # unreadable however it is named, so the refusal comes first.
