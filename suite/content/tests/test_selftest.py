@@ -1,9 +1,12 @@
 import json
+import os
 from unittest.mock import patch
 
 import frappe
 import pycrdt
 from frappe.tests import IntegrationTestCase
+from frappe.utils.background_jobs import get_redis_conn
+from rq.job import Job
 
 from suite.content import checker, compaction, selftest
 from suite.tests.utils import ensure_user
@@ -46,6 +49,26 @@ class TestCollabSelfTest(IntegrationTestCase):
 
         _passed, report = self.recorded()
         self.assertIs(report["node_checks"], False)
+
+    def test_a_job_run_in_the_site_process_is_recorded_as_not_forked(self):
+        job = Job.create(selftest.self_test, connection=get_redis_conn())
+
+        # As Pilot's lite runner runs jobs: no fork, no no-fork switch, a horse's id left in the environment
+        with patch.dict(os.environ, RQ_JOB_ID="an-earlier-job"):
+            os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
+            job.perform()
+
+        _passed, report = self.recorded()
+        self.assertIs(report["nofork"], True)
+
+    def test_a_job_in_a_horse_forked_for_it_is_recorded_as_forked(self):
+        job = Job.create(selftest.self_test, connection=get_redis_conn())
+
+        with patch.dict(os.environ, RQ_JOB_ID=job.id):
+            job.perform()
+
+        _passed, report = self.recorded()
+        self.assertIs(report["nofork"], False)
 
     def test_another_pycrdt_version_fails_the_run(self):
         with patch.object(pycrdt, "__version__", "0.15.0"):

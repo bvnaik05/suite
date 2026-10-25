@@ -13,9 +13,9 @@ import subprocess
 
 import frappe
 import pycrdt
-from frappe.utils import now_datetime, sbool
+from frappe.utils import now_datetime
 
-from suite.content import compaction, db
+from suite.content import admission, compaction, db
 from suite.content.scheduling import enqueue
 
 PART_MAP = {"default": pycrdt.XmlFragment, "meta": pycrdt.Map}
@@ -52,7 +52,7 @@ def self_test() -> dict:
         "node_checks": checker.usable_node() is not None,
         "database": {name: database_variable(name) for name in DATABASE_VARIABLES},
         "cgroup_readable": all(os.access(path, os.R_OK) for path in CGROUP_PATHS),
-        "nofork": bool(sbool(os.environ.get("FRAPPE_BACKGROUND_WORKERS_NOFORK", False))),
+        "nofork": not admission.forked_for_job(),
     }
     passed = self_test_fault() is None
     settings = {

@@ -66,11 +66,16 @@ def enough_memory() -> bool:
     return limit - anon_bytes - PLACES * PER_COMPACTION >= limit // 5
 
 
-def limit_memory() -> None:
-    """Cap this work horse's address space, on Linux and only in a horse RQ forked for this job."""
+def forked_for_job() -> bool:
+    """Whether this process is a horse RQ forked for the job it runs."""
     # RQ sets RQ_JOB_ID only after forking a horse; a no-fork worker, threaded or not, runs in the site process
     job = get_current_job()
-    if not job or os.environ.get("RQ_JOB_ID") != job.id:
+    return bool(job) and os.environ.get("RQ_JOB_ID") == job.id
+
+
+def limit_memory() -> None:
+    """Cap this work horse's address space, on Linux and only in a horse RQ forked for this job."""
+    if not forked_for_job():
         return
 
     try:
