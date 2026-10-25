@@ -794,6 +794,81 @@ class TestConversion(DriveCallbackCase):
             frappe.db.sql("SELECT `mode` FROM `__writer_content_doc` WHERE `node` = %s", node), (("purged",),)
         )
 
+    def restore_elsewhere(self, site: str, node: str, seq: int, errors: list, locked: threading.Event):
+        frappe.init(site=site)
+        frappe.connect()
+        frappe.set_user(WRITER)
+        real_sql = frappe.db.sql
+
+        def sql(query, *args, **kwargs):
+            answer = real_sql(query, *args, **kwargs)
+            if "`tabDrive Node Version`" in str(query) and "FOR UPDATE" in str(query):
+                locked.set()
+
+            return answer
+
+        try:
+            # More locks than the conversion holds, so InnoDB rolls the conversion back instead
+            frappe.db.sql("SELECT `name` FROM `tabDocField` FOR UPDATE")
+            with patch.object(frappe.db, "sql", sql):
+                restore_version(Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)), node, seq)
+
+            frappe.db.commit()
+        except Exception as error:
+            errors.append(error)
+        finally:
+            locked.set()
+            frappe.destroy()
+
+    # Convert `page` and, holding its first node's row, have another connection restore version `seq`
+    # of that node, which locks the node before the row
+    def restore_while_converting(self, page: list[str], seq: int) -> list:
+        node = page[0]
+        errors: list[Exception] = []
+        locked = threading.Event()
+        restorer = threading.Thread(
+            target=self.restore_elsewhere, args=(frappe.local.site, node, seq, errors, locked)
+        )
+        real_sql = frappe.db.sql
+
+        def sql(query, *args, **kwargs):
+            if "`tabDrive Node` WHERE `name` = %s FOR UPDATE" in str(query) and restorer.ident is None:
+                restorer.start()
+                locked.wait(10)
+
+            return real_sql(query, *args, **kwargs)
+
+        rows = [frappe._dict(node=name) for name in page]
+        try:
+            with patch.object(frappe.db, "sql", sql):
+                self.assertTrue(conversions.convert_page(writer_content.APP, rows, time.monotonic() + 600))
+        finally:
+            restorer.join(30)
+
+        self.assertFalse(restorer.is_alive())
+        return errors
+
+    def test_a_conversion_rolled_back_by_a_restore_deadlock_loses_nothing_and_the_run_goes_on(self):
+        node = self.old_document("<p>Kept</p>")
+        seq = drive.take_version(node)
+        frappe.db.set_value("Writer Document", self.docname_of(node), "html", "<p>Edited</p>")
+        frappe.db.commit()
+        [other] = self.old_documents(1)
+        self.forget_logged(f"{node}: QueryDeadlockError")
+
+        errors = self.restore_while_converting([node, other], seq)
+
+        self.assertEqual(errors, [])
+        deadlock = {
+            "method": "Collab conversion: writer did not run",
+            "error": ("like", f"%{node}: QueryDeadlockError%"),
+        }
+        self.assertTrue(frappe.db.exists("Error Log", deadlock))
+        self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), "html"), "<p>Kept</p>")
+        self.assertIsNone(log.find(writer_content.APP, node))
+        self.assertEqual(self.records(other), (("converted", None, "[]"),))
+        self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
+
     def test_converts_a_collaborative_version_from_its_yjs_body_not_its_stale_html(self):
         node = self.new_document()
         self.delete_log(node)
