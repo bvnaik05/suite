@@ -81,8 +81,8 @@ class MediaReferences:
 @dataclass(frozen=True)
 class Conversion:
     """How an app's old documents become collaborative: `build` is the Node converter, which holds
-    `version`; `read_old(node, lock=False)` answers the old body, with its `fingerprint` and the converter's
-    input `legacy`, or None once it is gone; `read_fingerprint(node)` answers that `fingerprint` from the row
+    `version`; `read_old(node, lock=False)` answers the old body, with its `fingerprint`, the newest `modified` of
+    the node's rows and the converter's input `legacy`, or None once it is gone; `read_fingerprint(node)` answers that `fingerprint` from the row
     alone, with no access check; `check(node, old, converted)` refuses with ConversionRefused
     before anything writes, or answers the copy's `html` and what it `dropped`; `fix_up(node, old, checked)`
     writes the app's own rows in the conversion's transaction."""

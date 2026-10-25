@@ -48,6 +48,7 @@ OPEN_ATTEMPT = "`node` = %s AND `fingerprint` = %s AND `converter_version` = %s 
 class OldBody(Protocol):
     fingerprint: str
     legacy: dict
+    modified: datetime
 
 
 class CheckedBody(Protocol):
@@ -124,7 +125,7 @@ def convert_document(app: str, node: str) -> str | None:
         held = held_attempt(app, node, old.fingerprint)
         if held is not None and not has_failed(held):
             if held.outcome is not None:
-                mark_checked(app, node, old.fingerprint, started)
+                mark_checked(app, node, old.fingerprint, old.modified)
 
             return crashed_outcome(app, node, old.fingerprint, held, started)
 
@@ -354,7 +355,7 @@ def drop_attempt(app: str, node: str, fingerprint: str) -> None:
 
 
 def mark_checked(app: str, node: str, fingerprint: str, checked: datetime) -> None:
-    """Keep when a run read this body unchanged since its outcome, so the pager skips it until the row moves."""
+    """Keep the node's newest `modified` a run last found this body unchanged at, so the pager skips it until a row moves."""
     conversion_table = table(app, "conversion")
     frappe.db.sql(
         f"""UPDATE `{conversion_table}` SET `checked` = %s

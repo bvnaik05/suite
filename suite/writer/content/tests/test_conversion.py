@@ -2167,3 +2167,39 @@ class TestConversion(DriveCallbackCase):
         )
         self.assertEqual(len(fingerprints), 2)
         self.assertIn(conversion.read_fingerprint(node), fingerprints)
+
+    def test_converts_a_body_saved_while_a_check_reads_the_one_before_it(self):
+        [node] = self.old_documents(1)
+        docname = self.docname_of(node)
+        frappe.db.set_value("Writer Document", docname, "ycomments", old_comments(("c1", "world", [])))
+        frappe.db.commit()
+        self.run_on([node])
+        frappe.get_doc("Writer Document", docname).update_settings('{"x": 1}')
+        frappe.db.commit()
+        before_save = conversion.read_old(node)
+        frappe.db.set_value("Writer Document", docname, "html", "<p>Hello again</p>")
+        frappe.db.commit()
+        editor = writer_content.EDITOR
+        from_snapshot = dataclasses.replace(editor.conversion, read_old=lambda node, lock=False: before_save)
+        with patch.object(writer_content, "EDITOR", dataclasses.replace(editor, conversion=from_snapshot)):
+            self.assertIsNone(conversions.convert_document(writer_content.APP, node))
+
+        self.assertIn(node, self.run_on([node]))
+
+    def test_takes_both_rows_of_a_refused_node_off_the_page_after_one_check(self):
+        [node] = self.old_documents(1)
+        docname = self.docname_of(node)
+        frappe.db.set_value("Writer Document", docname, "ycomments", old_comments(("c1", "world", [])))
+        frappe.db.commit()
+        self.run_on([node])
+        twin = frappe.copy_doc(frappe.get_doc("Writer Document", docname))
+        twin.name = "zz" + frappe.generate_hash(length=8)
+        twin.creation = frappe.utils.add_days(frappe.utils.now_datetime(), 1)
+        twin.modified = twin.creation
+        twin.db_insert()
+        frappe.db.commit()
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(frappe.db.delete, "Writer Document", twin.name)
+        self.assertIn(node, self.run_on([node]))
+
+        self.assertNotIn(node, self.run_on([node]))

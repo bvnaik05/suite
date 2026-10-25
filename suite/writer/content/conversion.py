@@ -11,6 +11,7 @@ import hashlib
 import json
 from collections.abc import Collection
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import frappe
 import pycrdt
@@ -31,6 +32,7 @@ class OldDocument:
     legacy: dict = field(repr=False)
     fingerprint: str
     threads: list[dict] = field(repr=False)
+    modified: datetime
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,7 @@ def fingerprint_of(legacy: dict) -> str:
 
 def read_old(node: str, *, lock: bool = False) -> OldDocument | None:
     """Read the old body and the node's Drive threads, or None once a purge took the row; with `lock`, lock it first."""
-    row = old_row(node, ("name", *FIELDS), lock=lock)
+    row = old_row(node, ("name", "modified", *FIELDS), lock=lock)
     if row is None:
         return None
 
@@ -81,7 +83,9 @@ def read_old(node: str, *, lock: bool = False) -> OldDocument | None:
         frappe.db.sql("SELECT `name` FROM `tabDrive Node` WHERE `name` = %s FOR UPDATE", (node,))
 
     legacy = {name: row[name] for name in FIELDS}
-    return OldDocument(row.name, legacy, fingerprint_of(legacy), drive.comment_threads(node))
+    threads = drive.comment_threads(node)
+    [[newest]] = frappe.db.sql(f"SELECT MAX(`modified`) FROM `tab{DOCTYPE}` WHERE `node` = %s", node)
+    return OldDocument(row.name, legacy, fingerprint_of(legacy), threads, newest)
 
 
 def check(node: str, old: OldDocument, converted: convert.Converted) -> CheckedDocument:

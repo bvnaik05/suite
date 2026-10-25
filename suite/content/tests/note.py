@@ -2,6 +2,7 @@
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import frappe
@@ -18,6 +19,7 @@ from suite.content.ingest import EditorSchema
 class OldNote:
     fingerprint: str
     legacy: dict
+    modified: datetime
 
 
 @dataclass(frozen=True)
@@ -36,12 +38,17 @@ def read_fingerprint(node: str) -> str:
 
 def read_old(node: str, *, lock: bool = False) -> OldNote | None:
     row = frappe.db.get_value(
-        "Content Layer Note", {"node": node}, ["html"], as_dict=True, for_update=lock, order_by=None
+        "Content Layer Note",
+        {"node": node},
+        ["html", "modified"],
+        as_dict=True,
+        for_update=lock,
+        order_by=None,
     )
     if row is None:
         return None
 
-    return OldNote(fingerprint_of(row.html), {"html": row.html})
+    return OldNote(fingerprint_of(row.html), {"html": row.html}, row.modified)
 
 
 def check(node: str, old: OldNote, converted: convert.Converted) -> CheckedNote:
