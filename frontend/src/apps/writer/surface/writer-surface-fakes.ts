@@ -137,8 +137,7 @@ export async function fakeCoreEditor() {
       props: {
         extensions: { type: Array as PropType<AnyExtension[]>, default: () => [] },
         rawContent: String,
-        // Unlike the real CoreEditor's false, so the tests that type into it without passing editable keep working
-        editable: { type: Boolean, default: true },
+        editable: Boolean,
       },
       setup(props, { expose, slots }) {
         const extensions = [Document, Paragraph, Text, ...props.extensions]
