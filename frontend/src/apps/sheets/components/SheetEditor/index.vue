@@ -4896,7 +4896,10 @@ function _onEngineVersion() {
   // cache their source matrix: both are stale after any edit.
   condFormat?.invalidate()
   chartDataVersion.value++
-  _refreshUsedCells()
+  // After the grid's own read: the worker answers in order, and this
+  // whole-sheet scan would hold back the repaint that shows the edit
+  // (ISSUES #84). A task, not a microtask, so the repaint's read is sent first.
+  setTimeout(_refreshUsedCells)
   computeSelectionStats() // the selected cells' values may have changed
   _refreshFormulaBar() // an import, pivot or undo may have changed the active cell
   // Edits change the values a filter's lists show.
