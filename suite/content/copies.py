@@ -237,17 +237,27 @@ def replace_copy(
         return None
 
     is_foreign = keep_unprojected(app, doc_id, app_row.written, projection.projection_hash, html_copy)
-    project(app, doc_id, app_row.name, rev, html_copy.rows(html), html_copy)
+    project(app, doc_id, app_row.name, rev, html_copy.rows(html), app_row.written, html_copy)
     keep_copy(app, doc_id, rev, html)
     return app_row.name, is_foreign
 
 
 def project(
-    app: str, doc_id: str, docname: str, rev: int, rows: Mapping[str, str], html_copy: ReadableCopy
+    app: str,
+    doc_id: str,
+    docname: str,
+    rev: int,
+    rows: Mapping[str, str],
+    written: Mapping[str, str],
+    html_copy: ReadableCopy,
 ) -> None:
-    """Write `rows` as the app's copy and record them as the copy at `rev`."""
+    """Write the rows that differ from `written` as the app's copy and record `rows` as the copy at `rev`."""
     projection_table = table(app, "projection")
-    write_copy(app, docname, rows, html_copy)
+    changed = {key: value for key, value in rows.items() if written.get(key) != value}
+    changed |= {key: None for key in written if key not in rows}
+    if changed:
+        write_copy(app, docname, changed, html_copy)
+
     frappe.db.sql(
         f"""UPDATE `{projection_table}` SET `projected_rev` = %s, `projection_hash` = UNHEX(%s),
         `updated` = %s WHERE `doc_id` = %s""",

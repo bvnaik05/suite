@@ -19,7 +19,7 @@ class ReadableCopy(Protocol):
         """Whether a copy a browser rendered holds what the state does."""
 
     def read(self, doctype: str, docname: str) -> Mapping[str, str]:
-        """Answer the rows the copy holds now."""
+        """Answer the rows the copy holds now; called under the app row lock, so a plain SELECT is enough."""
 
     def write(self, doctype: str, docname: str, changed: Mapping[str, str | None]) -> None:
         """Write only the `changed` rows, None removing a row."""

@@ -185,6 +185,14 @@ class TestNoteEditor(IntegrationTestCase):
             self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 2, rows, copy))
 
         self.assertEqual(copy.writes, [])
+        projection_table = table(note.EDITOR.app, "projection")
+        [[projected_rev]] = frappe.db.sql(
+            f"SELECT `projected_rev` FROM `{projection_table}` WHERE `doc_id` = %s", self.doc_id
+        )
+        self.assertEqual(projected_rev, 2)
+        copy_table = table(note.EDITOR.app, "copy")
+        kept = frappe.db.sql(f"SELECT `rev`, `html` FROM `{copy_table}` WHERE `doc_id` = %s", self.doc_id)
+        self.assertEqual([(int(rev), html) for rev, html in kept], [(2, rows)])
 
     def test_a_new_copy_writes_only_the_rows_that_changed(self):
         self.push(typed(self.client_id, "hello"))
@@ -199,6 +207,26 @@ class TestNoteEditor(IntegrationTestCase):
 
         self.assertEqual(copy.writes, [{"b": "<p>two more</p>", "c": None}])
         self.assertEqual(self.html_field(), '{"a":"<p>one</p>","b":"<p>two more</p>"}')
+
+    def test_the_same_copy_overwrites_a_foreign_write(self):
+        self.push(typed(self.client_id, "hello"))
+        copy = multi_copy.MultiCopy()
+        rows = json.dumps({"a": "<p>one</p>", "b": "<p>two</p>"})
+        foreign = '{"a":"<p>foreign</p>","b":"<p>two</p>"}'
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=copy)):
+            copies.write(note.EDITOR.app, self.doc_id, 1, rows, copy)
+            frappe.db.sql(f"UPDATE `{APP_TABLE}` SET `html` = %s WHERE `name` = %s", (foreign, self.node))
+            self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 2, rows, copy))
+
+        self.assertEqual(self.html_field(), '{"a":"<p>one</p>","b":"<p>two</p>"}')
+        recovery_table = table(note.EDITOR.app, "recovery")
+        evidence = frappe.db.sql(
+            f"SELECT `reason`, `payload` FROM `{recovery_table}` WHERE `doc_id` = %s", self.doc_id
+        )
+        self.assertEqual(
+            [(reason, bytes(payload)) for reason, payload in evidence], [("copy_foreign", foreign.encode())]
+        )
 
     def test_compaction_writes_a_note_body_into_the_apps_own_row(self):
         self.push(typed(self.client_id, "kept"))
