@@ -3,7 +3,7 @@ import os
 import resource
 import shutil
 import tempfile
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import frappe
@@ -94,17 +94,16 @@ class TestCompactionAdmission(CompactionCase):
         job = Job.create(admission.limit_memory, connection=get_redis_conn())
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
-        worker = threading.Thread(target=job.perform)
 
         # As frappe's runner runs jobs: on a thread of the site process, the no-fork switch unset
         with (
             patch.dict(os.environ),
             patch.object(admission, "open", create=True, return_value=status),
             patch.object(resource, "setrlimit") as setrlimit,
+            ThreadPoolExecutor(1) as worker,
         ):
             os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
-            worker.start()
-            worker.join()
+            worker.submit(job.perform).result()
 
         setrlimit.assert_not_called()
 
@@ -129,17 +128,16 @@ class TestCompactionAdmission(CompactionCase):
         job = Job.create(admission.limit_memory, connection=get_redis_conn())
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
-        worker = threading.Thread(target=job.perform)
 
         # RQ sets RQ_JOB_ID in the forking worker too, so a process can carry the id of a horse it forked earlier
         with (
             patch.dict(os.environ, RQ_JOB_ID="an-earlier-job"),
             patch.object(admission, "open", create=True, return_value=status),
             patch.object(resource, "setrlimit") as setrlimit,
+            ThreadPoolExecutor(1) as worker,
         ):
             os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
-            worker.start()
-            worker.join()
+            worker.submit(job.perform).result()
 
         setrlimit.assert_not_called()
 
