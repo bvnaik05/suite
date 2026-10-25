@@ -338,7 +338,7 @@ class TestNoteEditor(NoteAppCase):
         with self.assertRaisesRegex(frappe.ValidationError, "Collaboration in note can't be turned off"):
             settings.save(ignore_permissions=True)
 
-        content.require_enabled(note.EDITOR.app)
+        self.assertTrue(content.enabled(note.EDITOR.app))
 
     def test_only_a_log_that_is_not_purged_counts(self):
         self.assertTrue(log.has_logs(note.EDITOR.app))
@@ -375,7 +375,7 @@ class TestNoteEditor(NoteAppCase):
 
     def test_notes_off_answer_disabled_and_leave_the_other_apps_on(self):
         self.purge_every_log()
-        self.assertTrue(content.enabled(note.EDITOR.app))
+        content.require_enabled(note.EDITOR.app)
 
         log.set_mode(note.EDITOR.app, "off")
 
