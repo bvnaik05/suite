@@ -1948,6 +1948,23 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(seen[:3], nodes[::-1])
         self.assertEqual(len(seen), len(set(seen)))
 
+    def test_goes_through_documents_tied_on_modified_across_a_page_edge(self):
+        nodes = self.old_documents(3)
+        tied = frappe.db.get_value("Writer Document", self.docname_of(nodes[-1]), "modified")
+        for node in nodes:
+            frappe.db.set_value(
+                "Writer Document", self.docname_of(node), "modified", tied, update_modified=False
+            )
+
+        frappe.db.commit()
+
+        with patch.object(convert, "PAGE", 2):
+            seen = self.run_on([])
+
+        ours = [node for node in seen if node in nodes]
+        self.assertEqual(ours, sorted(nodes, key=self.docname_of, reverse=True))
+        self.assertEqual(len(seen), len(set(seen)))
+
     def test_starts_no_document_once_its_time_is_up(self):
         [node] = self.old_documents(1)
 
