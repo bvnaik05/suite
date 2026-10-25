@@ -5,14 +5,14 @@ import struct
 import uuid
 from collections.abc import Callable
 from dataclasses import replace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 import pycrdt
 from frappe.tests import IntegrationTestCase
 
-from suite import content
-from suite.content import capacity, copies, jobs, log, logged
+from suite import content, drive
+from suite.content import capacity, conversions, convert, copies, jobs, log, logged
 from suite.content.editors import MediaReferences, editors
 from suite.content.tables import KINDS, ensure_tables, table
 from suite.content.tests import multi_copy, note
@@ -371,3 +371,52 @@ class TestNoteEditor(IntegrationTestCase):
             {name: content.enabled(name) for name in self.others},
             {name: mode == "on" for name, mode in self.others.items()},
         )
+
+    def remove_note(self, node: str) -> None:
+        doc_id = log.mark_purged(note.EDITOR.app, node)
+        if doc_id:
+            log.delete_purged(note.EDITOR.app, doc_id)
+
+        for conversion_table in ("__note_content_conversion", "__writer_content_conversion"):
+            frappe.db.sql(f"DELETE FROM `{conversion_table}` WHERE `node` = %s", node)
+
+        frappe.db.sql(f"DELETE FROM `{APP_TABLE}` WHERE `name` = %s", node)
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+    def test_an_old_note_converts_through_the_layer(self):
+        node = frappe.generate_hash(length=10)
+        frappe.db.sql(
+            f"INSERT INTO `{APP_TABLE}` (`name`, `node`, `body`, `html`) VALUES (%s, %s, '', '<p>Old</p>')",
+            (node, node),
+        )
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        self.addCleanup(self.remove_note, node)
+        converted = convert.Converted(
+            state=typed(1, "Hello"), source="html", dropped=[], anchors={}, threads=[], html="<p>Hello</p>"
+        )
+        fix_up = MagicMock(wraps=note.EDITOR.conversion.fix_up)
+        conversion = replace(note.EDITOR.conversion, fix_up=fix_up)
+
+        with (
+            patch.object(note, "EDITOR", replace(note.EDITOR, conversion=conversion)),
+            patch.object(convert, "convert", return_value=converted),
+            patch.object(drive, "take_version") as take_version,
+        ):
+            outcome = conversions.convert_document(note.EDITOR.app, node)
+
+        self.assertEqual(outcome, "converted")
+        self.assertEqual(
+            text_of(content.read(note.EDITOR.app, log.find(note.EDITOR.app, node).id).checkpoint), "Hello"
+        )
+        [[html]] = frappe.db.sql(f"SELECT `html` FROM `{APP_TABLE}` WHERE `name` = %s", node)
+        self.assertEqual(html, "<p>Hello</p>")
+        self.assertEqual(
+            frappe.db.sql("SELECT `outcome` FROM `__note_content_conversion` WHERE `node` = %s", node),
+            (("converted",),),
+        )
+        self.assertFalse(frappe.db.sql("SELECT 1 FROM `__writer_content_conversion` WHERE `node` = %s", node))
+        take_version.assert_called_once_with(node, kind="milestone", label="Before collaboration")
+        fix_up.assert_called_once()
+        [[fixed_node, _old, checked]] = [call.args for call in fix_up.call_args_list]
+        self.assertEqual(fixed_node, node)
+        self.assertEqual(checked.html, "<p>Hello</p>")
