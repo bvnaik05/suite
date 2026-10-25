@@ -9,6 +9,7 @@ own bound stay under the cap.
 from datetime import datetime
 
 import frappe
+from frappe.utils.caching import site_cache
 
 from suite.content import ingest, updates
 
@@ -25,9 +26,14 @@ FULL_RETRY_MS = 300_000
 
 def edit_max() -> int:
     """Return the most one push may commit: `CHANGE_MAX` at most, halved as escaping can double it."""
-    packet_rows = frappe.db.sql("SELECT @@max_allowed_packet")
-    max_packet = int(packet_rows[0][0])
-    return min(CHANGE_MAX, (max_packet - 2**20) // 2)
+    return min(CHANGE_MAX, (max_packet() - 2**20) // 2)
+
+
+@site_cache
+def max_packet() -> int:
+    """Read the database's packet limit once per site and process."""
+    ((packet,),) = frappe.db.sql("SELECT @@max_allowed_packet")
+    return int(packet)
 
 
 class Full(Exception):

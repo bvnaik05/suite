@@ -147,6 +147,8 @@ class TestAdmit(UnitTestCase):
 
 class TestEditMax(UnitTestCase):
     def edit_max(self, packet: int) -> int:
+        self.addCleanup(capacity.max_packet.clear_cache)
+        capacity.max_packet.clear_cache()
         with patch.object(frappe.db, "sql", return_value=[[packet]]):
             return capacity.edit_max()
 
