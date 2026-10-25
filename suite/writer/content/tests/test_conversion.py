@@ -2023,8 +2023,15 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual((queued["app"], queued["job_id"]), ("writer", "suite-convert-writer"))
 
     def test_queues_and_runs_no_conversion_while_the_app_is_off(self):
+        frappe.get_cached_doc("Suite Collab Settings")
+        self.addCleanup(frappe.clear_document_cache, "Suite Collab Settings", "Suite Collab Settings")
+        row = frappe.db.get_value(
+            "Suite Collab App",
+            {"parent": "Suite Collab Settings", "parentfield": "apps", "app": writer_content.APP},
+        )
+        self.addCleanup(frappe.db.set_value, "Suite Collab App", row, "mode", "on")
+        frappe.db.set_value("Suite Collab App", row, "mode", "off")
         with (
-            patch.object(log, "enabled", return_value=False),
             patch.object(frappe, "enqueue") as enqueue,
             patch.object(conversions, "run_pending") as running,
         ):
