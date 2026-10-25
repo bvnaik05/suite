@@ -82,7 +82,7 @@ def replay(app: str, doc_id: str, header: PushHeader, acked_seq: int, head_rev: 
         "rev": int(last_row.rev),
         "chain": bytes(last_row.chain).hex(),
         "acked": acked_seq,
-        "head": head_rev,
+        "head": max(head_rev, int(last_row.rev)),
         "pace_ms": PACE_MS,
     }
 
@@ -136,7 +136,7 @@ def assembled_payload(app: str, doc_id: str, stage_id: str, header: PushHeader) 
 
 
 def replay_unlocked(app: str, doc_id: str, head_rev: int, header: PushHeader, user: str) -> dict | None:
-    """Answer a repeat before the lock at `head_rev`; no commit runs between logged_doc and replay_unlocked."""
+    """Answer a repeat before the lock; its head is at least the replayed rev, since that rev is committed."""
     session = session_for(app, doc_id, header, user)
     return replay(app, doc_id, header, int(session.acked_seq), int(head_rev))
 
