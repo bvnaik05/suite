@@ -5,7 +5,8 @@
  "engine": "InnoDB",
  "field_order": [
   "app",
-  "mode"
+  "mode",
+  "conversion_paused"
  ],
  "fields": [
   {
@@ -25,11 +26,19 @@
    "label": "Mode",
    "options": "off\non",
    "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "While paused, documents not yet converted aren't converted and stay read-only",
+   "fieldname": "conversion_paused",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Pause conversion"
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-10-17 12:00:00.000000",
+ "modified": "2026-10-25 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Content",
  "name": "Suite Collab App",

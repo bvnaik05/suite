@@ -54,8 +54,8 @@ def hooks_with_note(real_get_hooks: Callable) -> Callable:
     return get_hooks
 
 
-class TestNoteEditor(IntegrationTestCase):
-    """An app with no product code keeps its documents in the layer, under its own declarations and switch."""
+class NoteAppCase(IntegrationTestCase):
+    """The note app's hooks, tables and switch, and a note with a log for each test."""
 
     @classmethod
     def create_note_tables(cls) -> None:
@@ -107,6 +107,21 @@ class TestNoteEditor(IntegrationTestCase):
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
         self.sid = uuid.uuid4().hex
         self.client_id = content.issue_session(note.EDITOR.app, self.doc_id, self.sid, "Administrator")
+
+    def remove_note(self, node: str) -> None:
+        doc_id = log.mark_purged(note.EDITOR.app, node)
+        if doc_id:
+            log.delete_purged(note.EDITOR.app, doc_id)
+
+        for conversion_table in ("__note_content_conversion", "__writer_content_conversion"):
+            frappe.db.sql(f"DELETE FROM `{conversion_table}` WHERE `node` = %s", node)
+
+        frappe.db.sql(f"DELETE FROM `{APP_TABLE}` WHERE `name` = %s", node)
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+class TestNoteEditor(NoteAppCase):
+    """An app with no product code keeps its documents in the layer, under its own declarations and switch."""
 
     def push(self, payload: bytes) -> dict:
         lineage = content.find(note.EDITOR.app, self.node).lineage
@@ -371,17 +386,6 @@ class TestNoteEditor(IntegrationTestCase):
             {name: content.enabled(name) for name in self.others},
             {name: mode == "on" for name, mode in self.others.items()},
         )
-
-    def remove_note(self, node: str) -> None:
-        doc_id = log.mark_purged(note.EDITOR.app, node)
-        if doc_id:
-            log.delete_purged(note.EDITOR.app, doc_id)
-
-        for conversion_table in ("__note_content_conversion", "__writer_content_conversion"):
-            frappe.db.sql(f"DELETE FROM `{conversion_table}` WHERE `node` = %s", node)
-
-        frappe.db.sql(f"DELETE FROM `{APP_TABLE}` WHERE `name` = %s", node)
-        frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
     def test_an_old_note_converts_through_the_layer(self):
         node = frappe.generate_hash(length=10)
