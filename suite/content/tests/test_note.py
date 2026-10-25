@@ -270,6 +270,29 @@ class TestNoteEditor(IntegrationTestCase):
 
         self.assertEqual(self.html_field(), lost)
 
+    def test_a_repeated_mismatch_alerts_once(self):
+        self.push(typed(self.client_id, "hello"))
+        good = multi_copy.MultiCopy()
+        lossy = multi_copy.LossyCopy()
+        second = json.dumps({"a": "<p>one</p>", "b": "<p>two more</p>"})
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=good)):
+            self.assertTrue(
+                copies.write(note.EDITOR.app, self.doc_id, 1, json.dumps({"a": "<p>one</p>"}), good)
+            )
+
+        alerts = frappe.db.count("Error Log", {"method": ["like", "Collab readable copy%"]})
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=lossy)):
+            self.assertFalse(copies.write(note.EDITOR.app, self.doc_id, 2, second, lossy))
+            self.assertFalse(copies.write(note.EDITOR.app, self.doc_id, 2, second, lossy))
+
+        recovery_table = table(note.EDITOR.app, "recovery")
+        evidence = frappe.db.sql(f"SELECT `reason` FROM `{recovery_table}` WHERE `doc_id` = %s", self.doc_id)
+        self.assertEqual([reason for (reason,) in evidence], ["copy_mismatch"])
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": ["like", "Collab readable copy%"]}), alerts + 1
+        )
+
     def test_compaction_writes_a_note_body_into_the_apps_own_row(self):
         self.push(typed(self.client_id, "kept"))
 
