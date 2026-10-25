@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import frappe
 
-from suite.content import copies, jobs, scheduling
+from suite.content import copies, jobs, logged, scheduling
 from suite.content.http import routes
 from suite.content.stage import PIECE_MAX
 from suite.writer import content as writer_content
@@ -143,6 +143,16 @@ class TestReadableCopies(CheckpointCase):
             "SELECT `projection_hash` FROM `__writer_content_projection` WHERE `doc_id` = %s", self.doc.id
         )
         self.assertEqual(bytes(stored_hash), hashlib.sha256(b"<p>one two</p>").digest())
+
+    def test_a_remap_rewrites_the_html_copy(self):
+        picture = '<img src="/api/method/suite.writer.api.embed.get?id={}">'
+        self.assertEqual(self.install(2, "<p>one two</p>" + picture.format("old")), "installed")
+        jobs.compact(writer_content.APP, self.doc.id)
+        self.assertEqual(self.html_field(), "<p>one two</p>" + picture.format("old"))
+
+        self.assertTrue(logged.remap(writer_content.APP, self.node, {"old": "new"}))
+
+        self.assertEqual(self.html_field(), "<p>one two</p>" + picture.format("new"))
 
     def age_copy(self, seconds: int):
         frappe.db.sql(
