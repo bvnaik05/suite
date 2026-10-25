@@ -138,7 +138,8 @@ def load_log_row(doc_id: str) -> frappe._dict:
 def load_document_row(node: str) -> frappe._dict | None:
     """Load and lock the Writer Document row of `node`."""
     rows = frappe.db.sql(
-        "SELECT `name`, `owner`, `content` FROM `tabWriter Document` WHERE `node` = %s FOR UPDATE",
+        """SELECT `name`, `owner`, `content` FROM `tabWriter Document`
+        WHERE `node` = %s ORDER BY `name` LIMIT 1 FOR UPDATE""",
         node,
         as_dict=True,
     )
