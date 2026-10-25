@@ -165,7 +165,11 @@ def remap(app: str, node: str, mapping: dict[str, str]) -> bool:
     if html_copy is not None:
         app_row = locked_app_row(app, doc.id, html_copy)
         if app_row is not None:
-            write_copy(app, app_row.name, guarded_rewrite(app_row.written or ""), html_copy)
+            rewritten = {key: guarded_rewrite(value) for key, value in app_row.written.items()}
+            changed = {key: value for key, value in rewritten.items() if value != app_row.written[key]}
+            if changed:
+                write_copy(app, app_row.name, changed, html_copy)
+
             forget_cached(app, app_row.name)
 
     try:

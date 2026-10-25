@@ -1,12 +1,14 @@
 """Readable copies (4i): a tab's render, checked against the document at its rev, then put in the app's row.
 
-The app's copy field is written only here, under the projection row's lock, and the projection row keeps
-the sha of what was written. Anything else found in the field is kept as evidence before it is replaced.
+The app's copy is written only here and in a media remap, through the app's `ReadableCopy`, under the
+projection row's lock, and the projection row keeps the sha of what was written. Anything else found in the
+copy is kept as evidence before it is replaced.
 An app with no readable copy skips all of it.
 """
 
 import hashlib
 import re
+from collections.abc import Mapping
 from datetime import timedelta
 from http import HTTPStatus
 
@@ -26,7 +28,7 @@ from frappe.utils.html_utils import (
 
 from suite.content import compaction, db, stage
 from suite.content.app_row import copy_row, forget_cached, locked_app_row, write_copy
-from suite.content.editors import HtmlCopy, spec_of
+from suite.content.editors import ReadableCopy, spec_of
 from suite.content.log import Refusal
 from suite.content.sessions import load_session
 from suite.content.snapshot import Snapshot, read
@@ -129,7 +131,7 @@ def check_staged(app: str, doc_id: str) -> str | None:
 
 
 def install(
-    app: str, doc_id: str, rev: int, lineage: str, q_epoch: int, html: str, html_copy: HtmlCopy
+    app: str, doc_id: str, rev: int, lineage: str, q_epoch: int, html: str, html_copy: ReadableCopy
 ) -> str:
     """Make a render at `rev` the readable copy if it holds the document then: installed, stale or refused."""
     log_read = read(app, doc_id, integrated=True)
@@ -205,7 +207,7 @@ def state_at(app: str, log_read: Snapshot, rev: int) -> bytes:
     return compacted.state
 
 
-def write(app: str, doc_id: str, rev: int, html: str, html_copy: HtmlCopy) -> bool:
+def write(app: str, doc_id: str, rev: int, html: str, html_copy: ReadableCopy) -> bool:
     """T3a: lock the app's row, then the projection row; replace the copy if `rev` is newer than it."""
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
     replaced = replace_copy(app, doc_id, rev, html, html_copy)
@@ -222,7 +224,9 @@ def write(app: str, doc_id: str, rev: int, html: str, html_copy: HtmlCopy) -> bo
     return True
 
 
-def replace_copy(app: str, doc_id: str, rev: int, html: str, html_copy: HtmlCopy) -> tuple[str, bool] | None:
+def replace_copy(
+    app: str, doc_id: str, rev: int, html: str, html_copy: ReadableCopy
+) -> tuple[str, bool] | None:
     """Replace the copy in the caller's transaction if `rev` is newer; answers the row and whether it was written elsewhere."""
     app_row = locked_app_row(app, doc_id, html_copy)
     if app_row is None:
@@ -232,20 +236,22 @@ def replace_copy(app: str, doc_id: str, rev: int, html: str, html_copy: HtmlCopy
     if int(projection.projected_rev) >= rev:
         return None
 
-    is_foreign = keep_unprojected(app, doc_id, app_row.written or "", projection.projection_hash)
-    project(app, doc_id, app_row.name, rev, html, html_copy)
+    is_foreign = keep_unprojected(app, doc_id, app_row.written, projection.projection_hash, html_copy)
+    project(app, doc_id, app_row.name, rev, html_copy.rows(html), html_copy)
     keep_copy(app, doc_id, rev, html)
     return app_row.name, is_foreign
 
 
-def project(app: str, doc_id: str, docname: str, rev: int, html: str, html_copy: HtmlCopy) -> None:
-    """Write `html` to the app's copy field and record it as the copy at `rev`."""
+def project(
+    app: str, doc_id: str, docname: str, rev: int, rows: Mapping[str, str], html_copy: ReadableCopy
+) -> None:
+    """Write `rows` as the app's copy and record them as the copy at `rev`."""
     projection_table = table(app, "projection")
-    write_copy(app, docname, html, html_copy)
+    write_copy(app, docname, rows, html_copy)
     frappe.db.sql(
         f"""UPDATE `{projection_table}` SET `projected_rev` = %s, `projection_hash` = UNHEX(%s),
         `updated` = %s WHERE `doc_id` = %s""",
-        (rev, sha_of(html), now_datetime(), doc_id),
+        (rev, sha_of(html_copy.serialized(rows)), now_datetime(), doc_id),
     )
 
 
@@ -261,19 +267,22 @@ def locked_projection(app: str, doc_id: str) -> frappe._dict:
     return projection
 
 
-def keep_unprojected(app: str, doc_id: str, written: str, projection_hash: bytes | None) -> bool:
-    """Keep what the field holds if no copy put it there; answers whether something else wrote over a copy."""
+def keep_unprojected(
+    app: str, doc_id: str, written: Mapping[str, str], projection_hash: bytes | None, html_copy: ReadableCopy
+) -> bool:
+    """Keep what the copy holds if no copy put it there; answers whether something else wrote over a copy."""
+    serialized = html_copy.serialized(written)
     if projection_hash is None:
         # The body from before the log, kept quietly
         if written:
-            keep_evidence(app, doc_id, "copy_first", written, None)
+            keep_evidence(app, doc_id, "copy_first", serialized, None)
 
         return False
 
-    if sha_of(written) == bytes(projection_hash).hex():
+    if sha_of(serialized) == bytes(projection_hash).hex():
         return False
 
-    keep_evidence(app, doc_id, "copy_foreign", written, None)
+    keep_evidence(app, doc_id, "copy_foreign", serialized, None)
     return True
 
 
@@ -332,9 +341,9 @@ def readable_copy(app: str, doc_id: str) -> str | None:
     if copy is None:
         return None
 
-    written = copy.written or ""
-    if sha_of(written) != bytes(copy.projection_hash).hex():
-        if keep_evidence(app, doc_id, "copy_foreign", written, None):
+    serialized = html_copy.serialized(copy.written)
+    if sha_of(serialized) != bytes(copy.projection_hash).hex():
+        if keep_evidence(app, doc_id, "copy_foreign", serialized, None):
             frappe.db.commit()  # nosemgrep: frappe-manual-commit
             db.alert("Collab readable copy: written elsewhere", f"{app} document {doc_id}, kept as evidence")
 
@@ -343,7 +352,7 @@ def readable_copy(app: str, doc_id: str) -> str | None:
     if int(copy.projected_rev) != int(copy.head_rev):
         return None
 
-    return written
+    return html_copy.html(copy.written)
 
 
 def sha_of(html: str) -> str:

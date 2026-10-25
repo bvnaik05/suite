@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import frappe
 
@@ -11,13 +12,61 @@ from suite import drive
 from suite.content.ingest import EditorSchema
 
 
+class ReadableCopy(Protocol):
+    """The readable copy of each document, as rows the app keeps by key."""
+
+    def is_html_complete(self, state: bytes, html: str, text: str) -> bool:
+        """Whether a copy a browser rendered holds what the state does."""
+
+    def read(self, doctype: str, docname: str) -> Mapping[str, str]:
+        """Answer the rows the copy holds now."""
+
+    def write(self, doctype: str, docname: str, changed: Mapping[str, str | None]) -> None:
+        """Write only the `changed` rows, None removing a row."""
+
+    def serialized(self, rows: Mapping[str, str]) -> str:
+        """Answer the copy as the one string hashed and kept as evidence; JSON with sorted keys and `(",", ":")` for several rows."""
+
+    def rows(self, html: str) -> Mapping[str, str]:
+        """Make a checked render into the copy's rows."""
+
+    def html(self, rows: Mapping[str, str]) -> str:
+        """Answer the copy as HTML."""
+
+
 @dataclass(frozen=True)
 class HtmlCopy:
-    """The readable HTML copy of each document, kept in the app's row in `field`. `is_html_complete(state,
-    html, text)` says whether a copy a browser rendered holds what the state does."""
+    """A readable copy of one row, the HTML in the app's row in `field`."""
 
     field: str
     is_html_complete: Callable[[bytes, str, str], bool]
+
+    def read(self, doctype: str, docname: str) -> Mapping[str, str]:
+        """Answer the field as the copy's one row, or no row when it is empty."""
+        found = frappe.db.sql(f"SELECT `{self.field}` FROM `tab{doctype}` WHERE `name` = %s", docname)
+        if not found or not found[0][0]:
+            return {}
+
+        return {self.field: found[0][0]}
+
+    def write(self, doctype: str, docname: str, changed: Mapping[str, str | None]) -> None:
+        """Write the field, emptied when its row is removed."""
+        frappe.db.sql(
+            f"UPDATE `tab{doctype}` SET `{self.field}` = %s WHERE `name` = %s",
+            (changed[self.field] or "", docname),
+        )
+
+    def serialized(self, rows: Mapping[str, str]) -> str:
+        """Answer the field's HTML."""
+        return rows.get(self.field, "")
+
+    def rows(self, html: str) -> Mapping[str, str]:
+        """Make the render the field's one row."""
+        return {self.field: html}
+
+    def html(self, rows: Mapping[str, str]) -> str:
+        """Answer the field's HTML."""
+        return rows.get(self.field, "")
 
 
 @dataclass(frozen=True)
@@ -55,7 +104,7 @@ class EditorSpec:
     part_map: Mapping[str, type]
     schema: EditorSchema
     checker_build: Path
-    readable_copy: HtmlCopy | None
+    readable_copy: ReadableCopy | None
     media: MediaReferences | None
     always_on: bool = False
     conversion: Conversion | None = None
@@ -118,9 +167,11 @@ def wrong_declarations(spec: EditorSpec) -> list[str]:
         return isinstance(value, str) and bool(value)
 
     def copy_right(copy: object) -> bool:
-        return copy is None or (
-            isinstance(copy, HtmlCopy) and text(copy.field) and callable(copy.is_html_complete)
-        )
+        if isinstance(copy, HtmlCopy):
+            return text(copy.field) and callable(copy.is_html_complete)
+
+        names = ("is_html_complete", "read", "write", "serialized", "rows", "html")
+        return copy is None or all(callable(getattr(copy, name, None)) for name in names)
 
     def media_right(media: object) -> bool:
         return media is None or (
