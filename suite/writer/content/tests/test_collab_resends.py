@@ -33,6 +33,20 @@ class TestWriterCollabResends(CollabCase):
         self.assertEqual(body["head"], first[1]["head"])
         self.assert_one_order(node, 1)
 
+    def test_a_resend_answers_the_head_another_session_moved(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+        other_sid, other_client_id = self.start_session(node)
+        first = self.push(node, sid, client_id, 1)
+        other = self.push(node, other_sid, other_client_id, 1)
+        self.assertEqual((first[0], other[0], first[1]["rev"], other[1]["rev"]), (200, 200, 1, 2))
+
+        status, body = self.push(node, sid, client_id, 1)
+
+        self.assertEqual((status, body["dup"], body["rev"]), (200, True, 1))
+        self.assertEqual(body["head"], other[1]["rev"])
+
     def test_a_resend_answers_while_the_doc_is_locked(self):
         self.set_mode("on")
         node = self.new_document()
