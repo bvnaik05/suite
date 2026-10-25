@@ -139,6 +139,19 @@ export function writeNewerSchema(testApi: APIRequestContext, node: string) {
 	return callTestHook<CollabState>(testApi, "write_newer_schema", node);
 }
 
+/** Make `node` an old Writer document holding `html`, with no collab log and no conversion record. */
+export async function makeOld(testApi: APIRequestContext, node: string, html: string): Promise<void> {
+	const response = await testApi.post("/api/method/suite.writer.content.e2e_api.make_old", {
+		form: { node, html },
+	});
+	expect(response.ok(), await response.text()).toBe(true);
+}
+
+/** Convert an old document now, as the queued conversion would; the outcome, or null if it didn't run. */
+export function convertNow(testApi: APIRequestContext, node: string) {
+	return callTestHook<string | null>(testApi, "convert_now", node);
+}
+
 /** How many rows each collab table holds for a log, keyed by table kind. */
 export async function logRowCounts(
 	testApi: APIRequestContext,

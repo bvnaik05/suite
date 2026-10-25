@@ -4,8 +4,10 @@ import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, test } from "../../fixtures/test";
 import {
+	convertNow,
 	expectConverged,
 	expectSaved,
+	makeOld,
 	openForCollab,
 	pastePicture,
 	picturesLoaded,
@@ -121,6 +123,27 @@ test.describe("Writer collaboration", () => {
 			["Kept in the version", "Typed after the restore"],
 		);
 		expect(afterUndo.filter(Boolean).sort()).toEqual(["Kept in the version", "Typed after the restore"]);
+	});
+
+	test("restoring Before collaboration on a converted document gives back its old body", async ({
+		owner,
+		testApi,
+	}) => {
+		const { page } = owner;
+		await makeOld(testApi, node, "<p>Old first</p><p>Old second</p>");
+		expect(await convertNow(testApi, node)).toBe("converted");
+		expect(await serverBlocks(testApi, node)).toEqual(["Old first", "Old second"]);
+		await openWriterDocument(page, node);
+		await typeParagraph(page, "Typed after conversion");
+		await expectSaved(page);
+		await expectConverged(testApi, node, [page], ["Typed after conversion"]);
+		const panel = await openVersions(page);
+
+		await restoreFromPreview(page, panel, "Before collaboration");
+
+		await expect(page.getByText("Version restored")).toBeVisible();
+		const restored = await expectConverged(testApi, node, [page], ["Old first", "Old second"]);
+		expect(restored.filter(Boolean)).toEqual(["Old first", "Old second"]);
 	});
 
 	test("a second restore within a minute restores nothing and says how long to wait", async ({

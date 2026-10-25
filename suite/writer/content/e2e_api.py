@@ -11,6 +11,7 @@ from suite import content
 from suite.content import (
     capacity,
     compaction,
+    conversions,
     jobs,
     logged,
     quarantine,
@@ -167,6 +168,40 @@ def write_newer_schema(node: str) -> dict:
         (steps_json, log_row["id"]),
     )
     return state(node)
+
+
+@whitelist_for_tests(methods=["POST"])
+def make_old(node: str, html: str) -> None:
+    """Make `node` an old Writer document holding `html`, with no log and no conversion record."""
+    log_row = content.find(writer_content.APP, node)
+    doc_id = (log_row or {}).get("id")
+    keys = {"doc": ("id", doc_id), "conversion": ("node", node)}
+    for kind in KINDS:
+        column, value = keys.get(kind, ("doc_id", doc_id))
+        if value is None:
+            continue
+
+        kind_table = table(writer_content.APP, kind)
+        frappe.db.sql(f"DELETE FROM `{kind_table}` WHERE `{column}` = %s", value)
+
+    old = {"content": None, "html": html, "collab": 0, "ycomments": None}
+    frappe.db.set_value("Writer Document", {"node": node}, old, update_modified=False)
+    if content.find(writer_content.APP, node) is not None:
+        raise frappe.ValidationError(f"{node} still has a collab log")
+
+    frappe.db.commit()
+
+
+@whitelist_for_tests(methods=["POST"])
+def convert_now(node: str) -> str | None:
+    """Convert `node`'s old body in this request, as the queued conversion would; answer the outcome."""
+    job = getattr(frappe.local, "job", None)
+    try:
+        # The converter runs only in background jobs
+        frappe.local.job = frappe._dict(job_name="e2e convert_now")
+        return conversions.convert_document(writer_content.APP, node)
+    finally:
+        frappe.local.job = job
 
 
 @whitelist_for_tests(methods=["POST"])
