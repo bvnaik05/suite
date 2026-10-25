@@ -31,7 +31,6 @@ from suite.writer.content.tests.support import (
     OUTSIDER,
     READER,
     WRITER,
-    CheckpointCase,
     answer,
     call_route,
     read_frame,
@@ -68,10 +67,9 @@ class HeldDocument:
     pen: Pen
 
 
-class TestSuspect(CheckpointCase):
+class TestSuspect(compaction_case.CompactionCase):
     recovery_copies = test_quarantine.TestQuarantine.recovery_copies
     row_states = test_quarantine.TestQuarantine.row_states
-    release_places = compaction_case.CompactionCase.release_places
 
     def setUp(self):
         super().setUp()
@@ -668,8 +666,11 @@ class TestSuspect(CheckpointCase):
         doc_id = self.doc_row(node).id
         self.set_doc(node, suspect="unreadable")
         redis = get_redis_conn()
+        live_key = f"suite:collab:compacting:{frappe.local.site}:writer:a-live-doc"
+        redis.set(live_key, "a-live-job", nx=True, ex=5)
+        self.addCleanup(redis.eval, admission.RELEASE_SCRIPT, 1, live_key, "a-live-job")
         for index in range(admission.PLACES):
-            redis.set(f"suite:collab:compaction:{index}", "elsewhere", ex=60)
+            redis.set(f"{admission.KEY_PREFIX}compaction:{index}", "elsewhere", ex=60)
 
         self.addCleanup(self.release_places)
 
@@ -683,8 +684,9 @@ class TestSuspect(CheckpointCase):
         self.assertIn((JUDGE, doc_id), self.requested)
 
         self.release_places()
+        self.assertEqual(redis.get(live_key), b"a-live-job")
         self.assertEqual(self.judge(node), "clean")
-        compacting_key = f"suite:collab:compacting:{frappe.local.site}:writer:{doc_id}"
+        compacting_key = f"{admission.KEY_PREFIX}compacting:{frappe.local.site}:writer:{doc_id}"
         self.assertFalse(redis.exists(compacting_key))
 
     def test_a_re_judge_asked_while_the_judge_runs_is_judged_before_the_judge_ends(self):
@@ -771,7 +773,7 @@ class TestSuspect(CheckpointCase):
         ):
             self.judge(node)
 
-        compacting_key = f"suite:collab:compacting:{frappe.local.site}:writer:{doc_id}"
+        compacting_key = f"{admission.KEY_PREFIX}compacting:{frappe.local.site}:writer:{doc_id}"
         self.assertFalse(get_redis_conn().exists(compacting_key))
 
     def assert_verdict_asks_for_compaction(self, verdict: str):
