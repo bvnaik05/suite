@@ -914,6 +914,13 @@ class TestConversion(DriveCallbackCase):
             ("copy missing", writer_content, "is_html_complete", {"return_value": False}, ("check", "copy")),
             ("copy not written", copies, "replace_copy", {"return_value": None}, ("check", "copy")),
             (
+                "copy mismatch",
+                copies,
+                "replace_copy",
+                {"side_effect": copies.CopyMismatch("x")},
+                ("check", "copy"),
+            ),
+            (
                 "copy emptied",
                 convert,
                 "convert",
