@@ -399,6 +399,57 @@ class TestRollout(NoteAppCase):
         self.assertEqual((allowed, errors), ([True], []))
         self.assertTrue(log.enabled(note.EDITOR.app))
 
+    def test_a_retry_after_the_body_changed_converts_nothing_once_turned_off(self):
+        self.addCleanup(log.set_mode, note.EDITOR.app, "on")
+        self.purge_every_log()
+        node = self.old_note()
+        site = frappe.local.site
+        errors: list[Exception] = []
+        turned_off: list[bool] = []
+        converted = convert.Converted(
+            state=typed(1, "Edited"), source="html", dropped=[], anchors={}, threads=[], html="<p>Edited</p>"
+        )
+        real_drop_attempt = conversions.drop_attempt
+
+        def edit_while_converting(*args, **kwargs):
+            if not turned_off:
+                frappe.db.sql(f"UPDATE `{APP_TABLE}` SET `html` = '<p>Edited</p>' WHERE `node` = %s", node)
+                frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+            return converted
+
+        def turn_off_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                log.set_mode(note.EDITOR.app, "off")
+                frappe.db.commit()  # nosemgrep: frappe-manual-commit
+            except Exception as error:
+                errors.append(error)
+            finally:
+                frappe.destroy()
+
+        # The off-save lands after the dropped attempt commits, before the retry starts its own
+        def drop_attempt(*args, **kwargs):
+            real_drop_attempt(*args, **kwargs)
+            if not turned_off:
+                turned_off.append(True)
+                admin = threading.Thread(target=turn_off_elsewhere)
+                admin.start()
+                admin.join(30)
+
+        with (
+            patch.object(convert, "convert", side_effect=edit_while_converting),
+            patch.object(conversions, "drop_attempt", drop_attempt),
+            patch.object(drive, "take_version"),
+        ):
+            conversions.convert_page(note.EDITOR.app, [frappe._dict(node=node)], time.monotonic() + 60)
+
+        self.assertEqual((errors, turned_off), ([], [True]))
+        self.assertFalse(log.enabled(note.EDITOR.app))
+        self.assertIsNone(log.find(note.EDITOR.app, node))
+        self.assertFalse(frappe.db.sql("SELECT 1 FROM `__note_content_conversion` WHERE `node` = %s", node))
+
     def test_a_paused_backlog_is_not_waiting(self):
         with (
             patch.object(convert, "editors", return_value={note.EDITOR.app: note.EDITOR}),

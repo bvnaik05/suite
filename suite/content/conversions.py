@@ -136,6 +136,10 @@ def convert_document(app: str, node: str) -> str | None:
         if outcome != CHANGED:
             return outcome
 
+        # drop_attempt's commit let go of the app row, so an off-save may have landed since
+        if not convert.may_convert(app, lock=True):
+            return None
+
     return None
 
 
