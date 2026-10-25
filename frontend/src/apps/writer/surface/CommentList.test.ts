@@ -338,6 +338,27 @@ describe('people a comment mentions', () => {
     ])
   })
 
+  it('names a person Drive found mentioned whatever the case of their token', () => {
+    const { host } = showList({
+      threads: [
+        {
+          ...WHOLE,
+          comments: [
+            {
+              ...comment('c9', 'Asha Rao', 'Ask @[BEN@x.com] or @[ghost]'),
+              mentions: ['ben@x.com'],
+            },
+          ],
+        } as unknown as DocumentThread,
+      ],
+    })
+
+    expect([rows(host), tinted(host)]).toEqual([
+      [expect.stringMatching(/Ask @Ben Roy or @\[ghost\]$/)],
+      ['@Ben Roy'],
+    ])
+  })
+
   it('names them the same in comments posting and not posted, closed and open', async () => {
     const { list } = fakeDrafts([
       { text: 'Ask @[ben@x.com]', isSent: true, isPosting: true },

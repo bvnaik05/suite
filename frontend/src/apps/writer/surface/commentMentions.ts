@@ -112,11 +112,19 @@ export function toParts(content: string, mentions?: string[]): CommentPart[] {
   let from = 0
   for (const match of content.matchAll(TOKEN)) {
     const [token, user = ''] = match
-    if (mentions && !mentions.includes(user)) {
+    let mentioned: string | undefined = user
+    if (mentions) {
+      mentioned = mentions.find((mention) => mention.toLowerCase() === user.toLowerCase())
+    }
+
+    if (mentioned === undefined) {
       continue
     }
 
-    parts.push({ text: content.slice(from, match.index), user: null }, { text: token, user })
+    parts.push(
+      { text: content.slice(from, match.index), user: null },
+      { text: token, user: mentioned },
+    )
     from = match.index + token.length
   }
 
