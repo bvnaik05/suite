@@ -139,17 +139,17 @@ class TestWriterPurges(DriveCallbackCase):
         session_body = json.dumps({"sid": sid}).encode()
         session = answer(call_route(routes.sessions_post, node, body=session_body))
         client_id = session["client_id"]
-        lineage = self.doc_row(node).lineage
+        row = self.doc_row(node)
         frappe.db.sql("UPDATE `__writer_content_doc` SET `mode` = 'purged' WHERE `id` = %s", doc_id)
         frappe.db.commit()
         self.addCleanup(jobs.delete_purged, writer_content.APP, doc_id)
         doc = pycrdt.Doc(client_id=client_id)
         doc.get("default", type=pycrdt.XmlFragment).children.append(pycrdt.XmlText("two"))
-        body = push_body(lineage, sid, client_id, 1, 1, doc.get_update())
+        body = push_body(row.lineage, sid, client_id, 1, 1, doc.get_update())
         header, payload = content.parse_push(body)
 
         with self.assertRaises(content.Refusal) as refused:
-            content.push(writer_content.APP, doc_id, header, payload, WRITER)
+            content.push(writer_content.APP, doc_id, row.head_rev, header, payload, WRITER)
 
         self.assertEqual((refused.exception.status, refused.exception.body), (404, {"collab": "not_found"}))
         self.assertEqual(self.row_counts(doc_id)["update"], 1)

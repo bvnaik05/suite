@@ -135,12 +135,10 @@ def assembled_payload(app: str, doc_id: str, stage_id: str, header: PushHeader) 
         raise Refusal(409, "stage_incomplete") from None
 
 
-def replay_unlocked(app: str, doc_id: str, header: PushHeader, user: str) -> dict | None:
-    """Answer a repeat of committed seqs before taking the lock, so a lost answer costs no wait."""
+def replay_unlocked(app: str, doc_id: str, head_rev: int, header: PushHeader, user: str) -> dict | None:
+    """Answer a repeat before the lock at `head_rev`; no commit runs between logged_doc and replay_unlocked."""
     session = session_for(app, doc_id, header, user)
-    doc_table = table(app, "doc")
-    [[head]] = frappe.db.sql(f"SELECT `head_rev` FROM `{doc_table}` WHERE `id` = %s", doc_id)
-    return replay(app, doc_id, header, int(session.acked_seq), int(head))
+    return replay(app, doc_id, header, int(session.acked_seq), int(head_rev))
 
 
 def checked_row(payload: bytes, client_id: int) -> ingest.Row:
@@ -343,10 +341,10 @@ class Incoming:
     row: ingest.Row
 
 
-def push(app: str, doc_id: str, header: PushHeader, payload: bytes, user: str) -> dict:
+def push(app: str, doc_id: str, head_rev: int, header: PushHeader, payload: bytes, user: str) -> dict:
     """Commit one session's contiguous seq range as the next rev, or refuse it."""
     spec = spec_of(app)
-    replayed = replay_unlocked(app, doc_id, header, user)
+    replayed = replay_unlocked(app, doc_id, head_rev, header, user)
     if replayed:
         return replayed
 

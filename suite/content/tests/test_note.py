@@ -120,9 +120,9 @@ class NoteAppCase(IntegrationTestCase):
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
     def push(self, payload: bytes) -> dict:
-        lineage = content.find(note.EDITOR.app, self.node).lineage
+        doc = content.find(note.EDITOR.app, self.node)
         fields = {
-            "lineage": lineage,
+            "lineage": doc.lineage,
             "sid": self.sid,
             "from": 1,
             "to": 1,
@@ -133,7 +133,7 @@ class NoteAppCase(IntegrationTestCase):
         }
         encoded = json.dumps(fields).encode()
         header, body = content.parse_push(struct.pack(">I", len(encoded)) + encoded + payload)
-        return content.push(note.EDITOR.app, self.doc_id, header, body, "Administrator")
+        return content.push(note.EDITOR.app, self.doc_id, doc.head_rev, header, body, "Administrator")
 
     def purge_every_log(self) -> None:
         doc_table = table(note.EDITOR.app, "doc")

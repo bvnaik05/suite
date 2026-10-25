@@ -104,7 +104,7 @@ def push_rows(node: str, body: bytes, authorize: Callable[[object], str]) -> tup
     app = authorize(header.expected_user)
     doc = logged_doc(app, node)
     try:
-        answer = push(app, doc.id, header, payload, frappe.session.user)
+        answer = push(app, doc.id, doc.head_rev, header, payload, frappe.session.user)
     except log.Refusal as refusal:
         if refusal.body["collab"] == "compacting":
             scheduling.request_if_due(app, doc.id, jobs.COMPACT, refused=True)
