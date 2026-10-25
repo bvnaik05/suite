@@ -171,6 +171,38 @@ class TestRollout(NoteAppCase):
         self.assertFalse(admin.is_alive())
         self.assertEqual((errors, stored), ([], [1]))
 
+    def test_a_cached_on_doesnt_convert_an_app_turned_off(self):
+        frappe.get_cached_doc("Suite Collab Settings")
+        self.addCleanup(frappe.clear_document_cache, "Suite Collab Settings", "Suite Collab Settings")
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(frappe.db.set_value, "Suite Collab App", NOTE_ROW, "mode", "on")
+        frappe.db.set_value("Suite Collab App", NOTE_ROW, "mode", "off")
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        cached = {row.app: row.mode for row in frappe.get_cached_doc("Suite Collab Settings").apps}
+        stored = frappe.db.get_value("Suite Collab App", NOTE_ROW, "mode")
+        self.assertEqual((cached[note.EDITOR.app], stored), ("on", "off"))
+
+        allowed = (convert.may_convert(note.EDITOR.app), convert.may_convert(note.EDITOR.app, lock=True))
+
+        self.assertEqual(allowed, (False, False))
+
+    def test_a_cached_on_starts_no_log_for_an_app_turned_off(self):
+        frappe.get_cached_doc("Suite Collab Settings")
+        self.addCleanup(frappe.clear_document_cache, "Suite Collab Settings", "Suite Collab Settings")
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(frappe.db.set_value, "Suite Collab App", NOTE_ROW, "mode", "on")
+        frappe.db.set_value("Suite Collab App", NOTE_ROW, "mode", "off")
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        cached = {row.app: row.mode for row in frappe.get_cached_doc("Suite Collab Settings").apps}
+        stored = frappe.db.get_value("Suite Collab App", NOTE_ROW, "mode")
+        self.assertEqual((cached[note.EDITOR.app], stored), ("on", "off"))
+        node = frappe.generate_hash(length=10)
+        self.addCleanup(self.remove_note, node)
+
+        content.start(note.EDITOR.app, node)
+
+        self.assertIsNone(log.find(note.EDITOR.app, node))
+
     def test_a_failed_document_keeps_its_error_log(self):
         page = [frappe._dict(node=frappe.generate_hash(length=10)) for _ in range(2)]
         convert_document = MagicMock(side_effect=[RuntimeError("bad body"), "converted"])
