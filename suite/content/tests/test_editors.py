@@ -80,11 +80,21 @@ class TestEditorDeclarations(UnitTestCase):
             ("media", editors.MediaReferences(node_ids="not callable", value_rewriter=lambda mapping: str)),
             (
                 "conversion",
-                editors.Conversion(build, "1", read_old="not callable", install=lambda *args: None),
+                editors.Conversion(
+                    build, "1", read_old="not callable", check=lambda *args: None, fix_up=lambda *args: None
+                ),
             ),
             (
                 "conversion",
-                editors.Conversion(build, "1", read_old=lambda node: None, install="not callable"),
+                editors.Conversion(
+                    build, "1", read_old=lambda node: None, check="not callable", fix_up=lambda *args: None
+                ),
+            ),
+            (
+                "conversion",
+                editors.Conversion(
+                    build, "1", read_old=lambda node: None, check=lambda *args: None, fix_up="not callable"
+                ),
             ),
         ]
         for field, value in cases:

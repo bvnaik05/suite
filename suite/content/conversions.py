@@ -1,8 +1,12 @@
 """An app's conversion records, one per old body and converter version, in the app's own table.
 
-`convert_document` runs the app's converter on the old body the app's `read_old` answers, and hands the
-answer to the app's `install`. A record with no outcome is an attempt in progress, committed before the
-converter runs, so a worker that dies on a body leaves it, and a later run records that body `crashed`.
+`convert_document` runs the app's converter on the old body the app's `read_old` answers, and installs
+the answer in one transaction under the row's lock: the app's `check` refuses before the first write,
+"Before collaboration" is kept, the log starts from the answer, the app's `fix_up` runs and the readable
+copy is written last. A refusal rolls back and writes only its record.
+
+A record with no outcome is an attempt in progress, committed before the converter runs, so a worker
+that dies on a body leaves it, and a later run records that body `crashed`.
 A run that fails on a body counts the failure on its record, so a body fails FAILURES times under each
 converter version before it is recorded with an outcome. Only `retry_over_quota` clears a refusal, an
 over_quota one, once space is freed. The record keeps `dropped`, which holds document text, so it goes
@@ -14,9 +18,12 @@ from datetime import datetime, timedelta
 from typing import Protocol
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
-from suite.content import checker, convert, live
+from suite import drive
+from suite.content import checker, convert, copies, live, log
+from suite.content.checkpoints import replace_start
 from suite.content.editors import spec_of
 from suite.content.tables import table
 
@@ -36,6 +43,18 @@ OPEN_ATTEMPT = "`node` = %s AND `fingerprint` = %s AND `converter_version` = %s 
 class OldBody(Protocol):
     fingerprint: str
     legacy: dict
+
+
+class CheckedBody(Protocol):
+    html: str
+    dropped: list[dict]
+
+
+class ConversionRefused(Exception):
+    def __init__(self, outcome: str, reason: str | None = None) -> None:
+        super().__init__(outcome)
+        self.outcome = outcome
+        self.reason = reason
 
 
 def convert_document(app: str, node: str) -> str | None:
@@ -64,7 +83,7 @@ def convert_document(app: str, node: str) -> str | None:
             live.publish_conversion(app, node, "refused")
             return converted.reason
 
-        outcome = conversion.install(node, old, converted, started)
+        outcome = install_conversion(app, node, old, converted, started)
         if outcome not in {CHANGED, LOGGED}:
             return outcome
 
@@ -113,6 +132,66 @@ def run_converter(
         drop_attempt(app, node, old.fingerprint)
 
     return converted
+
+
+def install_conversion(
+    app: str, node: str, old: OldBody, converted: convert.Converted, started: datetime
+) -> str:
+    """Install `converted` whole or not at all: converted, a refusal, logged, or changed."""
+    try:
+        dropped = write_conversion(app, node, old, converted)
+    except ConversionRefused as refused:
+        frappe.db.rollback()
+        record(app, node, old.fingerprint, started, refused.outcome, refused.reason)
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        live.publish_conversion(app, node, "refused")
+        return refused.outcome
+    except Exception:
+        frappe.db.rollback()
+        count_failure(app, node, old.fingerprint, "crashed")
+        raise
+
+    if dropped is None:
+        frappe.db.rollback()
+        if log.find(app, node) is None:
+            return CHANGED
+
+        return LOGGED
+
+    record(app, node, old.fingerprint, started, "converted", dropped=dropped)
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    live.publish_conversion(app, node, "converted")
+    return "converted"
+
+
+def write_conversion(app: str, node: str, old: OldBody, converted: convert.Converted) -> list[dict] | None:
+    """Check, then write, `converted` in the caller's transaction; what it dropped, or None if it can't start."""
+    spec = spec_of(app)
+    if spec.conversion.read_old(node, lock=True) != old or log.find(app, node):
+        return None
+
+    checked = spec.conversion.check(node, old, converted)
+    keep_old_version(node)
+    doc_id = log.create(app, node)
+    replace_start(app, doc_id, converted.state, spec.schema.version)
+    spec.conversion.fix_up(node, old, checked)
+    try:
+        replaced = copies.replace_copy(app, doc_id, 1, checked.html, spec.readable_copy)
+    except copies.CopyMismatch:
+        raise ConversionRefused("check", "copy") from None
+
+    if replaced is None:
+        raise ConversionRefused("check", "copy")
+
+    return [*converted.dropped, *checked.dropped]
+
+
+def keep_old_version(node: str) -> None:
+    """Keep the old body as a version before anything writes it."""
+    try:
+        drive.take_version(node, kind="milestone", label=_("Before collaboration"))
+    except drive.DriveOverQuota:
+        raise ConversionRefused("over_quota") from None
 
 
 def held_attempt(app: str, node: str, fingerprint: str) -> frappe._dict | None:

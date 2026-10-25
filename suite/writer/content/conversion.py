@@ -1,9 +1,9 @@
 """Turn an old Writer document into a collaborative one.
 
 The layer's `convert_document` (suite.content.conversions) runs the converter on the row `read_old`
-answers, and `install_conversion` installs the answer in one transaction under the row's lock. Every
-check runs before the first write, and a refusal writes only its record. The records, the attempts
-and the failure counts are the layer's.
+answers and installs the answer in one transaction under the row's lock. Writer's `check` runs before
+the first write and `fix_up` moves the old comments; a refusal writes only its record. The records, the
+attempts and the failure counts are the layer's.
 """
 
 import base64
@@ -11,17 +11,15 @@ import hashlib
 import json
 from collections.abc import Collection
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import NotRequired, TypedDict
 
 import frappe
 import pycrdt
-from frappe import _
 from frappe.utils import now_datetime
 
 from suite import drive
-from suite.content import compaction, conversions, convert, copies, live, log
-from suite.content.checkpoints import replace_start
+from suite.content import compaction, conversions, convert, copies, live
+from suite.content.conversions import ConversionRefused
 from suite.writer import content as writer_content
 
 DOCTYPE = "Writer Document"
@@ -36,17 +34,18 @@ class OldDocument:
     threads: list[dict] = field(repr=False)
 
 
+@dataclass(frozen=True)
+class CheckedDocument:
+    html: str
+    dropped: list[dict]
+    anchors: dict[str, str] = field(repr=False)
+    threads: list[dict] = field(repr=False)
+
+
 class ConversionStatus(TypedDict):
     state: str
     reason: NotRequired[str]
     rooms: NotRequired[live.Rooms]
-
-
-class ConversionRefused(Exception):
-    def __init__(self, outcome: str, reason: str | None = None) -> None:
-        super().__init__(outcome)
-        self.outcome = outcome
-        self.reason = reason
 
 
 def conversion_status(node: str) -> ConversionStatus:
@@ -92,41 +91,8 @@ def read_old(node: str, *, lock: bool = False) -> OldDocument | None:
     return OldDocument(row.name, legacy, fingerprint_of(legacy), drive.comment_threads(node))
 
 
-def install_conversion(node: str, old: OldDocument, converted: convert.Converted, started: datetime) -> str:
-    """Install `converted` whole or not at all: converted, a refusal, logged, or changed."""
-    try:
-        dropped = write_conversion(node, old, converted)
-    except ConversionRefused as refused:
-        frappe.db.rollback()
-        conversions.record(
-            writer_content.APP, node, old.fingerprint, started, refused.outcome, refused.reason
-        )
-        frappe.db.commit()  # nosemgrep: frappe-manual-commit
-        live.publish_conversion(writer_content.APP, node, "refused")
-        return refused.outcome
-    except Exception:
-        frappe.db.rollback()
-        conversions.count_failure(writer_content.APP, node, old.fingerprint, "crashed")
-        raise
-
-    if dropped is None:
-        frappe.db.rollback()
-        if log.find(writer_content.APP, node) is None:
-            return conversions.CHANGED
-
-        return conversions.LOGGED
-
-    conversions.record(writer_content.APP, node, old.fingerprint, started, "converted", dropped=dropped)
-    frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    live.publish_conversion(writer_content.APP, node, "converted")
-    return "converted"
-
-
-def write_conversion(node: str, old: OldDocument, converted: convert.Converted) -> list[dict] | None:
-    """Check, then write, `converted` in the caller's transaction; what it dropped, or None if it can't start."""
-    if read_old(node, lock=True) != old or log.find(writer_content.APP, node):
-        return None
-
+def check(node: str, old: OldDocument, converted: convert.Converted) -> CheckedDocument:
+    """Check `converted` against the old comments and its copy before anything writes; refuse what can't install whole."""
     names = thread_names(node, old.legacy["ycomments"], old.threads)
     anchors = {names[key]: anchor for key, anchor in converted.anchors.items() if key in names}
     dead = [key for key in converted.anchors if key not in names]
@@ -136,28 +102,19 @@ def write_conversion(node: str, old: OldDocument, converted: convert.Converted) 
         raise ConversionRefused("check")
 
     html = checked_html(old, converted)
-    keep_old_version(node)
-    doc_id = log.create(writer_content.APP, node)
-    replace_start(writer_content.APP, doc_id, converted.state, writer_content.DECLARED["schema"])
-    drive.install_threads(node, anchors, threads)
-    clear_ycomments(old.docname)
-    try:
-        replaced = copies.replace_copy(
-            writer_content.APP, doc_id, 1, html, writer_content.EDITOR.readable_copy
-        )
-    except copies.CopyMismatch:
-        raise ConversionRefused("check", "copy") from None
-
-    if replaced is None:
-        raise ConversionRefused("check", "copy")
-
     named = set(names.values())
     unknown = [thread["name"] for thread in old.threads if thread["name"] not in named]
-    return [
-        *converted.dropped,
+    dropped = [
         *({"kind": "dead-highlight", "key": key} for key in dead),
         *({"kind": "unknown-anchor", "thread": name} for name in unknown),
     ]
+    return CheckedDocument(html, dropped, anchors, threads)
+
+
+def fix_up(node: str, old: OldDocument, checked: CheckedDocument) -> None:
+    """Move the old comments to Drive threads on the converted body, in the caller's transaction."""
+    drive.install_threads(node, checked.anchors, checked.threads)
+    clear_ycomments(old.docname)
 
 
 def checked_html(old: OldDocument, converted: convert.Converted) -> str:
@@ -179,14 +136,6 @@ def checked_html(old: OldDocument, converted: convert.Converted) -> str:
         raise ConversionRefused("check", "copy")
 
     return clean
-
-
-def keep_old_version(node: str) -> None:
-    """Keep the old body as a version before anything writes it."""
-    try:
-        drive.take_version(node, kind="milestone", label=_("Before collaboration"))
-    except drive.DriveOverQuota:
-        raise ConversionRefused("over_quota") from None
 
 
 def thread_names(node: str, ycomments: str | None, threads: list[dict]) -> dict[str, str]:

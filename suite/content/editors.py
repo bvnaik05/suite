@@ -81,14 +81,16 @@ class MediaReferences:
 @dataclass(frozen=True)
 class Conversion:
     """How an app's old documents become collaborative: `build` is the Node converter, which holds
-    `version`; `read_old(node)` answers the old body, with its `fingerprint` and the converter's input
-    `legacy`, or None once it is gone; `install(node, old, converted, started)` installs the answer and
-    answers its outcome."""
+    `version`; `read_old(node, lock=False)` answers the old body, with its `fingerprint` and the converter's
+    input `legacy`, or None once it is gone; `check(node, old, converted)` refuses with ConversionRefused
+    before anything writes, or answers the copy's `html` and what it `dropped`; `fix_up(node, old, checked)`
+    writes the app's own rows in the conversion's transaction."""
 
     build: Path
     version: str
     read_old: Callable
-    install: Callable
+    check: Callable
+    fix_up: Callable
 
 
 @dataclass(frozen=True)
@@ -204,7 +206,8 @@ def conversion_right(conversion: object) -> bool:
         and isinstance(conversion.version, str)
         and bool(conversion.version)
         and callable(conversion.read_old)
-        and callable(conversion.install)
+        and callable(conversion.check)
+        and callable(conversion.fix_up)
     )
 
 
