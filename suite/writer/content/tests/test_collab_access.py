@@ -125,10 +125,14 @@ class TestWriterCollabAccess(CollabCase):
         hidden = (404, {"collab": "not_found"})
         forbidden = (403, {"collab": "forbidden"})
         expected = (
-            (WRITER, "no-such-node", (hidden,) * 6),
-            (WRITER, presentation, (hidden,) * 6),
-            (OUTSIDER, presentation, (hidden,) * 6),
-            (READER, presentation, (hidden, hidden, forbidden, forbidden, hidden, forbidden)),
+            (WRITER, "no-such-node", (hidden,) * 9),
+            (WRITER, presentation, (hidden,) * 9),
+            (OUTSIDER, presentation, (hidden,) * 9),
+            (
+                READER,
+                presentation,
+                (hidden, hidden, forbidden, forbidden, hidden, forbidden) + (forbidden,) * 3,
+            ),
         )
 
         for user, node, answers in expected:
@@ -142,6 +146,9 @@ class TestWriterCollabAccess(CollabCase):
                 (routes.updates_post, push_bytes),
                 (routes.suspect_post, b'{"rev": 1}'),
                 (lambda node: routes.stage_put(node, uuid.uuid4().hex, "0"), b"x"),
+                (routes.html_post, b"{}"),
+                (routes.restore_post, b"{}"),
+                (routes.restore_cancel_post, b"{}"),
             )
             for (handler, request_body), refused in zip(handlers, answers, strict=True):
                 response = call_route(handler, node, body=request_body)
