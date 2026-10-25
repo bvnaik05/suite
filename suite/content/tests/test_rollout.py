@@ -6,6 +6,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import frappe
+from frappe.utils import now_datetime
 
 from suite import content, drive
 from suite.content import conversions, convert, jobs, log, steps
@@ -158,6 +159,41 @@ class TestRollout(NoteAppCase):
         status, answer = steps.push_rows(self.node, body, lambda user: note.EDITOR.app)
 
         self.assertEqual((status, answer["rev"]), (200, 1))
+
+    def test_a_note_app_with_only_a_refused_conversion_cant_be_turned_off(self):
+        self.addCleanup(log.set_mode, note.EDITOR.app, "on")
+        self.purge_every_log()
+        node = self.old_note()
+        fingerprint = hashlib.sha256(b"<p>Old</p>").hexdigest()
+        conversions.record(note.EDITOR.app, node, fingerprint, now_datetime(), "check", "empty")
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        self.assertFalse(log.has_logs(note.EDITOR.app))
+        self.assertEqual(
+            frappe.db.sql("SELECT `outcome` FROM `__note_content_conversion` WHERE `node` = %s", node),
+            (("check",),),
+        )
+
+        with self.assertRaisesRegex(frappe.ValidationError, "Collaboration in note can't be turned off"):
+            log.set_mode(note.EDITOR.app, "off")
+
+        self.assertTrue(log.enabled(note.EDITOR.app))
+
+    def test_a_note_app_with_only_an_open_attempt_cant_be_turned_off(self):
+        self.addCleanup(log.set_mode, note.EDITOR.app, "on")
+        self.purge_every_log()
+        node = self.old_note()
+        fingerprint = hashlib.sha256(b"<p>Old</p>").hexdigest()
+        conversions.start_attempt(note.EDITOR.app, node, fingerprint, now_datetime(), retry=False)
+        self.assertFalse(log.has_logs(note.EDITOR.app))
+        self.assertEqual(
+            frappe.db.sql("SELECT `outcome` FROM `__note_content_conversion` WHERE `node` = %s", node),
+            ((None,),),
+        )
+
+        with self.assertRaisesRegex(frappe.ValidationError, "Collaboration in note can't be turned off"):
+            log.set_mode(note.EDITOR.app, "off")
+
+        self.assertTrue(log.enabled(note.EDITOR.app))
 
     def test_a_paused_backlog_is_not_waiting(self):
         with (

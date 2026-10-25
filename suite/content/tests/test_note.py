@@ -135,6 +135,13 @@ class NoteAppCase(IntegrationTestCase):
         header, body = content.parse_push(struct.pack(">I", len(encoded)) + encoded + payload)
         return content.push(note.EDITOR.app, self.doc_id, header, body, "Administrator")
 
+    def purge_every_log(self) -> None:
+        doc_table = table(note.EDITOR.app, "doc")
+        for (node,) in frappe.db.sql(f"SELECT `node` FROM `{doc_table}` WHERE `mode` != 'purged'"):
+            log.delete_purged(note.EDITOR.app, log.mark_purged(note.EDITOR.app, node))
+
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
 
 class TestNoteEditor(NoteAppCase):
     """An app with no product code keeps its documents in the layer, under its own declarations and switch."""
@@ -332,13 +339,6 @@ class TestNoteEditor(NoteAppCase):
             settings.save(ignore_permissions=True)
 
         self.assertTrue(content.enabled(note.EDITOR.app))
-
-    def purge_every_log(self) -> None:
-        doc_table = table(note.EDITOR.app, "doc")
-        for (node,) in frappe.db.sql(f"SELECT `node` FROM `{doc_table}` WHERE `mode` != 'purged'"):
-            log.delete_purged(note.EDITOR.app, log.mark_purged(note.EDITOR.app, node))
-
-        frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
     def test_only_a_log_that_is_not_purged_counts(self):
         self.assertTrue(log.has_logs(note.EDITOR.app))
