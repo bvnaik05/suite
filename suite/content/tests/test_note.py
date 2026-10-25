@@ -12,10 +12,10 @@ import pycrdt
 from frappe.tests import IntegrationTestCase
 
 from suite import content
-from suite.content import capacity, jobs, log
-from suite.content.editors import editors
+from suite.content import capacity, copies, jobs, log, logged
+from suite.content.editors import MediaReferences, editors
 from suite.content.tables import KINDS, ensure_tables, table
-from suite.content.tests import note
+from suite.content.tests import multi_copy, note
 from suite.drive._core.content import clear_registry_cache
 
 APP_TABLE = f"tab{note.EDITOR.doctype}"
@@ -133,6 +133,46 @@ class TestNoteEditor(IntegrationTestCase):
             doc.apply_update(payload)
 
         self.assertEqual(str(doc.get("text", type=pycrdt.Text)), "hello")
+
+    def html_field(self) -> str:
+        [[html]] = frappe.db.sql(f"SELECT `html` FROM `{APP_TABLE}` WHERE `name` = %s", self.node)
+        return html
+
+    def test_a_copy_of_many_rows_is_installed_and_read_back(self):
+        self.push(typed(self.client_id, "hello"))
+        copy = multi_copy.MultiCopy()
+        rows = {"b": "<p>two</p>", "a": "<p>one</p>"}
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=copy)):
+            self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 1, json.dumps(rows), copy))
+            readable = content.readable_copy(note.EDITOR.app, self.doc_id)
+
+        serialized = '{"a":"<p>one</p>","b":"<p>two</p>"}'
+        self.assertEqual(self.html_field(), serialized)
+        self.assertEqual(readable, "<p>one</p><p>two</p>")
+        projection_table = table(note.EDITOR.app, "projection")
+        [[stored_hash]] = frappe.db.sql(
+            f"SELECT `projection_hash` FROM `{projection_table}` WHERE `doc_id` = %s", self.doc_id
+        )
+        self.assertEqual(bytes(stored_hash), hashlib.sha256(serialized.encode()).digest())
+
+    def test_moving_pictures_rewrites_only_the_copy_rows_that_name_them(self):
+        self.push(typed(self.client_id, "hello"))
+        jobs.compact(note.EDITOR.app, self.doc_id)
+        copy = multi_copy.MultiCopy()
+        media = MediaReferences(
+            node_ids=lambda state: set(),
+            value_rewriter=lambda mapping: lambda value: value.replace("old", mapping["old"]),
+        )
+        rows = {"a": '<img src="/files/old">', "b": "<p>two</p>"}
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=copy, media=media)):
+            copies.write(note.EDITOR.app, self.doc_id, 1, json.dumps(rows), copy)
+            copy.writes.clear()
+            self.assertTrue(logged.remap(note.EDITOR.app, self.node, {"old": "new"}))
+
+        self.assertEqual(copy.writes, [{"a": '<img src="/files/new">'}])
+        self.assertEqual(self.html_field(), '{"a":"<img src=\\"/files/new\\">","b":"<p>two</p>"}')
 
     def test_compaction_writes_a_note_body_into_the_apps_own_row(self):
         self.push(typed(self.client_id, "kept"))
