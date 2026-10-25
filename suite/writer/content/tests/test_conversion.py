@@ -1706,8 +1706,8 @@ class TestConversion(DriveCallbackCase):
             if node == first and not made:
                 made.extend(self.old_documents(1))
 
-        self.run_on([first], each=make_one)
-        self.assertIsNone(log.find(writer_content.APP, made[0]))
+        seen = self.run_on([first], each=make_one)
+        self.assertNotIn(made[0], seen)
 
         self.run_on(made)
 
@@ -1751,6 +1751,7 @@ class TestConversion(DriveCallbackCase):
         reason = "the bundle answered version 9, not 1"
         self.forget_logged(reason)
         logged = self.reasons_logged(reason)
+        self.old_documents(2)
 
         def changed(node):
             raise convert.ConverterChanged(reason)

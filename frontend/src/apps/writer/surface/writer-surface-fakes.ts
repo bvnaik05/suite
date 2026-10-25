@@ -121,7 +121,13 @@ export async function fakeDrive() {
 }
 
 export async function fakeCoreEditor() {
-  const { defineComponent: define, h: render, onBeforeUnmount, shallowRef } = await import('vue')
+  const {
+    defineComponent: define,
+    h: render,
+    onBeforeUnmount,
+    shallowRef,
+    watchEffect,
+  } = await import('vue')
   const { Editor, EditorContent } = await import('@tiptap/vue-3')
   const { default: Document } = await import('@tiptap/extension-document')
   const { default: Paragraph } = await import('@tiptap/extension-paragraph')
@@ -131,10 +137,13 @@ export async function fakeCoreEditor() {
       props: {
         extensions: { type: Array as PropType<AnyExtension[]>, default: () => [] },
         rawContent: String,
+        // Unlike the real CoreEditor's false, so the tests that type into it without passing editable keep working
+        editable: { type: Boolean, default: true },
       },
       setup(props, { expose, slots }) {
         const extensions = [Document, Paragraph, Text, ...props.extensions]
         const editor = shallowRef(new Editor({ extensions, content: props.rawContent }))
+        watchEffect(() => editor.value.setEditable(props.editable))
         expose({ editor })
         onBeforeUnmount(() => editor.value.destroy())
         return () => {

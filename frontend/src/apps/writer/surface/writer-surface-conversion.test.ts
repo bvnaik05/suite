@@ -80,6 +80,10 @@ function editorText(root: Element) {
   return [...root.querySelectorAll('[data-editor] .ProseMirror')].map((body) => body.textContent)
 }
 
+function isEditorEditable(root: Element) {
+  return root.querySelector('[data-editor] .ProseMirror')!.getAttribute('contenteditable')
+}
+
 function canSaveVersion(root: Element) {
   return !root.querySelector<HTMLButtonElement>('[data-save-version]')!.hidden
 }
@@ -108,6 +112,7 @@ describe('Writer surface', () => {
     await vi.waitFor(() => expect(editorText(root)).toEqual(['Old text']))
     expect(stripTexts(root)).toEqual([UPGRADING])
     expect(canSaveVersion(root)).toBe(false)
+    expect(isEditorEditable(root)).toBe('false')
   })
 
   it('says a refused document stays read-only, without a reason when none is given', async () => {

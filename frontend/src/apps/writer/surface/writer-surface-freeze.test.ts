@@ -211,6 +211,7 @@ describe('Writer surface', () => {
     const root = await openedSurface()
 
     await vi.waitFor(() => expect(editorText(root)).toEqual(['Old text']))
+    expect(isEditorEditable(root)).toBe('false')
   })
 
   it('shows only the live room, not the stored body, when the open gives one', async () => {
