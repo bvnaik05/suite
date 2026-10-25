@@ -540,7 +540,7 @@ class TestConversion(DriveCallbackCase):
 
         purger = threading.Thread(target=purge_elsewhere)
         purger.start()
-        read.wait(10)
+        self.assertTrue(read.wait(30))
         try:
             self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
         finally:
@@ -582,7 +582,7 @@ class TestConversion(DriveCallbackCase):
 
         restorer = threading.Thread(target=restore_elsewhere)
         restorer.start()
-        read.wait(10)
+        self.assertTrue(read.wait(30))
         try:
             self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
             converted_state = self.as_before(node)
@@ -623,7 +623,7 @@ class TestConversion(DriveCallbackCase):
         args = (frappe.local.site, self.docname_of(node), read_committed, errors, read, converted)
         saver = threading.Thread(target=self.save_elsewhere, args=args)
         saver.start()
-        read.wait(10)
+        self.assertTrue(read.wait(30))
         try:
             self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
         finally:
