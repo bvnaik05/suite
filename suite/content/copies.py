@@ -194,9 +194,13 @@ def kept_value(tag: str, attribute: str, value: str) -> str | None:
 
 
 def is_site_url(url: str) -> bool:
-    """Whether `url` is on a configured site host or under one; IP literals and sibling sites aren't checked."""
+    """Whether `url` is on or under a site host, or not ASCII; IP literals and sibling sites go unchecked."""
     try:
         host = url_host(url)
+        if not host.isascii():
+            return True
+
+        host = host.removesuffix(".").encode("idna").decode()
     except (UnicodeError, ValueError):
         return True
 
@@ -210,7 +214,7 @@ def is_site_url(url: str) -> bool:
     names += [entry.get("domain") for entry in domains if isinstance(entry, dict)]
     for name in filter(None, names):
         try:
-            site = url_host(name)
+            site = url_host(name).removesuffix(".").encode("idna").decode()
         except (UnicodeError, ValueError):
             continue
 
@@ -221,13 +225,12 @@ def is_site_url(url: str) -> bool:
 
 
 def url_host(url: str) -> str:
-    """Read the host a browser takes from `url` or a bare host name, lowercased and idna-encoded."""
+    """Read the host a browser takes from `url` or a bare host name, percent-decoded and lowercased."""
     url = url.replace("\\", "/")
     if "//" not in url:
         url = f"//{url}"
 
-    host = unquote(urlsplit(url).hostname or "").lower().removesuffix(".")
-    return host.encode("idna").decode()
+    return unquote(urlsplit(url).hostname or "").lower()
 
 
 def renders_log(log_read: Snapshot, rev: int, lineage: str, q_epoch: int) -> bool:
