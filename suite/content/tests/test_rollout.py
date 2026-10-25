@@ -203,6 +203,22 @@ class TestRollout(NoteAppCase):
 
         self.assertIsNone(log.find(note.EDITOR.app, node))
 
+    def test_a_cached_off_doesnt_refuse_an_app_turned_on(self):
+        self.addCleanup(frappe.clear_document_cache, "Suite Collab Settings", "Suite Collab Settings")
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(frappe.db.set_value, "Suite Collab App", NOTE_ROW, "mode", "on")
+        frappe.db.set_value("Suite Collab App", NOTE_ROW, "mode", "off")
+        frappe.clear_document_cache("Suite Collab Settings", "Suite Collab Settings")
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        frappe.get_cached_doc("Suite Collab Settings")
+        frappe.db.set_value("Suite Collab App", NOTE_ROW, "mode", "on")
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        cached = {row.app: row.mode for row in frappe.get_cached_doc("Suite Collab Settings").apps}
+        stored = frappe.db.get_value("Suite Collab App", NOTE_ROW, "mode")
+        self.assertEqual((cached[note.EDITOR.app], stored), ("off", "on"))
+
+        log.require_enabled(note.EDITOR.app)
+
     def test_a_failed_document_keeps_its_error_log(self):
         page = [frappe._dict(node=frappe.generate_hash(length=10)) for _ in range(2)]
         convert_document = MagicMock(side_effect=[RuntimeError("bad body"), "converted"])
