@@ -383,6 +383,8 @@ describe('Writer carets', () => {
       for (const [property, value] of Object.entries(beaSet)) {
         expect(element.style.getPropertyValue(property), property).toBe(value)
       }
+
+      expect(element.style.length, 'inline properties').toBe(8)
     }
 
     expect(labels).toHaveLength(1)
