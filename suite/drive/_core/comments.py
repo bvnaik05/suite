@@ -34,6 +34,12 @@ MAX_COMMENT_BYTES = 65_535
 # The most an old Drive commenter's name holds, as the old Data column did
 MAX_AUTHOR_NAME_CHARS = 140
 
+# Every tag the old comment editors wrote; text holding none of them isn't HTML
+COMMENT_TAGS = frozenset(
+    "p br span a img iframe video div ul ol li strong em b i u s code mark pre blockquote hr"
+    " h1 h2 h3 h4 h5 h6 table tbody tr td th colgroup col label input".split()
+)
+
 
 def insert_thread(
     principals: Principals,
@@ -771,7 +777,7 @@ def html_comment_text(text: str) -> tuple[str, list[str]]:
         return text, []
 
     soup = BeautifulSoup(text, "html.parser")
-    if soup.find() is None:
+    if soup.find(COMMENT_TAGS) is None:
         return text, []
 
     parts: list[str] = []

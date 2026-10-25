@@ -787,6 +787,14 @@ class LegacyCommentTest(unittest.TestCase):
             with self.subTest(text):
                 self.assertEqual(self.ported(text, users={"amy@example.com": True}), (text, []))
 
+    def test_text_that_starts_with_an_angle_bracketed_word_passes_through_unchanged(self):
+        for text in ("<Amy> said hi", "<https://x.com> link"):
+            with self.subTest(text):
+                self.assertEqual(self.ported(text), (text, []))
+
+    def test_a_highlight_keeps_its_text(self):
+        self.assertEqual(self.ported("<mark>hot</mark> take"), ("hot take", []))
+
     def test_a_writer_comment_mentions_its_source_list_and_its_spans_once_each_if_they_exist(self):
         span = '<span data-type="mention" data-id="{0}" data-label="x">@x</span>'
         text = "<p>" + span.format("b@example.com") + " " + span.format("a@example.com") + "</p>"
