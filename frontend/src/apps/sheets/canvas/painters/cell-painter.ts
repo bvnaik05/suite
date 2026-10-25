@@ -440,7 +440,13 @@ export function createCellPainter(
     ctx.beginPath()
     ctx.rect(x + 1, y + 1, Math.max(0, w - 2 - rightInset), h - 2)
     ctx.clip()
-    lines.forEach((line, i) => ctx.fillText(line, textX, startY + i * lineH))
+    // Each line gets its own underline / strike, as wide as that line.
+    const decorate = fmt.underline || fmt.strikethrough || fmt.hyperlink
+    lines.forEach((line, i) => {
+      const lineY = startY + i * lineH
+      ctx.fillText(line, textX, lineY)
+      if (decorate) _drawTextDecorations(fmt, line, textX, lineY)
+    })
     ctx.restore()
   }
 
