@@ -30,6 +30,17 @@ def remove_writers_row() -> None:
 class TestWriterSwitch(IntegrationTestCase):
     """Writer's collaboration is turned on at install and migrate, and then stays on."""
 
+    def setUp(self):
+        super().setUp()
+        fields = frappe.db.get_table_columns("Suite Collab App")
+        saved = frappe.get_all(
+            "Suite Collab App", filters={"parent": "Suite Collab Settings"}, fields=fields, as_list=True
+        )
+        self.addCleanup(frappe.clear_document_cache, "Suite Collab Settings", "Suite Collab Settings")
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(frappe.db.bulk_insert, "Suite Collab App", fields, saved)
+        self.addCleanup(frappe.db.delete, "Suite Collab App", {"parent": "Suite Collab Settings"})
+
     def test_turning_on_adds_writers_row_when_it_has_none(self):
         remove_writers_row()
         self.assertEqual(log.mode(APP), "off")
