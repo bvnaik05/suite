@@ -4,8 +4,9 @@ from dataclasses import replace
 
 import frappe
 import pycrdt
+from frappe.utils.background_jobs import create_job_id, get_job
 
-from suite.content import checkpoints, compaction
+from suite.content import checkpoints, compaction, jobs
 from suite.content.http import routes
 from suite.writer import content as writer_content
 from suite.writer.content.tests.compaction_case import CompactionCase
@@ -177,3 +178,15 @@ class TestWriterCheckpoints(CompactionCase):
 
         self.assertEqual((self.doc_row(node).body_rev, self.checkpoints_of(node)), (3, []))
         self.assertEqual(self.text_of(self.body_of(node)), "one two three")
+
+    def test_a_due_document_queues_its_compaction_without_a_live_job(self):
+        node = self.new_document()
+        filler = os.urandom(300 * 1024).hex()
+        self.type_into(node, [filler[: len(filler) // 2], filler[len(filler) // 2 :]])
+
+        self.opened(node)
+
+        doc_id = self.doc_row(node).id
+        job_id = create_job_id(f"suite-collab-compact-{writer_content.APP}-{doc_id}")
+        self.assertIn((jobs.COMPACT, doc_id), self.requested)
+        self.assertIsNone(get_job(job_id))

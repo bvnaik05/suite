@@ -76,21 +76,9 @@ class TestSuspect(compaction_case.CompactionCase):
         if not checker.usable_node() or not BUNDLE.is_file():
             self.skipTest(f"needs Node {checker.NODE_MAJOR}+ and the built bundle at {BUNDLE}")
 
-        self.requested: list[tuple[str, str]] = []
-        real_enqueue = frappe.enqueue
-
-        def enqueue(method, **kwargs):
-            if method not in {jobs.COMPACT, jobs.JUDGE}:
-                return real_enqueue(method, **kwargs)
-
-            self.requested.append((method, kwargs["doc_id"]))
-
-        for patcher in (
-            patch.object(frappe, "enqueue", enqueue),
-            patch.object(frappe.local, "job", frappe._dict(job_name="test_suspect"), create=True),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        patcher = patch.object(frappe.local, "job", frappe._dict(job_name="test_suspect"), create=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def pycrdt_refusing(self, *markers: bytes):
         real_compact = compaction.compact

@@ -4,9 +4,10 @@ import secrets
 from dataclasses import dataclass
 from unittest.mock import patch
 
+import frappe
 from frappe.utils.background_jobs import get_redis_conn
 
-from suite.content import admission, compaction
+from suite.content import admission, compaction, jobs
 from suite.content.http import routes
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import CheckpointCase, call_route, read_open
@@ -22,11 +23,23 @@ class Opened:
 class CompactionCase(CheckpointCase):
     def setUp(self):
         super().setUp()
-        # The bench's live workers take places too, so each test keeps its own
+        self.requested: list[tuple[str, str]] = []
+        real_enqueue = frappe.enqueue
+
+        def enqueue(method, **kwargs):
+            if method not in {jobs.COMPACT, jobs.JUDGE}:
+                return real_enqueue(method, **kwargs)
+
+            self.requested.append((method, kwargs["doc_id"]))
+
+        # The bench's live workers take places and run queued jobs, so each test keeps its own
         tag = secrets.token_hex(4)
-        prefix = patch.object(admission, "KEY_PREFIX", f"suite:collab:test-{tag}:")
-        prefix.start()
-        self.addCleanup(prefix.stop)
+        for patcher in (
+            patch.object(admission, "KEY_PREFIX", f"suite:collab:test-{tag}:"),
+            patch.object(frappe, "enqueue", enqueue),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def release_places(self):
         redis = get_redis_conn()
