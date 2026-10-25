@@ -869,6 +869,99 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(self.records(other), (("converted", None, "[]"),))
         self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
 
+    def purge_after_pick_elsewhere(
+        self, site: str, node: str, errors: list, nowaits: list, locked: threading.Event
+    ):
+        frappe.init(site=site)
+        frappe.connect()
+        frappe.set_user(WRITER)
+        real_sql = frappe.db.sql
+
+        def sql(query, *args, **kwargs):
+            if "`tabWriter Document`" in str(query) and "NOWAIT" in str(query):
+                nowaits.append(str(query))
+
+            answer = real_sql(query, *args, **kwargs)
+            if "INSERT INTO `tabDrive Activity`" in str(query):
+                locked.set()
+
+            return answer
+
+        try:
+            with patch.object(frappe.db, "sql", sql):
+                purge(Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)), node)
+
+            frappe.db.commit()
+        except Exception as error:
+            errors.append(error)
+        finally:
+            locked.set()
+            frappe.destroy()
+
+    # Convert `page` and, holding its first node's row, have another connection purge that trashed node,
+    # which locks the node before its callback asks for the row
+    def purge_after_pick_while_converting(
+        self, page: list[str], node_locked: threading.Event
+    ) -> tuple[list, list]:
+        errors: list[Exception] = []
+        nowaits: list[str] = []
+        locked = threading.Event()
+        purger = threading.Thread(
+            target=self.purge_after_pick_elsewhere,
+            args=(frappe.local.site, page[0], errors, nowaits, locked),
+        )
+        real_sql = frappe.db.sql
+
+        def sql(query, *args, **kwargs):
+            if "`tabDrive Node` WHERE `name` = %s FOR UPDATE" not in str(query) or purger.ident is not None:
+                return real_sql(query, *args, **kwargs)
+
+            purger.start()
+            locked.wait(10)
+            answer = real_sql(query, *args, **kwargs)
+            node_locked.set()
+            return answer
+
+        rows = [frappe._dict(node=name) for name in page]
+        try:
+            with patch.object(frappe.db, "sql", sql):
+                self.assertTrue(conversions.convert_page(writer_content.APP, rows, time.monotonic() + 600))
+        finally:
+            purger.join(30)
+
+        self.assertFalse(purger.is_alive())
+        return errors, nowaits
+
+    def test_a_purge_meeting_a_conversion_is_refused_and_loses_nothing(self):
+        node = self.old_document("<p>Hello world</p>")
+        self.addCleanup(self.delete_document, node)
+        [other] = self.old_documents(1)
+        owner = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        _trash(owner, node)
+        frappe.db.commit()
+        before = self.as_before(node)
+        self.forget_logged(f"{node}: DriveForbidden")
+        node_locked = threading.Event()
+
+        errors, nowaits = self.purge_after_pick_while_converting([node, other], node_locked)
+
+        self.assertEqual([type(error) for error in errors], [frappe.QueryTimeoutError])
+        self.assertEqual(len(nowaits), 1)
+        self.assertTrue(node_locked.is_set())
+        self.assertEqual(frappe.db.get_value("Drive Node", node, "state"), "Trashed")
+        self.assertEqual(self.as_before(node), before)
+        self.assertEqual((self.records(node), self.failures(node)), (((None, None, None),), [1]))
+        refused = {
+            "method": "Collab conversion: writer did not run",
+            "error": ("like", f"%{node}: DriveForbidden%"),
+        }
+        self.assertTrue(frappe.db.exists("Error Log", refused))
+        self.assertEqual(self.records(other), (("converted", None, "[]"),))
+        purge(owner, node)
+        frappe.db.commit()
+        self.assertFalse(frappe.db.exists("Drive Node", node))
+        self.assertFalse(frappe.db.exists("Writer Document", {"node": node}))
+
     def test_converts_a_collaborative_version_from_its_yjs_body_not_its_stale_html(self):
         node = self.new_document()
         self.delete_log(node)
@@ -1804,6 +1897,25 @@ class TestConversion(DriveCallbackCase):
         self.run_on([node])
 
         self.assertIsNotNone(log.find(writer_content.APP, node))
+
+    def test_refuses_a_document_trashed_after_the_page_was_picked_and_writes_nothing(self):
+        node, other = self.old_documents(2)
+        _trash(Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)), node)
+        frappe.db.commit()
+        before = self.as_before(node)
+        self.forget_logged(f"{node}: DriveForbidden")
+        rows = [frappe._dict(node=name) for name in (node, other)]
+
+        self.assertTrue(conversions.convert_page(writer_content.APP, rows, time.monotonic() + 600))
+
+        refused = {
+            "method": "Collab conversion: writer did not run",
+            "error": ("like", f"%{node}: DriveForbidden%"),
+        }
+        self.assertTrue(frappe.db.exists("Error Log", refused))
+        self.assertEqual(self.as_before(node), before)
+        self.assertEqual((self.records(node), self.failures(node)), (((None, None, None),), [1]))
+        self.assertEqual(self.records(other), (("converted", None, "[]"),))
 
     def test_goes_through_every_page_newest_first_once(self):
         nodes = self.old_documents(3)
