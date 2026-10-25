@@ -19,6 +19,8 @@ import type {
 
 import CoreEditor from './CoreEditor.vue'
 
+defineOptions({ inheritAttrs: false })
+
 /** An old document the converter hasn't made collaborative yet, shown as its row stores it. */
 const props = defineProps<{
   file: EditorFile

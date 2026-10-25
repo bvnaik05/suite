@@ -49,7 +49,10 @@ function stored(...blocks: XmlElement[]) {
   return btoa(String.fromCharCode(...encodeStateAsUpdate(ydoc)))
 }
 
-function mountOld(row: { content: string | null; html: string; collab: number }) {
+function mountOld(
+  row: { content: string | null; html: string; collab: number },
+  attrs: Record<string, unknown> = {},
+) {
   const root = document.createElement('div')
   document.body.append(root)
   const shown = ref<Exposed | null>(null)
@@ -58,7 +61,9 @@ function mountOld(row: { content: string | null; html: string; collab: number })
     document: { doc: { ...row, ycomments: null } } as unknown as WriterDocument,
     settings: {},
   }
-  const app = createApp({ setup: () => () => h(ReadOnlyEditor, { ...props, ref: shown }) })
+  const app = createApp({
+    setup: () => () => h(ReadOnlyEditor, { ...props, ...attrs, ref: shown }),
+  })
   app.config.globalProperties.__ = (text: string) => text
   app.mount(root)
   mounted.push(app)
@@ -92,6 +97,15 @@ describe('ReadOnlyEditor', () => {
     await vi.waitFor(() => expect(bodyText(root)).toBe('Plain body'))
     expect(shown.value?.isUnreadable).toBe(false)
     expect(shown.value?.editor?.isEditable).toBe(false)
+  })
+
+  it('stays read-only when the page passes editable', async () => {
+    const row = { content: stored(paragraph('Yjs text')), html: '<p>stale</p>', collab: 1 }
+    const { root, shown } = mountOld(row, { editable: true })
+
+    await vi.waitFor(() => expect(bodyText(root)).toBe('Yjs text'))
+    expect(shown.value?.editor?.isEditable).toBe(false)
+    expect(root.querySelector('.ProseMirror')!.getAttribute('contenteditable')).toBe('false')
   })
 
   it('shows the last saved HTML, and says so, when the Yjs bytes do not decode', async () => {
