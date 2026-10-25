@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from suite.content import log
+from suite.content import conversions, log
 from suite.content.editors import editors
 
 
@@ -23,7 +23,7 @@ class SuiteCollabSettings(Document):
         self.refuse_turning_off(known)
 
     def refuse_turning_off(self, known: dict) -> None:
-        """Refuse turning off, or removing, an app that is always on or whose documents have logs."""
+        """Refuse turning off, or removing, an app that is always on or whose documents have logs or conversions."""
         before = self.get_doc_before_save()
         if before is None:
             return
@@ -33,5 +33,5 @@ class SuiteCollabSettings(Document):
             if row.mode != "on" or row.app in still_on or row.app not in known:
                 continue
 
-            if known[row.app].always_on or log.has_logs(row.app):
+            if known[row.app].always_on or log.has_logs(row.app) or conversions.conversion_started(row.app):
                 frappe.throw(_("Collaboration in {0} can't be turned off").format(row.app))

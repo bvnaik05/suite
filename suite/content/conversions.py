@@ -272,6 +272,15 @@ def conversion_status(app: str, node: str) -> ConversionStatus:
     return status
 
 
+def conversion_started(app: str) -> bool:
+    """Whether the app has a conversion record, refused or open; false again once purges delete them all."""
+    conversion_table = table(app, "conversion")
+    if conversion_table not in frappe.db.get_tables(cached=False):
+        return False
+
+    return bool(frappe.db.sql(f"SELECT 1 FROM `{conversion_table}` LIMIT 1"))
+
+
 def held_attempt(app: str, node: str, fingerprint: str) -> frappe._dict | None:
     """Load this body's record under this converter, when a run has already started on it."""
     conversion_table = table(app, "conversion")
