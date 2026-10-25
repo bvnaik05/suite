@@ -23,7 +23,18 @@ from werkzeug.wrappers import Request
 from suite import drive
 from suite.composition import lifecycle
 from suite.composition.contract import _contract_path
-from suite.content import checker, compaction, convert, copies, jobs, live, log, scheduling, selftest
+from suite.content import (
+    checker,
+    compaction,
+    conversions,
+    convert,
+    copies,
+    jobs,
+    live,
+    log,
+    scheduling,
+    selftest,
+)
 from suite.content.editors import HtmlCopy, spec_of
 from suite.content.http import routes
 from suite.drive._core.access import grant
@@ -1008,7 +1019,17 @@ class TestConversion(DriveCallbackCase):
             self.assertEqual(converting.call_count, 3)
             self.assertEqual(conversion.conversion_status(node)["state"], "refused")
 
-            with patch.object(writer_content, "CONVERTER_VERSION", "next"), self.assertRaises(RuntimeError):
+            with (
+                patch.object(
+                    writer_content,
+                    "EDITOR",
+                    dataclasses.replace(
+                        writer_content.EDITOR,
+                        conversion=dataclasses.replace(writer_content.EDITOR.conversion, version="next"),
+                    ),
+                ),
+                self.assertRaises(RuntimeError),
+            ):
                 conversion.convert_document(node)
 
         self.assertEqual(self.as_before(node), before)
@@ -1049,7 +1070,7 @@ class TestConversion(DriveCallbackCase):
 
         self.assertEqual(conversion.convert_document(refused), "check")
 
-        self.assertEqual(conversion.retry_over_quota(), 1)
+        self.assertEqual(conversions.retry_over_quota(writer_content.APP), 1)
 
         self.assertEqual(conversion.convert_document(over), "converted")
         self.assertIsNone(conversion.convert_document(refused))
@@ -1194,7 +1215,9 @@ class TestConversion(DriveCallbackCase):
         orphan = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
         self.addCleanup(self.delete_document, orphan)
         stale_start = frappe.utils.now_datetime() - conversion.STALE_ATTEMPT - timedelta(seconds=1)
-        conversion.start_attempt(stale, conversion.read_old(stale).fingerprint, stale_start, retry=False)
+        conversions.start_attempt(
+            writer_content.APP, stale, conversion.read_old(stale).fingerprint, stale_start, retry=False
+        )
 
         def thrice(node):
             for _ in range(3):
@@ -1496,7 +1519,14 @@ class TestConversion(DriveCallbackCase):
             self.assertEqual(conversion.convert_document(node), "too_large")
             self.assertIsNone(conversion.convert_document(node))
 
-            with patch.object(writer_content, "CONVERTER_VERSION", "next"):
+            with patch.object(
+                writer_content,
+                "EDITOR",
+                dataclasses.replace(
+                    writer_content.EDITOR,
+                    conversion=dataclasses.replace(writer_content.EDITOR.conversion, version="next"),
+                ),
+            ):
                 self.assertEqual(conversion.convert_document(node), "too_large")
 
         self.assertEqual(self.records(node), (("too_large", None, None),) * 2)
@@ -1523,7 +1553,9 @@ class TestConversion(DriveCallbackCase):
             (running, timedelta(seconds=60)),
             (crashed, conversion.STALE_ATTEMPT + timedelta(seconds=1)),
         ):
-            conversion.start_attempt(node, conversion.read_old(node).fingerprint, now - age, retry=False)
+            conversions.start_attempt(
+                writer_content.APP, node, conversion.read_old(node).fingerprint, now - age, retry=False
+            )
 
         before = {node: self.as_before(node) for node in (running, crashed)}
 
