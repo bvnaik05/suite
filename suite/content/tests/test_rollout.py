@@ -150,9 +150,7 @@ class TestRollout(NoteAppCase):
             try:
                 frappe.db.sql("SET SESSION innodb_lock_wait_timeout = 2")
                 frappe.db.sql(
-                    """UPDATE `tabSuite Collab App` SET `conversion_paused` = 1
-                    WHERE `parent` = %s AND `parentfield` = %s AND `app` = %s""",
-                    (writer_row["parent"], writer_row["parentfield"], writer_row["app"]),
+                    "UPDATE `tabSuite Collab App` SET `conversion_paused` = 1 WHERE `name` = %s", writer_name
                 )
                 frappe.db.commit()  # nosemgrep: frappe-manual-commit
                 stored.append(frappe.db.get_value("Suite Collab App", writer_row, "conversion_paused"))
@@ -162,7 +160,8 @@ class TestRollout(NoteAppCase):
                 frappe.destroy()
 
         self.addCleanup(free_writer)
-        self.assertEqual(frappe.db.get_value("Suite Collab App", writer_row, "conversion_paused"), 0)
+        writer_name = frappe.db.get_value("Suite Collab App", writer_row)
+        self.assertEqual(frappe.db.get_value("Suite Collab App", writer_name, "conversion_paused"), 0)
 
         self.assertTrue(convert.may_convert(note.EDITOR.app, lock=True))
         admin = threading.Thread(target=pause_writer_elsewhere)
