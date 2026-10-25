@@ -30,6 +30,7 @@ class TestWriterCollabResends(CollabCase):
         self.assertEqual(first[0], 200)
         self.assertEqual((status, body["dup"], body["acked"]), (200, True, 1))
         self.assertEqual((body["rev"], body["chain"]), (first[1]["rev"], first[1]["chain"]))
+        self.assertEqual(body["head"], first[1]["head"])
         self.assert_one_order(node, 1)
 
     def test_a_resend_answers_while_the_doc_is_locked(self):
