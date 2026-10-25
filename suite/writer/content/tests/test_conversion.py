@@ -18,6 +18,8 @@ import pycrdt
 from bs4 import BeautifulSoup
 from frappe.tests.test_api import make_request
 from frappe.utils import get_datetime, get_system_timezone, get_test_client
+from frappe.utils.background_jobs import create_job_id, get_redis_conn
+from rq.job import Job, JobStatus
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
@@ -1123,6 +1125,60 @@ class TestConversion(DriveCallbackCase):
 
             frappe.set_user(WRITER)
             self.assertEqual((writer_sees, manager_sees), ({}, {"reason": reason}), msg=reason)
+
+    def old_version(self) -> tuple[str, int]:
+        node = self.old_document("<p>Hello world</p>")
+        seq = drive.take_version(node)
+        frappe.db.commit()
+        return node, seq
+
+    # Saved on no queue, so no live worker takes it
+    def waiting_job(self, node: str, seq: int) -> Job:
+        job_id = create_job_id(f"suite-writer-convert-version-{node}-{seq}")
+        job = Job.create("frappe.ping", id=job_id, status=JobStatus.QUEUED, connection=get_redis_conn())
+        job.save()
+        self.addCleanup(get_redis_conn().delete, job.key)
+        return job
+
+    def ask_version(self, node: str, seq: int) -> dict:
+        with patch.object(frappe.local, "job", None):
+            return docs.convert_version(node, seq)
+
+    def stored_input(self, node: str, seq: int) -> bool:
+        return bool(frappe.cache.exists(docs.version_key("input", node, seq)))
+
+    def test_waits_on_another_version_while_the_stored_one_has_its_job_waiting(self):
+        frappe.cache.delete_value(docs.VERSION_SLOT, user=True)
+        first = self.old_version()
+        second = self.old_version()
+        self.waiting_job(*first)
+        self.waiting_job(*second)
+        self.ask_version(*first)
+
+        self.assertEqual(self.ask_version(*second), {"pending": True})
+        self.assertEqual((self.stored_input(*first), self.stored_input(*second)), (True, False))
+
+    def test_stores_another_version_in_place_of_one_whose_job_has_gone(self):
+        frappe.cache.delete_value(docs.VERSION_SLOT, user=True)
+        first = self.old_version()
+        second = self.old_version()
+        first_job = self.waiting_job(*first)
+        self.waiting_job(*second)
+        self.ask_version(*first)
+        first_job.delete()
+
+        self.assertEqual(self.ask_version(*second), {"pending": True})
+        self.assertEqual((self.stored_input(*first), self.stored_input(*second)), (False, True))
+
+    def test_keeps_an_answer_a_minute_at_most(self):
+        node, seq = self.old_version()
+        self.waiting_job(node, seq)
+        self.ask_version(node, seq)
+        docs.run_version_conversion(node=node, seq=seq)
+
+        kept = frappe.cache.ttl(frappe.cache.make_key(docs.version_key("answer", node, seq)))
+        a_minute = 60
+        self.assertTrue(0 < kept <= a_minute, kept)
 
     def crashes_logged(self, node: str) -> list[str]:
         return frappe.get_all(

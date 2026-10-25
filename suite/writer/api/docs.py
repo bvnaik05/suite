@@ -5,6 +5,7 @@ from typing import NotRequired, TypedDict
 
 import frappe
 import mimemapper
+from frappe.utils.background_jobs import is_job_enqueued
 
 from suite import drive
 from suite.content import checker, convert, scheduling
@@ -18,8 +19,11 @@ QUICK_MAP = {
 }
 
 CONVERT_TIMEOUT = 300
-# How long a version waits for its job, and its answer for the page to ask again
+# How long a version's input waits for its job
 CONVERSION_KEPT = 600
+# How long an answer waits for the page, which asks every 2 s
+ANSWER_KEPT = 60
+VERSION_SLOT = "suite-writer-version-slot"
 
 
 class VersionConversion(TypedDict):
@@ -80,13 +84,17 @@ def convert_version(node: str, seq: int) -> VersionConversion:
     seq = int(seq)
     answer = frappe.cache.get_value(version_key("answer", node, seq))
     if answer is None:
+        if not free_version_slot(node, seq):
+            return {"pending": True}
+
         if frappe.cache.get_value(version_key("input", node, seq)) is None:
             legacy = _version_payload(_read_bounded(drive.read_version(node, seq)))
             frappe.cache.set_value(version_key("input", node, seq), legacy, expires_in_sec=CONVERSION_KEPT)
+            frappe.cache.set_value(VERSION_SLOT, (node, seq), user=True, expires_in_sec=CONVERSION_KEPT)
 
         scheduling.enqueue(
             "suite.writer.api.docs.run_version_conversion",
-            f"suite-writer-convert-version-{node}-{seq}",
+            version_job(node, seq),
             timeout=CONVERT_TIMEOUT,
             node=node,
             seq=seq,
@@ -103,6 +111,19 @@ def convert_version(node: str, seq: int) -> VersionConversion:
     return refusal
 
 
+def free_version_slot(node: str, seq: int) -> bool:
+    """Free this user's one stored input for `seq`, deleting another version's once its job is gone; else False."""
+    held = frappe.cache.get_value(VERSION_SLOT, user=True)
+    if held is None or held == (node, seq):
+        return True
+
+    if is_job_enqueued(version_job(*held)):
+        return False
+
+    frappe.cache.delete_value(version_key("input", *held))
+    return True
+
+
 def run_version_conversion(node: str, seq: int) -> None:
     """Convert the version `convert_version` read, and keep the answer for its next ask."""
     try:
@@ -117,7 +138,7 @@ def run_version_conversion(node: str, seq: int) -> None:
     # Outside the except, so no frame or chained error left to log holds the document's text
     frappe.log_error(title="Writer: version conversion crashed", message=f"{node} v{seq}: {crashed}")
     frappe.cache.set_value(
-        version_key("answer", node, seq), {"reason": "crashed"}, expires_in_sec=CONVERSION_KEPT
+        version_key("answer", node, seq), {"reason": "crashed"}, expires_in_sec=ANSWER_KEPT
     )
     frappe.cache.delete_value(version_key("input", node, seq))
 
@@ -145,13 +166,18 @@ def keep_conversion(node: str, seq: int) -> bool:
     elif converted is not None:
         answer = {"reason": converted.reason}
 
-    frappe.cache.set_value(version_key("answer", node, seq), answer, expires_in_sec=CONVERSION_KEPT)
+    frappe.cache.set_value(version_key("answer", node, seq), answer, expires_in_sec=ANSWER_KEPT)
     return True
 
 
 def version_key(kind: str, node: str, seq: int) -> str:
     """Name the cache key for version `seq`'s conversion input or answer under this converter."""
     return f"suite-writer-version-{kind}-{node}-{seq}-{writer_content.CONVERTER_VERSION}"
+
+
+def version_job(node: str, seq: int) -> str:
+    """Name the job that converts version `seq`."""
+    return f"suite-writer-convert-version-{node}-{seq}"
 
 
 @frappe.whitelist()
