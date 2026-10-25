@@ -98,7 +98,7 @@ class TestWriterCollabAccess(CollabCase):
         lineage = writer_header["lineage"]
 
         frappe.set_user("Guest")
-        with patch.object(routes.drive, "check"):
+        with patch.object(routes.drive, "check", return_value=writer_content.EDITOR.doctype):
             header, _rows = self.open_document(node)
             session_body = json.dumps({"sid": uuid.uuid4().hex}).encode()
             session = call_route(routes.sessions_post, node, body=session_body)
@@ -120,22 +120,33 @@ class TestWriterCollabAccess(CollabCase):
         presentation = drive.create_document(
             parent, f"Not here {uuid.uuid4().hex[:8]}", content_doctype="Presentation"
         )
+        grant(presentation, READER, drive.READ, Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)))
         frappe.db.commit()
-        session_body = json.dumps({"sid": uuid.uuid4().hex}).encode()
-        push_bytes = push_body(uuid.uuid4().hex, uuid.uuid4().hex, 7, 1, 0, b"x")
-        handlers = (
-            (routes.document_get, b""),
-            (routes.updates_get, b""),
-            (routes.sessions_post, session_body),
-            (routes.updates_post, push_bytes),
-            (routes.suspect_post, b'{"rev": 1}'),
-            (lambda node: routes.stage_put(node, uuid.uuid4().hex, "0"), b"x"),
+        hidden = (404, {"collab": "not_found"})
+        forbidden = (403, {"collab": "forbidden"})
+        expected = (
+            (WRITER, "no-such-node", (hidden,) * 6),
+            (WRITER, presentation, (hidden,) * 6),
+            (OUTSIDER, presentation, (hidden,) * 6),
+            (READER, presentation, (hidden, hidden, forbidden, forbidden, hidden, forbidden)),
         )
 
-        for node in (presentation, "no-such-node"):
-            for handler, request_body in handlers:
+        for user, node, answers in expected:
+            frappe.set_user(user)
+            session_body = json.dumps({"sid": uuid.uuid4().hex}).encode()
+            push_bytes = push_body(uuid.uuid4().hex, uuid.uuid4().hex, 7, 1, 0, b"x", user)
+            handlers = (
+                (routes.document_get, b""),
+                (routes.updates_get, b""),
+                (routes.sessions_post, session_body),
+                (routes.updates_post, push_bytes),
+                (routes.suspect_post, b'{"rev": 1}'),
+                (lambda node: routes.stage_put(node, uuid.uuid4().hex, "0"), b"x"),
+            )
+            for (handler, request_body), refused in zip(handlers, answers, strict=True):
                 response = call_route(handler, node, body=request_body)
-                self.assertEqual((response.status_code, answer(response)), (404, {"collab": "not_found"}))
+                self.assertEqual((response.status_code, answer(response)), refused)
+                self.assertNotIn("Presentation", str(response.headers))
 
         self.assertIsNone(routes.content.find(writer_content.APP, presentation))
 
@@ -151,4 +162,4 @@ class TestWriterCollabAccess(CollabCase):
             with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
                 pushed = call_route(routes.updates_post, node, body=body)
 
-        self.assertEqual((pushed.status_code, sql.call_count), (200, 17))
+        self.assertEqual((pushed.status_code, sql.call_count), (200, 16))

@@ -207,14 +207,8 @@ from suite.drive._core.roots import (
 )
 
 
-def check(node: str, role: int) -> None:
-    """Raise unless the current caller holds `role` at `node`.
-
-    A role above READ also requires an Active node. §8.8 opens a trashed
-    document read-only, and this is an app-facing call, so it refuses one the
-    same way `DriveContent.drive_check` does. Drive's own restore and purge
-    workflows act on a trashed node through `_core` and are unaffected.
-    """
+def check(node: str, role: int) -> str | None:
+    """Raise unless the caller holds `role` at `node`, Active above READ; answer the node's content doctype."""
     from suite.drive._core.access import require
     from suite.drive._core.content import _refuse_trashed_write
     from suite.drive._core.nodes import _node
@@ -222,6 +216,7 @@ def check(node: str, role: int) -> None:
     row = _node(node)
     require(row, role, _principals())
     _refuse_trashed_write(row, role)
+    return row.content_doctype
 
 
 def create_document(

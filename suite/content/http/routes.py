@@ -224,23 +224,12 @@ def json_body() -> dict:
 
 
 def authorize_node(node: str, role: int, expected_user: object) -> str:
-    """Check the tab's user, a sign-in to edit, the node's app and Drive's access, then return the app."""
+    """Check the user, an edit sign-in, then Drive's access, which answers the node's type, and return its app."""
     require_expected_user(expected_user)
     if role == drive.EDIT and frappe.session.user == "Guest":
         raise content.Refusal(401, "signed_out")
 
-    app = app_of(node)
-    check_drive_access(node, role)
-    return app
-
-
-def app_of(node: str) -> str:
-    """Return the app that keeps the node; a node of a type no app keeps here is not found."""
-    content_type = frappe.db.get_value("Drive Node", node, "content_doctype")
-    if not content_type:
-        raise content.Refusal(404, "not_found")
-
-    spec = editors.for_type(content_type)
+    spec = editors.for_type(check_drive_access(node, role))
     if spec is None:
         raise content.Refusal(404, "not_found")
 
@@ -256,10 +245,10 @@ def refusal_for(error: drive.DriveError) -> content.Refusal | None:
     return None
 
 
-def check_drive_access(node: str, role: int) -> None:
-    """Refuse the request unless Drive lets this user take `role` on the node."""
+def check_drive_access(node: str, role: int) -> str | None:
+    """Refuse the request unless Drive lets this user take `role` on the node; answer its content doctype."""
     try:
-        drive.check(node, role)
+        return drive.check(node, role)
     except drive.DriveError as error:
         refusal = refusal_for(error)
         if refusal is None:
