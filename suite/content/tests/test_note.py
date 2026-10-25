@@ -228,6 +228,46 @@ class TestNoteEditor(IntegrationTestCase):
             [(reason, bytes(payload)) for reason, payload in evidence], [("copy_foreign", foreign.encode())]
         )
 
+    def test_a_copy_that_reads_back_differently_is_refused_and_the_old_one_kept(self):
+        self.push(typed(self.client_id, "hello"))
+        good = multi_copy.MultiCopy()
+        lossy = multi_copy.LossyCopy()
+        first = json.dumps({"a": "<p>one</p>", "b": "<p>two</p>"})
+        second = json.dumps({"a": "<p>one</p>", "b": "<p>two more</p>"})
+        kept = '{"a":"<p>one</p>","b":"<p>two</p>"}'
+        lost = '{"a":"<p>one</p>","b":"<p>two more</p>"}'
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=good)):
+            self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 1, first, good))
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=lossy)):
+            self.assertFalse(copies.write(note.EDITOR.app, self.doc_id, 2, second, lossy))
+
+        projection_table = table(note.EDITOR.app, "projection")
+        copy_table = table(note.EDITOR.app, "copy")
+        recovery_table = table(note.EDITOR.app, "recovery")
+        self.assertEqual(self.html_field(), kept)
+        [[projected_rev, stored_hash]] = frappe.db.sql(
+            f"SELECT `projected_rev`, `projection_hash` FROM `{projection_table}` WHERE `doc_id` = %s",
+            self.doc_id,
+        )
+        self.assertEqual(projected_rev, 1)
+        self.assertEqual(bytes(stored_hash), hashlib.sha256(kept.encode()).digest())
+        kept_copies = frappe.db.sql(
+            f"SELECT `rev`, `html` FROM `{copy_table}` WHERE `doc_id` = %s", self.doc_id
+        )
+        self.assertEqual([(int(rev), html) for rev, html in kept_copies], [(1, first)])
+        evidence = frappe.db.sql(
+            f"SELECT `reason`, `payload` FROM `{recovery_table}` WHERE `doc_id` = %s", self.doc_id
+        )
+        self.assertEqual(
+            [(reason, bytes(payload)) for reason, payload in evidence], [("copy_mismatch", lost.encode())]
+        )
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=good)):
+            self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 2, second, good))
+
+        self.assertEqual(self.html_field(), lost)
+
     def test_compaction_writes_a_note_body_into_the_apps_own_row(self):
         self.push(typed(self.client_id, "kept"))
 
