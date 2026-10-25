@@ -17,9 +17,9 @@ unreadable-yjs), or the child's failure (child_crash, child_timeout, bad_answer)
 document text, the words of a pending edit or a comment's copy, so it goes only to the conversion's
 record, never to a log or report.
 
-`run_pending` is the scheduled job's loop: it pages through the app's documents that have no log, newest
-first, and hands each to `convert_document` (suite.content.conversions), which converts one document. It
-passes over a document this converter refused unless the row changed after the refused attempt began.
+`pending_page` loads the pages `run_pending` (suite.content.conversions) converts: the app's documents
+that have no log, newest first, past any this converter refused unless the row changed after the refused
+attempt began.
 
 Without Node, or with the scheduler off, nothing converts. `check_before_migrate` prints each cause on
 every migrate, and System Managers get one notification per cause until it is fixed.
@@ -28,7 +28,6 @@ every migrate, and System Managers get one notification per cause until it is fi
 import base64
 import contextlib
 import subprocess
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,7 +37,7 @@ from frappe.utils.scheduler import is_scheduler_disabled
 from frappe.utils.user import get_system_managers
 
 from suite import drive
-from suite.content import capacity, checker, conversions, log, selftest
+from suite.content import capacity, checker, log
 from suite.content.editors import Conversion, editors, spec_of
 from suite.content.tables import KINDS, table
 
@@ -74,31 +73,6 @@ class Refused:
     reason: str
 
 
-def run_pending(app: str, conversion: Conversion) -> None:
-    """Convert the app's documents that have no log, page by page, until none is left or time runs out."""
-    clear_block("scheduler")
-    deadline = time.monotonic() + RUN_FOR
-    missing = missing_prerequisite(app)
-    if missing:
-        log_reason(app, missing)
-        return
-
-    page = pending_page(app, conversion.version, None)
-    if not page:
-        return
-
-    fault = selftest.self_test_fault()
-    if fault:
-        log_reason(app, f"the collaboration self-test fails: {fault}")
-        return
-
-    if not converter_ready(app, conversion):
-        return
-
-    while page and convert_page(app, page, deadline):
-        page = pending_page(app, conversion.version, page[-1])
-
-
 def converter_ready(app: str, conversion: Conversion) -> bool:
     """Whether Node and the converter bundle of this version are here; logs why not."""
     if checker.usable_node(NODE_MIN) is None:
@@ -130,24 +104,6 @@ def missing_prerequisite(app: str) -> str | None:
             return f"content table {name} is missing"
 
     return None
-
-
-def convert_page(app: str, page: list[frappe._dict], deadline: float) -> bool:
-    """Convert each document on `page`; False once time runs out or the converter changes."""
-    for row in page:
-        if time.monotonic() > deadline:
-            return False
-
-        try:
-            conversions.convert_document(app, row.node)
-        except ConverterChanged as changed:
-            log_reason(app, str(changed))
-            return False
-        except Exception as error:
-            frappe.db.rollback()
-            log_reason(app, f"{row.node}: {type(error).__name__}")
-
-    return True
 
 
 def pending_page(app: str, version: str, after: frappe._dict | None) -> list[frappe._dict]:

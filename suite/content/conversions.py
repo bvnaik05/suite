@@ -1,5 +1,9 @@
 """An app's conversion records, one per old body and converter version, in the app's own table.
 
+`run_pending` is the scheduled job's loop: it pages through the app's documents that have no log, newest
+first, and hands each to `convert_document`, which converts one document. It passes over a document this
+converter refused unless the row changed after the refused attempt began.
+
 `convert_document` runs the app's converter on the old body the app's `read_old` answers, and installs
 the answer in one transaction under the row's lock: the app's `check` refuses before the first write,
 "Before collaboration" is kept, the log starts from the answer, the app's `fix_up` runs and the readable
@@ -14,6 +18,7 @@ nowhere else.
 """
 
 import json
+import time
 from datetime import datetime, timedelta
 from typing import Protocol
 
@@ -22,9 +27,9 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from suite import drive
-from suite.content import checker, convert, copies, live, log
+from suite.content import checker, convert, copies, live, log, selftest
 from suite.content.checkpoints import replace_start
-from suite.content.editors import spec_of
+from suite.content.editors import Conversion, spec_of
 from suite.content.tables import table
 
 # How many runs fail on a body under one converter version before it is recorded `crashed`
@@ -57,6 +62,49 @@ class ConversionRefused(Exception):
         self.reason = reason
 
 
+def run_pending(app: str, conversion: Conversion) -> None:
+    """Convert the app's documents that have no log, page by page, until none is left or time runs out."""
+    convert.clear_block("scheduler")
+    deadline = time.monotonic() + convert.RUN_FOR
+    missing = convert.missing_prerequisite(app)
+    if missing:
+        convert.log_reason(app, missing)
+        return
+
+    page = convert.pending_page(app, conversion.version, None)
+    if not page:
+        return
+
+    fault = selftest.self_test_fault()
+    if fault:
+        convert.log_reason(app, f"the collaboration self-test fails: {fault}")
+        return
+
+    if not convert.converter_ready(app, conversion):
+        return
+
+    while page and convert_page(app, page, deadline):
+        page = convert.pending_page(app, conversion.version, page[-1])
+
+
+def convert_page(app: str, page: list[frappe._dict], deadline: float) -> bool:
+    """Convert each document on `page`; False once time runs out or the converter changes."""
+    for row in page:
+        if time.monotonic() > deadline:
+            return False
+
+        try:
+            convert_document(app, row.node)
+        except convert.ConverterChanged as changed:
+            convert.log_reason(app, str(changed))
+            return False
+        except Exception as error:
+            frappe.db.rollback()
+            convert.log_reason(app, f"{row.node}: {type(error).__name__}")
+
+    return True
+
+
 def convert_document(app: str, node: str) -> str | None:
     """Convert `node`'s old body, reading it again if it changes; the outcome, or None to leave it to the next run."""
     conversion = spec_of(app).conversion
@@ -75,23 +123,24 @@ def convert_document(app: str, node: str) -> str | None:
             return None
 
         if isinstance(converted, convert.Refused):
-            if converted.reason in PASSING:
-                return count_failure(app, node, old.fingerprint, converted.reason)
-
-            record(app, node, old.fingerprint, started, converted.reason)
-            frappe.db.commit()  # nosemgrep: frappe-manual-commit
-            live.publish_conversion(app, node, "refused")
-            return converted.reason
+            return refused_outcome(app, node, old.fingerprint, converted.reason, started)
 
         outcome = install_conversion(app, node, old, converted, started)
-        if outcome not in {CHANGED, LOGGED}:
-            return outcome
-
-        drop_attempt(app, node, old.fingerprint)
-        if outcome == LOGGED:
+        if outcome != CHANGED:
             return outcome
 
     return None
+
+
+def refused_outcome(app: str, node: str, fingerprint: str, reason: str, started: datetime) -> str | None:
+    """Count a child failure that can clear up by itself; record any other refusal and tell the rooms."""
+    if reason in PASSING:
+        return count_failure(app, node, fingerprint, reason)
+
+    record(app, node, fingerprint, started, reason)
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+    live.publish_conversion(app, node, "refused")
+    return reason
 
 
 def crashed_outcome(app: str, node: str, fingerprint: str, held: frappe._dict, now: datetime) -> str | None:
@@ -137,7 +186,7 @@ def run_converter(
 def install_conversion(
     app: str, node: str, old: OldBody, converted: convert.Converted, started: datetime
 ) -> str:
-    """Install `converted` whole or not at all: converted, a refusal, logged, or changed."""
+    """Install `converted` whole or not at all: converted, a refusal, logged, or changed; the last two let the attempt go."""
     try:
         dropped = write_conversion(app, node, old, converted)
     except ConversionRefused as refused:
@@ -153,10 +202,9 @@ def install_conversion(
 
     if dropped is None:
         frappe.db.rollback()
-        if log.find(app, node) is None:
-            return CHANGED
-
-        return LOGGED
+        outcome = CHANGED if log.find(app, node) is None else LOGGED
+        drop_attempt(app, node, old.fingerprint)
+        return outcome
 
     record(app, node, old.fingerprint, started, "converted", dropped=dropped)
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -170,7 +218,7 @@ def write_conversion(app: str, node: str, old: OldBody, converted: convert.Conve
     if spec.conversion.read_old(node, lock=True) != old or log.find(app, node):
         return None
 
-    checked = spec.conversion.check(node, old, converted)
+    checked: CheckedBody = spec.conversion.check(node, old, converted)
     keep_old_version(node)
     doc_id = log.create(app, node)
     replace_start(app, doc_id, converted.state, spec.schema.version)

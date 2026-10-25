@@ -630,7 +630,7 @@ class TestConversion(DriveCallbackCase):
         rows = [frappe._dict(node=name) for name in page]
         try:
             with patch.object(frappe.db, "sql", sql):
-                self.assertTrue(convert.convert_page(writer_content.APP, rows, time.monotonic() + 600))
+                self.assertTrue(conversions.convert_page(writer_content.APP, rows, time.monotonic() + 600))
         finally:
             release.set()
             purger.join(30)
@@ -1512,7 +1512,7 @@ class TestConversion(DriveCallbackCase):
                 return real(app, node)
 
         with patch.object(conversions, "convert_document", only_mine):
-            convert.run_pending(writer_content.APP, writer)
+            conversions.run_pending(writer_content.APP, writer)
 
         return seen
 
@@ -1676,12 +1676,12 @@ class TestConversion(DriveCallbackCase):
             return frappe.get_all("Error Log", filters, pluck="error")
 
         with patch.object(convert, "convert", side_effect=crash_on_first):
-            self.assertTrue(convert.convert_page(writer_content.APP, page, time.monotonic() + 600))
+            self.assertTrue(conversions.convert_page(writer_content.APP, page, time.monotonic() + 600))
             self.assertIsNotNone(log.find(writer_content.APP, other))
             self.assertEqual(self.records(crashing), ((None, None, None),))
             [logged] = new_logs()
 
-            convert.convert_page(writer_content.APP, page[:1], time.monotonic() + 600)
+            conversions.convert_page(writer_content.APP, page[:1], time.monotonic() + 600)
 
         self.assertIn("RuntimeError", logged)
         self.assertNotIn("Crash text", logged)
@@ -1715,7 +1715,7 @@ class TestConversion(DriveCallbackCase):
         with (
             patch.object(log, "enabled", return_value=False),
             patch.object(frappe, "enqueue") as enqueue,
-            patch.object(convert, "run_pending") as running,
+            patch.object(conversions, "run_pending") as running,
         ):
             jobs.queue_conversion()
             jobs.convert_pending(writer_content.APP)
@@ -1730,7 +1730,7 @@ class TestConversion(DriveCallbackCase):
             patch.object(convert, "pending_page", return_value=[]),
             patch.object(convert, "bundle_ready") as ready,
         ):
-            convert.run_pending(writer_content.APP, writer)
+            conversions.run_pending(writer_content.APP, writer)
 
         ready.assert_not_called()
 
@@ -1778,7 +1778,7 @@ class TestConversion(DriveCallbackCase):
             patch.object(convert, "pending_page", return_value=[]),
             patch.object(selftest, "compaction_check", wraps=selftest.compaction_check) as checking,
         ):
-            convert.run_pending(writer_content.APP, writer)
+            conversions.run_pending(writer_content.APP, writer)
 
         checking.assert_not_called()
 

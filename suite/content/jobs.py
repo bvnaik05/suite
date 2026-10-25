@@ -2,7 +2,18 @@
 
 import frappe
 
-from suite.content import checkpoints, convert, copies, log, scheduling, stage, suspect, touches, trimming
+from suite.content import (
+    checkpoints,
+    conversions,
+    convert,
+    copies,
+    log,
+    scheduling,
+    stage,
+    suspect,
+    touches,
+    trimming,
+)
 from suite.content.editors import editors, spec_of
 
 COMPACT = "suite.content.jobs.compact"
@@ -63,7 +74,7 @@ def convert_pending(app: str) -> None:
     """Convert the app's documents that have no log yet, as its queued job."""
     conversion = spec_of(app).conversion
     if conversion is not None and log.enabled(app):
-        convert.run_pending(app, conversion)
+        conversions.run_pending(app, conversion)
 
 
 def judge(app: str, doc_id: str) -> None:
