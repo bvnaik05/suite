@@ -61,8 +61,9 @@ class ChainBroken(Exception):
 
 
 def require_enabled(app: str) -> None:
-    """Refuse the request unless the app's collaboration is on."""
-    if not enabled(app):
+    """Refuse unless the app is on, read cached: stale only refuses, so one-way callers use `enabled`."""
+    settings = frappe.get_cached_doc("Suite Collab Settings")
+    if not any(row.app == app and row.mode == "on" for row in settings.apps):
         raise Refusal(409, "disabled")
 
 

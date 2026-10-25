@@ -24,6 +24,7 @@ def rows() -> list[tuple[str, str]]:
 def remove_writers_row() -> None:
     # Straight from the table, since saving Settings refuses it
     frappe.db.delete("Suite Collab App", {"parent": "Suite Collab Settings", "app": APP})
+    frappe.clear_document_cache("Suite Collab Settings", "Suite Collab Settings")
 
 
 class TestWriterSwitch(IntegrationTestCase):
