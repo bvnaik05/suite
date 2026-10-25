@@ -329,9 +329,12 @@ export function createKeyboard(o: KeyboardOptions): Keyboard {
     }
   }
 
-  // A click in the bar's text, or leaving the bar, goes back to the caret.
+  // A click in the bar's text, or leaving the bar, goes back to the caret,
+  // keeping a reference being picked (as the in-cell editor does).
   function endBarPicking(e: Event): void {
-    if (e.target === barPicking) barPicking = null
+    if (e.target !== barPicking) return
+    if (picker.isKeyPicking(barPicking as HTMLInputElement)) picker.keyCommit()
+    barPicking = null
   }
 
   canvas.addEventListener('keydown', onGridKey)

@@ -289,6 +289,16 @@ describe('formula bar picking', () => {
     expect(h.picker.keyStart).not.toHaveBeenCalled()
   })
 
+  it('a click in the bar mid-pick keeps the reference and ends the pick', () => {
+    const h = withBar()
+    h.press('F2', {}, h.bar)
+    h.press('ArrowDown', {}, h.bar)
+    h.bar.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    expect(h.picker.keyCommit).toHaveBeenCalled()
+    h.press('ArrowDown', {}, h.bar)
+    expect(h.picker.keyMove).not.toHaveBeenCalled()
+  })
+
   it('in pick mode an arrow starts a pick, the next moves it', () => {
     const h = setup()
     const bar = document.createElement('input')
