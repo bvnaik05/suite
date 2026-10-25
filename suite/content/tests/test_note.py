@@ -420,3 +420,38 @@ class TestNoteEditor(IntegrationTestCase):
         [[fixed_node, _old, checked]] = [call.args for call in fix_up.call_args_list]
         self.assertEqual(fixed_node, node)
         self.assertEqual(checked.html, "<p>Hello</p>")
+
+    def test_a_note_its_check_refuses_keeps_its_old_body(self):
+        node = frappe.generate_hash(length=10)
+        frappe.db.sql(
+            f"INSERT INTO `{APP_TABLE}` (`name`, `node`, `body`, `html`) VALUES (%s, %s, '', '<p>Old</p>')",
+            (node, node),
+        )
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        self.addCleanup(self.remove_note, node)
+        converted = convert.Converted(
+            state=typed(1, ""), source="html", dropped=[], anchors={}, threads=[], html=""
+        )
+        fix_up = MagicMock(wraps=note.EDITOR.conversion.fix_up)
+        conversion = replace(note.EDITOR.conversion, fix_up=fix_up)
+
+        with (
+            patch.object(note, "EDITOR", replace(note.EDITOR, conversion=conversion)),
+            patch.object(convert, "convert", return_value=converted),
+            patch.object(drive, "take_version") as take_version,
+        ):
+            outcome = conversions.convert_document(note.EDITOR.app, node)
+
+        self.assertEqual(outcome, "check")
+        self.assertIsNone(log.find(note.EDITOR.app, node))
+        [[html]] = frappe.db.sql(f"SELECT `html` FROM `{APP_TABLE}` WHERE `name` = %s", node)
+        self.assertEqual(html, "<p>Old</p>")
+        self.assertEqual(
+            frappe.db.sql(
+                "SELECT `outcome`, `reason` FROM `__note_content_conversion` WHERE `node` = %s", node
+            ),
+            (("check", "empty"),),
+        )
+        self.assertFalse(frappe.db.sql("SELECT 1 FROM `__writer_content_conversion` WHERE `node` = %s", node))
+        take_version.assert_not_called()
+        fix_up.assert_not_called()

@@ -9,6 +9,7 @@ import pycrdt
 
 from suite import drive
 from suite.content import convert, with_content
+from suite.content.conversions import ConversionRefused
 from suite.content.editors import Conversion, EditorSpec, HtmlCopy
 from suite.content.ingest import EditorSchema
 
@@ -44,6 +45,9 @@ def read_old(node: str, *, lock: bool = False) -> OldNote | None:
 
 
 def check(node: str, old: OldNote, converted: convert.Converted) -> CheckedNote:
+    if not converted.html and old.legacy["html"]:
+        raise ConversionRefused("check", "empty")
+
     return CheckedNote(converted.html, [])
 
 
