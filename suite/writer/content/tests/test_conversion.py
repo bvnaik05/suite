@@ -7,7 +7,6 @@ import json
 import os
 import threading
 import time
-from collections.abc import Callable
 from datetime import datetime, timedelta
 from html import escape
 from unittest.mock import MagicMock, call, patch
@@ -681,6 +680,15 @@ class TestConversion(DriveCallbackCase):
         frappe.init(site=site)
         frappe.connect()
         frappe.set_user(WRITER)
+        real_sql = frappe.db.sql
+
+        # Hold the purge's conversion rows until the snapshot, so the conversion's failure count never waits on them
+        def sql(query, *args, **kwargs):
+            if "DELETE FROM `__writer_content_conversion`" in str(query) and not release.wait(60):
+                raise AssertionError("snapshot never ran")
+
+            return real_sql(query, *args, **kwargs)
+
         try:
             if heavier:
                 # More locks than the conversion holds, so InnoDB rolls the conversion back instead
@@ -689,8 +697,9 @@ class TestConversion(DriveCallbackCase):
             # The tree lock the trash takes first, held before the conversion asks for it
             lock_trees(frappe.db.get_value("Drive Node", node, "root"))
             locked.set()
-            self.purge_as_writer(node)
-            release.wait(60)
+            with patch.object(frappe.db, "sql", sql):
+                self.purge_as_writer(node)
+
             frappe.db.commit()
         except Exception as error:
             errors.append(error)
@@ -698,33 +707,21 @@ class TestConversion(DriveCallbackCase):
             locked.set()
             frappe.destroy()
 
-    # Convert `page` and, once the conversion locks its first node, purge that node from another connection;
-    # `before_next` runs as the conversion starts the second node, before that waits on the purge's locks
-    def purge_while_converting(
-        self, page: list[str], heavier: bool, release: threading.Event, before_next: Callable | None = None
-    ) -> list:
-        node = page[0]
+    # Convert `page` and, once the conversion locks its first node, purge that node from another connection
+    def purge_while_converting(self, page: list[str], heavier: bool, release: threading.Event) -> list:
         errors: list[Exception] = []
         locked = threading.Event()
+        waited: list[bool] = []
         purger = threading.Thread(
-            target=self.purge_elsewhere, args=(frappe.local.site, node, heavier, errors, locked, release)
+            target=self.purge_elsewhere, args=(frappe.local.site, page[0], heavier, errors, locked, release)
         )
         real_sql = frappe.db.sql
 
         def sql(query, *args, **kwargs):
-            nonlocal before_next
-            if (
-                before_next is not None
-                and "INSERT INTO `__writer_content_conversion`" in str(query)
-                and args[0][0] == page[1]
-            ):
-                before_next()
-                before_next = None
-
             answer = real_sql(query, *args, **kwargs)
             if "`tabDrive Node` WHERE `name` = %s FOR UPDATE" in str(query) and purger.ident is None:
                 purger.start()
-                locked.wait(10)
+                waited.append(locked.wait(10))
 
             return answer
 
@@ -734,8 +731,10 @@ class TestConversion(DriveCallbackCase):
                 self.assertTrue(conversions.convert_page(writer_content.APP, rows, time.monotonic() + 600))
         finally:
             release.set()
-            purger.join(30)
+            if purger.ident is not None:
+                purger.join(30)
 
+        self.assertEqual(waited, [True])
         self.assertFalse(purger.is_alive())
         return errors
 
@@ -759,9 +758,21 @@ class TestConversion(DriveCallbackCase):
             during.update(records=self.records(node), failures=self.failures(node))
             release.set()
 
-        errors = self.purge_while_converting(
-            [node, other], heavier=True, release=release, before_next=snapshot
-        )
+        real_sql = frappe.db.sql
+
+        # Snapshot as the conversion starts the second node, before that waits on the purge's locks
+        def sql(query, *args, **kwargs):
+            if (
+                not release.is_set()
+                and "INSERT INTO `__writer_content_conversion`" in str(query)
+                and args[0][0] == other
+            ):
+                snapshot()
+
+            return real_sql(query, *args, **kwargs)
+
+        with patch.object(frappe.db, "sql", sql):
+            errors = self.purge_while_converting([node, other], heavier=True, release=release)
 
         self.assertEqual(errors, [])
         self.assertEqual(during, before)
