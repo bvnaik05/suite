@@ -95,14 +95,12 @@ class TestCompactionAdmission(CompactionCase):
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
 
-        # As frappe's runner runs jobs: on a thread of the site process, the no-fork switch unset
+        # As frappe's runner runs jobs: on a thread of the site process
         with (
-            patch.dict(os.environ),
             patch.object(admission, "open", create=True, return_value=status),
             patch.object(resource, "setrlimit") as setrlimit,
             ThreadPoolExecutor(1) as worker,
         ):
-            os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
             worker.submit(job.perform).result()
 
         setrlimit.assert_not_called()
@@ -136,7 +134,6 @@ class TestCompactionAdmission(CompactionCase):
             patch.object(resource, "setrlimit") as setrlimit,
             ThreadPoolExecutor(1) as worker,
         ):
-            os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
             worker.submit(job.perform).result()
 
         setrlimit.assert_not_called()
@@ -145,14 +142,12 @@ class TestCompactionAdmission(CompactionCase):
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
 
-        # As a web request runs it, with no RQ job at all
+        # As a web request runs it, with no RQ job but a horse's id left in the environment
         with (
-            patch.dict(os.environ),
+            patch.dict(os.environ, RQ_JOB_ID="an-earlier-job"),
             patch.object(admission, "open", create=True, return_value=status),
             patch.object(resource, "setrlimit") as setrlimit,
         ):
-            os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
-            os.environ.pop("RQ_JOB_ID", None)
             admission.limit_memory()
 
         setrlimit.assert_not_called()
