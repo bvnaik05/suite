@@ -11,6 +11,7 @@ from frappe import _
 from suite.content import copies, jobs, live, log, restores, scheduling, sessions, stage, suspect, touches
 from suite.content.pushes import push, put_piece
 from suite.content.snapshot import read, rows_after, with_tombstones
+from suite.content.tables import table
 from suite.content.wire import (
     PROTOCOL_VERSION,
     encode_frame,
@@ -110,15 +111,43 @@ def push_rows(node: str, body: bytes, authorize: Callable[[object], str]) -> tup
 
         raise
 
-    touches.follow(app, doc.id, touches.TOUCH)
-    touches.follow(app, doc.id, touches.VERSION)
-    answer["copy"] = copies.wanted(app, doc.id)
+    pushed = due_after_push(app, doc.id)
+    answer["copy"] = bool(pushed) and copies.wanted_on(app, pushed)
+    if not pushed:
+        return 200, answer
+
+    for follower in (touches.TOUCH, touches.VERSION):
+        if touches.due(pushed, follower):
+            touches.follow(app, doc.id, follower)
+
     final_from = None
     if header.is_final:
         final_from = header.sid
 
-    scheduling.request_if_due(app, doc.id, jobs.COMPACT, final_from=final_from)
+    scheduling.request_on(app, doc.id, pushed, jobs.COMPACT, final_from=final_from)
     return 200, answer
+
+
+def due_after_push(app: str, doc_id: str) -> frappe._dict | None:
+    """Read in one query what a push checks after it commits: followers, the copy and compaction."""
+    doc_with_base = scheduling.docs_with_base(app, where="`doc`.`id` = %s")
+    update_table = table(app, "update")
+    projection_table = table(app, "projection")
+    found = frappe.db.sql(
+        f"""SELECT `d`.`mode`, `d`.`head_rev`, `d`.`base`, `d`.`state_bytes`, `d`.`tail_rows`, `d`.`tail_bytes`,
+        `d`.`tail_bound`, `d`.`next_compaction_at`, `d`.`suspect`, `u`.`created` AS `oldest`,
+        `d`.`touched_at`, `d`.`touched_rev`, `d`.`versioned_at`, `d`.`versioned_rev`,
+        COALESCE(`p`.`projected_rev`, 0) AS `projected_rev`, `p`.`updated` AS `copied_at`
+        FROM {doc_with_base} `d`
+        LEFT JOIN `{update_table}` `u` ON `u`.`doc_id` = `d`.`id` AND `u`.`rev` = `d`.`base` + 1
+        LEFT JOIN `{projection_table}` `p` ON `p`.`doc_id` = `d`.`id`""",
+        doc_id,
+        as_dict=True,
+    )
+    if not found:
+        return None
+
+    return found[0]
 
 
 def stage_piece(app: str, node: str, stage_id: str, piece_index: str, body: bytes) -> tuple[int, dict]:

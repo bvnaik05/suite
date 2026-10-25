@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import frappe
 
-from suite.content import copies, jobs, logged, scheduling
+from suite.content import copies, jobs, logged, scheduling, steps
 from suite.content.http import routes
 from suite.content.stage import PIECE_MAX
 from suite.writer import content as writer_content
@@ -174,7 +174,9 @@ class TestReadableCopies(CheckpointCase):
 
         self.install(4, "<p>one two three four</p>")
         self.age_copy(3600)
-        self.assertFalse(copies.wanted(writer_content.APP, self.doc.id))
+        self.assertFalse(
+            copies.wanted_on(writer_content.APP, steps.due_after_push(writer_content.APP, self.doc.id))
+        )
 
 
 class TestStagedRenders(CheckpointCase):

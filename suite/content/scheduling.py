@@ -54,9 +54,20 @@ def request_if_due(
         doc_id,
         as_dict=True,
     )
-    if not due_rows:
-        return
+    if due_rows:
+        request_on(app, doc_id, due_rows[0], compact_method, final_from=final_from, refused=refused)
 
+
+def request_on(
+    app: str,
+    doc_id: str,
+    doc: frappe._dict,
+    compact_method: str,
+    *,
+    final_from: str | None = None,
+    refused: bool = False,
+) -> None:
+    """Request a compaction if the doc row, read with its base and oldest tail row, says one is due."""
     closing = refused
     if final_from and not closing:
         session_table = table(app, "session")
@@ -66,7 +77,7 @@ def request_if_due(
             (doc_id, final_from, now_datetime() - QUIET_SPAN),
         )
 
-    if compaction_due(due_rows[0], now_datetime(), closing=closing):
+    if compaction_due(doc, now_datetime(), closing=closing):
         request_compaction(app, doc_id, compact_method)
 
 

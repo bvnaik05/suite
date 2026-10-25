@@ -9,7 +9,6 @@ and checks access through Drive. The scheduler and the queue run
 """
 
 from suite.content.copies import readable_copy
-from suite.content.copies import wanted as copy_wanted
 from suite.content.editors import Conversion, EditorSpec, HtmlCopy, MediaReferences
 from suite.content.ingest import EditorSchema
 from suite.content.live import rooms
@@ -72,7 +71,6 @@ __all__ = [
     "cancel_restore",
     "claim_session",
     "copy",
-    "copy_wanted",
     "enabled",
     "encode_frame",
     "ensure_tables",

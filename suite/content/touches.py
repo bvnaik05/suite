@@ -53,6 +53,14 @@ VERSION = Follower(
 )
 
 
+def due(doc: frappe._dict, follower: Follower) -> bool:
+    """Whether `follower` is due on the doc row: edits it hasn't followed, and none for TOUCH_EVERY."""
+    followed_at = doc[f"{follower.column}_at"]
+    unfollowed = int(doc.head_rev) > int(doc[f"{follower.column}_rev"])
+    quiet = followed_at is None or followed_at <= now_datetime() - TOUCH_EVERY
+    return doc.mode != "purged" and unfollowed and quiet
+
+
 def follow(app: str, doc_id: str, follower: Follower) -> None:
     """Do what `follower` does after edits, once per TOUCH_EVERY at most, after a push or from the sweep."""
     claim = claimed(app, doc_id, follower)

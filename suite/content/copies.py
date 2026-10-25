@@ -95,22 +95,14 @@ def is_current(app: str, doc_id: str, render: frappe._dict) -> bool:
     return same_log and int(doc.projected_rev) < int(render.rev) <= int(doc.head_rev)
 
 
-def wanted(app: str, doc_id: str) -> bool:
+def wanted_on(app: str, doc: frappe._dict) -> bool:
     """Whether a tab should render: the copy is behind the head and was last written a minute or more ago."""
-    if spec_of(app).readable_copy is None:
+    if spec_of(app).readable_copy is None or doc.mode == "purged":
         return False
 
-    doc_table = table(app, "doc")
-    projection_table = table(app, "projection")
-    found = frappe.db.sql(
-        f"""SELECT 1 FROM `{doc_table}` `doc`
-        LEFT JOIN `{projection_table}` `projection` ON `projection`.`doc_id` = `doc`.`id`
-        WHERE `doc`.`id` = %s AND `doc`.`mode` != 'purged'
-        AND COALESCE(`projection`.`projected_rev`, 0) < `doc`.`head_rev`
-        AND (`projection`.`updated` IS NULL OR `projection`.`updated` <= %s)""",
-        (doc_id, now_datetime() - COPY_AGE),
-    )
-    return bool(found)
+    copied_at = doc.copied_at
+    behind = int(doc.projected_rev) < int(doc.head_rev)
+    return behind and (copied_at is None or copied_at <= now_datetime() - COPY_AGE)
 
 
 def check_staged(app: str, doc_id: str) -> str | None:
