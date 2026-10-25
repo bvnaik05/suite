@@ -1,8 +1,14 @@
+import threading
+
+import frappe
 import pycrdt
 
+from suite import content
 from suite.content.http import routes
 from suite.content.stage import PIECE_MAX
+from suite.content.tables import table
 from suite.content.updates import parse
+from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
     CollabCase,
     answer,
@@ -25,6 +31,49 @@ class TestWriterCollabResends(CollabCase):
         self.assertEqual((status, body["dup"], body["acked"]), (200, True, 1))
         self.assertEqual((body["rev"], body["chain"]), (first[1]["rev"], first[1]["chain"]))
         self.assert_one_order(node, 1)
+
+    def test_a_resend_answers_while_the_doc_is_locked(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+        first = self.push(node, sid, client_id, 1)
+        header, _ = self.open_document(node)
+        body = push_body(header["lineage"], sid, client_id, 1, 0, self.typed_update(client_id, 1, "1"))
+        doc_id = content.find(writer_content.APP, node).id
+        doc_table = table(writer_content.APP, "doc")
+        site = frappe.local.site
+        locked = threading.Event()
+        release = threading.Event()
+        errors: list[Exception] = []
+
+        def hold_doc_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                frappe.db.sql(f"SELECT `id` FROM `{doc_table}` WHERE `id` = %s FOR UPDATE", doc_id)
+                locked.set()
+                release.wait(30)
+                frappe.db.rollback()
+            except Exception as error:
+                errors.append(error)
+            finally:
+                frappe.destroy()
+
+        [[wait]] = frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")
+        frappe.db.sql("SET SESSION innodb_lock_wait_timeout = 2")
+        self.addCleanup(frappe.db.sql, "SET SESSION innodb_lock_wait_timeout = %s", int(wait))
+        holder = threading.Thread(target=hold_doc_elsewhere)
+        holder.start()
+        self.assertTrue(locked.wait(30))
+        try:
+            resent = call_route(routes.updates_post, node, body=body)
+        finally:
+            release.set()
+            holder.join(30)
+
+        resend = answer(resent)
+        self.assertEqual((first[0], errors, holder.is_alive()), (200, [], False))
+        self.assertEqual((resent.status_code, resend["dup"], resend["acked"]), (200, True, 1))
 
     def test_a_resend_grown_by_more_typing_stores_only_the_new_typing(self):
         self.set_mode("on")

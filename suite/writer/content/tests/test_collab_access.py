@@ -151,4 +151,4 @@ class TestWriterCollabAccess(CollabCase):
             with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
                 pushed = call_route(routes.updates_post, node, body=body)
 
-        self.assertEqual((pushed.status_code, sql.call_count), (200, 19))
+        self.assertEqual((pushed.status_code, sql.call_count), (200, 18))
