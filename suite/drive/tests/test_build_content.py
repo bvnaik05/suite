@@ -243,9 +243,8 @@ class BuildContentCase(IntegrationTestCase):
         self.minted += 1
         return f"{self.prefix}g{self.minted:03d}"
 
-    def fixture_user(self) -> str:
-        """One isolated enabled User, inserted without hooks or queue work."""
-        email = f"{self.prefix}@example.invalid"
+    def fixture_user(self, suffix: str = "") -> str:
+        email = f"{self.prefix}{suffix}@example.invalid"
         user = frappe.new_doc("User")
         user.update({"email": email, "first_name": "Drive Build Content", "enabled": 1})
         user.db_insert()
@@ -819,6 +818,8 @@ class TestMigratedComments(BuildContentCase):
     def test_writer_comment_authors_mentions_and_stamps_survive(self):
         thread = self.prefix + "th"
         reply = self.prefix + "rp"
+        self.fixture_user("a")
+        self.fixture_user("b")
         node = self.writer_fixture(
             comments=writer_comments(
                 {
@@ -827,7 +828,7 @@ class TestMigratedComments(BuildContentCase):
                         "text": "First",
                         "owner": "deleted@example.invalid",
                         "creation": 1_000,
-                        "mentions": [{"id": "a@example.invalid"}],
+                        "mentions": [{"id": f"{self.prefix}a@example.invalid"}],
                         "resolved": True,
                         "replies": [
                             {
@@ -835,7 +836,7 @@ class TestMigratedComments(BuildContentCase):
                                 "text": "Later",
                                 "owner": "",
                                 "creation": 2_000,
-                                "mentions": ["b@example.invalid"],
+                                "mentions": [f"{self.prefix}b@example.invalid"],
                             }
                         ],
                     }
@@ -870,7 +871,7 @@ class TestMigratedComments(BuildContentCase):
         self.assertEqual(first.content, "First")
         self.assertEqual(first.author, "deleted@example.invalid")
         self.assertIsNone(first.author_name)
-        self.assertEqual(json.loads(first.mentions), ["a@example.invalid"])
+        self.assertEqual(json.loads(first.mentions), [f"{self.prefix}a@example.invalid"])
         self.assertEqual(first.creation, get_datetime(epoch_millis(1_000, timezone)))
         self.assertEqual(first.idx, 1)
 
@@ -878,13 +879,14 @@ class TestMigratedComments(BuildContentCase):
             "Drive Comment", reply, ["author", "mentions", "creation", "idx"], as_dict=True
         )
         self.assertEqual(second.author, "Guest")
-        self.assertEqual(json.loads(second.mentions), ["b@example.invalid"])
+        self.assertEqual(json.loads(second.mentions), [f"{self.prefix}b@example.invalid"])
         self.assertEqual(second.creation, get_datetime(epoch_millis(2_000, timezone)))
         self.assertEqual(second.idx, 2)
         self.assertEqual(report.comments_seen, 2)
 
     def test_sheet_comment_anchor_display_name_and_ids_survive(self):
         docname = self.prefix + "sheet"
+        self.fixture_user("m")
         workbook = {
             "comments": {
                 "Résumé": {
@@ -896,7 +898,7 @@ class TestMigratedComments(BuildContentCase):
                                 "author": self.owner,
                                 "name": "Cell User",
                                 "ts": 3_000,
-                                "mentions": [{"id": "m@example.invalid"}],
+                                "mentions": [{"id": f"{self.prefix}m@example.invalid"}],
                             }
                         ],
                     }
@@ -933,7 +935,7 @@ class TestMigratedComments(BuildContentCase):
         self.assertEqual(comment.content, "Cell note")
         self.assertEqual(comment.author, self.owner)
         self.assertEqual(comment.author_name, "Cell User")
-        self.assertEqual(json.loads(comment.mentions), ["m@example.invalid"])
+        self.assertEqual(json.loads(comment.mentions), [f"{self.prefix}m@example.invalid"])
         self.assertEqual(comment.creation, get_datetime(epoch_millis(3_000, timezone)))
 
 
