@@ -394,7 +394,7 @@ def insert_old_comment(thread: Document, owner: str, comment: dict, stamp: str, 
             "author": owner,
             "author_name": comment["author_name"].strip(),
             "mentions": frappe.as_json(
-                mentioned_users(span_ids, lambda user: frappe.db.exists("User", user))
+                mentioned_users(span_ids, lambda user: frappe.db.get_value("User", user, "name"))
             ),
             "client_id": None,
             "owner": owner,
@@ -863,7 +863,9 @@ def _mentions(text: str) -> list[str]:
     for pattern in (_BRACKET_MENTION, _EMAIL_MENTION, _DATA_MENTION):
         candidates.extend(pattern.findall(text))
 
-    return list(dict.fromkeys(filter(None, (frappe.db.exists("User", user) for user in candidates))))
+    return list(
+        dict.fromkeys(filter(None, (frappe.db.get_value("User", user, "name") for user in candidates)))
+    )
 
 
 def _validate_anchor(anchor: str) -> None:

@@ -441,6 +441,15 @@ class TestCommentWorkflows(IntegrationTestCase):
         after = frappe.db.count("Drive Notification", {"to_user": ["in", [MENTIONED, COMMENTER]]})
         self.assertEqual((json.loads(mentions), after), ([MENTIONED], notified))
 
+    def test_an_old_comment_span_naming_the_user_doctype_mentions_no_one(self):
+        text = '<p><span data-type="mention" class="mention" data-id="User">@User</span></p>'
+        new_threads = [{"anchor": "kept", "comments": [{"content": text, "author_name": "Ann", "time": 1}]}]
+
+        installed = install_threads(self.owner, self.document.name, {}, new_threads)
+
+        mentions = frappe.db.get_value("Drive Comment", {"thread": installed[0]}, "mentions")
+        self.assertEqual(json.loads(mentions), [])
+
     def test_installing_moves_threads_and_tells_the_content_app_once_after_it_commits(self):
         thread = create_thread(self.owner, self.document.name, "old", "First").name
         new_threads = [{"anchor": "kept", "comments": [{"content": "Old", "author_name": "Ann", "time": 0}]}]
@@ -678,6 +687,18 @@ class TestCommentWorkflows(IntegrationTestCase):
             "Drive Notification", filters={"activity": ["in", activity]}, pluck="to_user"
         )
         self.assertEqual((mentions, notified), ([MENTIONED], [MENTIONED]))
+
+    def test_a_comment_typing_the_user_doctype_mentions_and_notifies_no_one(self):
+        thread = create_thread(self.commenter, self.document.name, "anchor", "Ask @[User]").name
+
+        mentions = frappe.parse_json(frappe.db.get_value("Drive Comment", {"thread": thread}, "mentions"))
+        activity = frappe.get_all(
+            "Drive Activity", filters={"node": self.document.name, "action": "comment"}, pluck="name"
+        )
+        notified = frappe.get_all(
+            "Drive Notification", filters={"activity": ["in", activity]}, pluck="to_user"
+        )
+        self.assertEqual((mentions, notified), ([], []))
 
     def test_an_edit_notifies_only_the_people_it_adds(self):
         thread = create_thread(self.commenter, self.document.name, "anchor", f"Hi @[{MENTIONED}]").name
