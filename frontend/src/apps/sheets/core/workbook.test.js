@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
-import { initSync } from '@ironcalc/wasm'
-import { describe, expect, it } from 'vitest'
+import { initSync, Model } from '@ironcalc/wasm'
+import { describe, expect, it, vi } from 'vitest'
 
 import { CommandTypes } from './commands.js'
 import { createWorkbook, WorkbookError } from './workbook.js'
@@ -549,6 +549,111 @@ describe('workbook — versioning and errors', () => {
     expect(wb.getDisplayValue('Sheet1', 1, 1)).toBe('hello')
     // No-op when there is nothing left to redo.
     expect(wb.redo()).toEqual({ version: 3 })
+  })
+})
+
+// usedCells and findInputs stop at the lowest row an input can be on (a bound
+// the workbook keeps, ISSUES #81), plus where a spill or array reaches below
+// it; each way a cell gets below the bound must still be listed.
+describe('workbook — the cell scans stop at the last used row', () => {
+  const rowsOf = (cells) => cells.filter((_, i) => i % 2 === 0)
+  const used = (wb, sheet = 'Sheet1') => rowsOf(wb.usedCells(sheet))
+  const rowReads = (fn) => {
+    const spy = vi.spyOn(Model.prototype, 'getColumnsWithData')
+    try {
+      fn()
+      return spy.mock.calls.length
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  it('reads the used rows, not all 1,048,576', () => {
+    const wb = createWorkbook()
+    for (let r = 1; r <= 3; r++) setInput(wb, 'Sheet1', r, 1, String(r))
+    expect(rowReads(() => expect(used(wb)).toEqual([1, 2, 3]))).toBeLessThanOrEqual(3)
+  })
+
+  it('reads the used rows of a loaded workbook', () => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 40, 1, '1')
+    const loaded = createWorkbook({ loadBytes: wb.toBytes() })
+    expect(rowReads(() => expect(used(loaded)).toEqual([40]))).toBeLessThanOrEqual(40)
+  })
+
+  it('far down, and on another sheet', () => {
+    const wb = createWorkbook()
+    wb.apply(cmd(CommandTypes.addSheet, { name: 'Data' }))
+    setInput(wb, 'Data', 500000, 2, 'far')
+    expect(used(wb, 'Data')).toEqual([500000])
+    expect(used(wb)).toEqual([])
+    expect(wb.findInputs('Data', 'far', 10)).toEqual([{ row: 500000, col: 2, input: 'far' }])
+  })
+
+  it('pushed down by inserted rows, or moved down', () => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 5, 1, 'a')
+    wb.apply(cmd(CommandTypes.insertRows, { sheet: 'Sheet1', row: 1, count: 1000 }))
+    expect(used(wb)).toEqual([1005])
+    wb.apply(cmd(CommandTypes.moveRows, { sheet: 'Sheet1', row: 1005, count: 1, delta: 100 }))
+    expect(used(wb)).toEqual([1105])
+  })
+
+  // Moving rows 11–20 up by 10 pushes rows 1–10 down by 10.
+  it('pushed down by rows moved up past it', () => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 10, 1, 'a')
+    wb.apply(cmd(CommandTypes.moveRows, { sheet: 'Sheet1', row: 11, count: 10, delta: -10 }))
+    expect(used(wb)).toEqual([20])
+  })
+
+  it('brought back down by undo, in a loaded workbook', () => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 900, 1, 'a')
+    const loaded = createWorkbook({ loadBytes: wb.toBytes() })
+    loaded.apply(cmd(CommandTypes.deleteRows, { sheet: 'Sheet1', row: 1, count: 100 }))
+    expect(used(loaded)).toEqual([800])
+    loaded.undo()
+    expect(used(loaded)).toEqual([900])
+  })
+
+  it('inside a batch (a paste)', () => {
+    const wb = createWorkbook()
+    wb.apply(
+      cmd(CommandTypes.batch, {
+        commands: [
+          cmd(CommandTypes.setInput, { sheet: 'Sheet1', row: 1, col: 1, input: '1' }),
+          cmd(CommandTypes.setInput, { sheet: 'Sheet1', row: 300, col: 1, input: '2' }),
+        ],
+      }),
+    )
+    expect(used(wb)).toEqual([1, 300])
+  })
+
+  it('an array formula’s cells', () => {
+    const wb = createWorkbook()
+    wb.apply(
+      cmd(CommandTypes.setArrayFormula, {
+        sheet: 'Sheet1',
+        row: 1,
+        col: 1,
+        width: 1,
+        height: 3,
+        input: '=ROW(A1:A3)',
+      }),
+    )
+    expect(used(wb)).toEqual([1, 2, 3])
+  })
+
+  // The spill grows when E1 changes, though nothing is typed below row 1.
+  it('a spill, as it grows', () => {
+    const wb = createWorkbook()
+    setInput(wb, 'Sheet1', 1, 5, '3')
+    setInput(wb, 'Sheet1', 1, 3, '=SEQUENCE(E1)')
+    expect(used(wb)).toEqual([1, 1, 2, 3])
+    setInput(wb, 'Sheet1', 1, 5, '5000')
+    expect(used(wb).at(-1)).toBe(5000)
+    expect(wb.findInputs('Sheet1', '4999', 10)).toEqual([{ row: 4999, col: 3, input: '4999' }])
   })
 })
 
