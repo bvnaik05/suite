@@ -278,7 +278,7 @@ def conversion_started(app: str) -> bool:
     if conversion_table not in frappe.db.get_tables(cached=False):
         return False
 
-    return bool(frappe.db.sql(f"SELECT 1 FROM `{conversion_table}` LIMIT 1"))
+    return bool(frappe.db.sql(f"SELECT 1 FROM `{conversion_table}` LIMIT 1 LOCK IN SHARE MODE"))
 
 
 def held_attempt(app: str, node: str, fingerprint: str) -> frappe._dict | None:

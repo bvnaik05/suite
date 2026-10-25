@@ -76,14 +76,14 @@ class Refused:
 def may_convert(app: str, *, lock: bool = False) -> bool:
     """Whether the app is on and unpaused; lock=True takes a current read that locks its row until the next commit."""
     row = {"parent": "Suite Collab Settings", "parentfield": "apps", "app": app}
-    if not log.enabled(app):
-        return False
+    if not lock:
+        return log.enabled(app) and not frappe.db.get_value("Suite Collab App", row, "conversion_paused")
 
-    if lock:
-        # A lock by filter would hold every app's row and the gaps between them
-        row = frappe.db.get_value("Suite Collab App", row)
-
-    return not frappe.db.get_value("Suite Collab App", row, "conversion_paused", for_update=lock)
+    # A lock by filter would hold every app's row and the gaps between them
+    name = frappe.db.get_value("Suite Collab App", row)
+    fields = ["mode", "conversion_paused"]
+    switch = name and frappe.db.get_value("Suite Collab App", name, fields, as_dict=True, for_update=True)
+    return bool(switch) and switch.mode == "on" and not switch.conversion_paused
 
 
 def converter_ready(app: str, conversion: Conversion) -> bool:

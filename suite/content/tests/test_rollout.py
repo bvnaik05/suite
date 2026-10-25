@@ -286,6 +286,119 @@ class TestRollout(NoteAppCase):
 
         self.assertTrue(log.enabled(note.EDITOR.app))
 
+    def test_a_job_that_reaches_its_lock_after_an_off_save_converts_nothing(self):
+        self.addCleanup(log.set_mode, note.EDITOR.app, "on")
+        self.purge_every_log()
+        node = self.old_note()
+        site = frappe.local.site
+        errors: list[Exception] = []
+        turned_off: list[bool] = []
+        converted = convert.Converted(
+            state=typed(1, "Hello"), source="html", dropped=[], anchors={}, threads=[], html="<p>Hello</p>"
+        )
+        real_sql = frappe.db.sql
+
+        def turn_off_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                log.set_mode(note.EDITOR.app, "off")
+                frappe.db.commit()  # nosemgrep: frappe-manual-commit
+            except Exception as error:
+                errors.append(error)
+            finally:
+                frappe.destroy()
+
+        def sql(query, *args, **kwargs):
+            text = str(query)
+            if not turned_off and "FOR UPDATE" in text and "`tabSuite Collab App`" in text:
+                turned_off.append(True)
+                admin = threading.Thread(target=turn_off_elsewhere)
+                admin.start()
+                admin.join(30)
+
+            return real_sql(query, *args, **kwargs)
+
+        with (
+            patch.object(frappe.db, "sql", sql),
+            patch.object(convert, "convert", return_value=converted),
+            patch.object(drive, "take_version"),
+        ):
+            went_on = conversions.convert_page(
+                note.EDITOR.app, [frappe._dict(node=node)], time.monotonic() + 60
+            )
+
+        self.assertEqual((errors, turned_off), ([], [True]))
+        self.assertFalse(went_on)
+        self.assertIsNone(log.find(note.EDITOR.app, node))
+        self.assertFalse(frappe.db.sql("SELECT 1 FROM `__note_content_conversion` WHERE `node` = %s", node))
+
+    def test_an_off_save_behind_a_job_holding_the_app_row_is_refused(self):
+        self.addCleanup(log.set_mode, note.EDITOR.app, "on")
+        self.purge_every_log()
+        node = self.old_note()
+        site = frappe.local.site
+        errors: list[Exception] = []
+        allowed: list[bool] = []
+        locked = threading.Event()
+        asking = threading.Event()
+        granted = threading.Event()
+        real_sql = frappe.db.sql
+
+        def convert_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                allowed.append(convert.may_convert(note.EDITOR.app, lock=True))
+                locked.set()
+                if not asking.wait(10):
+                    raise AssertionError("the save never asked for the app row")
+
+                if granted.wait(1):
+                    raise AssertionError("the save took the app row the job holds")
+
+                fingerprint = note.fingerprint_of("<p>Old</p>")
+                conversions.start_attempt(note.EDITOR.app, node, fingerprint, now_datetime(), retry=False)
+            except Exception as error:
+                errors.append(error)
+            finally:
+                locked.set()
+                frappe.destroy()
+
+        # The save asks for the app row the job holds; the job commits its attempt then
+        def sql(query, *args, **kwargs):
+            text = str(query)
+            writes = text.lstrip().startswith(("UPDATE", "DELETE"))
+            if "`tabSuite Collab App`" not in text or not ("FOR UPDATE" in text or writes):
+                return real_sql(query, *args, **kwargs)
+
+            asking.set()
+            found = real_sql(query, *args, **kwargs)
+            granted.set()
+            return found
+
+        job = threading.Thread(target=convert_elsewhere)
+        job.start()
+        locked.wait(30)
+        try:
+            with (
+                patch.object(frappe.db, "sql", sql),
+                self.assertRaisesRegex(
+                    frappe.ValidationError,
+                    "Collaboration in note can't be turned off",
+                    msg="the save checked before the job's attempt committed",
+                ),
+            ):
+                log.set_mode(note.EDITOR.app, "off")
+        finally:
+            asking.set()
+            frappe.db.rollback()
+            job.join(30)
+
+        self.assertFalse(job.is_alive())
+        self.assertEqual((allowed, errors), ([True], []))
+        self.assertTrue(log.enabled(note.EDITOR.app))
+
     def test_a_paused_backlog_is_not_waiting(self):
         with (
             patch.object(convert, "editors", return_value={note.EDITOR.app: note.EDITOR}),
