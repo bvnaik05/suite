@@ -96,7 +96,7 @@ def run_pending(app: str, conversion: Conversion) -> None:
 def convert_page(app: str, page: list[frappe._dict], deadline: float) -> bool:
     """Convert each document on `page`; False once time runs out, the app pauses or the converter changes."""
     for row in page:
-        # Locks the app row before read_old's document row; run_converter's early commit releases it
+        # Locks the app row before read_old's document row; run_converter's or mark_checked's commit releases it
         if time.monotonic() > deadline or not convert.may_convert(app, lock=True):
             return False
 
@@ -123,6 +123,9 @@ def convert_document(app: str, node: str) -> str | None:
 
         held = held_attempt(app, node, old.fingerprint)
         if held is not None and not has_failed(held):
+            if held.outcome is not None:
+                mark_checked(app, node, old.fingerprint, started)
+
             return crashed_outcome(app, node, old.fingerprint, held, started)
 
         converted = run_converter(app, node, old, started, retry=held is not None)
@@ -346,6 +349,17 @@ def drop_attempt(app: str, node: str, fingerprint: str) -> None:
     frappe.db.sql(f"DELETE FROM `{conversion_table}` WHERE {OPEN_ATTEMPT} AND `failures` = 0", key)
     frappe.db.sql(
         f"UPDATE `{conversion_table}` SET `finished` = %s WHERE {OPEN_ATTEMPT}", (now_datetime(), *key)
+    )
+    frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+def mark_checked(app: str, node: str, fingerprint: str, checked: datetime) -> None:
+    """Keep when a run read this body unchanged since its outcome, so the pager skips it until the row moves."""
+    conversion_table = table(app, "conversion")
+    frappe.db.sql(
+        f"""UPDATE `{conversion_table}` SET `checked` = %s
+        WHERE `node` = %s AND `fingerprint` = %s AND `converter_version` = %s""",
+        (checked, node, fingerprint, spec_of(app).conversion.version),
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 

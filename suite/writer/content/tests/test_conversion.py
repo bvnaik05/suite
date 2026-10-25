@@ -2130,3 +2130,40 @@ class TestConversion(DriveCallbackCase):
         frappe.db.set_value("Writer Document", docname, "html", "<p>Hello again</p>")
         frappe.db.commit()
         self.assertIn(node, self.run_on([node]))
+
+    def test_reads_a_refused_body_once_after_a_save_that_leaves_it_alone(self):
+        [node] = self.old_documents(1)
+        docname = self.docname_of(node)
+        frappe.db.set_value("Writer Document", docname, "ycomments", old_comments(("c1", "world", [])))
+        frappe.db.commit()
+        self.run_on([node])
+        self.assertEqual(self.records(node), (("check", "orphan", None),))
+        frappe.get_doc("Writer Document", docname).update_settings('{"x": 1}')
+        frappe.db.commit()
+
+        seen = self.run_on([node]) + self.run_on([node])
+
+        self.assertEqual(seen.count(node), 1)
+        version = spec_of(writer_content.APP).conversion.version
+        first_page = convert.pending_page(writer_content.APP, version, None)
+        self.assertNotIn(node, [row.node for row in first_page])
+
+    def test_converts_a_refused_body_again_once_it_changes_after_its_check(self):
+        [node] = self.old_documents(1)
+        docname = self.docname_of(node)
+        frappe.db.set_value("Writer Document", docname, "ycomments", old_comments(("c1", "world", [])))
+        frappe.db.commit()
+        self.run_on([node])
+        frappe.get_doc("Writer Document", docname).update_settings('{"x": 1}')
+        frappe.db.commit()
+        self.run_on([node])
+        frappe.db.set_value("Writer Document", docname, "html", "<p>Hello again</p>")
+        frappe.db.commit()
+
+        self.assertIn(node, self.run_on([node]))
+
+        fingerprints = frappe.db.sql_list(
+            "SELECT `fingerprint` FROM `__writer_content_conversion` WHERE `node` = %s", node
+        )
+        self.assertEqual(len(fingerprints), 2)
+        self.assertIn(conversion.read_fingerprint(node), fingerprints)

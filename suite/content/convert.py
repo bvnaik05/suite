@@ -19,7 +19,7 @@ record, never to a log or report.
 
 `pending_page` loads the pages `run_pending` (suite.content.conversions) converts: the app's documents
 that have no log, newest first, past any this converter refused unless the row changed after the refused
-attempt began.
+attempt began or a later run last found its body unchanged.
 
 Without Node, or with the scheduler off, nothing converts. `check_before_migrate` prints each cause on
 every migrate, and System Managers get one notification per cause until it is fixed.
@@ -140,7 +140,7 @@ def pending_page(app: str, version: str, after: frappe._dict | None) -> list[fra
         AND NOT EXISTS (
             SELECT 1 FROM `{conversion_table}` `record` WHERE `record`.`node` = `row`.`{node_field}`
             AND `record`.`converter_version` = %s AND `record`.`outcome` IS NOT NULL
-            AND `record`.`started` > `row`.`modified`
+            AND COALESCE(`record`.`checked`, `record`.`started`) > `row`.`modified`
         ) {since}
         ORDER BY `row`.`modified` DESC, `row`.`name` DESC
         LIMIT {PAGE}""",

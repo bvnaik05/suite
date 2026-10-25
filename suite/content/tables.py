@@ -285,6 +285,7 @@ def ensure_conversion_table(app: str) -> None:
     frappe.db.sql_ddl(
         f"ALTER TABLE `{conversion_table}` ADD COLUMN IF NOT EXISTS `failures` int unsigned NOT NULL DEFAULT 0"
     )
+    frappe.db.sql_ddl(f"ALTER TABLE `{conversion_table}` ADD COLUMN IF NOT EXISTS `checked` datetime(6) NULL")
 
 
 def ensure_tables(app: str) -> None:
