@@ -256,23 +256,6 @@ describe('replying in an open thread', () => {
     expect([isShownEmpty, asked]).toEqual([false, ['reply on-text "Agreed"']])
   })
 
-  it('shows the keys to use only while the box is empty and has the cursor', async () => {
-    const { host } = showList()
-    const hint = 'Enter to send · Shift+Enter for a new line'
-    await click(rowButton(host, 'Is this right?'))
-    await nextTick()
-
-    const seen = [host.textContent?.includes(hint)]
-    await type('A')
-    seen.push(host.textContent?.includes(hint))
-    await type('')
-    replyBox()!.blur()
-    await nextTick()
-    seen.push(host.textContent?.includes(hint))
-
-    expect(seen).toEqual([true, false, false])
-  })
-
   it('keeps the thread open with its words when Drive refuses to resolve it', async () => {
     const { host } = showList({ isRefusingResolve: true })
     await click(rowButton(host, 'Looks good overall'))

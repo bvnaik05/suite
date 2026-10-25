@@ -321,20 +321,15 @@ describe('people a comment mentions', () => {
     ],
   } as unknown as DocumentThread
 
-  function tinted(host: Element) {
-    return [...host.querySelectorAll('.text-ink-blue-6')].map((name) => name.textContent)
-  }
-
   it('names the people Drive found mentioned, in the row and the open thread, and leaves the rest as written', async () => {
     const { host } = showList({ threads: [ASKING] })
-    const closed = [rows(host), tinted(host)]
+    const closed = rows(host)
 
     await click(rowButton(host, 'Ask'))
 
-    expect([closed, rows(host), tinted(host)]).toEqual([
-      [[expect.stringMatching(/Ask @Ben Roy or @\[ghost\]$/)], ['@Ben Roy']],
+    expect([closed, rows(host)]).toEqual([
+      [expect.stringMatching(/Ask @Ben Roy or @\[ghost\]$/)],
       [expect.stringMatching(/Ask @Ben Roy or @\[ghost\]/)],
-      ['@Ben Roy'],
     ])
   })
 
@@ -353,10 +348,7 @@ describe('people a comment mentions', () => {
       ],
     })
 
-    expect([rows(host), tinted(host)]).toEqual([
-      [expect.stringMatching(/Ask @Ben Roy or @\[ghost\]$/)],
-      ['@Ben Roy'],
-    ])
+    expect(rows(host)).toEqual([expect.stringMatching(/Ask @Ben Roy or @\[ghost\]$/)])
   })
 
   it('names them the same in comments posting and not posted, closed and open', async () => {
@@ -365,20 +357,16 @@ describe('people a comment mentions', () => {
       { text: 'Ask @[ben@x.com]', isSent: true },
     ])
     const { host } = showList({ threads: [], drafts: list })
-    const closed = [rows(host), tinted(host)]
+    const closed = rows(host)
 
     const [, notPosted] = [...host.querySelectorAll('button')].filter(
       (button) => button.textContent?.trim() === 'You',
     )
     await click(notPosted)
 
-    expect([closed, rows(host), tinted(host)]).toEqual([
-      [
-        ['You Posting… Ask @Ben Roy', 'You Not posted · Retry Ask @Ben Roy'],
-        ['@Ben Roy', '@Ben Roy'],
-      ],
+    expect([closed, rows(host)]).toEqual([
+      ['You Posting… Ask @Ben Roy', 'You Not posted · Retry Ask @Ben Roy'],
       ['You Posting… Ask @Ben Roy', 'You Not posted · Retry Ask @Ben Roy Discard'],
-      ['@Ben Roy', '@Ben Roy'],
     ])
   })
 })

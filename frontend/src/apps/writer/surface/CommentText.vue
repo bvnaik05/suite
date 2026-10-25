@@ -12,21 +12,16 @@ const props = defineProps<{
   mentions?: string[]
 }>()
 
-const parts = computed(() => toParts(props.content, props.mentions))
+const text = computed(() => toParts(props.content, props.mentions).map(shownText).join(''))
 
-function mentionLabel(part: CommentPart) {
-  const name = fullName(part.user ?? '')
+function shownText(part: CommentPart) {
+  if (part.user === null) {
+    return part.text
+  }
+
+  const name = fullName(part.user)
   return `@${name}`
-}
-
-function isMention(part: CommentPart) {
-  return part.user !== null
 }
 </script>
 
-<template>
-  <template v-for="(part, index) in parts" :key="index">
-    <span v-if="isMention(part)" class="text-ink-blue-6">{{ mentionLabel(part) }}</span>
-    <template v-else>{{ part.text }}</template>
-  </template>
-</template>
+<template>{{ text }}</template>

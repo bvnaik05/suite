@@ -72,7 +72,6 @@ const replyBoxes = ref<{ focus(): void }[]>([])
 const replyTexts = ref<Record<string, string>>({})
 /** The replies sent to each thread that Drive hasn't confirmed, by words, with the client id each went under. */
 const unsentReplies = new Map<string, Map<string, string>>()
-const isReplyFocused = ref(false)
 /** Threads being resolved or reopened, faded until they leave their part of the list. */
 const leavingThreads = ref(new Set<string>())
 let isSendingReply = false
@@ -144,7 +143,6 @@ const replyText = computed({
   },
 })
 const hasReplyText = computed(() => !!replyText.value.trim())
-const isReplyHintShown = computed(() => isReplyFocused.value && !replyText.value)
 const isEditBlank = computed(() => !editText.value.trim())
 const guestNameHint = computed(() => {
   if (guestNameAtLimit.value) {
@@ -348,14 +346,6 @@ async function submitReply(thread: DocumentThread) {
   } finally {
     isSendingReply = false
   }
-}
-
-function showReplyHint() {
-  isReplyFocused.value = true
-}
-
-function hideReplyHint() {
-  isReplyFocused.value = false
 }
 
 // Shift+Enter and a word still being composed stay in the box
@@ -632,8 +622,8 @@ function rowClass(thread: DocumentThread) {
       @post="postDraft(draft)"
       @discard="discardDraft(draft)"
     />
-    <p v-if="isEmpty" class="px-3 text-p-sm text-ink-gray-5">{{ emptyText }}</p>
-    <ul class="space-y-1">
+    <p v-if="isEmpty" class="px-2 text-p-sm text-ink-gray-5">{{ emptyText }}</p>
+    <ul class="space-y-1.5">
       <CommentDraftRow
         v-for="draft in sentDrafts"
         :key="draft.clientId"
@@ -653,7 +643,7 @@ function rowClass(thread: DocumentThread) {
         >
           <button
             type="button"
-            class="block w-full space-y-1 px-3 pt-2 text-left"
+            class="block w-full space-y-1 px-2 pt-2 text-left"
             :class="threadButtonClass(row.thread)"
             :aria-expanded="isOpen(row.thread)"
             @click="toggleThread(row.thread)"
@@ -673,11 +663,13 @@ function rowClass(thread: DocumentThread) {
               </span>
               <span class="shrink-0">{{ dayOrTime(firstComment(row.thread)) }}</span>
             </span>
-            <span v-if="row.quote" class="block truncate border-l-2 pl-2 text-sm text-ink-gray-5">
-              {{ row.quote }}
+            <span v-if="row.quote" class="block py-0.5">
+              <span class="block truncate border-l-2 pl-2 text-sm text-ink-gray-5">
+                {{ row.quote }}
+              </span>
             </span>
             <span v-if="isClosed(row.thread)" class="flex gap-1 text-sm">
-              <span class="truncate text-ink-gray-7">
+              <span class="min-w-0 flex-1 truncate text-ink-gray-7">
                 <CommentText
                   :content="firstComment(row.thread).content"
                   :mentions="firstComment(row.thread).mentions"
@@ -690,7 +682,7 @@ function rowClass(thread: DocumentThread) {
           </button>
           <div
             v-if="canComment"
-            class="absolute right-3 top-[3px] flex items-center"
+            class="absolute right-2 top-[3px] flex items-center"
             :class="actionsClass(row.thread)"
           >
             <Button
@@ -702,7 +694,7 @@ function rowClass(thread: DocumentThread) {
             />
           </div>
           <template v-if="isOpen(row.thread)">
-            <div class="space-y-2 px-3 pb-2">
+            <div class="space-y-2 px-2 pb-2">
               <div
                 v-for="comment in row.thread.comments"
                 :key="comment.name"
@@ -779,11 +771,7 @@ function rowClass(thread: DocumentThread) {
                   </Dropdown>
                 </div>
               </div>
-              <form
-                v-if="canReply(row.thread)"
-                class="space-y-1"
-                @submit.prevent="submitReply(row.thread)"
-              >
+              <form v-if="canReply(row.thread)" @submit.prevent="submitReply(row.thread)">
                 <div class="relative">
                   <MentionTextarea
                     ref="replyBoxes"
@@ -793,8 +781,6 @@ function rowClass(thread: DocumentThread) {
                     placeholder="Reply"
                     aria-label="Reply"
                     @keydown.enter="sendOnEnter($event, row.thread)"
-                    @focus="showReplyHint"
-                    @blur="hideReplyHint"
                   />
                   <!-- 3px puts the glyph at the textarea's 9px text inset, border included -->
                   <Button
@@ -807,9 +793,6 @@ function rowClass(thread: DocumentThread) {
                     aria-label="Send reply"
                   />
                 </div>
-                <p v-if="isReplyHintShown" class="text-p-xs text-ink-gray-5">
-                  Enter to send · Shift+Enter for a new line
-                </p>
               </form>
             </div>
           </template>
@@ -817,7 +800,7 @@ function rowClass(thread: DocumentThread) {
         <li v-else role="none" class="pt-2 first:pt-0">
           <button
             type="button"
-            class="group flex w-full items-center rounded-4 px-3 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
+            class="group flex w-full items-center rounded-4 px-2 py-1.5 text-left text-sm text-ink-gray-5 hover:bg-surface-gray-2"
             :aria-expanded="isResolvedShown"
             @click="toggleResolvedShown"
           >

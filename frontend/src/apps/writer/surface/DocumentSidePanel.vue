@@ -159,14 +159,16 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
     >
       <div class="flex h-full w-full flex-col md:w-80 md:p-2">
         <div
-          class="flex min-h-12 items-center justify-between border-b pl-7 pr-4 md:min-h-0 md:border-b-0 md:pb-1 md:pl-4 md:pr-2.5"
+          class="flex min-h-12 items-center justify-between border-b pl-7 pr-4 md:min-h-0 md:border-b-0 md:pb-1 md:pl-3 md:pr-1.5"
         >
           <h2 class="text-lg-semibold md:text-base-medium md:text-ink-gray-8">
             {{ title }}
           </h2>
           <Button icon="lucide-x" aria-label="Close panel" variant="ghost" @click="closePanel" />
         </div>
-        <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:px-1 md:pb-2 md:pt-0.5">
+        <div
+          class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 [scrollbar-width:none] md:px-1 md:pb-2 md:pt-0.5 [&::-webkit-scrollbar]:hidden"
+        >
           <div v-if="showsVersionName" class="space-y-1">
             <TextInput
               ref="versionNameInput"
@@ -193,7 +195,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             :actions="threadActions"
             :drafts
           />
-          <p v-else-if="lists.isLoading" class="px-3 text-sm text-ink-gray-5">Loading…</p>
+          <p v-else-if="lists.isLoading" class="px-2 text-sm text-ink-gray-5">Loading…</p>
           <template v-else>
             <VersionList
               v-model:previewed="previewedVersion"
@@ -207,7 +209,7 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
               @download="emit('downloadVersion', $event)"
               @save-version="emit('saveVersion')"
             />
-            <p v-if="hasNoVersions" class="px-3 text-sm text-ink-gray-5">No versions yet.</p>
+            <p v-if="hasNoVersions" class="px-2 text-sm text-ink-gray-5">No versions yet.</p>
             <Button
               v-if="lists.versionsCursor"
               class="w-full"

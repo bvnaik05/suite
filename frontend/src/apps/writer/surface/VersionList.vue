@@ -167,11 +167,11 @@ function actions(version: DocumentVersion): DropdownOptions {
 </script>
 
 <template>
-  <div class="space-y-1">
+  <div class="space-y-1.5">
     <div v-if="isCurrentShown" class="group flex items-center rounded-4 hover:bg-surface-gray-2">
       <button
         type="button"
-        class="min-w-0 flex-1 py-2 pl-3 pr-2 text-left text-sm text-ink-gray-8"
+        class="min-w-0 flex-1 py-2 pl-2 pr-2 text-left text-sm text-ink-gray-8"
         :aria-pressed="isCurrentViewed"
         @click="viewCurrent"
       >
@@ -179,7 +179,7 @@ function actions(version: DocumentVersion): DropdownOptions {
       </button>
       <div
         v-if="canSaveVersion"
-        class="flex shrink-0 items-center pr-1.5"
+        class="flex shrink-0 items-center pr-1"
         :class="currentActionsClass"
       >
         <Tooltip text="Save version">
@@ -195,17 +195,17 @@ function actions(version: DocumentVersion): DropdownOptions {
       </div>
     </div>
     <section v-for="day in days" :key="day.label" class="[&:first-child>h3]:pt-0">
-      <h3 v-if="day.label" class="px-3 pb-1 pt-2 text-sm-medium text-ink-gray-7">
+      <h3 v-if="day.label" class="px-2 pb-1 pt-2 text-sm-medium text-ink-gray-7">
         {{ day.label }}
       </h3>
-      <div class="space-y-1">
+      <div class="space-y-1.5">
         <div
           v-for="version in day.versions"
           :key="version.seq"
           class="group flex items-center rounded-4"
           :class="versionRowClass(version)"
         >
-          <div v-if="isRenaming(version)" class="min-w-0 flex-1 space-y-1 py-1.5 pl-3 pr-1">
+          <div v-if="isRenaming(version)" class="min-w-0 flex-1 space-y-1 py-2 pl-2 pr-1">
             <TextInput
               ref="renameInputs"
               v-model="newName"
@@ -220,14 +220,14 @@ function actions(version: DocumentVersion): DropdownOptions {
           <button
             v-else
             type="button"
-            class="min-w-0 flex-1 py-1.5 pl-3 pr-1 text-left"
+            class="min-w-0 flex-1 py-2 pl-2 pr-1 text-left"
             :aria-pressed="isViewed(version)"
             @click="view(version)"
           >
             <p class="truncate text-sm text-ink-gray-6">{{ title(version) }}</p>
             <p class="truncate text-xs text-ink-gray-5">{{ byline(version) }}</p>
           </button>
-          <div class="flex shrink-0 items-center pr-1.5" :class="actionsClass(version)">
+          <div class="flex shrink-0 items-center pr-1" :class="actionsClass(version)">
             <Tooltip v-if="canRestore" text="Restore this version">
               <button
                 type="button"
