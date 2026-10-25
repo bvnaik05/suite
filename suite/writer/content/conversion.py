@@ -11,14 +11,13 @@ import hashlib
 import json
 from collections.abc import Collection
 from dataclasses import dataclass, field
-from typing import NotRequired, TypedDict
 
 import frappe
 import pycrdt
 from frappe.utils import now_datetime
 
 from suite import drive
-from suite.content import compaction, conversions, convert, copies, live
+from suite.content import compaction, convert, copies
 from suite.content.conversions import ConversionRefused
 from suite.writer import content as writer_content
 
@@ -42,34 +41,10 @@ class CheckedDocument:
     threads: list[dict] = field(repr=False)
 
 
-class ConversionStatus(TypedDict):
-    state: str
-    reason: NotRequired[str]
-    rooms: NotRequired[live.Rooms]
-
-
-def conversion_status(node: str) -> ConversionStatus:
-    """Answer whether the next run converts `node`'s body, with the rooms told its outcome, or this converter refused it; the reason for System Managers."""
+def read_fingerprint(node: str) -> str:
+    """Hash `node`'s old body as `fingerprint_of` does, from the row alone; a gone row hashes as empty."""
     legacy = frappe.db.get_value(DOCTYPE, {"node": node}, list(FIELDS), as_dict=True)
-    held = conversions.held_attempt(writer_content.APP, node, fingerprint_of(legacy or {}))
-    if held is None or held.outcome in {None, "converted"}:
-        pending: ConversionStatus = {
-            "state": "pending",
-            "rooms": live.conversion_rooms(writer_content.APP, node),
-        }
-        cause = convert.blocked_cause()
-        if cause and "System Manager" in frappe.get_roles():
-            pending["reason"] = cause
-
-        return pending
-
-    status: ConversionStatus = {"state": "refused"}
-    if "System Manager" in frappe.get_roles():
-        status["reason"] = held.outcome
-        if held.reason:
-            status["reason"] = f"{held.outcome}: {held.reason}"
-
-    return status
+    return fingerprint_of(legacy or {})
 
 
 def fingerprint_of(legacy: dict) -> str:

@@ -81,19 +81,45 @@ class TestEditorDeclarations(UnitTestCase):
             (
                 "conversion",
                 editors.Conversion(
-                    build, "1", read_old="not callable", check=lambda *args: None, fix_up=lambda *args: None
+                    build,
+                    "1",
+                    read_old="not callable",
+                    read_fingerprint=lambda node: "",
+                    check=lambda *args: None,
+                    fix_up=lambda *args: None,
                 ),
             ),
             (
                 "conversion",
                 editors.Conversion(
-                    build, "1", read_old=lambda node: None, check="not callable", fix_up=lambda *args: None
+                    build,
+                    "1",
+                    read_old=lambda node: None,
+                    read_fingerprint=lambda node: "",
+                    check="not callable",
+                    fix_up=lambda *args: None,
                 ),
             ),
             (
                 "conversion",
                 editors.Conversion(
-                    build, "1", read_old=lambda node: None, check=lambda *args: None, fix_up="not callable"
+                    build,
+                    "1",
+                    read_old=lambda node: None,
+                    read_fingerprint=lambda node: "",
+                    check=lambda *args: None,
+                    fix_up="not callable",
+                ),
+            ),
+            (
+                "conversion",
+                editors.Conversion(
+                    build,
+                    "1",
+                    read_old=lambda node: None,
+                    read_fingerprint="not callable",
+                    check=lambda *args: None,
+                    fix_up=lambda *args: None,
                 ),
             ),
         ]

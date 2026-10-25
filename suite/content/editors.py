@@ -82,13 +82,15 @@ class MediaReferences:
 class Conversion:
     """How an app's old documents become collaborative: `build` is the Node converter, which holds
     `version`; `read_old(node, lock=False)` answers the old body, with its `fingerprint` and the converter's
-    input `legacy`, or None once it is gone; `check(node, old, converted)` refuses with ConversionRefused
+    input `legacy`, or None once it is gone; `read_fingerprint(node)` answers that `fingerprint` from the row
+    alone, with no access check; `check(node, old, converted)` refuses with ConversionRefused
     before anything writes, or answers the copy's `html` and what it `dropped`; `fix_up(node, old, checked)`
     writes the app's own rows in the conversion's transaction."""
 
     build: Path
     version: str
     read_old: Callable
+    read_fingerprint: Callable
     check: Callable
     fix_up: Callable
 
@@ -206,6 +208,7 @@ def conversion_right(conversion: object) -> bool:
         and isinstance(conversion.version, str)
         and bool(conversion.version)
         and callable(conversion.read_old)
+        and callable(conversion.read_fingerprint)
         and callable(conversion.check)
         and callable(conversion.fix_up)
     )

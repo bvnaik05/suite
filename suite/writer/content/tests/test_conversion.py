@@ -1038,12 +1038,12 @@ class TestConversion(DriveCallbackCase):
                 self.assertRaises(RuntimeError, conversions.convert_document, writer_content.APP, node)
                 self.assertEqual(self.records(node), ((None, None, None),))
                 self.assertEqual(self.failures(node), [failures])
-                self.assertEqual(conversion.conversion_status(node)["state"], "pending")
+                self.assertEqual(conversions.conversion_status(writer_content.APP, node)["state"], "pending")
 
             self.assertRaises(RuntimeError, conversions.convert_document, writer_content.APP, node)
             self.assertIsNone(conversions.convert_document(writer_content.APP, node))
             self.assertEqual(converting.call_count, 3)
-            self.assertEqual(conversion.conversion_status(node)["state"], "refused")
+            self.assertEqual(conversions.conversion_status(writer_content.APP, node)["state"], "refused")
 
             with (
                 patch.object(
@@ -1071,7 +1071,7 @@ class TestConversion(DriveCallbackCase):
 
         self.assertEqual(self.as_before(node), before)
         self.assertEqual(self.records(node), ())
-        self.assertEqual(conversion.conversion_status(node)["state"], "pending")
+        self.assertEqual(conversions.conversion_status(writer_content.APP, node)["state"], "pending")
 
     def test_tries_a_failed_child_body_again_and_keeps_its_reason_at_the_third_failure(self):
         for reason in ("child_timeout", "child_crash"):

@@ -20,7 +20,7 @@ nowhere else.
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import NotRequired, Protocol, TypedDict
 
 import frappe
 from frappe import _
@@ -53,6 +53,12 @@ class OldBody(Protocol):
 class CheckedBody(Protocol):
     html: str
     dropped: list[dict]
+
+
+class ConversionStatus(TypedDict):
+    state: str
+    reason: NotRequired[str]
+    rooms: NotRequired[live.Rooms]
 
 
 class ConversionRefused(Exception):
@@ -240,6 +246,29 @@ def keep_old_version(node: str) -> None:
         drive.take_version(node, kind="milestone", label=_("Before collaboration"))
     except drive.DriveOverQuota:
         raise ConversionRefused("over_quota") from None
+
+
+def conversion_status(app: str, node: str) -> ConversionStatus:
+    """Answer whether the next run converts `node`'s body, with the rooms told its outcome, or this converter refused it; the reason for System Managers."""
+    held = held_attempt(app, node, spec_of(app).conversion.read_fingerprint(node))
+    if held is None or held.outcome in {None, "converted"}:
+        pending: ConversionStatus = {
+            "state": "pending",
+            "rooms": live.conversion_rooms(app, node),
+        }
+        cause = convert.blocked_cause()
+        if cause and "System Manager" in frappe.get_roles():
+            pending["reason"] = cause
+
+        return pending
+
+    status: ConversionStatus = {"state": "refused"}
+    if "System Manager" in frappe.get_roles():
+        status["reason"] = held.outcome
+        if held.reason:
+            status["reason"] = f"{held.outcome}: {held.reason}"
+
+    return status
 
 
 def held_attempt(app: str, node: str, fingerprint: str) -> frappe._dict | None:

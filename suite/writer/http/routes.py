@@ -11,9 +11,9 @@ from frappe.utils import get_datetime, get_system_timezone
 from suite import drive
 from suite.composition.http import Route
 from suite.content import log
+from suite.content.conversions import ConversionStatus, conversion_status
 from suite.writer import content as writer_content
 from suite.writer.api.docs import OldBody, VersionConversion, convert_version, old_body
-from suite.writer.content.conversion import ConversionStatus, conversion_status
 
 
 class WriterRow(TypedDict):
@@ -47,7 +47,7 @@ def document(name: str) -> WriterRow:
     doc.apply_fieldlevel_read_permissions()
     row = doc.as_dict()
     if doc.node and not log.find(writer_content.APP, doc.node):
-        row["conversion"] = conversion_status(doc.node)
+        row["conversion"] = conversion_status(writer_content.APP, doc.node)
 
     # A save moves only the node's `content_modified`, never the row's `modified`
     saved = doc.node and frappe.db.get_value("Drive Node", doc.node, "content_modified")
