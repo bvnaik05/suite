@@ -118,7 +118,6 @@ def install_conversion(node: str, old: OldDocument, converted: convert.Converted
 
     conversions.record(writer_content.APP, node, old.fingerprint, started, "converted", dropped=dropped)
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
-    frappe.clear_document_cache(DOCTYPE, old.docname)
     live.publish_conversion(writer_content.APP, node, "converted")
     return "converted"
 
