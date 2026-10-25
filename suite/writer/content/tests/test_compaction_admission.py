@@ -91,24 +91,24 @@ class TestCompactionAdmission(CompactionCase):
                 self.assertGreater(doc.next_compaction_at, frappe.utils.now_datetime())
 
     def test_a_job_on_a_worker_thread_leaves_the_process_address_space_alone(self):
-        before = resource.getrlimit(resource.RLIMIT_AS)
-        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
         job = Job.create(admission.limit_memory, connection=get_redis_conn())
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
         worker = threading.Thread(target=job.perform)
 
         # As frappe's runner runs jobs: on a thread of the site process, the no-fork switch unset
-        with patch.dict(os.environ), patch.object(admission, "open", create=True, return_value=status):
+        with (
+            patch.dict(os.environ),
+            patch.object(admission, "open", create=True, return_value=status),
+            patch.object(resource, "setrlimit") as setrlimit,
+        ):
             os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
             worker.start()
             worker.join()
 
-        self.assertEqual(resource.getrlimit(resource.RLIMIT_AS), before)
+        setrlimit.assert_not_called()
 
     def test_a_job_in_a_horse_forked_for_it_caps_its_address_space(self):
-        before = resource.getrlimit(resource.RLIMIT_AS)
-        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
         job = Job.create(admission.limit_memory, connection=get_redis_conn())
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
@@ -117,15 +117,15 @@ class TestCompactionAdmission(CompactionCase):
         with (
             patch.dict(os.environ, RQ_JOB_ID=job.id),
             patch.object(admission, "open", create=True, return_value=status),
+            patch.object(resource, "setrlimit") as setrlimit,
         ):
             job.perform()
 
-        soft, _ = resource.getrlimit(resource.RLIMIT_AS)
-        self.assertEqual(soft, size_kb * 1024 + admission.PER_COMPACTION)
+        setrlimit.assert_called_once_with(
+            resource.RLIMIT_AS, (size_kb * 1024 + admission.PER_COMPACTION, resource.RLIM_INFINITY)
+        )
 
     def test_a_job_under_another_jobs_horse_id_leaves_the_process_address_space_alone(self):
-        before = resource.getrlimit(resource.RLIMIT_AS)
-        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
         job = Job.create(admission.limit_memory, connection=get_redis_conn())
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
@@ -135,23 +135,26 @@ class TestCompactionAdmission(CompactionCase):
         with (
             patch.dict(os.environ, RQ_JOB_ID="an-earlier-job"),
             patch.object(admission, "open", create=True, return_value=status),
+            patch.object(resource, "setrlimit") as setrlimit,
         ):
             os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
             worker.start()
             worker.join()
 
-        self.assertEqual(resource.getrlimit(resource.RLIMIT_AS), before)
+        setrlimit.assert_not_called()
 
     def test_outside_a_job_leaves_the_process_address_space_alone(self):
-        before = resource.getrlimit(resource.RLIMIT_AS)
-        self.addCleanup(resource.setrlimit, resource.RLIMIT_AS, before)
         size_kb = 2**30
         status = io.StringIO(f"VmSize:\t{size_kb} kB\n")
 
         # As a web request runs it, with no RQ job at all
-        with patch.dict(os.environ), patch.object(admission, "open", create=True, return_value=status):
+        with (
+            patch.dict(os.environ),
+            patch.object(admission, "open", create=True, return_value=status),
+            patch.object(resource, "setrlimit") as setrlimit,
+        ):
             os.environ.pop("FRAPPE_BACKGROUND_WORKERS_NOFORK", None)
             os.environ.pop("RQ_JOB_ID", None)
             admission.limit_memory()
 
-        self.assertEqual(resource.getrlimit(resource.RLIMIT_AS), before)
+        setrlimit.assert_not_called()
