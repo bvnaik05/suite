@@ -837,6 +837,7 @@ class TestConversion(DriveCallbackCase):
         node = page[0]
         errors: list[Exception] = []
         locked = threading.Event()
+        waited: list[bool] = []
         restorer = threading.Thread(
             target=self.restore_elsewhere, args=(frappe.local.site, node, seq, errors, locked)
         )
@@ -845,7 +846,7 @@ class TestConversion(DriveCallbackCase):
         def sql(query, *args, **kwargs):
             if "`tabDrive Node` WHERE `name` = %s FOR UPDATE" in str(query) and restorer.ident is None:
                 restorer.start()
-                locked.wait(10)
+                waited.append(locked.wait(10))
 
             return real_sql(query, *args, **kwargs)
 
@@ -854,8 +855,10 @@ class TestConversion(DriveCallbackCase):
             with patch.object(frappe.db, "sql", sql):
                 self.assertTrue(conversions.convert_page(writer_content.APP, rows, time.monotonic() + 600))
         finally:
-            restorer.join(30)
+            if restorer.ident is not None:
+                restorer.join(30)
 
+        self.assertEqual(waited, [True])
         self.assertFalse(restorer.is_alive())
         return errors
 
@@ -924,10 +927,9 @@ class TestConversion(DriveCallbackCase):
         errors: list[Exception] = []
         nowaits: list[str] = []
         locked = threading.Event()
-        purger = threading.Thread(
-            target=self.purge_after_pick_elsewhere,
-            args=(frappe.local.site, page[0], errors, nowaits, locked),
-        )
+        waited: list[bool] = []
+        args = (frappe.local.site, page[0], errors, nowaits, locked)
+        purger = threading.Thread(target=self.purge_after_pick_elsewhere, args=args)
         real_sql = frappe.db.sql
 
         def sql(query, *args, **kwargs):
@@ -935,7 +937,7 @@ class TestConversion(DriveCallbackCase):
                 return real_sql(query, *args, **kwargs)
 
             purger.start()
-            locked.wait(10)
+            waited.append(locked.wait(10))
             answer = real_sql(query, *args, **kwargs)
             node_locked.set()
             return answer
@@ -945,8 +947,10 @@ class TestConversion(DriveCallbackCase):
             with patch.object(frappe.db, "sql", sql):
                 self.assertTrue(conversions.convert_page(writer_content.APP, rows, time.monotonic() + 600))
         finally:
-            purger.join(30)
+            if purger.ident is not None:
+                purger.join(30)
 
+        self.assertEqual(waited, [True])
         self.assertFalse(purger.is_alive())
         return errors, nowaits
 
