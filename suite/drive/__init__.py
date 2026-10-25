@@ -104,10 +104,12 @@ A caller that takes its own locks in the same transaction takes them in that
 order: `User`, then its own tables, then Drive.
 
 Conversion locks its row, then the node, then the tree, against rule 2 and
-against Drive→app callbacks; any Drive write to that node can deadlock with
-it, and InnoDB rolls one back, pinned by
+against Drive→app callbacks; a Drive write that takes the tree lock and then
+that node (a trash, a purge, a version restore) can deadlock with it, and
+InnoDB rolls one back, pinned by
 `test_a_conversion_rolled_back_by_a_purge_deadlock_loses_nothing_and_the_run_goes_on`
 and `test_a_purge_rolled_back_by_a_conversion_deadlock_writes_nothing_and_goes_through_again`.
+A comment or a preview locks the node alone (rule 2), so it only waits.
 
 Drive's HTTP and WebDAV write requests run at READ COMMITTED
 (`framework.begin_drive_write`). Under REPEATABLE READ the range reads and
