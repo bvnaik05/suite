@@ -6,6 +6,7 @@ import json
 import os
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from html import escape
 from unittest.mock import MagicMock, call, patch
@@ -595,8 +596,11 @@ class TestConversion(DriveCallbackCase):
             locked.set()
             frappe.destroy()
 
-    # Convert `page` and, once the conversion locks its first node, purge that node from another connection
-    def purge_while_converting(self, page: list[str], heavier: bool, release: threading.Event) -> list:
+    # Convert `page` and, once the conversion locks its first node, purge that node from another connection;
+    # `before_next` runs as the conversion starts the second node, before that waits on the purge's locks
+    def purge_while_converting(
+        self, page: list[str], heavier: bool, release: threading.Event, before_next: Callable | None = None
+    ) -> list:
         node = page[0]
         errors: list[Exception] = []
         locked = threading.Event()
@@ -607,6 +611,15 @@ class TestConversion(DriveCallbackCase):
         real_sql = frappe.db.sql
 
         def sql(query, *args, **kwargs):
+            nonlocal before_next
+            if (
+                before_next is not None
+                and "INSERT INTO `__writer_content_conversion`" in str(query)
+                and args[0][0] == page[1]
+            ):
+                before_next()
+                before_next = None
+
             answer = real_sql(query, *args, **kwargs)
             if "`tabDrive Node` WHERE `name` = %s FOR UPDATE" in str(query) and purger.ident is None:
                 purger.start()
@@ -642,16 +655,14 @@ class TestConversion(DriveCallbackCase):
         during: dict = {}
 
         # Look at the document once the run reaches the next one, before the purge commits
-        def converting(*args, **kwargs):
-            if not during and self.records(other):
-                during.update(self.as_before(node), state=frappe.db.get_value("Drive Node", node, "state"))
-                during.update(records=self.records(node), failures=self.failures(node))
-                release.set()
+        def snapshot():
+            during.update(self.as_before(node), state=frappe.db.get_value("Drive Node", node, "state"))
+            during.update(records=self.records(node), failures=self.failures(node))
+            release.set()
 
-            return REAL_CONVERT(*args, **kwargs)
-
-        with patch.object(convert, "convert", side_effect=converting):
-            errors = self.purge_while_converting([node, other], heavier=True, release=release)
+        errors = self.purge_while_converting(
+            [node, other], heavier=True, release=release, before_next=snapshot
+        )
 
         self.assertEqual(errors, [])
         self.assertEqual(during, before)
