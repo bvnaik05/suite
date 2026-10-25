@@ -174,6 +174,32 @@ class TestNoteEditor(IntegrationTestCase):
         self.assertEqual(copy.writes, [{"a": '<img src="/files/new">'}])
         self.assertEqual(self.html_field(), '{"a":"<img src=\\"/files/new\\">","b":"<p>two</p>"}')
 
+    def test_a_copy_that_matches_the_last_one_writes_nothing(self):
+        self.push(typed(self.client_id, "hello"))
+        copy = multi_copy.MultiCopy()
+        rows = json.dumps({"a": "<p>one</p>", "b": "<p>two</p>"})
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=copy)):
+            copies.write(note.EDITOR.app, self.doc_id, 1, rows, copy)
+            copy.writes.clear()
+            self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 2, rows, copy))
+
+        self.assertEqual(copy.writes, [])
+
+    def test_a_new_copy_writes_only_the_rows_that_changed(self):
+        self.push(typed(self.client_id, "hello"))
+        copy = multi_copy.MultiCopy()
+        first = {"a": "<p>one</p>", "b": "<p>two</p>", "c": "<p>three</p>"}
+        second = {"a": "<p>one</p>", "b": "<p>two more</p>"}
+
+        with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=copy)):
+            copies.write(note.EDITOR.app, self.doc_id, 1, json.dumps(first), copy)
+            copy.writes.clear()
+            self.assertTrue(copies.write(note.EDITOR.app, self.doc_id, 2, json.dumps(second), copy))
+
+        self.assertEqual(copy.writes, [{"b": "<p>two more</p>", "c": None}])
+        self.assertEqual(self.html_field(), '{"a":"<p>one</p>","b":"<p>two more</p>"}')
+
     def test_compaction_writes_a_note_body_into_the_apps_own_row(self):
         self.push(typed(self.client_id, "kept"))
 
