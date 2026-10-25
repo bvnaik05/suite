@@ -218,9 +218,10 @@ def write(app: str, doc_id: str, rev: int, html: str, html_copy: ReadableCopy) -
         replaced = replace_copy(app, doc_id, rev, html, html_copy)
     except CopyMismatch as mismatch:
         frappe.db.rollback()
-        keep_evidence(app, doc_id, "copy_mismatch", mismatch.args[0], rev)
-        frappe.db.commit()  # nosemgrep: frappe-manual-commit
-        db.alert("Collab readable copy: read back differently", f"{app} document {doc_id} at rev {rev}")
+        if keep_evidence(app, doc_id, "copy_mismatch", mismatch.args[0], rev):
+            frappe.db.commit()  # nosemgrep: frappe-manual-commit
+            db.alert("Collab readable copy: read back differently", f"{app} document {doc_id} at rev {rev}")
+
         return False
 
     if replaced is None:
