@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 import frappe
 from frappe.utils import now_datetime
+from frappe.utils.background_jobs import is_job_enqueued
 
 from suite.content import capacity, stage
 from suite.content.admission import TIMEOUT
@@ -145,6 +146,10 @@ def sweep(
 
 def enqueue(method: str, job_id: str, *, timeout: int = TIMEOUT, **kwargs: object) -> None:
     """Queue a collaboration job, once per `job_id`, on the compaction queue where the bench has one."""
+    # Frappe's own dedupe logs an error each time it skips, so a job already waiting or running returns here
+    if is_job_enqueued(job_id):
+        return
+
     queue = "collab" if "collab" in frappe.conf.get("workers", {}) else "default"
     frappe.enqueue(method, queue=queue, timeout=timeout, job_id=job_id, deduplicate=True, **kwargs)
 

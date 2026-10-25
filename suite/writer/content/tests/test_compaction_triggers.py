@@ -5,7 +5,9 @@ import uuid
 from unittest.mock import patch
 
 import frappe
+from frappe.utils.background_jobs import create_job_id, get_job, get_redis_conn
 from redis.exceptions import RedisError
+from rq.job import Job, JobStatus
 
 from suite.content import capacity, jobs, pushes, scheduling
 from suite.content.http import routes
@@ -349,3 +351,21 @@ class TestWriterCompactionTriggers(CheckpointCase):
         errors = frappe.get_all("Error Log", logged, pluck="error")
         self.assertEqual(len(errors), 1)
         self.assertTrue(errors[0].startswith(f"writer document {doc_id}\n"), errors[0])
+
+    def test_asking_again_for_a_waiting_job_queues_nothing_and_logs_nothing(self):
+        job_id = f"suite-collab-test-{uuid.uuid4().hex}"
+        # Saved on no queue, so no live worker takes it
+        waiting = Job.create(
+            "frappe.ping",
+            id=create_job_id(job_id),
+            status=JobStatus.QUEUED,
+            connection=get_redis_conn(),
+        )
+        waiting.save()
+        self.addCleanup(waiting.delete)
+
+        with self.assertNoLogs(frappe.logger(), "ERROR"):
+            scheduling.enqueue("frappe.ping", job_id)
+
+        kept = get_job(job_id)
+        self.assertEqual((kept.origin, kept.created_at), ("", waiting.created_at))
