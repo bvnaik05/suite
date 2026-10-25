@@ -128,6 +128,50 @@ class TestRollout(NoteAppCase):
         self.assertEqual(convert_document.call_count, 1)
         self.assertFalse(went_on)
 
+    def test_a_locked_pause_read_leaves_other_apps_rows_free(self):
+        writer_row = {**NOTE_ROW, "app": "writer"}
+        site = frappe.local.site
+        errors: list[Exception] = []
+        stored: list[int] = []
+
+        def free_writer():
+            frappe.db.rollback()
+            frappe.db.set_value(
+                "Suite Collab App",
+                frappe.db.get_value("Suite Collab App", writer_row),
+                "conversion_paused",
+                0,
+            )
+            frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+        def pause_writer_elsewhere():
+            frappe.init(site=site)
+            frappe.connect()
+            try:
+                frappe.db.sql("SET SESSION innodb_lock_wait_timeout = 2")
+                frappe.db.sql(
+                    """UPDATE `tabSuite Collab App` SET `conversion_paused` = 1
+                    WHERE `parent` = %s AND `parentfield` = %s AND `app` = %s""",
+                    (writer_row["parent"], writer_row["parentfield"], writer_row["app"]),
+                )
+                frappe.db.commit()  # nosemgrep: frappe-manual-commit
+                stored.append(frappe.db.get_value("Suite Collab App", writer_row, "conversion_paused"))
+            except Exception as error:
+                errors.append(error)
+            finally:
+                frappe.destroy()
+
+        self.addCleanup(free_writer)
+        self.assertEqual(frappe.db.get_value("Suite Collab App", writer_row, "conversion_paused"), 0)
+
+        self.assertTrue(convert.may_convert(note.EDITOR.app, lock=True))
+        admin = threading.Thread(target=pause_writer_elsewhere)
+        admin.start()
+        admin.join(30)
+
+        self.assertFalse(admin.is_alive())
+        self.assertEqual((errors, stored), ([], [1]))
+
     def test_a_failed_document_keeps_its_error_log(self):
         page = [frappe._dict(node=frappe.generate_hash(length=10)) for _ in range(2)]
         convert_document = MagicMock(side_effect=[RuntimeError("bad body"), "converted"])
