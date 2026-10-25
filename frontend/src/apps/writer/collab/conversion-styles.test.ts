@@ -1,4 +1,4 @@
-import type { JSONContent } from '@tiptap/core'
+import { generateJSON, type JSONContent } from '@tiptap/core'
 import { describe, expect, it } from 'vitest'
 import { XmlText, type XmlElement } from 'yjs'
 
@@ -19,6 +19,7 @@ import {
   yMarked,
   yParagraph,
 } from '@/apps/writer/collab/legacy-fixtures'
+import { writerSchema } from '@/apps/writer/schema'
 
 // Each block's tag, left margin with its priority, and line height, as the editor draws them
 function blockLayout(state: Uint8Array) {
@@ -1405,7 +1406,7 @@ describe('convertLegacy on pasted HTML span colours, read as on the Yjs path', (
     expect(result.dropped).toEqual([])
   })
 
-  // tiptap splits the style on ';' with no quote handling, so the family reads as `"A`
+  // The check splits the raw style on ';' with no quote handling (inventory.ts checkedStyle, isRebuilt)
   it('refuses an HTML span font family whose quotes hold a semicolon', () => {
     const html = '<p>a<span style="font-family: &quot;A;B&quot;; color: red">b</span></p>'
 
@@ -1413,6 +1414,16 @@ describe('convertLegacy on pasted HTML span colours, read as on the Yjs path', (
       kind: 'failed',
       reason: 'check',
     })
+  })
+
+  // jsdom's CSSOM read; the Chrome paste check is with the owner
+  it('reads a pasted span font family whose quotes hold a semicolon as the editor does', () => {
+    const html = '<p>a<span style="font-family: &quot;A;B&quot;; color: red">b</span></p>'
+
+    const [, pasted] = generateJSON(html, writerSchema()).content[0].content
+    const [{ attrs }] = pasted.marks
+
+    expect([attrs.fontFamily, attrs.color]).toEqual(['A;B', null])
   })
 })
 
