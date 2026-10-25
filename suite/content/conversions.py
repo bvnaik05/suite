@@ -94,9 +94,10 @@ def run_pending(app: str, conversion: Conversion) -> None:
 
 
 def convert_page(app: str, page: list[frappe._dict], deadline: float) -> bool:
-    """Convert each document on `page`; False once time runs out or the converter changes."""
+    """Convert each document on `page`; False once time runs out, the app pauses or the converter changes."""
     for row in page:
-        if time.monotonic() > deadline:
+        # Locks the app row before read_old's document row; run_converter's early commit releases it
+        if time.monotonic() > deadline or not convert.may_convert(app, lock=True):
             return False
 
         try:

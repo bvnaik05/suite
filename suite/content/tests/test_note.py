@@ -119,10 +119,6 @@ class NoteAppCase(IntegrationTestCase):
         frappe.db.sql(f"DELETE FROM `{APP_TABLE}` WHERE `name` = %s", node)
         frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
-
-class TestNoteEditor(NoteAppCase):
-    """An app with no product code keeps its documents in the layer, under its own declarations and switch."""
-
     def push(self, payload: bytes) -> dict:
         lineage = content.find(note.EDITOR.app, self.node).lineage
         fields = {
@@ -138,6 +134,10 @@ class TestNoteEditor(NoteAppCase):
         encoded = json.dumps(fields).encode()
         header, body = content.parse_push(struct.pack(">I", len(encoded)) + encoded + payload)
         return content.push(note.EDITOR.app, self.doc_id, header, body, "Administrator")
+
+
+class TestNoteEditor(NoteAppCase):
+    """An app with no product code keeps its documents in the layer, under its own declarations and switch."""
 
     def test_a_note_takes_a_push_and_reads_back_as_written(self):
         self.assertEqual(self.push(typed(self.client_id, "hello"))["rev"], 1)

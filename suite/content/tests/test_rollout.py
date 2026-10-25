@@ -1,11 +1,14 @@
+import hashlib
+import json
+import struct
 import threading
 import time
 from unittest.mock import MagicMock, patch
 
 import frappe
 
-from suite import drive
-from suite.content import conversions, convert, jobs, log
+from suite import content, drive
+from suite.content import conversions, convert, jobs, log, steps
 from suite.content.tests import note
 from suite.content.tests.test_note import APP_TABLE, NoteAppCase, typed
 
@@ -89,6 +92,8 @@ class TestRollout(NoteAppCase):
         site = frappe.local.site
         errors: list[Exception] = []
         stored: list[int] = []
+        seen: list[int] = []
+        alive: list[bool] = []
 
         def pause_elsewhere():
             frappe.init(site=site)
@@ -104,11 +109,11 @@ class TestRollout(NoteAppCase):
             if convert_document.call_count == 1:
                 frappe.db.commit()  # nosemgrep: frappe-manual-commit
                 # A plain read opens the snapshot the next document's pause read sees unless it is current
-                self.assertEqual(frappe.db.get_value("Suite Collab App", NOTE_ROW, "conversion_paused"), 0)
+                seen.append(frappe.db.get_value("Suite Collab App", NOTE_ROW, "conversion_paused"))
                 admin = threading.Thread(target=pause_elsewhere)
                 admin.start()
                 admin.join(30)
-                self.assertFalse(admin.is_alive())
+                alive.append(admin.is_alive())
 
             return "converted"
 
@@ -118,9 +123,41 @@ class TestRollout(NoteAppCase):
         with patch.object(conversions, "convert_document", convert_document):
             went_on = conversions.convert_page(note.EDITOR.app, page, time.monotonic() + 60)
 
-        self.assertEqual((errors, stored), ([], [1]))
+        self.assertEqual((seen, alive, errors, stored), ([0], [False], [], [1]))
         self.assertEqual(convert_document.call_count, 1)
         self.assertFalse(went_on)
+
+    def test_a_failed_document_keeps_its_error_log(self):
+        page = [frappe._dict(node=frappe.generate_hash(length=10)) for _ in range(2)]
+        convert_document = MagicMock(side_effect=[RuntimeError("bad body"), "converted"])
+
+        with patch.object(conversions, "convert_document", convert_document):
+            went_on = conversions.convert_page(note.EDITOR.app, page, time.monotonic() + 60)
+
+        self.assertTrue(went_on)
+        self.assertEqual(convert_document.call_count, 2)
+        logged = {"method": "Collab conversion: note did not run", "error": f"{page[0].node}: RuntimeError"}
+        self.assertEqual(frappe.db.count("Error Log", logged), 1)
+
+    def test_a_converted_note_takes_pushes_while_paused(self):
+        payload = typed(self.client_id, "hello")
+        fields = {
+            "lineage": content.find(note.EDITOR.app, self.node).lineage,
+            "sid": self.sid,
+            "from": 1,
+            "to": 1,
+            "cid": self.client_id,
+            "seen_rev": 0,
+            "schema": 1,
+            "shas": [hashlib.sha256(payload).hexdigest()],
+        }
+        encoded = json.dumps(fields).encode()
+        body = struct.pack(">I", len(encoded)) + encoded + payload
+        self.assertEqual(pause_conversion(True), 1)
+
+        status, answer = steps.push_rows(self.node, body, lambda user: note.EDITOR.app)
+
+        self.assertEqual((status, answer["rev"]), (200, 1))
 
     def test_a_paused_backlog_is_not_waiting(self):
         with (

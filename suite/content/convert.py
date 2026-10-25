@@ -73,6 +73,14 @@ class Refused:
     reason: str
 
 
+def may_convert(app: str, *, lock: bool = False) -> bool:
+    """Whether the app is on and unpaused; lock=True takes a current read that locks its row until the next commit."""
+    row = {"parent": "Suite Collab Settings", "parentfield": "apps", "app": app}
+    return log.enabled(app) and not frappe.db.get_value(
+        "Suite Collab App", row, "conversion_paused", for_update=lock
+    )
+
+
 def converter_ready(app: str, conversion: Conversion) -> bool:
     """Whether Node and the converter bundle of this version are here; logs why not."""
     if checker.usable_node(NODE_MIN) is None:
@@ -190,7 +198,7 @@ def tell_blocks() -> None:
 def any_waiting() -> bool:
     """Whether an app with collaboration on has a document waiting to convert."""
     for app, spec in editors().items():
-        if spec.conversion and log.enabled(app) and pending_page(app, spec.conversion.version, None):
+        if spec.conversion and may_convert(app) and pending_page(app, spec.conversion.version, None):
             return True
 
     return False

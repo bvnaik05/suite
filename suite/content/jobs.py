@@ -57,7 +57,7 @@ def trim_logs() -> None:
 def queue_conversion() -> None:
     """Every few minutes: one conversion job for each app with old documents to convert."""
     for app, spec in editors().items():
-        if spec.conversion is None or not log.enabled(app):
+        if spec.conversion is None or not convert.may_convert(app):
             continue
 
         frappe.enqueue(
@@ -73,7 +73,7 @@ def queue_conversion() -> None:
 def convert_pending(app: str) -> None:
     """Convert the app's documents that have no log yet, as its queued job."""
     conversion = spec_of(app).conversion
-    if conversion is not None and log.enabled(app):
+    if conversion is not None and convert.may_convert(app):
         conversions.run_pending(app, conversion)
 
 
