@@ -254,6 +254,7 @@ class TestConversion(DriveCallbackCase):
         encoded = "%" + site[0].encode().hex() + site[1:]
         shouted = site.upper()
         domains = ["files.example.net", {"domain": "share.example.io"}]
+        past_bad = {"domains": ["x" * 64 + ".example.com", "files.example.net"]}
         for name, src, conf in (
             ("site", f"https://{site}/files/x.html", {}),
             ("upper case", f"https://{shouted}/files/x.html", {}),
@@ -267,6 +268,8 @@ class TestConversion(DriveCallbackCase):
             ("host name", "https://docs.example.org/x", {"host_name": "https://docs.example.org"}),
             ("domain", "https://files.example.net/x", {"domains": domains}),
             ("domain entry", "https://share.example.io/x", {"domains": domains}),
+            ("past a bad domain", "https://files.example.net/x", past_bad),
+            ("no host", "https:///files/x.html", {}),
         ):
             with self.subTest(name), patch.dict(frappe.local.conf, conf):
                 node = self.old_yjs_document(
@@ -281,13 +284,15 @@ class TestConversion(DriveCallbackCase):
 
     def test_keeps_an_embed_whose_host_only_looks_like_the_site(self):
         site = frappe.local.site
-        for name, src in (
-            ("site as a subdomain", f"https://{site}.example.com/embed"),
-            ("site as a suffix", f"https://not{site}/embed"),
-            ("site in the query", f"https://example.com/?u=https://{site}/"),
-            ("site in the fragment", f"https://example.com/#@{site}"),
+        bad_domain = {"domains": ["x" * 64 + ".example.com", "files.example.net"]}
+        for name, src, conf in (
+            ("site as a subdomain", f"https://{site}.example.com/embed", {}),
+            ("site as a suffix", f"https://not{site}/embed", {}),
+            ("site in the query", f"https://example.com/?u=https://{site}/", {}),
+            ("site in the fragment", f"https://example.com/#@{site}", {}),
+            ("beside a bad domain", "https://www.youtube.com/embed/x", bad_domain),
         ):
-            with self.subTest(name):
+            with self.subTest(name), patch.dict(frappe.local.conf, conf):
                 node = self.old_yjs_document(
                     pycrdt.XmlElement("paragraph", None, [pycrdt.XmlText("Watch this")]),
                     pycrdt.XmlElement("iframe", {"src": src}),

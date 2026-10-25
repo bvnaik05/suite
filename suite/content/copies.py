@@ -11,6 +11,7 @@ import re
 from collections.abc import Mapping
 from datetime import timedelta
 from http import HTTPStatus
+from urllib.parse import unquote, urlsplit
 
 import frappe
 import nh3
@@ -175,10 +176,10 @@ def cleaned(html: str) -> tuple[str, str]:
 
 
 def kept_value(tag: str, attribute: str, value: str) -> str | None:
-    """Keep an iframe's src only on https, and a data: value only as the src of a picture that is not svg."""
+    """Keep an off-site https iframe src, and a data: value only as the src of a picture that is not svg."""
     url = re.sub(r"[\t\n\r]|^[\x00-\x20]+|[\x00-\x20]+$", "", value).lower()
     if tag == "iframe" and attribute == "src":
-        if url.startswith("https://"):
+        if url.startswith("https://") and not is_site_url(url):
             return value
 
         return None
@@ -190,6 +191,43 @@ def kept_value(tag: str, attribute: str, value: str) -> str | None:
         return value
 
     return None
+
+
+def is_site_url(url: str) -> bool:
+    """Whether `url` is on a configured site host or under one; IP literals and sibling sites aren't checked."""
+    try:
+        host = url_host(url)
+    except (UnicodeError, ValueError):
+        return True
+
+    if not host:
+        return True
+
+    conf = frappe.local.conf
+    domains = conf.get("domains") or []
+    names = [frappe.local.site, conf.get("host_name"), conf.get("hostname")]
+    names += [entry for entry in domains if isinstance(entry, str)]
+    names += [entry.get("domain") for entry in domains if isinstance(entry, dict)]
+    for name in filter(None, names):
+        try:
+            site = url_host(name)
+        except (UnicodeError, ValueError):
+            continue
+
+        if site and (host == site or host.endswith(f".{site}")):
+            return True
+
+    return False
+
+
+def url_host(url: str) -> str:
+    """Read the host a browser takes from `url` or a bare host name, lowercased and idna-encoded."""
+    url = url.replace("\\", "/")
+    if "//" not in url:
+        url = f"//{url}"
+
+    host = unquote(urlsplit(url).hostname or "").lower().removesuffix(".")
+    return host.encode("idna").decode()
 
 
 def renders_log(log_read: Snapshot, rev: int, lineage: str, q_epoch: int) -> bool:
