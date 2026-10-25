@@ -24,7 +24,7 @@ from suite import drive
 from suite.composition import lifecycle
 from suite.composition.contract import _contract_path
 from suite.content import checker, compaction, convert, copies, jobs, live, log, scheduling, selftest
-from suite.content.editors import spec_of
+from suite.content.editors import HtmlCopy, spec_of
 from suite.content.http import routes
 from suite.drive._core.access import grant
 from suite.drive._core.nodes import _restore, _trash, purge
@@ -59,6 +59,15 @@ def old_comments(*comments: tuple[str, str, list[str]]) -> str:
 
 def renamed(node: str, source_id: str) -> str:
     return derived_name("drive-comment-rename/1", node, source_id)
+
+
+@dataclasses.dataclass(frozen=True)
+class LossyHtmlCopy(HtmlCopy):
+    writes: list[dict[str, str | None]] = dataclasses.field(default_factory=list)
+
+    def write(self, doctype: str, docname: str, changed: dict[str, str | None]) -> None:
+        self.writes.append(changed)
+        super().write(doctype, docname, {key: f"{value}<p>lost</p>" for key, value in changed.items()})
 
 
 class TestConversion(DriveCallbackCase):
@@ -945,6 +954,27 @@ class TestConversion(DriveCallbackCase):
 
             self.assertEqual(self.as_before(node), before, msg=name)
             self.assertEqual(self.records(node), ((*refusal, None),), msg=name)
+
+    def test_a_copy_that_reads_back_differently_rolls_back_the_conversion(self):
+        node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
+        self.build_thread(node, "c1", ["c1"])
+        before = self.as_before(node)
+        lossy = LossyHtmlCopy("html", is_html_complete)
+
+        def converting(*args, **kwargs):
+            return dataclasses.replace(REAL_CONVERT(*args, **kwargs), html="<p>Hello world</p><p>New</p>")
+
+        with (
+            patch.object(convert, "convert", side_effect=converting),
+            patch.object(
+                writer_content, "EDITOR", dataclasses.replace(writer_content.EDITOR, readable_copy=lossy)
+            ),
+        ):
+            self.assertEqual(conversion.convert_document(node), "check")
+
+        self.assertEqual(len(lossy.writes), 1)
+        self.assertEqual(self.as_before(node), before)
+        self.assertEqual(self.records(node), (("check", "copy", None),))
 
     def test_a_failure_after_the_first_write_keeps_the_old_comments(self):
         node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", [])))
