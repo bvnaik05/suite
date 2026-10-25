@@ -865,9 +865,16 @@ class TestConversion(DriveCallbackCase):
         }
         self.assertTrue(frappe.db.exists("Error Log", deadlock))
         self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), "html"), "<p>Kept</p>")
+        [captured] = frappe.get_all("Drive Node Version", {"node": node, "seq": [">", seq]}, pluck="seq")
+        with read_version(Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)), node, captured) as stream:
+            self.assertEqual(json.loads(stream.read())["html"], "<p>Edited</p>")
+
         self.assertIsNone(log.find(writer_content.APP, node))
+        self.assertEqual((self.records(node), self.failures(node)), (((None, None, None),), [1]))
         self.assertEqual(self.records(other), (("converted", None, "[]"),))
         self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
+        self.assertEqual(self.before_collaboration(node)["html"], "<p>Kept</p>")
+        self.assertEqual(self.text_of_log(node), "<paragraph>Kept</paragraph>")
 
     def purge_after_pick_elsewhere(
         self, site: str, node: str, errors: list, nowaits: list, locked: threading.Event
