@@ -216,8 +216,29 @@ describe('editing and deleting a comment', () => {
     await save()
 
     expect([opened, asked]).toEqual([
-      'Ask @Ben Roy or @ghost',
+      'Ask @Ben Roy or @[ghost]',
       ['edit c8 "Ask @[ben@x.com] or @[ghost] now"'],
+    ])
+  })
+
+  it('names a mentioned person to edit whatever the case of their mention, and saves the mention as stored', async () => {
+    const asking = {
+      ...WHOLE,
+      comments: [
+        { ...comment('c8', 'Asha Rao', 'Ask @[BEN@x.com] or @[ghost]'), mentions: ['ben@x.com'] },
+      ],
+    } as unknown as DocumentThread
+    const { host, asked } = showList({ threads: [asking] })
+    await click(rowButton(host, 'Ask'))
+
+    await pick(host, 'Ask @Ben Roy or @[ghost]', 'Edit')
+    const opened = editBox()?.value
+    await type(`${opened} now`)
+    await save()
+
+    expect([opened, asked]).toEqual([
+      'Ask @Ben Roy or @[ghost]',
+      ['edit c8 "Ask @[BEN@x.com] or @[ghost] now"'],
     ])
   })
 

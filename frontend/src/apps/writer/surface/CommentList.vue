@@ -736,6 +736,7 @@ function rowClass(thread: DocumentThread) {
                   <MentionTextarea
                     ref="editBoxes"
                     v-model="editText"
+                    :mentions="comment.mentions"
                     :rows="2"
                     aria-label="Edit comment"
                     @keydown.esc.stop.prevent="stopEdit"

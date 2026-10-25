@@ -27,6 +27,8 @@ defineOptions({ inheritAttrs: false })
  * text it writes holds the `@[user]` mentions Drive notifies.
  */
 const text = defineModel<string>({ required: true })
+/** The people Drive found mentioned in the stored text; without it, every mention counts. */
+const props = defineProps<{ mentions?: string[] }>()
 
 const field = ref<{ focus(): void; inputElement: HTMLTextAreaElement | null } | null>(null)
 const { users, answeredQuery } = useUsers()
@@ -54,7 +56,7 @@ const activeOption = computed(() => {
 })
 
 function showStored(value: string) {
-  picked = pickedIn(value, fullName)
+  picked = pickedIn(value, fullName, props.mentions)
   shown.value = fromTokens(value, picked)
   written = value
 }

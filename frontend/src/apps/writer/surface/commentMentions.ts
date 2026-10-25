@@ -60,11 +60,20 @@ export function labelFor(user: string, name: string, picked: PickedPerson[]) {
   return label
 }
 
-/** The people a stored text mentions, named as a box shows them. */
-export function pickedIn(content: string, nameOf: (user: string) => string) {
+/** The people a stored text mentions, named as a box shows them; with `mentions`, only those people count. */
+export function pickedIn(content: string, nameOf: (user: string) => string, mentions?: string[]) {
   const picked: PickedPerson[] = []
   for (const [, user = ''] of content.matchAll(TOKEN)) {
-    const label = labelFor(user, nameOf(user), picked)
+    let mentioned: string | undefined = user
+    if (mentions) {
+      mentioned = mentions.find((mention) => mention.toLowerCase() === user.toLowerCase())
+    }
+
+    if (mentioned === undefined) {
+      continue
+    }
+
+    const label = labelFor(user, nameOf(mentioned), picked)
     picked.push({ user, label })
   }
 

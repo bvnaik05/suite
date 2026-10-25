@@ -61,6 +61,29 @@ describe('the names a box shows for the people picked in it', () => {
 
     expect(picked).toEqual([ANN, { user: 'ann2@x.com', label: 'ann2@x.com' }, ANN])
   })
+
+  it('reads every mention of a stored text when there is no list of the people it mentions', () => {
+    const picked = pickedIn('Ask @[BEN@x.com] or @[ghost]', (user) => `name of ${user}`)
+
+    expect(picked).toEqual([
+      { user: 'BEN@x.com', label: 'name of BEN@x.com' },
+      { user: 'ghost', label: 'name of ghost' },
+    ])
+  })
+
+  it('names a listed person whatever the case of their mention, and keeps the mention as stored', () => {
+    const stored = 'Ask @[BEN@x.com] or @[ghost]'
+    const names: Record<string, string> = { 'ben@x.com': 'Ben Roy' }
+
+    const picked = pickedIn(stored, (user) => names[user] ?? user, ['ben@x.com'])
+    const shown = fromTokens(stored, picked)
+
+    expect([picked, shown, toTokens(shown, picked)]).toEqual([
+      [{ user: 'BEN@x.com', label: 'Ben Roy' }],
+      'Ask @Ben Roy or @[ghost]',
+      stored,
+    ])
+  })
 })
 
 describe('turning names into mentions and back', () => {
