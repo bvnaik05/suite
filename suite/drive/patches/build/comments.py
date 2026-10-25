@@ -111,12 +111,12 @@ def _port_legacy(env, content, row: dict, batch_size: int) -> None:
         content.record_legacy_comment(LegacyComment(row["name"], file))
         return
 
-    thread, comments = _legacy_plan(node["name"], row, env.content.user_enabled)
+    thread, comments = _legacy_plan(node["name"], row, env.content.user_name)
     _write_thread(env, thread, comments, batch_size)
     content.legacy_comments_ported += 1
 
 
-def _legacy_plan(node: str, row: dict, user_enabled: Callable[[str], bool | None]) -> tuple[dict, list[dict]]:
+def _legacy_plan(node: str, row: dict, user_name: Callable[[str], str | None]) -> tuple[dict, list[dict]]:
     """One thread of one comment, from one `Drive File.comments` child row.
 
     The old row carried `content` and `resolved` and nothing else of its
@@ -144,7 +144,7 @@ def _legacy_plan(node: str, row: dict, user_enabled: Callable[[str], bool | None
         "author": author,
         "author_name": None,
         "stamp": stamp,
-        "mentions": [user for user in span_ids if user_enabled(user) is not None],
+        "mentions": list(dict.fromkeys(filter(None, map(user_name, span_ids)))),
         "source_complete": True,
     }
     return _thread_plan(node, row["name"], bool(row.get("resolved")), [entry], _lazy(lambda: (author, stamp)))
@@ -199,7 +199,7 @@ def _writer_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
                 time_key="creation",
                 fallback=fallback,
                 timezone=timezone,
-                user_enabled=env.content.user_enabled,
+                user_name=env.content.user_name,
             )
             for entry in entries
         ]
@@ -269,7 +269,7 @@ def _sheet_threads(env, document, node: str) -> list[tuple[dict, list[dict]]]:
                         time_key="ts",
                         fallback=fallback,
                         timezone=timezone,
-                        user_enabled=env.content.user_enabled,
+                        user_name=env.content.user_name,
                     )
                     entries.append(entry)
                 resolved = bool(raw_thread.get("resolved"))
@@ -339,7 +339,7 @@ def comment_entry(
     time_key: str,
     fallback: Callable[[], tuple[str, str]],
     timezone: str,
-    user_enabled: Callable[[str], bool | None],
+    user_name: Callable[[str], str | None],
 ) -> dict:
     """Normalize one legacy comment or reply into the entry a Drive thread row holds."""
     if not isinstance(value, dict):
@@ -358,8 +358,8 @@ def comment_entry(
         _author, stamp = fallback()
         source_complete = False
 
-    candidates = dict.fromkeys(entry_mentions(value) + span_ids)
-    mention_ids = [user for user in candidates if user_enabled(user) is not None]
+    candidates = entry_mentions(value) + span_ids
+    mention_ids = list(dict.fromkeys(filter(None, map(user_name, candidates))))
     return {
         "id": identity,
         "text": text,

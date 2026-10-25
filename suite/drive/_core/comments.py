@@ -849,7 +849,8 @@ def _mentions(text: str) -> list[str]:
     candidates = []
     for pattern in (_BRACKET_MENTION, _EMAIL_MENTION, _DATA_MENTION):
         candidates.extend(pattern.findall(text))
-    return [user for user in dict.fromkeys(candidates) if frappe.db.exists("User", user)]
+
+    return list(dict.fromkeys(filter(None, (frappe.db.exists("User", user) for user in candidates))))
 
 
 def _validate_anchor(anchor: str) -> None:

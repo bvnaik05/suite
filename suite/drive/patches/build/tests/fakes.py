@@ -824,7 +824,15 @@ class FakeContent:
         return [row for row in sorted(self.share_rows, key=lambda row: row.name) if row.name > after][:limit]
 
     def user_enabled(self, user):
-        return self.users.get(user)
+        name = self.user_name(user)
+        if name is None:
+            return None
+
+        return self.users[name]
+
+    def user_name(self, user):
+        # The site's User lookup ignores case
+        return next((name for name in self.users if name.lower() == user.lower()), None)
 
     def site_timezone(self):
         return self.timezone

@@ -813,6 +813,37 @@ class LegacyCommentTest(unittest.TestCase):
         self.assertEqual(row["content"], "@[b@example.com] @[a@example.com]")
         self.assertEqual(json.loads(row["mentions"]), ["a@example.com", "b@example.com"])
 
+    def test_two_spans_for_one_user_in_different_case_mention_the_user_once_by_its_name(self):
+        span = '<span data-type="mention" data-id="{0}" data-label="Amy">@Amy</span>'
+        text = "<p>" + span.format("AMY@example.com") + " " + span.format("amy@example.com") + "</p>"
+
+        ported = self.ported(text, users={"amy@example.com": True})
+
+        self.assertEqual(ported[1], ["amy@example.com"])
+
+    def test_a_writer_comment_mentioning_one_user_in_two_cases_mentions_the_user_once_by_its_name(self):
+        text = '<p><span data-type="mention" data-id="amy@example.com" data-label="Amy">@Amy</span></p>'
+        ycomments = writer_update(
+            {
+                "top": {
+                    "id": "top",
+                    "text": text,
+                    "owner": OWNER,
+                    "creation": 1_000,
+                    "mentions": [{"id": "AMY@example.com"}],
+                }
+            }
+        )
+        document = ContentRow(
+            "Writer Document", "writer-1", ycomments=ycomments, modified=STAMP, modified_by=OWNER
+        )
+        users = {"amy@example.com": True}
+        env, target = self.environment(FakeContent(documents=[document], users=users, timezone="UTC"))
+
+        convert_document_comments(env, self.record, document, "node-1", batch_size=10)
+
+        self.assertEqual(json.loads(target.comment_rows["top"]["mentions"]), ["amy@example.com"])
+
 
 class CopiedDocumentIdTest(unittest.TestCase):
     """Two Writer Documents that carry one `ycomments` between them.

@@ -871,6 +871,9 @@ class LegacyContent(Protocol):
 
     def user_enabled(self, user: str) -> bool | None: ...
 
+    def user_name(self, user: str) -> str | None:
+        """Answer the User's stored name for `user`, matched as the database matches it; None when there's no row."""
+
     def site_timezone(self) -> str: ...
 
     def site_host(self) -> str: ...
@@ -1717,6 +1720,10 @@ class SiteContentSource:
     def user_enabled(self, user: str) -> bool | None:
         found = frappe.db.get_value("User", user, ["name", "enabled"], as_dict=True)
         return bool(found.enabled) if found else None
+
+    def user_name(self, user: str) -> str | None:
+        """Answer the User's stored name for `user`, matched as the database matches it; None when there's no row."""
+        return frappe.db.get_value("User", user, "name")
 
     def site_timezone(self) -> str:
         from frappe.utils import get_system_timezone
