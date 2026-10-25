@@ -72,13 +72,22 @@ class TestEditorDeclarations(UnitTestCase):
         self.assertIn("missing", refused)
 
     def test_each_wrongly_declared_value_is_named(self):
-        cases = {
-            "app": "Not A Table Name",
-            "part_map": {},
-            "readable_copy": editors.HtmlCopy(field="", is_html_complete=lambda state, html, text: True),
-            "media": editors.MediaReferences(node_ids="not callable", value_rewriter=lambda mapping: str),
-        }
-        for field, value in cases.items():
+        build = note.EDITOR.checker_build
+        cases = [
+            ("app", "Not A Table Name"),
+            ("part_map", {}),
+            ("readable_copy", editors.HtmlCopy(field="", is_html_complete=lambda state, html, text: True)),
+            ("media", editors.MediaReferences(node_ids="not callable", value_rewriter=lambda mapping: str)),
+            (
+                "conversion",
+                editors.Conversion(build, "1", read_old="not callable", install=lambda *args: None),
+            ),
+            (
+                "conversion",
+                editors.Conversion(build, "1", read_old=lambda node: None, install="not callable"),
+            ),
+        ]
+        for field, value in cases:
             with self.subTest(field=field), declared(**{field: value}):
                 self.assertIn(f"declares {field} wrongly", self.refusal(HOOK))
 

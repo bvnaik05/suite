@@ -18,7 +18,7 @@ document text, the words of a pending edit or a comment's copy, so it goes only 
 record, never to a log or report.
 
 `run_pending` is the scheduled job's loop: it pages through the app's documents that have no log, newest
-first, and hands each to the app's `convert_document`, which owns everything about one document. It
+first, and hands each to `convert_document` (suite.content.conversions), which converts one document. It
 passes over a document this converter refused unless the row changed after the refused attempt began.
 
 Without Node, or with the scheduler off, nothing converts. `check_before_migrate` prints each cause on
@@ -38,7 +38,7 @@ from frappe.utils.scheduler import is_scheduler_disabled
 from frappe.utils.user import get_system_managers
 
 from suite import drive
-from suite.content import capacity, checker, log, selftest
+from suite.content import capacity, checker, conversions, log, selftest
 from suite.content.editors import Conversion, editors, spec_of
 from suite.content.tables import KINDS, table
 
@@ -95,7 +95,7 @@ def run_pending(app: str, conversion: Conversion) -> None:
     if not converter_ready(app, conversion):
         return
 
-    while page and convert_page(app, conversion, page, deadline):
+    while page and convert_page(app, page, deadline):
         page = pending_page(app, conversion.version, page[-1])
 
 
@@ -132,14 +132,14 @@ def missing_prerequisite(app: str) -> str | None:
     return None
 
 
-def convert_page(app: str, conversion: Conversion, page: list[frappe._dict], deadline: float) -> bool:
+def convert_page(app: str, page: list[frappe._dict], deadline: float) -> bool:
     """Convert each document on `page`; False once time runs out or the converter changes."""
     for row in page:
         if time.monotonic() > deadline:
             return False
 
         try:
-            conversion.convert_document(row.node)
+            conversions.convert_document(app, row.node)
         except ConverterChanged as changed:
             log_reason(app, str(changed))
             return False
