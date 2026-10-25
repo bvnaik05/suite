@@ -41,9 +41,27 @@ class CheckedDocument:
     threads: list[dict] = field(repr=False)
 
 
+def old_row(node: str, columns: Collection[str], *, lock: bool = False) -> frappe._dict | None:
+    """Load `columns` of `node`'s row, the lowest name of any it has, or None when it has none."""
+    # Must order as app_row.body_row does, pinned by the tests
+    # test_writes_the_body_and_clears_the_comments_on_the_same_row_of_a_node_with_two_rows and
+    # test_fingerprints_the_row_the_body_is_written_to_on_a_node_with_two_rows
+    selected = ", ".join(f"`{column}`" for column in columns)
+    lock_clause = " FOR UPDATE" if lock else ""
+    found = frappe.db.sql(
+        f"SELECT {selected} FROM `tab{DOCTYPE}` WHERE `node` = %s ORDER BY `name` LIMIT 1{lock_clause}",
+        node,
+        as_dict=True,
+    )
+    if not found:
+        return None
+
+    return found[0]
+
+
 def read_fingerprint(node: str) -> str:
     """Hash `node`'s old body as `fingerprint_of` does, from the row alone; a gone row hashes as empty."""
-    legacy = frappe.db.get_value(DOCTYPE, {"node": node}, list(FIELDS), as_dict=True)
+    legacy = old_row(node, FIELDS)
     return fingerprint_of(legacy or {})
 
 
@@ -54,7 +72,7 @@ def fingerprint_of(legacy: dict) -> str:
 
 def read_old(node: str, *, lock: bool = False) -> OldDocument | None:
     """Read the old body and the node's Drive threads, or None once a purge took the row; with `lock`, lock it first."""
-    row = frappe.db.get_value(DOCTYPE, {"node": node}, ["name", *FIELDS], as_dict=True, for_update=lock)
+    row = old_row(node, ("name", *FIELDS), lock=lock)
     if row is None:
         return None
 

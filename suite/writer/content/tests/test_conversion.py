@@ -326,6 +326,43 @@ class TestConversion(DriveCallbackCase):
                 self.assertIsNone(frappe.db.get_value("Writer Document", self.docname_of(node), "ycomments"))
                 self.assertEqual(self.records(node), (("converted", None, "[]"),))
 
+    def test_writes_the_body_and_clears_the_comments_on_the_same_row_of_a_node_with_two_rows(self):
+        node = self.old_document("<p>Hello world</p>", old_comments(("c1", "world", ["r1"])))
+        self.build_thread(node, "c1", ["c1", "r1"])
+        twin = frappe.copy_doc(frappe.get_doc("Writer Document", self.docname_of(node)))
+        twin.name = "zz" + frappe.generate_hash(length=8)
+        twin.creation = frappe.utils.add_days(frappe.utils.now_datetime(), 1)
+        twin.modified = twin.creation
+        twin.db_insert()
+        frappe.db.commit()
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(frappe.db.delete, "Writer Document", twin.name)
+
+        self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
+
+        rows = frappe.get_all("Writer Document", {"node": node}, ["name", "content", "ycomments"])
+        written = {row.name for row in rows if row.content}
+        cleared = {row.name for row in rows if row.ycomments is None}
+        self.assertEqual(len(written), 1)
+        self.assertEqual(written, cleared)
+
+    def test_fingerprints_the_row_the_body_is_written_to_on_a_node_with_two_rows(self):
+        node = self.old_document("<p>Hello world</p>")
+        twin = frappe.copy_doc(frappe.get_doc("Writer Document", self.docname_of(node)))
+        twin.name = "zz" + frappe.generate_hash(length=8)
+        twin.html = "<p>Another body</p>"
+        twin.creation = frappe.utils.add_days(frappe.utils.now_datetime(), 1)
+        twin.modified = twin.creation
+        twin.db_insert()
+        frappe.db.commit()
+        self.addCleanup(frappe.db.commit)
+        self.addCleanup(frappe.db.delete, "Writer Document", twin.name)
+
+        written = frappe.db.get_value(
+            "Writer Document", self.docname_of(node), list(conversion.FIELDS), as_dict=True
+        )
+        self.assertEqual(conversion.read_fingerprint(node), conversion.fingerprint_of(written))
+
     def test_names_a_renamed_thread_as_build_does(self):
         self.assertEqual(conversion.renamed_id("node-b", "top"), renamed("node-b", "top"))
 
