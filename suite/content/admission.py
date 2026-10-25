@@ -13,6 +13,7 @@ PLACES = 2
 PER_COMPACTION = 240 * 2**20
 LEASE_SECONDS = TIMEOUT + 90
 CGROUP = "/sys/fs/cgroup"
+KEY_PREFIX = "suite:collab:"
 
 # Bench-wide places, held in RQ's Redis; a lease outlives the job timeout, so a killed horse frees its place
 RELEASE_SCRIPT = (
@@ -24,12 +25,12 @@ def take_place(app: str, doc_id: str) -> tuple[str, list[str]] | None:
     """Take one of `PLACES` and the document's own key, under a token a job past its lease can't free."""
     redis = get_redis_conn()
     token = secrets.token_hex(16)
-    doc_key = f"suite:collab:compacting:{frappe.local.site}:{app}:{doc_id}"
+    doc_key = f"{KEY_PREFIX}compacting:{frappe.local.site}:{app}:{doc_id}"
     if not redis.set(doc_key, token, nx=True, ex=LEASE_SECONDS):
         return None
 
     for index in range(PLACES):
-        key = f"suite:collab:compaction:{index}"
+        key = f"{KEY_PREFIX}compaction:{index}"
         if redis.set(key, token, nx=True, ex=LEASE_SECONDS):
             return token, [key, doc_key]
 

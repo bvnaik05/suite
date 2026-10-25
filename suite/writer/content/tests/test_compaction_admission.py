@@ -20,7 +20,7 @@ class TestCompactionAdmission(CompactionCase):
         self.type_into(node, ["one"])
         redis = get_redis_conn()
         for index in range(admission.PLACES):
-            redis.set(f"suite:collab:compaction:{index}", "elsewhere", ex=60)
+            redis.set(f"{admission.KEY_PREFIX}compaction:{index}", "elsewhere", ex=60)
 
         self.addCleanup(self.release_places)
 
@@ -50,6 +50,16 @@ class TestCompactionAdmission(CompactionCase):
         self.assertIsNotNone(admission.take_place("writer", "doc-b"))
         admission.free_place(first)
         self.assertIsNotNone(admission.take_place("writer", "doc-a"))
+
+    def test_a_place_held_by_a_live_job_does_not_block_a_test(self):
+        redis = get_redis_conn()
+        live_place = "suite:collab:compaction:0"
+        redis.set(live_place, "a-live-job", nx=True, ex=5)
+        self.addCleanup(redis.eval, admission.RELEASE_SCRIPT, 1, live_place, "a-live-job")
+        self.addCleanup(self.release_places)
+
+        self.assertIsNotNone(admission.take_place("writer", "doc-a"))
+        self.assertIsNotNone(admission.take_place("writer", "doc-b"))
 
     def test_a_job_that_outlived_its_lease_frees_nothing_of_the_next(self):
         self.addCleanup(self.release_places)

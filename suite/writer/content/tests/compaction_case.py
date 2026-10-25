@@ -1,10 +1,12 @@
 """A test case that frees compaction places, compacts without installing and opens a document."""
 
+import secrets
 from dataclasses import dataclass
+from unittest.mock import patch
 
 from frappe.utils.background_jobs import get_redis_conn
 
-from suite.content import compaction
+from suite.content import admission, compaction
 from suite.content.http import routes
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import CheckpointCase, call_route, read_open
@@ -18,9 +20,17 @@ class Opened:
 
 
 class CompactionCase(CheckpointCase):
+    def setUp(self):
+        super().setUp()
+        # The bench's live workers take places too, so each test keeps its own
+        tag = secrets.token_hex(4)
+        prefix = patch.object(admission, "KEY_PREFIX", f"suite:collab:test-{tag}:")
+        prefix.start()
+        self.addCleanup(prefix.stop)
+
     def release_places(self):
         redis = get_redis_conn()
-        for key in redis.keys("suite:collab:compact*"):
+        for key in redis.keys(f"{admission.KEY_PREFIX}compact*"):
             redis.delete(key)
 
     def compacted(self, node: str, *, integrated: bool = True) -> tuple[dict, compaction.Compacted]:
