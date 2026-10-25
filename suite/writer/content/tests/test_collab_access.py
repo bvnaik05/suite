@@ -3,8 +3,10 @@ import uuid
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import now_datetime
 
 from suite import drive
+from suite.content import touches
 from suite.content.http import routes
 from suite.drive._core.access import grant
 from suite.drive._core.principals import Principals
@@ -136,3 +138,17 @@ class TestWriterCollabAccess(CollabCase):
                 self.assertEqual((response.status_code, answer(response)), (404, {"collab": "not_found"}))
 
         self.assertIsNone(routes.content.find(writer_content.APP, presentation))
+
+    def test_a_push_runs_a_fixed_number_of_statements(self):
+        self.set_mode("on")
+        node = self.new_document()
+        sid, client_id = self.start_session(node)
+        with patch.object(touches, "now_datetime", return_value=now_datetime()):
+            status, _ = self.push(node, sid, client_id, 1)
+            self.assertEqual(status, 200)
+            header, _ = self.open_document(node)
+            body = push_body(header["lineage"], sid, client_id, 2, 1, self.typed_update(client_id, 2, "2"))
+            with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
+                pushed = call_route(routes.updates_post, node, body=body)
+
+        self.assertEqual((pushed.status_code, sql.call_count), (200, 20))
