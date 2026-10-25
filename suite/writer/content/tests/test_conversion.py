@@ -248,6 +248,56 @@ class TestConversion(DriveCallbackCase):
 
                 self.assertEqual(self.as_before(node), before)
 
+    def test_refuses_a_body_whose_embed_is_on_the_site_host(self):
+        site = frappe.local.site
+        wide = chr(ord(site[0]) + 0xFEE0) + site[1:]
+        encoded = "%" + site[0].encode().hex() + site[1:]
+        shouted = site.upper()
+        domains = ["files.example.net", {"domain": "share.example.io"}]
+        for name, src, conf in (
+            ("site", f"https://{site}/files/x.html", {}),
+            ("upper case", f"https://{shouted}/files/x.html", {}),
+            ("trailing dot", f"https://{site}./files/x.html", {}),
+            ("port", f"https://{site}:8443/files/x.html", {}),
+            ("subdomain", f"https://a.{site}/files/x.html", {}),
+            ("userinfo", f"https://x@{site}/files/x.html", {}),
+            ("backslash", f"https://{site}\\@example.com/", {}),
+            ("percent", f"https://{encoded}/files/x.html", {}),
+            ("full width", f"https://{wide}/files/x.html", {}),
+            ("host name", "https://docs.example.org/x", {"host_name": "https://docs.example.org"}),
+            ("domain", "https://files.example.net/x", {"domains": domains}),
+            ("domain entry", "https://share.example.io/x", {"domains": domains}),
+        ):
+            with self.subTest(name), patch.dict(frappe.local.conf, conf):
+                node = self.old_yjs_document(
+                    pycrdt.XmlElement("paragraph", None, [pycrdt.XmlText("Watch this")]),
+                    pycrdt.XmlElement("iframe", {"src": src}),
+                )
+                before = self.as_before(node)
+
+                self.assertEqual(conversions.convert_document(writer_content.APP, node), "check")
+
+                self.assertEqual(self.as_before(node), before)
+
+    def test_keeps_an_embed_whose_host_only_looks_like_the_site(self):
+        site = frappe.local.site
+        for name, src in (
+            ("site as a subdomain", f"https://{site}.example.com/embed"),
+            ("site as a suffix", f"https://not{site}/embed"),
+            ("site in the query", f"https://example.com/?u=https://{site}/"),
+            ("site in the fragment", f"https://example.com/#@{site}"),
+        ):
+            with self.subTest(name):
+                node = self.old_yjs_document(
+                    pycrdt.XmlElement("paragraph", None, [pycrdt.XmlText("Watch this")]),
+                    pycrdt.XmlElement("iframe", {"src": src}),
+                )
+
+                self.assertEqual(conversions.convert_document(writer_content.APP, node), "converted")
+
+                html = frappe.db.get_value("Writer Document", self.docname_of(node), "html")
+                self.assertEqual(BeautifulSoup(html, "html.parser").find("iframe")["src"], src)
+
     def test_anchors_each_old_comment_on_the_drive_thread_build_made_for_it(self):
         for name, thread in (("kept", lambda node, id_: id_), ("renamed", renamed)):
             with self.subTest(name):
