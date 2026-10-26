@@ -85,21 +85,26 @@ class MediaReferences:
 
 class OldBody(Protocol):
     @property
-    def fingerprint(self) -> str: ...
+    def fingerprint(self) -> str:
+        """Answer the hash of the old body, so a changed body is converted again."""
 
     @property
-    def legacy(self) -> dict: ...
+    def legacy(self) -> dict:
+        """Answer the old body as the converter's input."""
 
     @property
-    def modified(self) -> datetime: ...
+    def modified(self) -> datetime:
+        """Answer the newest `modified` of the node's rows."""
 
 
 class CheckedBody(Protocol):
     @property
-    def html(self) -> str: ...
+    def html(self) -> str:
+        """Answer the readable copy to install."""
 
     @property
-    def dropped(self) -> list[dict]: ...
+    def dropped(self) -> list[dict]:
+        """Answer what the conversion dropped, one entry each."""
 
 
 class OldReader[Old: OldBody](Protocol):
