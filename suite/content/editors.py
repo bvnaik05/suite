@@ -84,14 +84,22 @@ class MediaReferences:
 
 
 class OldBody(Protocol):
-    fingerprint: str
-    legacy: dict
-    modified: datetime
+    @property
+    def fingerprint(self) -> str: ...
+
+    @property
+    def legacy(self) -> dict: ...
+
+    @property
+    def modified(self) -> datetime: ...
 
 
 class CheckedBody(Protocol):
-    html: str
-    dropped: list[dict]
+    @property
+    def html(self) -> str: ...
+
+    @property
+    def dropped(self) -> list[dict]: ...
 
 
 class OldReader[Old: OldBody](Protocol):
