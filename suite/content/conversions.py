@@ -20,7 +20,7 @@ nowhere else.
 import json
 import time
 from datetime import datetime, timedelta
-from typing import NotRequired, Protocol, TypedDict
+from typing import NotRequired, TypedDict
 
 import frappe
 from frappe import _
@@ -29,7 +29,7 @@ from frappe.utils import now_datetime
 from suite import drive
 from suite.content import checker, convert, copies, live, log, selftest
 from suite.content.checkpoints import replace_start
-from suite.content.editors import Conversion, spec_of
+from suite.content.editors import CheckedBody, Conversion, OldBody, spec_of
 from suite.content.tables import table
 
 # How many runs fail on a body under one converter version before it is recorded `crashed`
@@ -43,17 +43,6 @@ PASSING = frozenset({"child_timeout", "child_crash"})
 CHANGED = "changed"
 LOGGED = "logged"
 OPEN_ATTEMPT = "`node` = %s AND `fingerprint` = %s AND `converter_version` = %s AND `outcome` IS NULL"
-
-
-class OldBody(Protocol):
-    fingerprint: str
-    legacy: dict
-    modified: datetime
-
-
-class CheckedBody(Protocol):
-    html: str
-    dropped: list[dict]
 
 
 class ConversionStatus(TypedDict):

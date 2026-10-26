@@ -15,7 +15,6 @@ from datetime import datetime
 
 import frappe
 import pycrdt
-from frappe.utils import now_datetime
 
 from suite import drive
 from suite.content import compaction, convert, copies
@@ -37,7 +36,7 @@ class OldDocument:
 
 @dataclass(frozen=True)
 class CheckedDocument:
-    html: str
+    html: str = field(repr=False)
     dropped: list[dict]
     anchors: dict[str, str] = field(repr=False)
     threads: list[dict] = field(repr=False)

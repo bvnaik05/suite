@@ -3,13 +3,18 @@
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import frappe
 
 from suite import drive
 from suite.content.ingest import EditorSchema
+
+if TYPE_CHECKING:
+    # convert.py imports this module
+    from suite.content.convert import Converted
 
 
 class ReadableCopy(Protocol):
@@ -78,8 +83,24 @@ class MediaReferences:
     value_rewriter: Callable[[Mapping[str, str]], Callable[[str], str]]
 
 
+class OldBody(Protocol):
+    fingerprint: str
+    legacy: dict
+    modified: datetime
+
+
+class CheckedBody(Protocol):
+    html: str
+    dropped: list[dict]
+
+
+class OldReader[Old: OldBody](Protocol):
+    def __call__(self, node: str, *, lock: bool = False) -> Old | None:
+        """Answer `node`'s old body, its row locked when `lock`, or None once it is gone."""
+
+
 @dataclass(frozen=True)
-class Conversion:
+class Conversion[Old: OldBody, Checked: CheckedBody]:
     """How an app's old documents become collaborative: `build` is the Node converter, which holds
     `version`; `read_old(node, lock=False)` answers the old body, with its `fingerprint`, the newest `modified` of
     the node's rows and the converter's input `legacy`, or None once it is gone; `read_fingerprint(node)` answers that `fingerprint` from the row
@@ -89,10 +110,10 @@ class Conversion:
 
     build: Path
     version: str
-    read_old: Callable
-    read_fingerprint: Callable
-    check: Callable
-    fix_up: Callable
+    read_old: OldReader[Old]
+    read_fingerprint: Callable[[str], str]
+    check: Callable[[str, Old, Converted], Checked]
+    fix_up: Callable[[str, Old, Checked], None]
 
 
 @dataclass(frozen=True)

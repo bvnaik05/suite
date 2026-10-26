@@ -367,6 +367,11 @@ class TestConversion(DriveCallbackCase):
     def test_names_a_renamed_thread_as_build_does(self):
         self.assertEqual(conversion.renamed_id("node-b", "top"), renamed("node-b", "top"))
 
+    def test_a_checked_document_repr_hides_its_html(self):
+        checked = conversion.CheckedDocument("<p>secret</p>", [], {}, [])
+
+        self.assertNotIn("<p>secret</p>", repr(checked))
+
     def test_installs_a_2023_thread_once_at_its_own_time_telling_no_one(self):
         data = json.dumps(OLD_THREAD)
         html = f"<p>Hello <span data-comment='{data}'>old</span> world</p>"
