@@ -14,7 +14,7 @@
   <AppSettingsBody>
     <template v-if="draft">
       <div class="flex flex-col gap-5">
-        <template v-if="regionalDraft">
+        <template v-if="hasProvider && regionalDraft">
           <SettingsRow :title="__('Locale')">
             <Combobox
               v-model="regionalDraft.locale"
@@ -144,7 +144,8 @@ const preferences = useQuery(api.mail.settings.account, () =>
       }
     : false,
 )
-const regional = useQuery(api.mail.settings.regional)
+const hasProvider = computed(() => !!store.userResource.data?.is_suite_cloud_configured)
+const regional = useQuery(api.mail.settings.regional, () => (hasProvider.value ? {} : false))
 const regionalDraft = ref<{ locale: string; time_zone: string }>()
 watch(
   () => regional.data,
@@ -213,7 +214,8 @@ const loading = computed(() => preferences.isFetching)
 const saving = computed(() => savePreferences.isPending || saveRegional.isPending)
 const save = async () => {
   if (!draft.value) return
-  if (regionalDirty.value && regionalDraft.value) await saveRegional.run({ ...regionalDraft.value })
+  if (hasProvider.value && regionalDirty.value && regionalDraft.value)
+    await saveRegional.run({ ...regionalDraft.value })
   await savePreferences.run({
     account: store.accountId,
     changes: {
