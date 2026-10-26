@@ -1717,6 +1717,7 @@ class TestConversion(DriveCallbackCase):
         self.assertEqual(self.notified(no_node), 2)
 
     def migrate_output(self) -> list[str]:
+        self.addCleanup(frappe.flags.pop, "suite_collab_blocks_checked", None)
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
             self.assertIsNone(lifecycle.before_migrate())
@@ -1770,6 +1771,7 @@ class TestConversion(DriveCallbackCase):
 
     def migrate_once(self, before: dict, after: dict) -> list[str]:
         frappe.flags.pop("suite_collab_blocks_checked", None)
+        self.addCleanup(frappe.flags.pop, "suite_collab_blocks_checked", None)
         others = (
             "suite.mail.install.after_migrate",
             "suite.content.ensure_tables",
