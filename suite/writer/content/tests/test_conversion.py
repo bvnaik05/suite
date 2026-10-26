@@ -49,6 +49,7 @@ from suite.drive.framework import begin_drive_write
 from suite.drive.patches.build.content_mapping import derived_name, epoch_millis
 from suite.tests.utils import session_for
 from suite.writer import content as writer_content
+from suite.writer import drive as writer_drive
 from suite.writer.api import docs
 from suite.writer.content import conversion
 from suite.writer.content.readable_copy import is_html_complete
@@ -1174,6 +1175,28 @@ class TestConversion(DriveCallbackCase):
 
         self.assertEqual(self.ask_version(*second), {"pending": True})
         self.assertEqual((self.stored_input(*first), self.stored_input(*second)), (False, True))
+
+    def test_closes_the_version_it_reads_whether_or_not_it_fits(self):
+        frappe.cache.delete_value(docs.VERSION_SLOT, user=True)
+        fits = self.old_version()
+        too_large = self.old_version()
+        opened: list[io.IOBase] = []
+        real_read = drive.read_version
+
+        def tracked(node: str, seq: int):
+            stream = real_read(node, seq)
+            opened.append(stream)
+            return stream
+
+        with patch.object(drive, "read_version", side_effect=tracked), patch.object(scheduling, "enqueue"):
+            self.assertEqual(self.ask_version(*fits), {"pending": True})
+            with (
+                patch.object(writer_drive, "MAX_VERSION_BYTES", 1),
+                self.assertRaises(writer_drive.VersionTooLarge),
+            ):
+                self.ask_version(*too_large)
+
+        self.assertEqual([stream.closed for stream in opened], [True, True])
 
     def test_keeps_an_answer_a_minute_at_most(self):
         node, seq = self.old_version()

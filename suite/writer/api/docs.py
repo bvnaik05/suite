@@ -91,7 +91,9 @@ def convert_version(node: str, seq: int) -> VersionConversion:
             return {"pending": True}
 
         if frappe.cache.get_value(version_key("input", node, seq)) is None:
-            legacy = _version_payload(_read_bounded(drive.read_version(node, seq)))
+            with contextlib.closing(drive.read_version(node, seq)) as stream:
+                legacy = _version_payload(_read_bounded(stream))
+
             frappe.cache.set_value(version_key("input", node, seq), legacy, expires_in_sec=CONVERSION_KEPT)
             frappe.cache.set_value(VERSION_SLOT, (node, seq), user=True, expires_in_sec=CONVERSION_KEPT)
 
