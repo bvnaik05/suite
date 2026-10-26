@@ -78,25 +78,18 @@ vi.mock('frappe-ui', () => ({
       return () => h('label', [String(attrs.title), slots.default?.()])
     },
   }),
-  Select: defineComponent({ render: () => null }),
-  Switch: defineComponent({ render: () => null }),
-}))
-vi.mock('@/components/settings/AppSettingsHeader.vue', () => ({
-  default: defineComponent({
+  SettingsHeader: defineComponent({
     setup(_, { slots }) {
       return () => h('header', slots.actions?.())
     },
   }),
-}))
-vi.mock('@/components/settings/AppSettingsBody.vue', () => ({
-  default: defineComponent({
+  SettingsBody: defineComponent({
     setup(_, { slots }) {
       return () => h('main', slots.default?.())
     },
   }),
-}))
-vi.mock('@/components/StorageMeter.vue', () => ({
-  default: defineComponent({ render: () => null }),
+  Select: defineComponent({ render: () => null }),
+  Switch: defineComponent({ render: () => null }),
 }))
 let app: ReturnType<typeof createApp>
 function mount() {

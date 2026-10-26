@@ -53,6 +53,11 @@ class Provider:
             return [{"domain": "company.frappe.cloud", "enabled": True, "is_verified": True}]
         if method == "mail.domains.get_domain":
             return {"domain": "company.frappe.cloud", "enabled": True, "is_verified": True}
+        if method == "mail.meta.get_account_options":
+            return {
+                "locales": [{"value": "en-US", "label": "English"}],
+                "time_zones": [{"value": "UTC", "label": "UTC"}],
+            }
         email = args.get("email")
         if method == "mail.accounts.create_account":
             if email in self.accounts:
