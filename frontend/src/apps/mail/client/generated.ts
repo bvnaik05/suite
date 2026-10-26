@@ -136,6 +136,64 @@ const operationExchangeList: PageRef<
   loadValidators: async () => (await import('./validators')).operationExchangeList,
 }
 
+export type RegionalPreferencesOutputOption = { value: string; label: string }
+
+export type RegionalPreferencesInput = Record<string, never>
+
+export type RegionalPreferencesOutput = {
+  locale: string
+  time_zone: string
+  locales: Array<RegionalPreferencesOutputOption>
+  time_zones: Array<RegionalPreferencesOutputOption>
+}
+
+export type RegionalPreferencesError = never
+
+const operationRegionalPreferences: QueryRef<
+  RegionalPreferencesInput,
+  RegionalPreferencesOutput,
+  RegionalPreferencesError
+> = {
+  id: 'regional_preferences',
+  owner: 'mail',
+  kind: 'query',
+  publicName: 'settings.regional',
+  method: 'GET',
+  path: 'settings/regional',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: [],
+  loadValidators: async () => (await import('./validators')).operationRegionalPreferences,
+}
+
+export type UpdateRegionalPreferencesInput = { locale: string; time_zone: string }
+
+export type UpdateRegionalPreferencesOutput = null
+
+export type UpdateRegionalPreferencesError = never
+
+const operationUpdateRegionalPreferences: MutationRef<
+  UpdateRegionalPreferencesInput,
+  UpdateRegionalPreferencesOutput,
+  UpdateRegionalPreferencesError
+> = {
+  id: 'update_regional_preferences',
+  owner: 'mail',
+  kind: 'mutation',
+  publicName: 'settings.updateRegional',
+  empty: true,
+  method: 'PATCH',
+  path: 'settings/regional',
+  prefix: '/api/suite/mail/',
+  pathParams: [],
+  nodeParams: [],
+  entity: null,
+  errors: [],
+  loadValidators: async () => (await import('./validators')).operationUpdateRegionalPreferences,
+}
+
 export type CredentialsInput = Record<string, never>
 
 export type CredentialsOutput = {
@@ -6977,6 +7035,8 @@ export const api = {
     ongoing: operationOngoingExchange,
   },
   settings: {
+    regional: operationRegionalPreferences,
+    updateRegional: operationUpdateRegionalPreferences,
     credentials: operationCredentials,
     updateCredentials: operationUpdateCredentials,
     updatePreferences: operationUpdatePreferences,

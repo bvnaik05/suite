@@ -454,6 +454,8 @@ class MailAccountRequest(Document):
                 password,
                 ["Suite User", "Suite Admin"] if self.is_admin else ["Suite User"],
             )
+            if time_zone:
+                frappe.db.set_value("User", user, "time_zone", time_zone)
         else:
             user = identity
         self.suite_user = user
