@@ -4,7 +4,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 from suite.composition import lifecycle
-from suite.content import log
+from suite.content import convert, log
 from suite.writer.content import APP, turn_on
 from suite.writer.patches import turn_collaboration_on
 
@@ -71,6 +71,34 @@ class TestWriterSwitch(IntegrationTestCase):
 
         self.assertEqual([row for row in rows() if row[0] == APP], [(APP, "on")])
         self.assertEqual([row for row in rows() if row[0] != APP], others)
+
+    def test_the_patch_turning_writer_on_pauses_its_conversion(self):
+        remove_writers_row()
+
+        turn_collaboration_on.execute()
+
+        self.assertFalse(convert.may_convert(APP))
+
+    def test_conversion_starts_once_the_owner_unpauses_it(self):
+        remove_writers_row()
+        turn_collaboration_on.execute()
+
+        settings = frappe.get_single("Suite Collab Settings")
+        next(row for row in settings.apps if row.app == APP).conversion_paused = 0
+        settings.save(ignore_permissions=True)
+
+        self.assertTrue(convert.may_convert(APP))
+
+    def test_the_patch_run_again_leaves_an_unpaused_writer_unpaused(self):
+        remove_writers_row()
+        turn_collaboration_on.execute()
+        settings = frappe.get_single("Suite Collab Settings")
+        next(row for row in settings.apps if row.app == APP).conversion_paused = 0
+        settings.save(ignore_permissions=True)
+
+        turn_collaboration_on.execute()
+
+        self.assertTrue(convert.may_convert(APP))
 
     def test_writer_cannot_be_turned_off_or_removed(self):
         turn_on()
