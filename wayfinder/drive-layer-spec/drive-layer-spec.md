@@ -4672,6 +4672,7 @@ Printed and saved as JSON under the site's private directory [011].
   "personal_roots_created_for_reservations": 0,
   "media_nodes_created": 0, "media_duplicates_collapsed": 0,
   "slide_elements_rewritten": 0, "deck_previews_created": 0,
+  "deck_previews_skipped": 0,
   "template_nodes_created": 0, "writer_templates_converted": 0,
   "composite_rows_dropped": 0 }
 ```
