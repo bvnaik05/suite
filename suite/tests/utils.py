@@ -5,6 +5,9 @@ from contextlib import contextmanager, suppress
 
 import frappe
 
+# A `frappe.local` name that was not bound, told apart from one bound to None
+ABSENT = object()
+
 
 def ensure_user(email):
     if not frappe.db.exists("User", email):
@@ -26,13 +29,12 @@ def stub_db(db):
     `__dict__`, so `unittest.mock.patch.object` cannot restore them: it deletes
     the attribute on exit and leaves `frappe.db` unbound for every later test.
     """
-    missing = object()
-    previous = getattr(frappe.local, "db", missing)
+    previous = getattr(frappe.local, "db", ABSENT)
     frappe.local.db = db
     try:
         yield db
     finally:
-        if previous is missing:
+        if previous is ABSENT:
             try:
                 del frappe.local.db
             except AttributeError:
@@ -47,7 +49,7 @@ def session_for(user: str) -> str:
 
     kept: dict[str, object] = {}
     for name in ("request", "session", "login_manager", "cookie_manager"):
-        kept[name] = getattr(frappe.local, name, None)
+        kept[name] = getattr(frappe.local, name, ABSENT)
 
     set_request(path="/")
     try:
@@ -64,7 +66,7 @@ def session_for(user: str) -> str:
 
 
 def restore_local(name: str, value: object) -> None:
-    if value is not None:
+    if value is not ABSENT:
         setattr(frappe.local, name, value)
         return
 
