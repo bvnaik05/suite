@@ -102,6 +102,8 @@ HTML_FORMAT = "html"
 HTML_MIME = "text/html"
 
 VERSION_SCHEMA = "writer-document/1"
+# The bytes every envelope `version_bytes` writes starts with
+VERSION_PREFIX = json.dumps({"schema": VERSION_SCHEMA})[:-1].encode("utf-8")
 VERSION_MIME = "application/json"
 
 # One version is one body plus its HTML mirror plus JSON framing. Drive wrote

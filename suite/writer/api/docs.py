@@ -1,4 +1,5 @@
 import base64
+import contextlib
 import json
 from collections.abc import Iterator
 from typing import NotRequired, TypedDict
@@ -9,8 +10,9 @@ from frappe.utils.background_jobs import is_job_enqueued
 
 from suite import drive
 from suite.content import checker, convert, scheduling
+from suite.content.logged import ReplayedStream, read_head
 from suite.writer import content as writer_content
-from suite.writer.drive import VERSION_SCHEMA, VersionTooLarge, _read_bounded, _version_payload
+from suite.writer.drive import VERSION_PREFIX, VersionTooLarge, _read_bounded, _version_payload
 
 # To be moved to mimemapper
 QUICK_MAP = {
@@ -42,7 +44,7 @@ def old_body(node: str) -> OldBody:
     drive.check(node, drive.READ)
     payloads = (version_object(node, seq) for seq in version_seqs(node))
     try:
-        payload = next((found for found in payloads if found.get("schema") == VERSION_SCHEMA), {})
+        payload = next((found for found in payloads if found), {})
     except VersionTooLarge:
         return {}
 
@@ -65,16 +67,17 @@ def version_seqs(node: str) -> Iterator[int]:
 
 
 def version_object(node: str, seq: int) -> dict:
-    """Read version `seq` as its JSON object; an HTML version reads as an empty one."""
-    try:
-        payload = json.loads(_read_bounded(drive.read_version(node, seq)))
-    except ValueError:
-        return {}
+    """Read version `seq` as its writer-document/1 envelope; any other version reads as an empty one."""
+    # Only the head is read, so a newer version that isn't an envelope costs a few bytes, whatever its size
+    with contextlib.closing(drive.read_version(node, seq)) as stream:
+        head = read_head(stream, len(VERSION_PREFIX))
+        if head != VERSION_PREFIX:
+            return {}
 
-    if not isinstance(payload, dict):
-        return {}
-
-    return payload
+        try:
+            return json.loads(_read_bounded(ReplayedStream(head, stream)))
+        except ValueError:
+            return {}
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

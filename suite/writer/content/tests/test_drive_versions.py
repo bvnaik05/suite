@@ -185,6 +185,14 @@ class TestWriterDriveVersions(DriveCallbackCase):
         )
         frappe.db.commit()
 
+    def add_raw_version(self, node: str, raw: bytes):
+        blob = put_blob(io.BytesIO(raw), is_private=True)
+        writer = Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",))
+        _insert_version(
+            frappe._dict(name=node), writer, blob=blob.name, size=int(blob.file_size), kind="auto", label=None
+        )
+        frappe.db.commit()
+
     def test_the_old_body_is_the_latest_row_version_past_newer_html_ones(self):
         node = self.old_document_with_versions("b2xkZXI=", "bmV3ZXI=")
         self.add_html_version(node)
@@ -196,6 +204,32 @@ class TestWriterDriveVersions(DriveCallbackCase):
 
         with patch.object(writer_drive, "MAX_VERSION_BYTES", 2000):
             self.assertEqual(docs.old_body(node), {})
+
+    def test_the_old_body_is_the_row_version_under_newer_logged_ones_too_large_to_read(self):
+        node = self.old_document_with_versions("b2xkZXI=")
+        logged_head = logged.record_prefix(writer_content.APP)
+        self.add_raw_version(node, logged_head + b', "state": ""}')
+        self.add_raw_version(node, logged_head + b', "state": "' + b"A" * 4000 + b'"}')
+
+        with patch.object(writer_drive, "MAX_VERSION_BYTES", 2000):
+            self.assertEqual(docs.old_body(node), {"content": "b2xkZXI="})
+
+    def test_the_old_body_closes_every_version_it_opens(self):
+        node = self.old_document_with_versions("b2xkZXI=")
+        self.add_raw_version(node, logged.record_prefix(writer_content.APP) + b', "state": ""}')
+        self.add_html_version(node)
+        opened: list[io.IOBase] = []
+        read_version = drive.read_version
+
+        def tracked(node: str, seq: int):
+            stream = read_version(node, seq)
+            opened.append(stream)
+            return stream
+
+        with patch.object(drive, "read_version", side_effect=tracked):
+            self.assertEqual(docs.old_body(node), {"content": "b2xkZXI="})
+
+        self.assertEqual([stream.closed for stream in opened], [True, True, True])
 
     def test_a_version_with_missing_bytes_fails_the_old_body(self):
         node = self.old_document_with_versions("b2xkZXI=", "bmV3ZXI=")
