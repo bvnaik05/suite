@@ -11,7 +11,7 @@ import json
 import struct
 from dataclasses import astuple, dataclass, fields
 from datetime import datetime, timedelta
-from typing import cast
+from typing import TypeGuard, cast
 
 import frappe
 
@@ -76,7 +76,7 @@ class Piece:
     payload: bytes
 
 
-def valid_id(value: object) -> bool:
+def valid_id(value: object) -> TypeGuard[str]:
     """Answer whether `value` is an id of `ID_LENGTH` ASCII letters and digits."""
     return isinstance(value, str) and len(value) == ID_LENGTH and value.isalnum() and value.isascii()
 

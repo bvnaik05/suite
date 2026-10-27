@@ -477,7 +477,11 @@ def replace_start(app: str, doc_id: str, state: bytes, schema: int) -> None:
     """Make the checked `state` the body a fresh log starts from at rev 1, in the caller's transaction."""
     doc_table = table(app, "doc")
     checkpoint_table = table(app, "checkpoint")
-    app_row = body_row(app, node_of(app, doc_id), lock=True)
+    node = node_of(app, doc_id)
+    if node is None:
+        raise ValueError("this log's document has no row")
+
+    app_row = body_row(app, node, lock=True)
     if app_row is None:
         raise ValueError("this log's document has no row")
 

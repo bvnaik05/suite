@@ -171,7 +171,7 @@ def old_comment_ids(ycomments: str | None) -> dict[str, list[str]]:
         return {}
 
     try:
-        doc = pycrdt.Doc()
+        doc: pycrdt.Doc = pycrdt.Doc()
         doc.apply_update(base64.b64decode(ycomments, validate=True))
         values = doc.get("comments", type=pycrdt.Map).to_py()
         ids: dict[str, list[str]] = {}

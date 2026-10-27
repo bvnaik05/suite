@@ -30,6 +30,7 @@ import contextlib
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeGuard
 
 import frappe
 from frappe.desk.doctype.notification_log.notification_log import make_notification_logs
@@ -292,30 +293,26 @@ def read_answer(answer: dict, max_state: int) -> Converted | Refused:
     except (KeyError, TypeError, ValueError):
         return Refused("bad_answer")
 
-    converted = Converted(
-        state,
-        answer.get("from"),
-        answer.get("dropped"),
-        answer.get("anchors"),
-        answer.get("threads"),
-        answer.get("html"),
-    )
-    if answer.get("kind") != "converted" or not 0 < len(state) <= max_state or not is_well_formed(converted):
+    if answer.get("kind") != "converted" or not 0 < len(state) <= max_state or not is_well_formed(answer):
         return Refused("bad_answer")
 
-    return converted
+    return Converted(
+        state, answer["from"], answer["dropped"], answer["anchors"], answer["threads"], answer["html"]
+    )
 
 
-def is_well_formed(converted: Converted) -> bool:
-    """Whether each part of `converted` has the type the converter writes."""
-    anchors = converted.anchors
+def is_well_formed(answer: dict) -> bool:
+    """Whether each part of the converter's `answer` has the type the converter writes."""
+    dropped = answer.get("dropped")
+    threads = answer.get("threads")
+    anchors = answer.get("anchors")
     return (
-        converted.source in {"yjs", "html"}
-        and is_list_of_objects(converted.dropped)
-        and all(isinstance(drop.get("kind"), str) for drop in converted.dropped)
-        and is_list_of_objects(converted.threads)
-        and all(is_thread(thread) for thread in converted.threads)
-        and isinstance(converted.html, str)
+        answer.get("from") in {"yjs", "html"}
+        and is_list_of_objects(dropped)
+        and all(isinstance(drop.get("kind"), str) for drop in dropped)
+        and is_list_of_objects(threads)
+        and all(is_thread(thread) for thread in threads)
+        and isinstance(answer.get("html"), str)
         and isinstance(anchors, dict)
         and all(isinstance(key, str) and isinstance(value, str) for key, value in anchors.items())
     )
@@ -343,6 +340,6 @@ def is_comment(comment: dict) -> bool:
     )
 
 
-def is_list_of_objects(value: object) -> bool:
+def is_list_of_objects(value: object) -> TypeGuard[list[dict]]:
     """Whether `value` is a list of JSON objects."""
     return isinstance(value, list) and all(isinstance(item, dict) for item in value)

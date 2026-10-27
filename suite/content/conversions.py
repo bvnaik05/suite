@@ -58,6 +58,13 @@ class ConversionRefused(Exception):
         self.reason = reason
 
 
+def conversion_of(app: str) -> Conversion:
+    """Return the app's conversion; only an app with old documents to convert gets here."""
+    conversion = spec_of(app).conversion
+    assert conversion is not None
+    return conversion
+
+
 def run_pending(app: str, conversion: Conversion) -> None:
     """Convert the app's documents that have no log, page by page, until none is left or time runs out."""
     convert.clear_block("scheduler")
@@ -104,7 +111,7 @@ def convert_page(app: str, page: list[frappe._dict], deadline: float) -> bool:
 
 def convert_document(app: str, node: str) -> str | None:
     """Convert `node`'s old body, reading it again if it changes; the outcome, or None to leave it to the next run."""
-    conversion = spec_of(app).conversion
+    conversion = conversion_of(app)
     started = now_datetime()
     for _attempt in range(ATTEMPTS):
         old = conversion.read_old(node)
@@ -167,7 +174,7 @@ def run_converter(
     app: str, node: str, old: OldBody, started: datetime, retry: bool
 ) -> convert.Converted | convert.Refused | None:
     """Run the converter on `old` after committing its attempt, which goes again when it answers nothing."""
-    conversion = spec_of(app).conversion
+    conversion = conversion_of(app)
     start_attempt(app, node, old.fingerprint, started, retry)
     try:
         converted = convert.convert(conversion.build, conversion.version, old.legacy)
@@ -219,14 +226,17 @@ def install_conversion(
 def write_conversion(app: str, node: str, old: OldBody, converted: convert.Converted) -> list[dict] | None:
     """Check, then write, `converted` in the caller's transaction; what it dropped, or None if it can't start."""
     spec = spec_of(app)
-    if spec.conversion.read_old(node, lock=True) != old or log.find(app, node):
+    conversion = conversion_of(app)
+    # an app with old documents to convert keeps a readable copy of them
+    assert spec.readable_copy is not None
+    if conversion.read_old(node, lock=True) != old or log.find(app, node):
         return None
 
-    checked: CheckedBody = spec.conversion.check(node, old, converted)
+    checked: CheckedBody = conversion.check(node, old, converted)
     keep_old_version(node)
     doc_id = log.create(app, node)
     replace_start(app, doc_id, converted.state, spec.schema.version)
-    spec.conversion.fix_up(node, old, checked)
+    conversion.fix_up(node, old, checked)
     try:
         replaced = copies.replace_copy(app, doc_id, 1, checked.html, spec.readable_copy)
     except copies.CopyMismatch:
@@ -248,7 +258,7 @@ def keep_old_version(node: str) -> None:
 
 def conversion_status(app: str, node: str) -> ConversionStatus:
     """Answer whether the next run converts `node`'s body, with the rooms told its outcome, or this converter refused it; the reason for System Managers."""
-    held = held_attempt(app, node, spec_of(app).conversion.read_fingerprint(node))
+    held = held_attempt(app, node, conversion_of(app).read_fingerprint(node))
     if held is None or held.outcome in {None, "converted"}:
         pending: ConversionStatus = {
             "state": "pending",
@@ -284,7 +294,7 @@ def held_attempt(app: str, node: str, fingerprint: str) -> frappe._dict | None:
     rows = frappe.db.sql(
         f"""SELECT `started`, `finished`, `outcome`, `reason` FROM `{conversion_table}`
         WHERE `node` = %s AND `fingerprint` = %s AND `converter_version` = %s""",
-        (node, fingerprint, spec_of(app).conversion.version),
+        (node, fingerprint, conversion_of(app).version),
         as_dict=True,
     )
     if not rows:
@@ -296,7 +306,7 @@ def held_attempt(app: str, node: str, fingerprint: str) -> frappe._dict | None:
 def start_attempt(app: str, node: str, fingerprint: str, started: datetime, retry: bool) -> None:
     """Commit a record with no outcome before the converter runs, so a worker that dies on it leaves a trace."""
     conversion_table = table(app, "conversion")
-    key = (node, fingerprint, spec_of(app).conversion.version)
+    key = (node, fingerprint, conversion_of(app).version)
     if retry:
         frappe.db.sql(
             f"UPDATE `{conversion_table}` SET `started` = %s, `finished` = NULL WHERE {OPEN_ATTEMPT}",
@@ -315,7 +325,7 @@ def start_attempt(app: str, node: str, fingerprint: str, started: datetime, retr
 def count_failure(app: str, node: str, fingerprint: str, outcome: str) -> str | None:
     """Count a run's failure on this body's attempt; at FAILURES under this converter, record and answer `outcome`."""
     conversion_table = table(app, "conversion")
-    key = (node, fingerprint, spec_of(app).conversion.version)
+    key = (node, fingerprint, conversion_of(app).version)
     frappe.db.sql(
         f"UPDATE `{conversion_table}` SET `failures` = `failures` + 1, `finished` = %s WHERE {OPEN_ATTEMPT}",
         (now_datetime(), *key),
@@ -335,7 +345,7 @@ def count_failure(app: str, node: str, fingerprint: str, outcome: str) -> str | 
 def drop_attempt(app: str, node: str, fingerprint: str) -> None:
     """Let go of an attempt with no outcome: delete it, or keep the failures it counted for the next run."""
     conversion_table = table(app, "conversion")
-    key = (node, fingerprint, spec_of(app).conversion.version)
+    key = (node, fingerprint, conversion_of(app).version)
     frappe.db.sql(f"DELETE FROM `{conversion_table}` WHERE {OPEN_ATTEMPT} AND `failures` = 0", key)
     frappe.db.sql(
         f"UPDATE `{conversion_table}` SET `finished` = %s WHERE {OPEN_ATTEMPT}", (now_datetime(), *key)
@@ -349,7 +359,7 @@ def mark_checked(app: str, node: str, fingerprint: str, checked: datetime) -> No
     frappe.db.sql(
         f"""UPDATE `{conversion_table}` SET `checked` = %s
         WHERE `node` = %s AND `fingerprint` = %s AND `converter_version` = %s""",
-        (checked, node, fingerprint, spec_of(app).conversion.version),
+        (checked, node, fingerprint, conversion_of(app).version),
     )
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
@@ -359,7 +369,7 @@ def retry_over_quota(app: str) -> int:
     conversion_table = table(app, "conversion")
     frappe.db.sql(
         f"DELETE FROM `{conversion_table}` WHERE `outcome` = 'over_quota' AND `converter_version` = %s",
-        (spec_of(app).conversion.version,),
+        (conversion_of(app).version,),
     )
     [[cleared]] = frappe.db.sql("SELECT ROW_COUNT()")
     frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -390,7 +400,7 @@ def record(
         (
             node,
             fingerprint,
-            spec_of(app).conversion.version,
+            conversion_of(app).version,
             started,
             now_datetime(),
             outcome,

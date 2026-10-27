@@ -257,6 +257,6 @@ def spec_of(app: str) -> EditorSpec:
     return found
 
 
-def for_type(content_type: str) -> EditorSpec | None:
+def for_type(content_type: str | None) -> EditorSpec | None:
     """Answer the editor for a Drive content type, or None when no app keeps that type's documents here."""
     return next((spec for spec in editors().values() if spec.doctype == content_type), None)

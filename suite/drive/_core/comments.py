@@ -315,7 +315,7 @@ def install_threads(
 def old_thread_stamps(anchors: object, new_threads: object) -> list[list[str]]:
     """Refuse malformed install input, and answer each old Drive thread's comment times at the site."""
     if not isinstance(anchors, dict) or not isinstance(new_threads, list):
-        frappe.throw(_("Drive needs an anchor map and a list of comment threads"), frappe.ValidationError)
+        raise frappe.ValidationError(_("Drive needs an anchor map and a list of comment threads"))
 
     for thread, anchor in anchors.items():
         if not isinstance(thread, str) or not thread.strip():
@@ -346,7 +346,7 @@ def old_thread_stamps(anchors: object, new_threads: object) -> list[list[str]]:
 
 def validate_old_comment(comment: object) -> None:
     if not isinstance(comment, dict):
-        frappe.throw(_("An old Drive comment must be an object"), frappe.ValidationError)
+        raise frappe.ValidationError(_("An old Drive comment must be an object"))
 
     text = comment.get("content")
     if isinstance(text, str):
@@ -409,7 +409,7 @@ def insert_old_comment(thread: Document, owner: str, comment: dict, stamp: str, 
 def site_time(value: object, timezone: str) -> str:
     """Answer one UTC epoch-millisecond time as a naive site datetime, as Build's `epoch_millis` does."""
     if isinstance(value, bool) or not isinstance(value, int | float):
-        frappe.throw(_("An old Drive comment time must be epoch milliseconds"), frappe.ValidationError)
+        raise frappe.ValidationError(_("An old Drive comment time must be epoch milliseconds"))
 
     try:
         converted = datetime.fromtimestamp(value / 1000, UTC).astimezone(ZoneInfo(timezone))
@@ -536,7 +536,7 @@ def threads(
     node: str,
     *,
     resolved: bool | None = None,
-) -> list[dict]:
+) -> list[frappe._dict]:
     """Return authorized threads with their comments and opaque anchors."""
     if resolved is not None and type(resolved) is not bool:
         frappe.throw(_("Drive comment resolution filter must be a boolean"), frappe.ValidationError)
@@ -802,18 +802,24 @@ def append_tag_text(tag: Tag, parts: list[str], mentions: list[str]) -> None:
     if name == "br":
         parts.append("\n")
     elif name in {"img", "iframe"}:
-        append_source(tag.get("src"), parts)
+        append_source(text_attribute(tag, "src"), parts)
     elif is_mention(tag):
-        parts.append(f"@[{tag['data-id']}]")
-        mentions.append(tag["data-id"])
+        user = str(tag["data-id"])
+        parts.append(f"@[{user}]")
+        mentions.append(user)
     elif name == "a":
-        parts.append(link_text(tag.get_text(), tag.get("href")))
+        parts.append(link_text(tag.get_text(), text_attribute(tag, "href")))
     elif name in {"ul", "ol"}:
         append_list_items(tag, parts, mentions)
     else:
         append_comment_text(tag, parts, mentions)
         if name == "p":
             parts.append("\n")
+
+
+def text_attribute(tag: Tag, key: str) -> str | None:
+    value = tag.get(key)
+    return value if isinstance(value, str) else None
 
 
 def append_source(source: str | None, parts: list[str]) -> None:
@@ -898,9 +904,9 @@ def validate_client_id(client_id: str | None) -> None:
         )
 
 
-def _validate_text(text: str) -> None:
+def _validate_text(text: object) -> None:
     if not isinstance(text, str) or not text.strip():
-        frappe.throw(_("Drive comment text is required"), frappe.ValidationError)
+        raise frappe.ValidationError(_("Drive comment text is required"))
 
     if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:
         frappe.throw(_("Drive comment text must be at most 64 KB"), frappe.ValidationError)

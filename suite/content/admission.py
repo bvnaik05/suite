@@ -71,7 +71,7 @@ def forked_for_job() -> bool:
     """Whether this process is a horse RQ forked for the job it runs."""
     # RQ sets RQ_JOB_ID only after forking a horse; a no-fork worker, threaded or not, runs in the site process
     job = get_current_job()
-    return bool(job) and os.environ.get("RQ_JOB_ID") == job.id
+    return job is not None and os.environ.get("RQ_JOB_ID") == job.id
 
 
 def limit_memory() -> None:

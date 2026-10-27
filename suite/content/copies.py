@@ -44,7 +44,7 @@ class CopyMismatch(Exception):
     """The app's copy read back other than written; the one argument is the read-back, serialized."""
 
 
-def submit(app: str, doc_id: str, stage_id: str, user: str) -> tuple[int, dict]:
+def submit(app: str, doc_id: str, stage_id: object, user: str) -> tuple[int, dict]:
     """Take a staged render to be checked, replacing older ones; stale when it can't become the copy."""
     if not stage.valid_id(stage_id):
         raise Refusal(400, "malformed")
@@ -299,7 +299,7 @@ def project(
 ) -> None:
     """Write the rows that differ from `written` as the app's copy and record `rows` as the copy at `rev`."""
     projection_table = table(app, "projection")
-    changed = {key: value for key, value in rows.items() if written.get(key) != value}
+    changed: dict[str, str | None] = {key: value for key, value in rows.items() if written.get(key) != value}
     changed |= {key: None for key in written if key not in rows}
     if changed:
         write_copy(app, docname, changed, html_copy)
