@@ -1,6 +1,6 @@
 <template>
   <div class="flex min-w-0 flex-1 flex-col text-ink-gray-8">
-    <AreaSidebar area="files" title="Drive">
+    <AreaSidebar area="files" :title="__('Drive')">
       <FilesPanel />
     </AreaSidebar>
     <PageHeader class="hidden md:flex">

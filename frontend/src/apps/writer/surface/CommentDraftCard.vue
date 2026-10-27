@@ -33,18 +33,18 @@ defineExpose({ focus })
       ref="field"
       :model-value="draft.text"
       :rows="2"
-      placeholder="Add a comment"
+      :placeholder="__('Add a comment')"
       :aria-label="boxLabel"
       @update:model-value="emit('write', $event)"
       @keydown.esc.stop.prevent="emit('discard')"
     />
     <div class="flex justify-end gap-1">
-      <Button size="sm" variant="ghost" label="Cancel" @click="emit('discard')" />
+      <Button size="sm" variant="ghost" :label="__('Cancel')" @click="emit('discard')" />
       <Button
         type="submit"
         size="sm"
         variant="outline"
-        label="Comment"
+        :label="__('Comment')"
         :disabled="isPostDisabled"
       />
     </div>

@@ -59,17 +59,17 @@ function noteMenu(isShown: boolean) {
         :aria-expanded="isOpen"
         @click="toggle"
       >
-        You
+        {{ __('You') }}
       </button>
-      <span v-if="draft.isPosting" class="shrink-0">Posting…</span>
+      <span v-if="draft.isPosting" class="shrink-0">{{ __('Posting…') }}</span>
       <template v-else>
-        <span class="shrink-0">Not posted ·</span>
+        <span class="shrink-0">{{ __('Not posted ·') }}</span>
         <button
           type="button"
           class="shrink-0 text-ink-gray-8 hover:underline"
           @click="emit('retry')"
         >
-          Retry
+          {{ __('Retry') }}
         </button>
       </template>
     </div>
@@ -93,7 +93,7 @@ function noteMenu(isShown: boolean) {
             <button
               type="button"
               class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
-              aria-label="More comment actions"
+              :aria-label="__('More comment actions')"
             >
               <span class="lucide-ellipsis size-4" aria-hidden="true" />
             </button>

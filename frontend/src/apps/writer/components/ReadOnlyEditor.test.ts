@@ -15,7 +15,6 @@ vi.mock('@/apps/writer/composables/useUsers', () => ({
   searchMentions: () => [],
 }))
 vi.mock('@/stores/root', () => ({ useRootStore: () => ({ paletteOpen: false }) }))
-vi.mock('@/boot/session', () => ({ useSessionStore: () => ({ user: 'owner@example.com' }) }))
 
 interface Exposed {
   editor: { isEditable: boolean } | undefined

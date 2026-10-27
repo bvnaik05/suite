@@ -4,7 +4,7 @@ import { computed, nextTick, onMounted, ref, useId, watch } from 'vue'
 
 import { fullName, lookUp, searchMentions, useUsers } from '@/apps/writer/composables/useUsers'
 import type { WriterUser } from '@/apps/writer/drive'
-import { useCurrentUser } from '@/boot/session'
+import { isAuthenticated as isLoggedIn } from '@/platform/session'
 
 import {
   fromTokens,
@@ -32,7 +32,6 @@ const props = defineProps<{ mentions?: string[] }>()
 
 const field = ref<{ focus(): void; inputElement: HTMLTextAreaElement | null } | null>(null)
 const { users, answeredQuery } = useUsers()
-const { isLoggedIn } = useCurrentUser()
 const listId = useId()
 const shown = ref('')
 const query = ref<ReturnType<typeof mentionQuery>>(null)
@@ -241,7 +240,7 @@ defineExpose({ focus })
       v-if="isListOpen"
       :id="listId"
       role="listbox"
-      aria-label="People"
+      :aria-label="__('People')"
       :aria-busy="isListBusy"
       class="absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-6 border border-outline-gray-2 bg-surface-elevation-2 p-1 shadow-lg"
     >
@@ -267,7 +266,7 @@ defineExpose({ focus })
         aria-disabled="true"
         class="px-2 py-1.5 text-sm text-ink-gray-5"
       >
-        No people found
+        {{ __('No people found') }}
       </p>
     </div>
   </div>

@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import * as yjs from 'yjs'
 
 import { encodeAnchor } from '@/apps/writer/collab/anchors'
+import { translationPlugin } from '@/platform/translation'
 
 vi.mock('@/apps/drive', async (original) => ({
   ...(await original<typeof import('@/apps/drive')>()),
@@ -51,6 +52,7 @@ async function openedPage(ready = (root: Element) => rowButton(root)) {
   window.document.body.append(root)
   createApp({ render: () => h(RouterView) })
     .use(router)
+    .use(translationPlugin)
     .mount(root)
   await vi.waitFor(() => expect(ready(root)).not.toBeNull())
   return { root, router }

@@ -218,7 +218,7 @@ onBeforeUnmount(() => {
       <span class="lucide-circle-alert mx-auto block size-6 text-ink-gray-5" aria-hidden="true" />
       <h1 class="mt-3 text-lg-semibold">Could not open this document</h1>
       <p class="mt-1 text-p-sm text-ink-gray-6">{{ error }}</p>
-      <Button v-if="nodeId" class="mt-4" label="Try again" @click="handleRetry" />
+      <Button v-if="nodeId" class="mt-4" :label="__('Try again')" @click="handleRetry" />
     </div>
 
     <div v-else-if="refused" class="m-auto max-w-md px-6 text-center">

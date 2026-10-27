@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createApp, nextTick } from 'vue'
 
+import { translationPlugin } from '@/platform/translation'
+
 import { discardCopy, listCopies } from './copies'
 import RecoveryBanner from './RecoveryBanner.vue'
 
@@ -12,7 +14,7 @@ async function mountBanner() {
   const root = document.createElement('div')
   document.body.append(root)
   const app = createApp(RecoveryBanner, { node: 'node-1' })
-  app.mount(root)
+  app.use(translationPlugin).mount(root)
   for (let tick = 0; tick < 5; tick++) {
     await nextTick()
     await new Promise((done) => setTimeout(done))

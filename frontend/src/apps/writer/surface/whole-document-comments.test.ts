@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref } from 'vue'
 
+import { translationPlugin } from '@/platform/translation'
+
 import { confirmed, errors } from './comment-list-fakes'
 import {
   buttonNamed,
@@ -21,7 +23,7 @@ import {
 import CommentList from './CommentList.vue'
 import type { ThreadActions } from './useDocumentPanel'
 
-vi.mock('@/boot/session', async () => {
+vi.mock('@/platform/session', async () => {
   const { fakeSession } = await import('./comment-list-fakes')
   return fakeSession()
 })
@@ -74,7 +76,7 @@ describe('commenting on the whole document', () => {
       drafts,
     }
     const app = createApp(() => h(CommentList, props))
-    app.mount(host)
+    app.use(translationPlugin).mount(host)
     setMounted(app)
     return { host, start: () => list.value!.startDocumentComment() }
   }

@@ -164,7 +164,12 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
           <h2 class="text-lg-semibold md:text-base-medium md:text-ink-gray-8">
             {{ title }}
           </h2>
-          <Button icon="lucide-x" aria-label="Close panel" variant="ghost" @click="closePanel" />
+          <Button
+            icon="lucide-x"
+            :aria-label="__('Close panel')"
+            variant="ghost"
+            @click="closePanel"
+          />
         </div>
         <div
           class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 [scrollbar-width:none] md:px-1 md:pb-2 md:pt-0.5 [&::-webkit-scrollbar]:hidden"
@@ -173,8 +178,8 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             <TextInput
               ref="versionNameInput"
               v-model="versionName"
-              placeholder="Version name"
-              aria-label="Version name"
+              :placeholder="__('Version name')"
+              :aria-label="__('Version name')"
               :disabled="isSavingVersion"
               @keydown.enter.prevent="saveNamedVersion"
               @keydown.esc.prevent="stopNamingVersion"
@@ -195,7 +200,9 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
             :actions="threadActions"
             :drafts
           />
-          <p v-else-if="lists.isLoading" class="px-2 text-sm text-ink-gray-5">Loading…</p>
+          <p v-else-if="lists.isLoading" class="px-2 text-sm text-ink-gray-5">
+            {{ __('Loading…') }}
+          </p>
           <template v-else>
             <VersionList
               v-model:previewed="previewedVersion"
@@ -209,12 +216,14 @@ defineExpose({ reloadVersions: () => load('versions'), startNamingVersion, start
               @download="emit('downloadVersion', $event)"
               @save-version="emit('saveVersion')"
             />
-            <p v-if="hasNoVersions" class="px-2 text-sm text-ink-gray-5">No versions yet.</p>
+            <p v-if="hasNoVersions" class="px-2 text-sm text-ink-gray-5">
+              {{ __('No versions yet.') }}
+            </p>
             <Button
               v-if="lists.versionsCursor"
               class="w-full"
               variant="ghost"
-              label="Load more"
+              :label="__('Load more')"
               :loading="lists.isLoadingMore"
               @click="loadMoreVersions"
             />

@@ -2,15 +2,15 @@
 import { computed } from 'vue'
 
 import { anchorQuote } from '@/apps/writer/collab/anchors'
-import { useCurrentUser } from '@/boot/session'
+import { useSession } from '@/platform/session'
 
 import { readDrafts } from './commentDrafts'
 
 /** Comments this person wrote on the document and never posted, as kept on this device. */
 const props = defineProps<{ node: string }>()
 
-const { user } = useCurrentUser()
-const drafts = computed(() => shownDrafts(user.value ?? 'Guest', props.node))
+const { user } = useSession()
+const drafts = computed(() => shownDrafts(user.value?.id ?? 'Guest', props.node))
 
 function shownDrafts(person: string, node: string) {
   const written = readDrafts(person, node).filter((draft) => draft.text.trim())
@@ -21,12 +21,12 @@ function shownDrafts(person: string, node: string) {
 <template>
   <section
     v-if="drafts.length"
-    aria-label="Comments not posted"
+    :aria-label="__('Comments not posted')"
     class="max-h-48 shrink-0 space-y-2 overflow-y-auto border-b border-outline-gray-2 px-5 py-3"
   >
-    <h3 class="text-sm-medium text-ink-gray-7">Comments not posted</h3>
+    <h3 class="text-sm-medium text-ink-gray-7">{{ __('Comments not posted') }}</h3>
     <p class="text-p-sm text-ink-gray-5">
-      Kept on this device until you post or discard them in the document's comments
+      {{ __("Kept on this device until you post or discard them in the document's comments") }}
     </p>
     <ul class="space-y-2">
       <li v-for="draft in drafts" :key="draft.clientId" class="space-y-1">

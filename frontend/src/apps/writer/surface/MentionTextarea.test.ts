@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref, type App } from 'vue'
 
 import type { WriterUser } from '@/apps/writer/drive'
+import { translationPlugin } from '@/platform/translation'
 
 import MentionTextarea from './MentionTextarea.vue'
 
@@ -16,10 +17,14 @@ const people = vi.hoisted(() => ({
   searched: [] as string[],
 }))
 
-vi.mock('@/boot/session', async () => {
-  const { computed: derive } = await import('vue')
-  return { useCurrentUser: () => ({ isLoggedIn: derive(() => people.isLoggedIn) }) }
-})
+vi.mock('@/platform/session', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/platform/session')>()),
+  isAuthenticated: {
+    get value() {
+      return people.isLoggedIn
+    },
+  },
+}))
 
 vi.mock('@/apps/writer/composables/useUsers', async () => {
   const { shallowRef } = await import('vue')
@@ -124,7 +129,7 @@ function openBox(stored = '') {
       h(MentionTextarea, { modelValue: text.value, 'onUpdate:modelValue': keep }),
     ]),
   )
-  app.mount(host)
+  app.use(translationPlugin).mount(host)
   mounted = app
   const box = host.querySelector('textarea')!
   box.focus()

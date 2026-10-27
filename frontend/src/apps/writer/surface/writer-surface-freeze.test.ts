@@ -11,7 +11,6 @@ import {
   openedSurface,
   previewAndReturn,
   resetSurface,
-  serverMinBuilds,
   settled,
   stripTexts,
   type EditorElement,
@@ -104,6 +103,19 @@ function menuOffers(root: Element) {
 
 function isEditorEditable(root: Element) {
   return root.querySelector('[data-editor] .ProseMirror')!.getAttribute('contenteditable')
+}
+
+const { watchBuild } = await import('@/platform/build')
+
+// The server names `minBuilds` on a response, as it does on every request
+async function serverMinBuilds(minBuilds: Record<string, string>) {
+  const headers = { 'X-Suite-Min-Builds': JSON.stringify(minBuilds) }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('{}', { headers })),
+  )
+  watchBuild()
+  await window.fetch('/api/method/ping')
 }
 
 describe('Writer surface', () => {

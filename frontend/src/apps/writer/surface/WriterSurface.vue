@@ -40,9 +40,9 @@ import RecoveryBanner from '@/apps/writer/recovery/RecoveryBanner.vue'
 import RecoveryCopyActions from '@/apps/writer/recovery/RecoveryCopyActions.vue'
 import RecoveryPreview from '@/apps/writer/recovery/RecoveryPreview.vue'
 import { RENAME_DOCUMENT } from '@/apps/writer/renameDocument'
-import { useCurrentUser } from '@/boot/session'
 import { belowMinBuild } from '@/platform/build'
 import { watchConversion, type CollabRoom } from '@/platform/collab'
+import { useSession } from '@/platform/session'
 
 import { frozenBanner, isSafeOnDevice, notUpgradedBanner, upgradingBanner } from './collabMessages'
 import DocumentSidePanel from './DocumentSidePanel.vue'
@@ -214,7 +214,7 @@ const showsRecoveryBanner = computed(() => !isPreviewing.value && !stopBanner.va
 
 const commentDrafts = useCommentDrafts({
   session: props.session,
-  user: useCurrentUser().user.value ?? 'Guest',
+  user: useSession().user.value?.id ?? 'Guest',
   room: () => room.value,
   refreshThreads,
 })

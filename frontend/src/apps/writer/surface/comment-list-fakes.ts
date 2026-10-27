@@ -15,8 +15,13 @@ export const me = { id: 'Asha Rao' }
 
 export async function fakeSession() {
   const { computed: derive } = await import('vue')
+  const { vi } = await import('vitest')
+  const session = await vi.importActual<typeof import('@/platform/session')>('@/platform/session')
+  const user = derive(() => ({ id: me.id, fullName: me.id, avatar: null }))
   return {
-    useCurrentUser: () => ({ user: derive(() => me.id), isLoggedIn: derive(() => true) }),
+    ...session,
+    useSession: () => ({ ...session.useSession(), user }),
+    isAuthenticated: derive(() => true),
   }
 }
 

@@ -87,7 +87,7 @@ function details(copy: RecoveryCopy) {
       <Button
         icon="lucide-arrow-left"
         variant="ghost"
-        aria-label="All copies"
+        :aria-label="__('All copies')"
         @click="router.push({ query: {} })"
       />
       <div class="min-w-0 flex-1">
@@ -108,9 +108,9 @@ function details(copy: RecoveryCopy) {
     class="flex flex-col items-center justify-center gap-2 py-16 text-center"
   >
     <span class="lucide-folder-open size-6 text-ink-gray-4" aria-hidden="true" />
-    <p class="text-base text-ink-gray-5">No recovery copies</p>
+    <p class="text-base text-ink-gray-5">{{ __('No recovery copies') }}</p>
     <p class="text-p-sm text-ink-gray-5">
-      Changes that couldn't be saved stay here, on this device, until you discard them.
+      {{ __("Changes that couldn't be saved stay here, on this device, until you discard them.") }}
     </p>
   </div>
   <List
@@ -121,12 +121,16 @@ function details(copy: RecoveryCopy) {
     :aria-busy="isLoading"
   >
     <ListHeader>
-      <ListHeaderCell class="text-sm-medium text-ink-gray-5">Name</ListHeaderCell>
-      <ListHeaderCell class="justify-end text-sm-medium text-ink-gray-5">Size</ListHeaderCell>
+      <ListHeaderCell class="text-sm-medium text-ink-gray-5">{{ __('Name') }}</ListHeaderCell>
+      <ListHeaderCell class="justify-end text-sm-medium text-ink-gray-5">{{
+        __('Size')
+      }}</ListHeaderCell>
       <ListHeaderCell class="hidden justify-end text-sm-medium text-ink-gray-5 md:flex">
-        Saved
+        {{ __('Saved') }}
       </ListHeaderCell>
-      <ListHeaderCell><span class="sr-only">Actions</span></ListHeaderCell>
+      <ListHeaderCell
+        ><span class="sr-only">{{ __('Actions') }}</span></ListHeaderCell
+      >
     </ListHeader>
     <DriveListSkeletonRows v-if="isLoading" :cells="SKELETON_CELLS" />
     <template v-else>

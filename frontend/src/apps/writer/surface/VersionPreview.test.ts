@@ -4,6 +4,7 @@ import { Doc, encodeStateAsUpdate, XmlElement, XmlText } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
 import { BODY_FIELD } from '@/apps/writer/collab'
+import { translationPlugin } from '@/platform/translation'
 
 import VersionPreview from './VersionPreview.vue'
 
@@ -119,7 +120,7 @@ function mountPreview(session: DocumentSession, seq = 1) {
   }
 
   const app = createApp({ setup: () => render })
-  app.mount(root)
+  app.use(translationPlugin).mount(root)
 
   return {
     root,

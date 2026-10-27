@@ -175,7 +175,7 @@ function actions(version: DocumentVersion): DropdownOptions {
         :aria-pressed="isCurrentViewed"
         @click="viewCurrent"
       >
-        Current version
+        {{ __('Current version') }}
       </button>
       <div
         v-if="canSaveVersion"
@@ -186,7 +186,7 @@ function actions(version: DocumentVersion): DropdownOptions {
           <button
             type="button"
             class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
-            aria-label="Save version"
+            :aria-label="__('Save version')"
             @click="emit('saveVersion')"
           >
             <span class="lucide-bookmark size-4" aria-hidden="true" />
@@ -209,13 +209,13 @@ function actions(version: DocumentVersion): DropdownOptions {
             <TextInput
               ref="renameInputs"
               v-model="newName"
-              placeholder="Version name"
-              aria-label="New version name"
+              :placeholder="__('Version name')"
+              :aria-label="__('New version name')"
               :disabled="isSavingName"
               @keydown.enter.prevent="saveName(version)"
               @keydown.esc.prevent="stopRenaming"
             />
-            <p class="text-p-xs text-ink-gray-5">Enter to save · Esc to cancel</p>
+            <p class="text-p-xs text-ink-gray-5">{{ __('Enter to save · Esc to cancel') }}</p>
           </div>
           <button
             v-else
@@ -232,7 +232,7 @@ function actions(version: DocumentVersion): DropdownOptions {
               <button
                 type="button"
                 class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8 disabled:opacity-50"
-                aria-label="Restore this version"
+                :aria-label="__('Restore this version')"
                 :disabled="isRestoring"
                 @click="emit('restore', version)"
               >
@@ -247,7 +247,7 @@ function actions(version: DocumentVersion): DropdownOptions {
               <button
                 type="button"
                 class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
-                aria-label="More version actions"
+                :aria-label="__('More version actions')"
                 @focus="passFocusToNameBox"
               >
                 <span class="lucide-ellipsis size-4" aria-hidden="true" />

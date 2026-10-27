@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { Doc } from 'yjs'
 
 import type { DocumentSession } from '@/apps/drive'
+import { translationPlugin } from '@/platform/translation'
 
 import { downloaded, realEditors, realtime, rooms, stored } from './writer-surface-fakes'
 
@@ -20,18 +21,6 @@ Element.prototype.scrollIntoView = () => {}
 
 const { default: WriterSurface } = await import('./WriterSurface.vue')
 const { discardCopy, listCopies } = await import('@/apps/writer/recovery/copies')
-const { watchBuild } = await import('@/platform/build')
-
-// The server names `minBuilds` on a response, as it does on every request
-export async function serverMinBuilds(minBuilds: Record<string, string>) {
-  const headers = { 'X-Suite-Min-Builds': JSON.stringify(minBuilds) }
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => new Response('{}', { headers })),
-  )
-  watchBuild()
-  await window.fetch('/api/method/ping')
-}
 
 export async function openedSurface(
   versions?: Versions,
@@ -66,7 +55,7 @@ export async function openedSurface(
   const root = document.createElement('div')
   document.body.append(root)
   const shell = defineComponent({ setup: () => () => h(RouterView) })
-  createApp(shell).use(router).mount(root)
+  createApp(shell).use(router).use(translationPlugin).mount(root)
   await vi.waitFor(() => expect(root.querySelector('[data-editor]')).not.toBeNull())
   await nextTick()
   return root

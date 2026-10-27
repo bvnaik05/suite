@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref, type App } from 'vue'
 
 import type { DocumentPanel, DocumentSession, DocumentVersion } from '@/apps/drive'
+import { translationPlugin } from '@/platform/translation'
 
 import DocumentSidePanel from './DocumentSidePanel.vue'
 import type { useCommentDrafts } from './useCommentDrafts'
@@ -124,7 +125,7 @@ async function openVersionsPanel(isRefusingVersions = false) {
       },
     }),
   )
-  app.mount(host)
+  app.use(translationPlugin).mount(host)
   mounted = app
   await panel.value?.startNamingVersion()
   // As clicking another version's row in the list does
@@ -289,7 +290,7 @@ describe('renaming a version in the Versions panel', () => {
         saveFirst: async () => {},
       }),
     )
-    app.mount(host)
+    app.use(translationPlugin).mount(host)
     mounted = app
     await settled()
     return { host, shown }
@@ -360,7 +361,7 @@ function panelWhileVersionsLoad(kind: DocumentPanel) {
       saveFirst: async () => {},
     }),
   )
-  app.mount(host)
+  app.use(translationPlugin).mount(host)
   mounted = app
   return { panel, host, started }
 }

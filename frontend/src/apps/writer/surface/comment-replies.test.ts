@@ -16,7 +16,7 @@ import {
   TOO_LONG_MESSAGE,
 } from './comment-list-fixtures'
 
-vi.mock('@/boot/session', async () => {
+vi.mock('@/platform/session', async () => {
   const { fakeSession } = await import('./comment-list-fakes')
   return fakeSession()
 })

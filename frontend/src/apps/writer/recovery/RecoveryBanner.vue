@@ -21,7 +21,15 @@ defineExpose({ refresh })
 
 <template>
   <DocumentStrip v-if="latest" tone="blue">
-    <p class="truncate">This device has unsaved work from {{ savedAtLabel(latest) }}</p>
-    <Button size="sm" variant="ghost" theme="blue" label="View" @click="$emit('view', latest)" />
+    <p class="truncate">
+      {{ __('This device has unsaved work from {0}', [savedAtLabel(latest)]) }}
+    </p>
+    <Button
+      size="sm"
+      variant="ghost"
+      theme="blue"
+      :label="__('View')"
+      @click="$emit('view', latest)"
+    />
   </DocumentStrip>
 </template>

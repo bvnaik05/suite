@@ -159,7 +159,7 @@
         <Button
           class="grow !justify-start text-xs opacity-50 hover:opacity-100"
           :icon-left="h(LucidePlus, { class: 'size-4' })"
-          label="Add tab"
+          :label="__('Add tab')"
           variant="ghost"
           @click="editor.commands.createTab({ label: 'Untitled' })"
         />

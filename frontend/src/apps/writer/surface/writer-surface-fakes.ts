@@ -108,7 +108,6 @@ export async function fakeDrive() {
       },
     }),
     DriveCommentAuthor: define({ setup: () => () => null }),
-    formatDriveDateTime: (await import('@/apps/drive/files/internal/format')).formatDate,
     GUEST_NAME_LIMIT: 140,
     useDriveGuestName: () => ({
       shown: state(false),

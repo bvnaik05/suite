@@ -3,6 +3,7 @@ import { createApp, h, nextTick, ref, type App } from 'vue'
 
 import type { DocumentThread } from '@/apps/drive'
 import type { ThreadPlace } from '@/apps/writer/collab/places'
+import { translationPlugin } from '@/platform/translation'
 
 import { confirmed, errors, me, toasts, warnings } from './comment-list-fakes'
 import CommentList from './CommentList.vue'
@@ -176,7 +177,7 @@ export function showList({
       'onUpdate:litThread': (name: string | null) => lit.push(name),
     }),
   )
-  app.mount(host)
+  app.use(translationPlugin).mount(host)
   mounted = app
   return { host, asked, opened, lit, listed, replyIds }
 }

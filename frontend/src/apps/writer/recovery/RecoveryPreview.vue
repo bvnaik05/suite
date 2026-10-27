@@ -34,8 +34,13 @@ onBeforeUnmount(() => editor.value?.destroy())
 <template>
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     <UnpostedComments :node="copy.node" />
-    <PreviewPane :editor="editor" :settings="settings" label="Recovery copy" :is-failed="failed">
-      <template #failed>This copy can't be shown.</template>
+    <PreviewPane
+      :editor="editor"
+      :settings="settings"
+      :label="__('Recovery copy')"
+      :is-failed="failed"
+    >
+      <template #failed>{{ __("This copy can't be shown.") }}</template>
     </PreviewPane>
   </div>
 </template>

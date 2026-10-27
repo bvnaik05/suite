@@ -63,7 +63,7 @@ onBeforeUnmount(() => {
   <PreviewPane
     :editor="editor"
     :settings="settings"
-    label="Version preview"
+    :label="__('Version preview')"
     :is-loading="loading"
     :is-failed="failed"
   >
@@ -77,6 +77,6 @@ onBeforeUnmount(() => {
         />
       </div>
     </template>
-    <template #failed>This version can't be shown.</template>
+    <template #failed>{{ __("This version can't be shown.") }}</template>
   </PreviewPane>
 </template>

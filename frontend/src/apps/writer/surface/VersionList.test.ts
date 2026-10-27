@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, ref, type App } from 'vue'
 
 import type { DocumentVersion } from '@/apps/drive'
+import { translationPlugin } from '@/platform/translation'
 
 import VersionList from './VersionList.vue'
 
@@ -115,7 +116,7 @@ function mountList({
       onSaveVersion: () => saves++,
     }),
   )
-  app.mount(host)
+  app.use(translationPlugin).mount(host)
   mounted = app
   return { host, shown, restored, downloaded, saves: () => saves }
 }

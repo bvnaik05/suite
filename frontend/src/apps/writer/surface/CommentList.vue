@@ -11,8 +11,8 @@ import {
 } from '@/apps/drive'
 import { DOCUMENT_ANCHOR } from '@/apps/writer/collab/anchors'
 import type { ThreadPlaces } from '@/apps/writer/collab/highlights'
-import { useCurrentUser } from '@/boot/session'
 import { confirm, toast } from '@/platform/feedback'
+import { useSession } from '@/platform/session'
 
 import CommentDraftCard from './CommentDraftCard.vue'
 import CommentDraftRow from './CommentDraftRow.vue'
@@ -80,7 +80,8 @@ const editText = ref('')
 const editBoxes = ref<{ focus(): void }[]>([])
 /** The comment whose menu is open keeps its ⋯ while the pointer is in the menu. */
 const menuComment = ref<string | null>(null)
-const { user } = useCurrentUser()
+const session = useSession()
+const user = computed(() => session.user.value?.id)
 const { isUnread, markSeen } = useSeenThreads({
   user: user.value ?? 'Guest',
   node: props.node,
@@ -590,8 +591,8 @@ function rowClass(thread: DocumentThread) {
       <TextInput
         v-if="showGuestName"
         v-model="guestName"
-        label="Your name"
-        placeholder="Guest"
+        :label="__('Your name')"
+        :placeholder="__('Guest')"
         autocomplete="name"
         :maxlength="guestNameMaxLength"
         :description="guestNameHint"
@@ -611,7 +612,7 @@ function rowClass(thread: DocumentThread) {
         class="block w-full rounded-4 border border-[--surface-gray-2] bg-surface-gray-2 px-[7px] py-[5px] text-left text-sm text-ink-gray-4 hover:border-outline-elevation-2 hover:bg-surface-gray-3"
         @click="startDocumentComment"
       >
-        Add a comment
+        {{ __('Add a comment') }}
       </button>
     </template>
     <CommentDraftCard
@@ -659,7 +660,7 @@ function rowClass(thread: DocumentThread) {
               <span v-if="row.where" class="shrink-0">{{ row.where }}</span>
               <span v-if="isUnread(row.thread)" class="flex shrink-0 items-center self-center">
                 <span class="size-1.5 rounded-full bg-surface-amber-7" aria-hidden="true" />
-                <span class="sr-only">Unread</span>
+                <span class="sr-only">{{ __('Unread') }}</span>
               </span>
               <span class="shrink-0">{{ dayOrTime(firstComment(row.thread)) }}</span>
             </span>
@@ -730,16 +731,16 @@ function rowClass(thread: DocumentThread) {
                     v-model="editText"
                     :mentions="comment.mentions"
                     :rows="2"
-                    aria-label="Edit comment"
+                    :aria-label="__('Edit comment')"
                     @keydown.esc.stop.prevent="stopEdit"
                   />
                   <div class="flex justify-end gap-1">
-                    <Button size="sm" variant="ghost" label="Cancel" @click="stopEdit" />
+                    <Button size="sm" variant="ghost" :label="__('Cancel')" @click="stopEdit" />
                     <Button
                       type="submit"
                       size="sm"
                       variant="outline"
-                      label="Save"
+                      :label="__('Save')"
                       :disabled="isEditBlank"
                     />
                   </div>
@@ -764,7 +765,7 @@ function rowClass(thread: DocumentThread) {
                     <button
                       type="button"
                       class="flex size-7 items-center justify-center text-ink-gray-5 hover:text-ink-gray-8"
-                      aria-label="More comment actions"
+                      :aria-label="__('More comment actions')"
                     >
                       <span class="lucide-ellipsis size-4" aria-hidden="true" />
                     </button>
@@ -778,8 +779,8 @@ function rowClass(thread: DocumentThread) {
                     v-model="replyText"
                     :rows="1"
                     class="pr-8"
-                    placeholder="Reply"
-                    aria-label="Reply"
+                    :placeholder="__('Reply')"
+                    :aria-label="__('Reply')"
                     @keydown.enter="sendOnEnter($event, row.thread)"
                   />
                   <!-- 3px puts the glyph at the textarea's 9px text inset, border included -->
@@ -790,7 +791,7 @@ function rowClass(thread: DocumentThread) {
                     size="sm"
                     variant="ghost"
                     icon="lucide-arrow-up"
-                    aria-label="Send reply"
+                    :aria-label="__('Send reply')"
                   />
                 </div>
               </form>
@@ -804,7 +805,7 @@ function rowClass(thread: DocumentThread) {
             :aria-expanded="isResolvedShown"
             @click="toggleResolvedShown"
           >
-            Resolved · {{ resolvedRows.length }}
+            {{ __('Resolved · {0}', [resolvedRows.length]) }}
             <span
               class="lucide-chevron-right ml-auto size-4 transition-transform duration-200 group-aria-expanded:rotate-90"
               aria-hidden="true"
