@@ -9,13 +9,11 @@ from unittest.mock import patch
 
 import frappe
 import pycrdt
-from frappe.storage.blob import put_blob
 from frappe.utils import now_datetime
 
+from suite import drive
 from suite.content.http import routes
 from suite.drive._core import content as drive_content
-from suite.drive._core import nodes as drive_nodes
-from suite.drive._core.principals import Principals
 from suite.writer import content as writer_content
 from suite.writer import drive as writer_drive
 from suite.writer.content.tests.support import CheckpointCase, answer, call_route, push_body, read_open
@@ -65,14 +63,8 @@ class DriveCallbackCase(CheckpointCase):
         return frappe.db.get_value("Drive Node", node, "content_docname")
 
     def old_media(self, document: str, title: str) -> str:
-        blob_stream = io.BytesIO(title.encode())
-        blob = put_blob(blob_stream, is_private=True, filename=title)
-        # These bytes were just stored for this caller, so no readable node has to hold them yet
-        admin = Principals("Administrator", ("Administrator",), (), is_admin=True)
         with patch.object(frappe, "enqueue"):
-            media = drive_nodes.create_file(
-                admin, document, title, blob=blob.name, size=blob.file_size, mime=blob.mime_type
-            )
+            media = drive.store_file(document, title, io.BytesIO(title.encode()))
 
         aged = now_datetime() - timedelta(days=drive_content.UNUSED_MEDIA_GRACE_DAYS + 1)
         frappe.db.set_value("Drive Node", media, "creation", aged, update_modified=False)
