@@ -4,9 +4,17 @@
 from contextlib import contextmanager, suppress
 
 import frappe
+from frappe.utils.logging import connection_for
 
 # A `frappe.local` name that was not bound, told apart from one bound to None
 ABSENT = object()
+
+
+# Error Logs live in the log database, which commits apart from `frappe.db`
+def delete_error_logs(filters) -> None:
+    log_db = connection_for("Error Log")
+    log_db.delete("Error Log", filters)
+    log_db.commit()
 
 
 def ensure_user(email):

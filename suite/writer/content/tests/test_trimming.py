@@ -5,13 +5,14 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.utils.logging import get_log_db
+from frappe.utils.logging import connection_for
 
 from suite import drive
 from suite.content import checker, compaction, trimming
 from suite.content.http import routes
 from suite.drive._core.principals import Principals
 from suite.drive._core.versions import read_version
+from suite.tests.utils import delete_error_logs
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import WRITER, CheckpointCase, call_route, read_frame, read_open
 
@@ -65,7 +66,7 @@ class TestWriterTrimming(CheckpointCase):
 
     def alerted(self, reason: str) -> dict:
         logged = {"method": f"Collab trimming: {reason}"}
-        self.addCleanup(get_log_db().delete, "Error Log", logged)
+        self.addCleanup(delete_error_logs, logged)
         return logged
 
     def test_rows_the_body_holds_go_once_a_day_old_and_the_body_rev_row_stays(self):
@@ -167,7 +168,7 @@ class TestWriterTrimming(CheckpointCase):
             self.trim(node)
 
         self.assertEqual((self.revs_of(node), self.doc_row(node).trimmed_rev), ([1, 2, 3], 0))
-        self.assertEqual(get_log_db().count("Error Log", logged), 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log", logged), 1)
 
     def shorten_body(self, node: str):
         (_rev, first_row), *_later = self.rows_of(node)
@@ -190,7 +191,7 @@ class TestWriterTrimming(CheckpointCase):
         self.trim(node)
 
         self.assertEqual(self.revs_of(node), [1, 2, 3])
-        self.assertEqual(get_log_db().count("Error Log", logged), 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log", logged), 1)
 
     def test_a_fallback_past_the_body_is_never_the_base(self):
         node = self.compacted_document(["one ", "two ", "three"])
@@ -217,7 +218,7 @@ class TestWriterTrimming(CheckpointCase):
         self.trim(node)
 
         self.assertEqual(self.revs_of(node), [1, 2, 3, 4])
-        self.assertEqual(get_log_db().count("Error Log", logged), 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log", logged), 1)
 
     def test_suspect_and_purged_documents_keep_every_row(self):
         for values in ({"suspect": "client"}, {"mode": "purged"}):
@@ -241,7 +242,7 @@ class TestWriterTrimming(CheckpointCase):
                 self.trim(node)
 
                 self.assertEqual(self.revs_of(node), [1, 2, 3])
-                self.assertEqual(get_log_db().count("Error Log", logged), 1)
+                self.assertEqual(connection_for("Error Log").count("Error Log", logged), 1)
 
     def assert_kept_when_the_checker_answers(self, answer, reason: str):
         node = self.compacted_document(["one ", "two ", "three"])
@@ -252,7 +253,7 @@ class TestWriterTrimming(CheckpointCase):
             self.trim(node)
 
         self.assertEqual(self.revs_of(node), [1, 2, 3])
-        self.assertEqual(get_log_db().count("Error Log", logged), 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log", logged), 1)
 
     def test_a_checker_that_disagrees_keeps_every_row(self):
         self.assert_kept_when_the_checker_answers(False, "checker_not_held")

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import frappe
 import pycrdt
-from frappe.utils.logging import get_log_db
+from frappe.utils.logging import connection_for
 
 from suite import drive
 from suite.content import backfill, log, quarantine
@@ -367,7 +367,7 @@ class TestQuarantine(CheckpointCase):
         frappe.db.sql("DELETE FROM `__writer_content_session` WHERE `sid` = %s", first_tab.sid)
         frappe.db.commit()
         frappe.set_user("Administrator")
-        logged = get_log_db().count(
+        logged = connection_for("Error Log").count(
             "Error Log", {"method": "Collab recovery copies kept for the document owner"}
         )
 
@@ -381,7 +381,9 @@ class TestQuarantine(CheckpointCase):
             (self.row_states(node), self.stored_text(node)), (["quarantined", "quarantined"], "")
         )
         self.assertEqual(
-            get_log_db().count("Error Log", {"method": "Collab recovery copies kept for the document owner"}),
+            connection_for("Error Log").count(
+                "Error Log", {"method": "Collab recovery copies kept for the document owner"}
+            ),
             logged + 1,
         )
 
@@ -561,7 +563,7 @@ class TestQuarantine(CheckpointCase):
             backfill.backfill_clocks(writer_content.APP)
 
         self.assertEqual((self.row_states(orphan), self.doc_row(orphan).start_clocks), (["ok", "ok"], None))
-        self.assertEqual(get_log_db().count("Error Log", {"method": logged}), 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log", {"method": logged}), 1)
         self.assertIsNotNone(self.doc_row(other).start_clocks)
 
     def test_a_log_purged_while_its_unreadable_row_is_quarantined_is_skipped_and_the_rest_are_read(self):
@@ -591,7 +593,7 @@ class TestQuarantine(CheckpointCase):
         clocks = dict(clock_rows)
         self.assertEqual((clocks[doc_ids[0]], clocks[doc_ids[1]] is not None), (None, True))
         self.assertEqual(
-            get_log_db().count(
+            connection_for("Error Log").count(
                 "Error Log", {"method": f"Collab clocks not read for writer log {doc_ids[0]}"}
             ),
             0,
@@ -623,7 +625,7 @@ class TestQuarantine(CheckpointCase):
         clocks = dict(clock_rows)
         self.assertEqual((clocks[doc_ids[0]], clocks[doc_ids[1]] is not None), (None, True))
         self.assertEqual(
-            get_log_db().count(
+            connection_for("Error Log").count(
                 "Error Log", {"method": f"Collab clocks not read for writer log {doc_ids[0]}"}
             ),
             0,

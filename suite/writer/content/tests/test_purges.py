@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import frappe
 import pycrdt
-from frappe.utils.logging import get_log_db
+from frappe.utils.logging import connection_for
 
 from suite import content
 from suite.content import copies, jobs, log, logged, scheduling
@@ -104,12 +104,13 @@ class TestWriterPurges(DriveCallbackCase):
         # The purge job has deleted the first rows and not yet the rest
         frappe.db.sql("DELETE FROM `__writer_content_update` WHERE `doc_id` = %s AND `rev` = 1", doc_id)
         frappe.db.commit()
-        alerts = get_log_db().count("Error Log", {"method": "Collab compaction: chain_break"})
+        alerts = connection_for("Error Log").count("Error Log", {"method": "Collab compaction: chain_break"})
 
         jobs.compact(writer_content.APP, doc_id)
 
         self.assertEqual(
-            get_log_db().count("Error Log", {"method": "Collab compaction: chain_break"}), alerts
+            connection_for("Error Log").count("Error Log", {"method": "Collab compaction: chain_break"}),
+            alerts,
         )
         jobs.delete_purged(writer_content.APP, doc_id)
 

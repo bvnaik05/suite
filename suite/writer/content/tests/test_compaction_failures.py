@@ -6,9 +6,10 @@ from unittest.mock import patch
 
 import frappe
 import pycrdt
-from frappe.utils.logging import get_log_db
+from frappe.utils.logging import connection_for
 
 from suite.content import admission, compaction, jobs
+from suite.tests.utils import delete_error_logs
 from suite.writer import content as writer_content
 from suite.writer.content.tests.compaction_case import CompactionCase
 
@@ -76,7 +77,7 @@ class TestCompactionFailures(CompactionCase):
     def test_another_pycrdt_version_keeps_every_row_backs_off_and_alerts(self):
         node = self.new_document()
         self.type_into(node, ["one"])
-        before = get_log_db().count("Error Log")
+        before = connection_for("Error Log").count("Error Log")
 
         with patch.object(pycrdt, "__version__", "0.15.0"):
             self.compact(node)
@@ -87,7 +88,7 @@ class TestCompactionFailures(CompactionCase):
             (doc.body_rev, doc.compaction_failures, doc.last_compaction_error), (0, 1, "kernel_version")
         )
         self.assertGreater(doc.next_compaction_at, frappe.utils.now_datetime())
-        self.assertEqual(get_log_db().count("Error Log"), before + 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log"), before + 1)
 
     def test_failures_back_off_longer_each_time_and_a_success_clears_them(self):
         node = self.new_document()
@@ -111,12 +112,12 @@ class TestCompactionFailures(CompactionCase):
         node = self.new_document()
         self.type_into(node, ["one"])
         logged = {"method": "Collab compaction: insufficient_memory"}
-        self.addCleanup(get_log_db().delete, "Error Log", logged)
+        self.addCleanup(delete_error_logs, logged)
         counts: list[int] = []
         with patch.object(admission, "enough_memory", return_value=False):
             for _ in range(3):
                 self.compact(node)
-                counts.append(get_log_db().count("Error Log", logged))
+                counts.append(connection_for("Error Log").count("Error Log", logged))
 
         self.assertEqual(counts, [0, 0, 1])
 

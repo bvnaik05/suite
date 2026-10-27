@@ -6,12 +6,13 @@ from unittest.mock import patch
 
 import frappe
 from frappe.utils.background_jobs import create_job_id, get_job, get_redis_conn
-from frappe.utils.logging import get_log_db
+from frappe.utils.logging import connection_for
 from redis.exceptions import RedisError
 from rq.job import Job, JobStatus
 
 from suite.content import capacity, jobs, pushes, scheduling
 from suite.content.http import routes
+from suite.tests.utils import delete_error_logs
 from suite.writer import content as writer_content
 from suite.writer.content.tests.support import (
     WRITER,
@@ -281,7 +282,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
             "creation": (">=", frappe.utils.now_datetime()),
         }
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(get_log_db().delete, "Error Log", logged)
+        self.addCleanup(delete_error_logs, logged)
 
         def queue_down(method, **kwargs):
             raise ConnectionError("queue down")
@@ -301,7 +302,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
                 frappe.local.cache = {}
                 scheduling.request_compaction(writer_content.APP, "outage", "unused")
 
-        self.assertEqual(get_log_db().count("Error Log", logged), 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log", logged), 1)
 
     def test_requests_reach_the_queue_again_once_the_pause_ends(self):
         tried: list[str] = []
@@ -310,7 +311,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
             "creation": (">=", frappe.utils.now_datetime()),
         }
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(get_log_db().delete, "Error Log", logged)
+        self.addCleanup(delete_error_logs, logged)
 
         def queue_down(method, **kwargs):
             tried.append(kwargs["doc_id"])
@@ -334,7 +335,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
             "creation": (">=", frappe.utils.now_datetime()),
         }
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(get_log_db().delete, "Error Log", logged)
+        self.addCleanup(delete_error_logs, logged)
 
         def queue_down(method, **kwargs):
             refused.append(kwargs["doc_id"])

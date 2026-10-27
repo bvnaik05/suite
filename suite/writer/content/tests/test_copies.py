@@ -5,7 +5,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import frappe
-from frappe.utils.logging import get_log_db
+from frappe.utils.logging import connection_for
 
 from suite.content import copies, jobs, logged, scheduling, steps
 from suite.content.http import routes
@@ -60,7 +60,7 @@ class TestReadableCopies(CheckpointCase):
         return [(int(rev), html) for rev, html in rows]
 
     def alerts(self) -> int:
-        return get_log_db().count("Error Log", {"method": ["like", "Collab readable copy%"]})
+        return connection_for("Error Log").count("Error Log", {"method": ["like", "Collab readable copy%"]})
 
     def test_a_render_of_the_head_becomes_the_documents_copy(self):
         self.assertEqual(self.install(2, "<p>one two</p>"), "installed")

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.utils import now_datetime
-from frappe.utils.logging import get_log_db
+from frappe.utils.logging import connection_for
 
 from suite import content, drive
 from suite.content import conversions, convert, jobs, log, steps
@@ -230,7 +230,7 @@ class TestRollout(NoteAppCase):
         self.assertTrue(went_on)
         self.assertEqual(convert_document.call_count, 2)
         logged = {"method": "Collab conversion: note did not run", "error": f"{page[0].node}: RuntimeError"}
-        self.assertEqual(get_log_db().count("Error Log", logged), 1)
+        self.assertEqual(connection_for("Error Log").count("Error Log", logged), 1)
 
     def test_a_converted_note_takes_pushes_while_paused(self):
         payload = typed(self.client_id, "hello")
