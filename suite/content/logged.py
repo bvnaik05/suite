@@ -314,9 +314,9 @@ class ContentCallbacks:
 
         return found.app
 
-    def node_of(self, docname: str) -> str | None:
-        """Load the node the app's row `docname` belongs to."""
-        return frappe.db.get_value(self.spec.doctype, docname, self.spec.node_field)
+    def node_of(self, docname: str, *, lock: bool = False) -> str | None:
+        """Load the node the app's row `docname` belongs to; `lock` locks the row first, before its log's."""
+        return frappe.db.get_value(self.spec.doctype, docname, self.spec.node_field, for_update=lock)
 
     def create_empty(self, node: str) -> str:
         """Create the app's row, and the document's log while collaboration is on."""
@@ -372,7 +372,7 @@ class ContentCallbacks:
 
     def restore_version(self, docname: str, stream: IO[bytes]) -> None:
         """Restore a version into the app's row, refusing a document in a log and a log's version."""
-        node = self.node_of(docname)
+        node = self.node_of(docname, lock=True)
         if node and log.find(self.app(), node, for_update=True):
             raise drive.DriveConflict(_("Open the document to restore this version"))
 
@@ -385,6 +385,7 @@ class ContentCallbacks:
 
     def on_purge(self, docname: str) -> None:
         """Mark the document's log purged, then purge the app's row."""
+        # No waiting app-row lock: delete_doc takes it NOWAIT, so a purge stays refusable
         node = self.node_of(docname)
         if node:
             purge(self.app(), node)

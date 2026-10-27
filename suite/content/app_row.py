@@ -1,5 +1,5 @@
 """The app's row: every read and write the layer makes of the row that holds a document's checked body and
-readable copy. A lock on it is taken after the log's control row."""
+readable copy. A lock on it is taken before the log's control row, never after."""
 
 import base64
 from collections.abc import Mapping
@@ -9,6 +9,7 @@ import frappe
 
 from suite import drive
 from suite.content.editors import EditorSpec, ReadableCopy, spec_of
+from suite.content.log import node_of
 from suite.content.tables import table
 
 
@@ -59,18 +60,20 @@ def write_body(app: str, docname: str, state: bytes, *, edited_at: datetime | No
 
 
 def locked_app_row(app: str, doc_id: str, html_copy: ReadableCopy) -> frappe._dict | None:
-    """Lock an unpurged log's app row, its copy as `written`; lock before plain reads (REPEATABLE READ)."""
+    """Lock an unpurged log's app row, then its control row, its copy as `written`; lock before plain reads (REPEATABLE READ)."""
     spec = spec_of(app)
     doc_table = table(app, "doc")
     node_column = node_field(spec)
     found = frappe.db.sql(
-        f"""SELECT `app`.`name` FROM `tab{spec.doctype}` `app`
-        JOIN `{doc_table}` `doc` ON `app`.`{node_column}` = `doc`.`node`
-        WHERE `doc`.`id` = %s AND `doc`.`mode` != 'purged' ORDER BY `app`.`name` LIMIT 1 FOR UPDATE""",
-        doc_id,
+        f"""SELECT `name` FROM `tab{spec.doctype}` WHERE `{node_column}` = %s
+        ORDER BY `name` LIMIT 1 FOR UPDATE""",
+        node_of(app, doc_id),
         as_dict=True,
     )
-    if not found:
+    unpurged = frappe.db.sql(
+        f"SELECT 1 FROM `{doc_table}` WHERE `id` = %s AND `mode` != 'purged' FOR UPDATE", doc_id
+    )
+    if not found or not unpurged:
         return None
 
     app_row = found[0]

@@ -38,7 +38,7 @@ from suite.content import (
     suspect,
 )
 from suite.content.app_row import body_row, forget_cached, write_body
-from suite.content.log import ChainBroken, chain_next, chain_seed
+from suite.content.log import ChainBroken, chain_next, chain_seed, node_of
 from suite.content.snapshot import Snapshot, fallback_rev, read, rows_after
 from suite.content.tables import table
 
@@ -204,12 +204,14 @@ class Compaction:
     def install_body(self, snapshot: Snapshot, result: compaction.Compacted) -> bool:
         """Install the body in one transaction under the control and app rows' locks; pushes answer busy."""
         through_rev = snapshot.head_rev
-        control_row = self.lock_control_row()
-        if control_row is None or control_row.mode == "purged":
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
+        node = node_of(self.app, self.doc_id)
+        if node is None:
             raise compaction.CompactionFailed("purged")
 
-        app_row = body_row(self.app, control_row.node, lock=True)
-        if app_row is None:
+        app_row = body_row(self.app, node, lock=True)
+        control_row = self.lock_control_row()
+        if app_row is None or control_row is None or control_row.mode == "purged":
             raise compaction.CompactionFailed("purged")
 
         other_lineage = control_row.lineage != snapshot.lineage
@@ -246,6 +248,7 @@ class Compaction:
     def keep_fallback(self, snapshot: Snapshot, result: compaction.Compacted) -> bool:
         """Keep an unchecked result as the one fallback if newer than the body and any fallback."""
         through_rev = snapshot.head_rev
+        frappe.db.commit()  # nosemgrep: frappe-manual-commit
         control_row = self.lock_control_row()
         if control_row is None or control_row.mode == "purged":
             raise compaction.CompactionFailed("purged")
@@ -263,9 +266,8 @@ class Compaction:
         return True
 
     def lock_control_row(self) -> frappe._dict | None:
-        """Lock and load the control row as the first statement of a fresh transaction."""
+        """Lock and load the control row in the caller's transaction."""
         doc_table = self.table("doc")
-        frappe.db.commit()  # nosemgrep: frappe-manual-commit
         control_rows = frappe.db.sql(
             f"""SELECT `node`, `lineage`, `mode`, `body_rev`, `state_bytes` + `tail_bound` AS `room_used`
             FROM `{doc_table}` WHERE `id` = %s FOR UPDATE""",
@@ -475,15 +477,16 @@ def replace_start(app: str, doc_id: str, state: bytes, schema: int) -> None:
     """Make the checked `state` the body a fresh log starts from at rev 1, in the caller's transaction."""
     doc_table = table(app, "doc")
     checkpoint_table = table(app, "checkpoint")
+    app_row = body_row(app, node_of(app, doc_id), lock=True)
+    if app_row is None:
+        raise ValueError("this log's document has no row")
+
     control_rows = frappe.db.sql(
-        f"SELECT `node`, `lineage`, `head_rev` FROM `{doc_table}` WHERE `id` = %s FOR UPDATE",
+        f"SELECT `lineage`, `head_rev` FROM `{doc_table}` WHERE `id` = %s FOR UPDATE",
         doc_id,
         as_dict=True,
     )
     control_row = control_rows[0]
-    app_row = body_row(app, control_row.node, lock=True)
-    if app_row is None:
-        raise ValueError("this log's document has no row")
 
     check_start_unused(app, doc_id, control_row)
     state_sha = hashlib.sha256(state).digest()

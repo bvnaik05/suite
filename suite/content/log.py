@@ -93,6 +93,16 @@ def find(app: str, node: str, for_update: bool = False) -> frappe._dict | None:
     return rows[0]
 
 
+def node_of(app: str, doc_id: str) -> str | None:
+    """Load the node of the log `doc_id` without a lock, or None when it has no row."""
+    doc_table = table(app, "doc")
+    rows = frappe.db.sql(f"SELECT `node` FROM `{doc_table}` WHERE `id` = %s", doc_id)
+    if not rows:
+        return None
+
+    return rows[0][0]
+
+
 def create(app: str, node: str) -> str:
     """Start an empty log for `node` in the caller's transaction; answers its id."""
     doc_id = frappe.generate_hash(length=20)

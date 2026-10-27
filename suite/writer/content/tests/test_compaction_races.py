@@ -121,17 +121,17 @@ class TestCompactionRaces(CompactionCase):
         purge = threading.Thread(target=purge_elsewhere)
 
         def purge_while_writing(query, *args, **kwargs):
-            locks_writer_row = "FROM `tabWriter Document`" in str(query) and "FOR UPDATE" in str(query)
-            if locks_writer_row and not purge.ident:
-                purge.start()
-                marking.wait(10)
-                time.sleep(0.5)
-
+            locks_control_row = "FROM `__writer_content_doc`" in str(query) and "FOR UPDATE" in str(query)
             try:
                 return real_sql(query, *args, **kwargs)
             except Exception as error:
                 errors.append(error)
                 raise
+            finally:
+                if locks_control_row and not purge.ident:
+                    purge.start()
+                    marking.wait(10)
+                    time.sleep(0.5)
 
         with patch.object(frappe.db, "sql", purge_while_writing):
             self.compaction_job(doc_id).install(snapshot, compacted)
