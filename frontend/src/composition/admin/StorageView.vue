@@ -7,23 +7,6 @@
     <template #loading>
       <div class="mx-auto w-full max-w-5xl space-y-6 pb-10" aria-hidden="true">
         <SiteStorageSummarySkeleton />
-        <section
-          class="flex flex-col justify-between gap-4 border-b border-outline-gray-2 pb-6 sm:flex-row sm:items-center"
-        >
-          <div class="max-w-sm">
-            <h2 class="text-lg font-medium text-ink-gray-9">{{ __('Default for new users') }}</h2>
-            <p class="mt-1.5 text-p-sm text-ink-gray-5">
-              {{ __('Existing users and invitations won’t change.') }}
-            </p>
-          </div>
-          <div class="flex items-end gap-2">
-            <div class="w-40 space-y-1.5">
-              <DashboardSkeletonText class="text-sm" width="70%" />
-              <Skeleton class="h-7 w-full rounded-4" />
-            </div>
-            <Skeleton class="h-7 w-12 rounded-4" />
-          </div>
-        </section>
         <section class="space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-lg font-medium text-ink-gray-9">{{ __('User storage limits') }}</h2>
@@ -34,13 +17,12 @@
           <List
             selectable
             class="pointer-events-none -mx-3 list-row-px-3"
-            :columns="['minmax(0,1fr)', '11rem', '12rem']"
+            :columns="['minmax(0,1fr)', '23rem']"
             :row-height="72"
           >
             <ListHeader>
               <ListHeaderCell>{{ __('User') }}</ListHeaderCell>
               <ListHeaderCell>{{ __('Usage') }}</ListHeaderCell>
-              <ListHeaderCell>{{ __('Limit') }}</ListHeaderCell>
             </ListHeader>
             <ListRows v-slot="{ item }" :items="SKELETON_ROWS" row-key="id">
               <ListRow :value="item.id">
@@ -57,47 +39,18 @@
                     <DashboardSkeletonText class="text-p-sm" width="45%" />
                   </div>
                 </ListCell>
-                <ListCell>
-                  <DashboardSkeletonText class="flex-1 text-base" width="50%" />
-                </ListCell>
               </ListRow>
             </ListRows>
           </List>
         </section>
       </div>
     </template>
-    <ErrorMessage :message="report.error?.message || saveDefault.error?.message" />
+    <ErrorMessage :message="report.error?.message" />
 
     <div v-if="report.data" class="mx-auto w-full max-w-5xl space-y-6 pb-10">
       <SiteStorageSummary :report="report.data" />
 
       <template v-if="report.data.cloud">
-        <section
-          class="flex flex-col justify-between gap-4 border-b border-outline-gray-2 pb-6 sm:flex-row sm:items-center"
-        >
-          <div class="max-w-sm">
-            <h2 class="text-lg font-medium text-ink-gray-9">{{ __('Default for new users') }}</h2>
-            <p class="mt-1.5 text-p-sm text-ink-gray-5">
-              {{ __('Existing users and invitations won’t change.') }}
-            </p>
-          </div>
-          <div class="flex items-center gap-2">
-            <FormControl
-              v-model="defaultGB"
-              type="number"
-              :label="__('Storage limit (GB)')"
-              :placeholder="__('No limit')"
-              class="w-40"
-            />
-            <Button
-              variant="subtle"
-              :label="__('Save')"
-              :loading="saveDefault.isPending"
-              @click="saveDefault.run({ cap_bytes: cap(defaultGB) })"
-            />
-          </div>
-        </section>
-
         <section class="space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-lg font-medium text-ink-gray-9">{{ __('User storage limits') }}</h2>
@@ -105,6 +58,7 @@
               <span v-if="selected.length" class="text-p-sm text-ink-gray-5">{{
                 __('{0} selected', [selected.length])
               }}</span>
+              <Button variant="subtle" :label="__('Default storage')" @click="openDefaultStorage" />
               <Button
                 variant="subtle"
                 :label="__('Set limits')"
@@ -118,13 +72,12 @@
             v-model:selection="selected"
             selectable
             class="-mx-3 list-row-px-3"
-            :columns="['minmax(0,1fr)', '11rem', '12rem']"
+            :columns="['minmax(0,1fr)', '23rem']"
             :row-height="72"
           >
             <ListHeader>
               <ListHeaderCell>{{ __('User') }}</ListHeaderCell>
               <ListHeaderCell>{{ __('Usage') }}</ListHeaderCell>
-              <ListHeaderCell>{{ __('Limit') }}</ListHeaderCell>
             </ListHeader>
             <ListRows v-slot="{ item: user, value }" :items="report.data.users">
               <ListRow :value="value">
@@ -137,7 +90,7 @@
                 </ListCell>
                 <ListCell>
                   <div class="min-w-0 flex-1 space-y-1 pe-6">
-                    <StorageUsage :user="user" :show-limit="false" />
+                    <StorageUsage :user="user" />
                     <p v-if="user.mail_bytes !== null" class="truncate text-p-sm text-ink-gray-5">
                       {{ usageMeta(user) }}
                     </p>
@@ -153,21 +106,12 @@
                       <span class="truncate">{{ capNote(user) }}</span>
                     </p>
                   </div>
-                </ListCell>
-                <ListCell>
-                  <div class="flex min-w-0 items-center justify-between gap-2">
-                    <div class="min-w-0">
-                      <p class="truncate text-base text-ink-gray-7">
-                        {{ storageLimit(user) }}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      icon="lucide-pencil"
-                      :label="__('Edit storage limit for {0}', [user.full_name])"
-                      @click="editCap(user)"
-                    />
-                  </div>
+                  <Button
+                    variant="ghost"
+                    icon="lucide-pencil"
+                    :label="__('Edit storage limit for {0}', [user.full_name])"
+                    @click.stop="editCap(user)"
+                  />
                 </ListCell>
               </ListRow>
             </ListRows>
@@ -228,7 +172,44 @@
       </section>
     </div>
 
-    <StorageLimitDialog v-model:open="editing" :users="selected" :close-on-success="false" />
+    <Dialog
+      v-model:open="defaultStorageOpen"
+      :title="__('Default storage for new users')"
+      :dismissible="!saveDefault.isPending"
+    >
+      <template #default>
+        <div class="space-y-4">
+          <p class="text-p-sm text-ink-gray-5">
+            {{ __('Existing users and invitations won’t change.') }}
+          </p>
+          <FormControl
+            v-model="defaultGB"
+            type="number"
+            min="0"
+            :label="__('Storage limit (GB)')"
+            :placeholder="__('No limit')"
+          />
+          <ErrorMessage :message="defaultValidationError || saveDefault.error?.message" />
+        </div>
+      </template>
+      <template #actions>
+        <div class="flex justify-end gap-2">
+          <Button
+            :label="__('Cancel')"
+            :disabled="saveDefault.isPending"
+            @click="defaultStorageOpen = false"
+          />
+          <Button
+            variant="solid"
+            :label="__('Save')"
+            :loading="saveDefault.isPending"
+            @click="applyDefaultStorage"
+          />
+        </div>
+      </template>
+    </Dialog>
+
+    <StorageLimitDialog v-model:open="editing" :users="selected" />
 
     <Dialog
       v-model:open="localQuotaOpen"
@@ -279,7 +260,7 @@ import { translate as __ } from '@/platform/translation'
 
 import SiteStorageSummary from './SiteStorageSummary.vue'
 import SiteStorageSummarySkeleton from './SiteStorageSummarySkeleton.vue'
-import { formatStorage, storageLimit } from './storageFormat'
+import { formatStorage } from './storageFormat'
 import StorageUsage from './StorageUsage.vue'
 
 type StorageUser = OutputOf<typeof api.suite.storage.get>['users'][number]
@@ -293,7 +274,9 @@ const saveDefault = useMutation(api.suite.storage.setDefault)
 const saveLocalQuota = useMutation(api.drive.roots.setQuota)
 
 // — future-user default —
+const defaultStorageOpen = ref(false)
 const defaultGB = ref('')
+const defaultValidationError = ref('')
 watch(
   () => report.data?.default_cap_bytes,
   (value) => {
@@ -301,6 +284,25 @@ watch(
   },
   { immediate: true },
 )
+
+function openDefaultStorage() {
+  defaultValidationError.value = ''
+  saveDefault.reset()
+  defaultStorageOpen.value = true
+}
+
+async function applyDefaultStorage() {
+  defaultValidationError.value = ''
+  let capBytes: number | null
+  try {
+    capBytes = cap(defaultGB.value)
+  } catch (error) {
+    defaultValidationError.value = error instanceof Error ? error.message : String(error)
+    return
+  }
+  await saveDefault.run({ cap_bytes: capBytes })
+  defaultStorageOpen.value = false
+}
 
 // — personal caps —
 const selected = ref<string[]>([])
@@ -322,7 +324,7 @@ function capNote(user: StorageUser): string | undefined {
   if (!user.cap_bytes || user.combined_bytes == null) return undefined
   if (user.combined_bytes < user.cap_bytes * 0.9) return undefined
   if (user.combined_bytes > (user.effective_cap_bytes ?? user.cap_bytes)) return __('Storage full')
-  if (user.combined_bytes > user.cap_bytes) return __('Using extra storage')
+  if (user.combined_bytes > user.cap_bytes) return __('Storage limit reached')
   return __('Almost full')
 }
 

@@ -444,6 +444,26 @@ class TestGrantWorkflows(_GrantFixture):
             {"role": MANAGE, "source": "site admin", "rows": []},
         )
 
+    def test_public_deny_without_expiry_still_blocks_inherited_read_after_the_old_expiry(self):
+        child = self._child(self.folder.name, "Published child")
+        manager = Principals(TARGET, (TARGET,), ("$PUBLIC",))
+        guest = Principals("Guest", (), ("$PUBLIC",))
+        expiry = add_to_date(now_datetime(), days=1)
+        grant(self.folder.name, "$PUBLIC", READ, manager)
+        grant(child.name, "$PUBLIC", READ, manager, expires_on=expiry)
+        self.assertEqual(effective_role(child, guest), READ)
+
+        grant(child.name, "$PUBLIC", NONE, manager, expires_on=None)
+
+        stored = frappe.db.get_value(
+            "Drive Grant", {"node": child.name, "principal": "$PUBLIC"}, ["role", "expires_on"]
+        )
+        self.assertEqual(stored, (NONE, None))
+        self.assertEqual(effective_role(child, guest), NONE)
+        with patch("suite.drive._core.access.now", return_value=add_to_date(expiry, seconds=1)):
+            self.assertEqual(effective_role(self.folder, guest), READ)
+            self.assertEqual(effective_role(child, guest), NONE)
+
     def test_expired_positive_deny_and_link_rows_are_retained_but_inert(self):
         principals = (MANAGER, "$GENERAL", "$PUBLIC", "$LINK:AbCdEfGhIjKlMnOpQrSt12")
         for principal in principals:

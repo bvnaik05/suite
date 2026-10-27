@@ -161,6 +161,26 @@ bench build --app suite
 
 Meet requires a separate mediasoup SFU server for video calls. Follow the [Frappe Meet SFU setup guide](suite/meet/sfu-server/README.md) to configure and run it.
 
+### Code coverage
+
+From `frontend/`, run `yarn test:ci` to test both Vitest projects and write combined
+coverage to `test-results/coverage/` (Cobertura XML, LCOV and JSON summary), plus
+`test-results/junit.xml`. The exact legacy failure manifest is still enforced.
+Coverage includes unexecuted source files, excludes test fixtures and declarations,
+and has no percentage threshold. CI fails if any eligible production JS, TS or Vue
+source is missing from the report. `yarn test:coverage-reporting` also checks that
+representative untested TS and Vue files retain executable lines at zero coverage
+through the real package and icon resolvers.
+
+From the bench directory, run
+`COVERAGE_RCFILE="$PWD/apps/suite/.coveragerc" bench --site <test-site> run-tests --app suite --coverage`.
+Frappe writes `sites/coverage.xml`; Suite's config enables branch coverage and
+excludes test code from the report. CI uploads both reports and the trusted
+`coverage-report.yml` workflow updates the PR description. Missing reports remain
+unavailable; deltas use the latest successful scheduled run on the base branch.
+Exclusion changes also change the denominator, so old baseline percentages may
+not be comparable until a new baseline is collected.
+
 ## Contributing
 
 Contributions are welcome. Please open an issue to report a bug or propose a change before submitting a pull request.

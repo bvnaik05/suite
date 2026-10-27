@@ -45,19 +45,9 @@
         >
           <div class="space-y-3">
             <div v-for="(email, index) in emails" :key="index" class="space-y-1.5">
-              <div class="flex items-center justify-between">
-                <label class="text-ink-gray-5 block text-xs">
-                  {{ index === 0 ? __('Primary Email') : __('Alias') }}
-                </label>
-                <Button
-                  v-if="index > 0"
-                  variant="ghost"
-                  theme="red"
-                  size="sm"
-                  :label="__('Remove')"
-                  @click="emails.splice(index, 1)"
-                />
-              </div>
+              <label class="text-ink-gray-5 block text-xs">
+                {{ index === 0 ? __('Primary Email') : __('Alias') }}
+              </label>
               <div class="flex items-center justify-between">
                 <FormControl v-model="email.username" placeholder="johndoe" class="w-full" />
                 <FeatherIcon class="text-ink-gray-3 mx-2.5 h-4 w-4" name="at-sign" />
@@ -68,6 +58,15 @@
                   class="w-full"
                   :options="domains.data"
                   :open-on-click="true"
+                />
+                <Button
+                  v-if="index > 0"
+                  icon="lucide-x"
+                  variant="ghost"
+                  size="sm"
+                  class="ml-2 shrink-0"
+                  :aria-label="__('Remove alias')"
+                  @click="emails.splice(index, 1)"
                 />
               </div>
             </div>
@@ -96,49 +95,33 @@
             placeholder="johndoe@personal.com"
             :description="__('Password resets and the invitation email are sent to this address.')"
           />
-          <div class="space-y-1.5">
-            <label class="text-ink-gray-5 block text-xs">{{ __('Groups') }}</label>
-            <MultiSelect v-model="groupIds" :options="groupOptions" />
-          </div>
-          <div class="space-y-1.5">
-            <label class="text-ink-gray-5 block text-xs">{{ __('Mailing Lists') }}</label>
-            <MultiSelect v-model="mailingListIds" :options="mailingListOptions" />
-          </div>
+          <MultiSelect v-model="groupIds" :label="__('Groups')" :options="groupOptions" />
+          <MultiSelect
+            v-model="mailingListIds"
+            :label="__('Mailing Lists')"
+            :options="mailingListOptions"
+          />
           <hr />
 
           <Switch
             v-model="accountRequest.disable_receiving"
             :label="__('Disable Receiving')"
-            :description="
-              __(
-                'The account can send emails but cannot receive them. Mail addressed to it bounces back to the sender.',
-              )
-            "
-            class="hover:!bg-surface-base !cursor-default !p-0"
+            :description="__('Reject incoming emails while allowing this account to send.')"
           />
-          <Switch
-            v-model="accountRequest.send_invite"
-            :label="__('Send Invite')"
-            class="hover:!bg-surface-base !cursor-default !p-0"
-          />
-          <FormControl
-            v-if="accountRequest.send_invite"
-            v-model="accountRequest.expires_at"
-            :label="__('Expires At')"
-            type="datetime-local"
-            :description="__('The invitation link stops working after this time.')"
-          />
-          <template v-else>
-            <FormControl
-              v-model="accountRequest.first_name"
-              :label="__('First Name')"
-              placeholder="John"
-            />
-            <FormControl
-              v-model="accountRequest.last_name"
-              :label="__('Last Name')"
-              placeholder="Doe"
-            />
+          <Switch v-model="accountRequest.send_invite" :label="__('Send Invite')" />
+          <template v-if="!accountRequest.send_invite">
+            <div class="grid grid-cols-2 gap-3">
+              <FormControl
+                v-model="accountRequest.first_name"
+                :label="__('First Name')"
+                placeholder="John"
+              />
+              <FormControl
+                v-model="accountRequest.last_name"
+                :label="__('Last Name')"
+                placeholder="Doe"
+              />
+            </div>
             <p class="text-sm text-ink-gray-6">
               {{
                 __(
@@ -148,20 +131,18 @@
             </p>
             <!-- Only set here when the account is created right away; an invited user picks
 					their own on the setup form. -->
-            <div class="space-y-1.5">
-              <label class="text-ink-gray-5 block text-xs">{{ __('Locale') }}</label>
+            <div class="grid grid-cols-2 gap-3">
               <Combobox
                 v-model="accountRequest.locale"
+                :label="__('Locale')"
                 :options="localeOptions"
-                :placeholder="__('Select a locale')"
+                class="min-w-0"
               />
-            </div>
-            <div class="space-y-1.5">
-              <label class="text-ink-gray-5 block text-xs">{{ __('Time Zone') }}</label>
               <Combobox
                 v-model="accountRequest.time_zone"
+                :label="__('Time Zone')"
                 :options="timeZoneOptions"
-                :placeholder="__('Select a time zone')"
+                class="min-w-0"
               />
             </div>
           </template>
@@ -199,7 +180,7 @@ import { api, useMutation, useQuery, type InputOf } from '@/api'
 import { useAccountOptions } from '@/apps/mail/composables/useAccountOptions'
 import { useEnabledDomains } from '@/apps/mail/composables/useEnabledDomains'
 import { raiseToast } from '@/apps/mail/utils'
-import { fromLocalInput, toLocalInput, utcFromNow } from '@/apps/mail/utils/datetime'
+import { utcFromNow } from '@/apps/mail/utils/datetime'
 
 const show = defineModel<boolean>()
 const temporaryPassword = ref('')
@@ -218,14 +199,13 @@ const ROLE_OPTIONS = [
 const defaultAccountRequest = {
   role: 'user',
   send_invite: true,
-  expires_at: '',
   backup_email: '',
   quota_gb: '',
   disable_receiving: false,
   first_name: '',
   last_name: '',
-  locale: '',
-  time_zone: '',
+  locale: 'en-US',
+  time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
 }
 const accountRequest = reactive({
   ...defaultAccountRequest,
@@ -284,11 +264,7 @@ watch(show, () => {
   setupError.value = ''
   addMember.reset()
   if (show.value) {
-    // Shown and typed in the user's zone (converted to UTC on submit), and seeded here rather
-    // than in the default shape so a dialog opened later gets a fresh expiry.
-    Object.assign(accountRequest, defaultAccountRequest, {
-      expires_at: toLocalInput(utcFromNow(7, 'day')),
-    })
+    Object.assign(accountRequest, defaultAccountRequest)
     emails.value = [
       {
         username: '',
@@ -313,7 +289,7 @@ async function addMemberSubmit() {
     aliases,
     groups: groupIds.value,
     mailing_lists: mailingListIds.value,
-    expires_at: fromLocalInput(accountRequest.expires_at),
+    expires_at: utcFromNow(7, 'day'),
     quota_gb: 0,
     // Blank means "server default" for both, which the API spells as null.
     locale: accountRequest.locale || null,

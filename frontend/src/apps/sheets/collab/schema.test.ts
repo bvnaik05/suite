@@ -302,11 +302,44 @@ describe('axis: one sheet, one tab', () => {
       expect(rows.length).toBe(6)
       rows.remove(0, 1)
       expect(rows.idAt(0)).toBe('e1')
+      rows.move(0, 1, 2)
+      expect(rows.idAt(2)).toBe('e1')
     })
+  })
+
+  it('moves a block of rows, which keep their cells (IronCalc moveRows: start → start + delta)', () => {
+    const doc = new Y.Doc()
+    const sid = addSheet(doc, 'Sheet1')
+    for (const [i, v] of ['a', 'b', 'c', 'd', 'e'].entries()) write(doc, sid, i, v)
+    const rows = axis(doc, sid, 'rows')
+    rows.move(0, 2, 3)
+    expect(where(doc, sid)).toEqual({ c: 0, d: 1, e: 2, a: 3, b: 4 })
+    rows.move(4, 1, -4)
+    expect(where(doc, sid)).toEqual({ b: 0, c: 1, d: 2, e: 3, a: 4 })
+  })
+
+  it('moving into rows past the end grows the list to reach them', () => {
+    const doc = new Y.Doc()
+    const sid = addSheet(doc, 'Sheet1')
+    write(doc, sid, 0, 'a')
+    axis(doc, sid, 'rows').move(0, 1, 5)
+    expect(where(doc, sid)).toEqual({ a: 5 })
+    expect(axis(doc, sid, 'rows').length).toBe(6)
   })
 })
 
 describe.each(BOTH_ORDERS)('two tabs racing (client ids %i, %i)', (idA, idB) => {
+  it('an edit racing a move stays with its row', () => {
+    const { a, b, sid } = pair(idA, idB)
+    for (const [i, v] of ['a', 'b', 'c'].entries()) write(a, sid, i, v)
+    sync(a, b)
+    axis(a, sid, 'rows').move(0, 1, 2)
+    roots(b).inputs.set(cellKey(sid, axis(b, sid, 'rows').idAt(0)!, 'e2'), 'next to a')
+    sync(a, b)
+    expect(axis(a, sid, 'rows').ids()).toEqual(axis(b, sid, 'rows').ids())
+    expect(where(a, sid)).toMatchObject({ a: 2, 'next to a': 2 })
+  })
+
   it('concurrent inserts at one spot: both rows kept, same order everywhere', () => {
     const { a, b, sid } = pair(idA, idB)
     write(a, sid, 9, 'r10')
@@ -441,7 +474,8 @@ describe('fuzz: three tabs, random edits, syncing often', () => {
     }
   }
 
-  it('always converges, and rows anyone has seen never swap order', () => {
+  // ~1 s alone; slower when the IronCalc glue tests run beside it.
+  it('always converges, and rows anyone has seen never swap order', { timeout: 30_000 }, () => {
     for (let seed = 1; seed <= 40; seed++) {
       const rnd = mulberry32(seed)
       const pick = (n: number) => Math.floor(rnd() * n)

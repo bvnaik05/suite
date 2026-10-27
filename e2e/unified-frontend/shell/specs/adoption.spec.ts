@@ -5,6 +5,10 @@ import { MOBILE_VIEWPORT, patchAccount } from "../../helpers/shell";
 
 /** Stage 5 (spec section 9, ticket 018): Mail, Calendar and Meet in the shell. */
 
+test.afterEach(async ({ page }) => {
+	await page.unrouteAll({ behavior: "wait" });
+});
+
 // Mail and Calendar need a mail account, so every area shows on the rail.
 const MAIL_ACCOUNT = { is_jmap_configured: true, capabilities: { jmap: true, systemManager: true } };
 

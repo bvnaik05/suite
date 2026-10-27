@@ -29,8 +29,8 @@ export const mutationEffects = {
   storage_buffers: { invalidates: ['storage_get'] },
   'frappe.login': 'none',
   'frappe.logout': 'none',
-  subscribe: 'none',
-  unsubscribe: 'none',
+  'suite.push.subscribe': 'none',
+  'suite.push.unsubscribe': 'none',
   update_preferences: {
     invalidates: ['get_preferences', 'account_get', 'people_get', 'users_get'],
   },

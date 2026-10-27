@@ -223,6 +223,12 @@ export interface Axis {
   insert(pos: number, count: number): string[]
   /** Delete `count` ids from `pos` and every cell/format keyed by them; returns them. */
   remove(pos: number, count: number): string[]
+  /**
+   * Move `count` ids from `pos` so the block starts at `pos + delta` (IronCalc's
+   * moveRows/moveColumns). The ids, and so their cells, go with it; positions
+   * past the end get tail ids first.
+   */
+  move(pos: number, count: number, delta: number): void
 }
 
 interface Index {
@@ -282,6 +288,11 @@ function tailStart(lastId: string | undefined): { base: string; n: number } {
   return { base: lastId, n: 0 }
 }
 
+/** Whether an id was grown past the end (e7, x7p2.3) rather than inserted. */
+export function isTailId(id: string): boolean {
+  return ROOT_TAIL.test(id) || SUFFIX_TAIL.test(id)
+}
+
 function tailId(base: string, n: number): string {
   return base === 'e' ? `e${n}` : `${base}.${n}`
 }
@@ -301,7 +312,7 @@ export function axis(doc: Y.Doc, sheetId: string, name: AxisName): Axis {
   const fresh = () => indexOf(list)
   const changed = () => indexes.delete(list)
 
-  return {
+  const api: Axis = {
     get length() {
       return fresh().ids.length
     },
@@ -379,5 +390,25 @@ export function axis(doc: Y.Doc, sheetId: string, name: AxisName): Axis {
       changed()
       return gone
     },
+
+    move(pos, count, delta) {
+      checkPos(pos, count)
+      checkPos(pos + delta)
+      if (count === 0 || delta === 0) return
+      doc.transact(() => {
+        api.ensure(Math.max(pos, pos + delta) + count - 1)
+        const ids = fresh().ids
+        const block = ids.slice(pos, pos + count)
+        const rest = [...ids.slice(0, pos), ...ids.slice(pos + count)]
+        const before = rest[pos + delta] // the id the block lands in front of; none = the end
+        const moving = new Set(block)
+        // Every copy goes (as in remove), so the block counts at its new place only.
+        const raw = list.toArray()
+        for (let i = raw.length - 1; i >= 0; i--) if (moving.has(raw[i]!)) list.delete(i, 1)
+        list.insert(before === undefined ? list.length : list.toArray().indexOf(before), block)
+      })
+      changed()
+    },
   }
+  return api
 }

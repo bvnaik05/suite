@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { applyNumberFmt } from '../utils/format-number.js'
-import {
-  fromXlsxCell,
-  mergesFromXlsx,
-  mergesToXlsx,
-  numFmtFromEngine,
-  numFmtToZ,
-  toXlsxCell,
-  zToNumFmt,
-} from './xlsx-io.js'
+import { fromXlsxCell, numFmtFromEngine, numFmtToZ, toXlsxCell, zToNumFmt } from './xlsx-io.js'
 
 describe('numFmtToZ — our format → Excel z', () => {
   it('General / empty → null', () => expect(numFmtToZ('')).toBe(null))
@@ -109,11 +101,15 @@ describe('toXlsxCell — engine → SheetJS', () => {
       z: '"$"#,##0.00',
     })
   })
-  it('date-formatted value becomes a date cell', () => {
-    const c = toXlsxCell('2026-03-15', null, 'date:ymd')
-    expect(c.t).toBe('d')
-    expect(c.v instanceof Date).toBe(true)
-    expect(c.z).toBe('yyyy-mm-dd')
+  // A day serial, not a Date: SheetJS converts Dates in local time (#59).
+  it('date-formatted text becomes its day serial', () => {
+    expect(toXlsxCell('2026-03-15', null, 'date:ymd')).toEqual({
+      t: 'n',
+      v: 46096,
+      z: 'yyyy-mm-dd',
+    })
+    expect(toXlsxCell('2026-03-15 18:00', null, 'datetime:ymd_hm')?.v).toBe(46096.75)
+    expect(toXlsxCell('=DATE(2026,3,15)', '15 Mar 2026', 'date:long')?.v).toBe(46096)
   })
   // ISSUES #39: IronCalc dates are day serials, which is also what Excel
   // stores, so a serial goes out as that number with the date code. It was
@@ -217,27 +213,16 @@ describe('date round-trip is timezone-independent', () => {
     })
   })
   it('datetime', () => {
-    expect(fromXlsxCell(toXlsxCell('2026-03-15 14:30:00', null, 'datetime:ymd_hms'))).toEqual({
-      value: '2026-03-15 14:30:00',
+    // Back as the serial: the datetime format paints it 2026-03-15 18:00:00.
+    expect(fromXlsxCell(toXlsxCell('2026-03-15 18:00:00', null, 'datetime:ymd_hms'))).toEqual({
+      value: '46096.75',
       fmt: 'datetime:ymd_hms',
     })
   })
-})
-
-describe('merge mapping', () => {
-  it('engine masterMap → SheetJS !merges', () => {
-    expect(mergesToXlsx({ A1: { r: 0, c: 0, rowSpan: 2, colSpan: 3 } })).toEqual([
-      { s: { r: 0, c: 0 }, e: { r: 1, c: 2 } },
-    ])
-  })
-  it('!merges → engine rects', () => {
-    expect(mergesFromXlsx([{ s: { r: 0, c: 0 }, e: { r: 1, c: 2 } }])).toEqual([
-      { r0: 0, c0: 0, r1: 1, c1: 2 },
-    ])
-  })
-  it('round-trips', () => {
-    const master = { B2: { r: 1, c: 1, rowSpan: 3, colSpan: 2 } }
-    const [rect] = mergesFromXlsx(mergesToXlsx(master))
-    expect(rect).toEqual({ r0: 1, c0: 1, r1: 3, c1: 2 })
+  it('a date code ours has no variant for still reads as a date', () => {
+    expect(fromXlsxCell({ t: 'n', v: 46037, z: 'm/d/yyyy' })).toEqual({
+      value: '2026-01-15',
+      fmt: 'date:mdy',
+    })
   })
 })

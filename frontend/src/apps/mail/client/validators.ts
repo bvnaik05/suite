@@ -269,6 +269,8 @@ import type {
   OngoingExchangeOutput,
   RebuildAutomationScriptForAccountInput,
   RebuildAutomationScriptForAccountOutput,
+  RegionalPreferencesInput,
+  RegionalPreferencesOutput,
   RemoveGroupEmailInput,
   RemoveGroupEmailOutput,
   RemoveGroupMemberInput,
@@ -369,6 +371,8 @@ import type {
   UpdateParticipantIdentityOutput,
   UpdatePreferencesInput,
   UpdatePreferencesOutput,
+  UpdateRegionalPreferencesInput,
+  UpdateRegionalPreferencesOutput,
   UpdateSieveScriptInput,
   UpdateSieveScriptOutput,
   UpdateSignatureInput,
@@ -589,6 +593,72 @@ export const operationExchangeList: Validators<ExchangeListInput, ExchangeListOu
       },
       'exchange_list output',
     )
+  },
+}
+
+export const operationRegionalPreferences: Validators<
+  RegionalPreferencesInput,
+  RegionalPreferencesOutput
+> = {
+  validateInput(value: unknown): asserts value is RegionalPreferencesInput {
+    assertSchema(
+      value,
+      { type: 'object', properties: {}, required: [], additionalProperties: false, $defs: {} },
+      'regional_preferences input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is RegionalPreferencesOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          Option: {
+            properties: {
+              value: { title: 'Value', type: 'string' },
+              label: { title: 'Label', type: 'string' },
+            },
+            required: ['value', 'label'],
+            title: 'Option',
+            type: 'object',
+          },
+        },
+        properties: {
+          locale: { title: 'Locale', type: 'string' },
+          time_zone: { title: 'Time Zone', type: 'string' },
+          locales: { items: { $ref: '#/$defs/Option' }, title: 'Locales', type: 'array' },
+          time_zones: { items: { $ref: '#/$defs/Option' }, title: 'Time Zones', type: 'array' },
+        },
+        required: ['locale', 'time_zone', 'locales', 'time_zones'],
+        title: 'RegionalPreferences',
+        type: 'object',
+      },
+      'regional_preferences output',
+    )
+  },
+}
+
+export const operationUpdateRegionalPreferences: Validators<
+  UpdateRegionalPreferencesInput,
+  UpdateRegionalPreferencesOutput
+> = {
+  validateInput(value: unknown): asserts value is UpdateRegionalPreferencesInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          locale: { title: 'Locale', type: 'string' },
+          time_zone: { title: 'Time Zone', type: 'string' },
+        },
+        required: ['locale', 'time_zone'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'update_regional_preferences input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is UpdateRegionalPreferencesOutput {
+    assertSchema(value, { type: 'null' }, 'update_regional_preferences output')
   },
 }
 

@@ -1,7 +1,11 @@
 <template>
   <DashboardLayout area="admin" :breadcrumbs="[{ label: __('Users') }]">
     <template #actions>
-      <Button variant="solid" :label="__('Add user')" @click="adding = true" />
+      <Button :label="__('Add user')" @click="adding = true">
+        <template #prefix>
+          <span class="lucide-user-plus size-4" aria-hidden="true" />
+        </template>
+      </Button>
     </template>
     <Tabs v-model="tab" :tabs="tabs">
       <template #tab-panel>

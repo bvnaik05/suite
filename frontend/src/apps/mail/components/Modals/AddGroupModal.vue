@@ -19,7 +19,7 @@
         <FormControl
           v-model="name"
           :label="__('Name')"
-          placeholder="team"
+          :placeholder="__('e.g. support')"
           autocomplete="off"
           :description="__('Together with the domain, this forms the group\'s email address.')"
         />
@@ -30,16 +30,14 @@
           :options="domainOptions"
         />
         <FormControl v-model="description" :label="__('Description')" />
-        <div class="space-y-1.5">
-          <label class="text-ink-gray-5 block text-xs">{{ __('Members') }}</label>
-          <MultiSelect
-            v-model="memberIds"
-            v-model:query="picker.query"
-            :options="picker.options"
-            :filterable="false"
-            :placeholder="__('Search accounts')"
-          />
-        </div>
+        <MultiSelect
+          v-model="memberIds"
+          v-model:query="picker.query"
+          :label="__('Members')"
+          :options="picker.options"
+          :filterable="false"
+          :placeholder="__('Search accounts')"
+        />
         <hr />
 
         <Switch
@@ -48,7 +46,6 @@
           :description="
             __('The group cannot receive emails. Mail addressed to it bounces back to the sender.')
           "
-          class="hover:!bg-surface-base !cursor-default !p-0"
         />
         <ErrorMessage
           :message="

@@ -214,10 +214,12 @@ from suite.mail.http.preferences import ROUTES as PREFERENCE_ROUTES
 from suite.mail.http.preferences import (
     account_preferences,
     credentials,
+    regional_preferences,
     subscribe_mailbox,
     update_account_preferences,
     update_credentials,
     update_preferences,
+    update_regional_preferences,
 )
 from suite.mail.http.push import CONTRACT_ROUTES as PUSH_CONTRACT_ROUTES
 from suite.mail.http.push import (

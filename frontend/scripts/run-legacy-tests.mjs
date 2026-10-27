@@ -20,7 +20,10 @@ const result = spawnSync(
     'legacy',
     '--reporter=default',
     '--reporter=json',
-    `--outputFile=${reportPath}`,
+    `--outputFile.json=${reportPath}`,
+    // CI adds the unified project here so both projects share one coverage
+    // run; sequential coverage runs would overwrite each other's totals.
+    ...process.argv.slice(2),
   ],
   // Stream diagnostics: JSON omits runtime errors, and buffering the full
   // suite's output can exhaust spawnSync's default output limit.

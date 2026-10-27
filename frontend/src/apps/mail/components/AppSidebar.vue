@@ -106,7 +106,6 @@ import ArrowLeft from '~icons/lucide/arrow-left'
 import CalendarClock from '~icons/lucide/calendar-clock'
 import ChevronDown from '~icons/lucide/chevron-down'
 import ChevronUp from '~icons/lucide/chevron-up'
-import Crown from '~icons/lucide/crown'
 import Ellipsis from '~icons/lucide/ellipsis'
 import Globe from '~icons/lucide/globe'
 import House from '~icons/lucide/house'
@@ -560,18 +559,6 @@ const sidebarItems = computed(() => {
       ...(yourFolders.length ? { action: { label: __('New Folder'), onClick: newFolder } } : {}),
     },
   ]
-
-  // Admins reach the dashboard from its own row, last in the sidebar.
-  if (
-    user.data?.is_jmap_configured &&
-    user.data?.is_suite_admin &&
-    user.data?.is_suite_cloud_configured &&
-    !isMobile.value
-  )
-    groups.push({
-      label: __('Admin'),
-      items: [{ label: __('Admin Dashboard'), icon: Crown, to: { path: '/admin' } }],
-    })
 
   return groups
 })

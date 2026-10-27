@@ -12,6 +12,7 @@ import { Model, type ExtendedCellStyle } from '@ironcalc/wasm'
 
 import { CommandTypes, validateCommand, type Command, type CommandType } from './commands.js'
 import { isDateDifference, isDateFormat } from './date-diff.js'
+import { shrinkRangesForDelete, type DeleteSpan } from './delete-ranges.js'
 import { MAX_ROWS } from './limits.js'
 import { percentFormatFor } from './percent-format.js'
 import { typedCurrency, withSymbol } from './typed-currency.js'
@@ -144,6 +145,71 @@ export function createWorkbook({
 
   let version = startVersion
 
+  // No formula sits below this row on any sheet (null: not known). It bounds
+  // the formula scan before a delete (rangeFixes), which would otherwise ask
+  // all 1,048,576 rows of every sheet (about 60 ms a sheet). Only setInput and
+  // setArrayFormula write formulas; insertRows and moveRows push them down;
+  // undo and redo can do anything.
+  let formulaRowBound: number | null = loadBytes ? null : 0
+  let inBatch = false
+  const raiseFormulaRowBound = (row: number) => {
+    if (formulaRowBound !== null) formulaRowBound = Math.max(formulaRowBound, row)
+  }
+
+  // No input sits below this row on any sheet (null: a loaded workbook not
+  // counted yet). It bounds the cell scans (scanCells), which would otherwise
+  // ask all 1,048,576 rows (about 100 ms a sheet) after every edit (ISSUES
+  // #81). It only goes up, so undo and redo can't beat it: they bring back a
+  // state this workbook was in since the count, and every input was above
+  // the bound then. Spill and array cells hold values below their formula;
+  // scanCells follows those itself.
+  let inputRowBound: number | null = loadBytes ? null : 0
+  const raiseInputRowBound = (row: number) => {
+    inputRowBound = Math.max(inputRows(), row)
+  }
+
+  // Counted before the first command runs, so the history holds nothing
+  // older than the count.
+  function inputRows(): number {
+    if (inputRowBound === null) {
+      inputRowBound = 0
+      model.getWorksheetsProperties().forEach((_, sheet) => {
+        for (let row = MAX_ROWS; row > inputRowBound!; row--) {
+          if (model.getFirstNonEmptyInRowAfterColumn(sheet, row, 0) === undefined) continue
+          inputRowBound = row
+          break
+        }
+      })
+    }
+    return inputRowBound
+  }
+
+  // Each non-empty cell on a sheet, row by row, until visit returns true.
+  // Spill and array cells below the bound are reached from their formula,
+  // which is always above them.
+  function scanCells(idx: number, visit: (row: number, col: number, input: string) => unknown) {
+    let last = inputRows()
+    for (let row = 1; row <= last; row++) {
+      for (const col of model.getColumnsWithData(idx, row)) {
+        const input = model.getCellContent(idx, row, col)
+        // A styled but empty cell is listed too.
+        if (input === '') continue
+        if (input.startsWith('=')) {
+          const shape = model.getCellArrayStructure(idx, row, col)
+          const size =
+            typeof shape === 'object' &&
+            ('ArrayAnchor' in shape
+              ? shape.ArrayAnchor
+              : 'DynamicAnchor' in shape
+                ? shape.DynamicAnchor
+                : null)
+          if (size) last = Math.min(MAX_ROWS, Math.max(last, row + size[1] - 1))
+        }
+        if (visit(row, col, input)) return
+      }
+    }
+  }
+
   function sheetIndex(sheetName: string): number {
     const i = model.getWorksheetsProperties().findIndex((p) => p.name === sheetName)
     if (i === -1) throw new WorkbookError(`unknown sheet "${sheetName}"`)
@@ -184,6 +250,7 @@ export function createWorkbook({
     }
     const snapshot = MULTI_CALL.has(cmd.type) ? model.toBytes() : null
     try {
+      inputRows()
       applyOne(cmd)
     } catch (e) {
       if (snapshot) restore(snapshot)
@@ -221,10 +288,95 @@ export function createWorkbook({
     }
   }
 
+  // Deletes rows or columns, first pulling in the range ends IronCalc would
+  // turn into #REF! (delete-ranges.ts, ISSUES #9). Finding them reads every
+  // formula, down to formulaRowBound.
+  function deleteSpan(span: Omit<DeleteSpan, 'formulaSheet'>): void {
+    const si = sheetIndex(span.sheet)
+    const del = () =>
+      span.axis === 'row'
+        ? model.deleteRows(si, span.at, span.count)
+        : model.deleteColumns(si, span.at, span.count)
+    const fixes = rangeFixes(span)
+    if (fixes.length === 0) return del()
+    // Inside a batch, evaluation is paused already and stays paused until
+    // the batch ends.
+    const pause = !inBatch
+    if (pause) model.pauseEvaluation()
+    // If a rewrite or the delete fails, put back the formulas rewritten so far.
+    let done = 0
+    try {
+      for (const f of fixes) {
+        setFormula(f, f.after)
+        done++
+      }
+      del()
+    } catch (e) {
+      for (const f of fixes.slice(0, done)) setFormula(f, f.before)
+      throw e
+    } finally {
+      if (pause) {
+        model.resumeEvaluation()
+        model.evaluate()
+      }
+    }
+  }
+
+  interface RangeFix {
+    sheet: number
+    row: number
+    col: number
+    before: string
+    after: string
+  }
+
+  function rangeFixes(span: Omit<DeleteSpan, 'formulaSheet'>): RangeFix[] {
+    const fixes: RangeFix[] = []
+    const target = sheetIndex(span.sheet)
+    const last = span.at + span.count - 1
+    const lastRow = formulaRowBound ?? inputRows()
+    let lastFormulaRow = 0
+    model.getWorksheetsProperties().forEach(({ name }, sheet) => {
+      for (let row = 1; row <= lastRow; row++) {
+        // Half the cost of asking every row for its columns.
+        if (model.getFirstNonEmptyInRowAfterColumn(sheet, row, 0) === undefined) continue
+        for (const col of model.getColumnsWithData(sheet, row)) {
+          const before = model.getCellContent(sheet, row, col)
+          if (!before.startsWith('=')) continue
+          lastFormulaRow = row
+          // A formula the delete removes needs nothing.
+          const pos = span.axis === 'row' ? row : col
+          if (sheet === target && pos >= span.at && pos <= last) continue
+          if (!before.includes(':')) continue
+          const after = shrinkRangesForDelete(before, { ...span, formulaSheet: name })
+          if (after !== before) fixes.push({ sheet, row, col, before, after })
+        }
+      }
+    })
+    // The delete only moves formulas up, so the bound found holds after it.
+    formulaRowBound = lastFormulaRow
+    return fixes
+  }
+
+  // A CSE array keeps its size (IronCalc won't write over one, so clear it
+  // first); anything else is typed in as is.
+  function setFormula(f: RangeFix, input: string): void {
+    const shape = model.getCellArrayStructure(f.sheet, f.row, f.col)
+    if (typeof shape === 'object' && 'ArrayAnchor' in shape) {
+      const [width, height] = shape.ArrayAnchor
+      model.rangeClearContents(f.sheet, f.row, f.col, f.row + height - 1, f.col + width - 1)
+      model.setUserArrayFormula(f.sheet, f.row, f.col, width, height, input)
+    } else {
+      model.setUserInput(f.sheet, f.row, f.col, input)
+    }
+  }
+
   function applyOne(cmd: Command): void {
     switch (cmd.type) {
       case CommandTypes.setInput: {
         const p = cmd.payload
+        raiseFormulaRowBound(p.row)
+        raiseInputRowBound(p.row)
         setInput(sheetIndex(p.sheet), p.row, p.col, p.input)
         return
       }
@@ -232,6 +384,8 @@ export function createWorkbook({
       // (CSE-style array). Dynamic-array spills go through setInput.
       case CommandTypes.setArrayFormula: {
         const p = cmd.payload
+        raiseFormulaRowBound(p.row)
+        raiseInputRowBound(p.row)
         model.setUserArrayFormula(
           sheetIndex(p.sheet),
           p.row,
@@ -282,12 +436,14 @@ export function createWorkbook({
       }
       case CommandTypes.insertRows: {
         const p = cmd.payload
+        if (formulaRowBound !== null) formulaRowBound += p.count
+        inputRowBound = Math.min(MAX_ROWS, inputRows() + p.count)
         model.insertRows(sheetIndex(p.sheet), p.row, p.count)
         return
       }
       case CommandTypes.deleteRows: {
         const p = cmd.payload
-        model.deleteRows(sheetIndex(p.sheet), p.row, p.count)
+        deleteSpan({ sheet: p.sheet, axis: 'row', at: p.row, count: p.count })
         return
       }
       case CommandTypes.insertColumns: {
@@ -297,11 +453,15 @@ export function createWorkbook({
       }
       case CommandTypes.deleteColumns: {
         const p = cmd.payload
-        model.deleteColumns(sheetIndex(p.sheet), p.col, p.count)
+        deleteSpan({ sheet: p.sheet, axis: 'col', at: p.col, count: p.count })
         return
       }
       case CommandTypes.moveRows: {
         const p = cmd.payload
+        // Moving up pushes the rows passed over down, to at most the block's old end.
+        const lowest = p.row + p.count - 1 + Math.max(0, p.delta)
+        raiseFormulaRowBound(lowest)
+        raiseInputRowBound(lowest)
         model.moveRows(sheetIndex(p.sheet), p.row, p.count, p.delta)
         return
       }
@@ -356,14 +516,24 @@ export function createWorkbook({
         else model.newDefinedName(p.name, scope, p.formula)
         return
       }
-      case CommandTypes.deleteDefinedName:
-        model.deleteDefinedName(cmd.payload.name, scopeIndex(cmd.payload.scope))
+      // A name IronCalc doesn't hold is already deleted: the editor drops a
+      // name whose cells are gone without knowing whether it was sent.
+      case CommandTypes.deleteDefinedName: {
+        const p = cmd.payload
+        const scope = scopeIndex(p.scope)
+        const held = model
+          .getDefinedNameList()
+          .some((d) => d.name === p.name && (d.scope ?? null) === scope)
+        if (held) model.deleteDefinedName(p.name, scope)
         return
+      }
       case CommandTypes.batch: {
         model.pauseEvaluation()
+        inBatch = true
         try {
           for (const sub of cmd.payload.commands) applyOne(sub)
         } finally {
+          inBatch = false
           model.resumeEvaluation()
         }
         model.evaluate()
@@ -377,6 +547,7 @@ export function createWorkbook({
   function undo(): VersionResult {
     if (!read(() => model.canUndo())) return { version }
     read(() => model.undo())
+    formulaRowBound = null
     version += 1
     return { version }
   }
@@ -384,6 +555,7 @@ export function createWorkbook({
   function redo(): VersionResult {
     if (!read(() => model.canRedo())) return { version }
     read(() => model.redo())
+    formulaRowBound = null
     version += 1
     return { version }
   }
@@ -415,33 +587,25 @@ export function createWorkbook({
       }),
     getColumnWidth: (sheet, col) => read(() => model.getColumnWidth(sheetIndex(sheet), col)),
     getRowHeight: (sheet, row) => read(() => model.getRowHeight(sheetIndex(sheet), row)),
-    // IronCalc has no "all cells" call; asking each row for its used
-    // columns is cheap (about 130 ms for every row of a sheet).
+    // IronCalc has no "all cells" call; scanCells asks each used row for its
+    // columns.
     findInputs: (sheet, query, limit) =>
       read(() => {
-        const idx = sheetIndex(sheet)
-        const q = query.toLowerCase()
         const found: FoundCell[] = []
+        const q = query.toLowerCase()
         if (!q) return found
-        for (let row = 1; row <= MAX_ROWS && found.length < limit; row++) {
-          for (const col of model.getColumnsWithData(idx, row)) {
-            const input = model.getCellContent(idx, row, col)
-            if (input.toLowerCase().includes(q)) found.push({ row, col, input })
-            if (found.length >= limit) break
-          }
-        }
+        scanCells(sheetIndex(sheet), (row, col, input) => {
+          if (input.toLowerCase().includes(q)) found.push({ row, col, input })
+          return found.length >= limit
+        })
         return found
       }),
     usedCells: (sheet) =>
       read(() => {
-        const idx = sheetIndex(sheet)
         const out: number[] = []
-        for (let row = 1; row <= MAX_ROWS; row++) {
-          for (const col of model.getColumnsWithData(idx, row)) {
-            // A styled but empty cell is listed too.
-            if (model.getCellContent(idx, row, col) !== '') out.push(row, col)
-          }
-        }
+        scanCells(sheetIndex(sheet), (row, col) => {
+          out.push(row, col)
+        })
         return out
       }),
     // The status bar's Count / Sum / Avg. Same row scan as findInputs, so a
@@ -456,7 +620,13 @@ export function createWorkbook({
             if (col < c1 || col > c2 || model.getCellContent(idx, row, col) === '') continue
             stats.count++
             if (model.getCellType(idx, row, col) !== NUMBER_CELL) continue
-            const n = numberFromShown(model.getFormattedCellValue(idx, row, col))
+            const shown = model.getFormattedCellValue(idx, row, col)
+            // A date counts but isn't added up: its shown 2026-01-15 read
+            // as the number 2026 (ISSUES #67). Only text that looks like a
+            // date pays for the style read.
+            const dateLike = /\d[-/]\d|[A-Za-z]{3}/.test(shown)
+            if (dateLike && isDateFormat(model.getCellStyle(idx, row, col).style.num_fmt)) continue
+            const n = numberFromShown(shown)
             if (Number.isFinite(n)) {
               stats.numCount++
               stats.sum += n
