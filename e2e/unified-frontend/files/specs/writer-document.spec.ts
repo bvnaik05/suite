@@ -113,7 +113,8 @@ test("losing edit access freezes the editor and cancels the pending save", async
 	await expect(editor).toHaveAttribute("contenteditable", "false");
 	await page.waitForTimeout(6_500);
 
-	// The room still sends its unsent work once, within a short bound; Drive refuses it on a trashed node
+	// The room still sends its unsent work once, within a short bound; this test's route aborts it
+	// Drive's refusal on a trashed node is covered by test_content.py (test_a_trashed_node_refuses_a_write)
 	const writes = seen.requests
 		.slice(trashedAt)
 		.filter((line) => /\/method\/(save_doc|save_html|new_version|update_settings)/.test(line));
