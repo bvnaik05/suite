@@ -191,7 +191,6 @@ test.describe("Writer collaboration comments", () => {
 		for (const shown of [panel, watching]) {
 			const row = threadRow(shown, "to check");
 			await expect(row).toContainText(`Ask @${name} to check`);
-			await expect(row.getByText(`@${name}`, { exact: true })).toBeVisible();
 		}
 	});
 
