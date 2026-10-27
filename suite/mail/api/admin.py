@@ -22,7 +22,8 @@ from suite.mail.api.utils import get_avatar_url
 from suite.mail.directory import GB, get_account_metadata, get_active_domain_names
 from suite.mail.directory import get_domains as get_site_domains
 from suite.mail.suite_cloud import get_client
-from suite.mail.utils import get_config
+from suite.mail.utils import log_mail_error
+from suite.mail.utils.dns import ZoneFileRecord
 from suite.mail.utils.dt import from_utc_z, to_utc_z
 from suite.mail.utils.logger import log_admin_action
 from suite.mail.utils.user import get_account_email
@@ -59,7 +60,7 @@ def check_admin_permission(action: str, target: Any = None) -> str:
     """
 
     user = frappe.session.user
-    if (not is_suite_admin(user) and not is_system_manager(user)) or not is_user_enabled(user):
+    if (user != "Administrator" and not is_suite_admin(user)) or not is_user_enabled(user):
         frappe.throw(
             _("User {0} does not have permission to {1}.").format(frappe.bold(user), action),
             frappe.PermissionError,
@@ -146,19 +147,6 @@ def _dns_record_row(record: dict) -> dict:
         "is_verified": bool(record.get("is_verified")),
         "last_checked_at": to_utc_z(record.get("last_checked_at")),
     }
-
-
-def _zone_rdata(record: dict) -> str:
-    """The record's data the way a zone file line carries it."""
-
-    value = record["value"]
-    if record["type"] == "MX":
-        return f"{record.get('priority') or 10} {value}"
-    if record["type"] == "SRV":
-        return f"{record.get('priority') or 0} {record.get('weight') or 0} {record.get('port') or 0} {value}"
-    if record["type"] == "TXT":
-        return json.dumps(value)
-    return value
 
 
 @frappe.whitelist()
@@ -285,12 +273,7 @@ def get_domain_dns_zone(domain_id: str) -> str:
     """The records as zone-file lines, for pasting into a provider that accepts them."""
 
     check_admin_permission("view domains")
-    lines = []
-    for record in _domain_records(domain_id):
-        lines.append(
-            f"{record['fqdn']}.\t{record.get('ttl') or ''}\tIN\t{record['type']}\t{_zone_rdata(record)}"
-        )
-    return "\n".join(lines) + "\n"
+    return "".join(f"{ZoneFileRecord(record)}\n" for record in _domain_records(domain_id))
 
 
 @frappe.whitelist()
@@ -606,20 +589,76 @@ def add_member(
     quota_gb: float | None = None,
     locale: str | None = None,
     time_zone: str | None = None,
-) -> None:
+    disable_receiving: bool = False,
+) -> dict:
     """Creates a member, right away or by invitation.
 
     ``username``/``domain`` are the primary address (becomes the User); ``aliases`` are additional
     full email addresses attached to the same account. ``groups`` and ``mailing_lists`` are the
     addresses of groups and lists the account joins once it is created — right away when invites
-    are off, on verification otherwise. ``quota_gb`` unset means Suite Cloud's default for the site.
+    are off, on verification otherwise. ``quota_gb`` unset or 0 means no disk limit.
+    ``disable_receiving`` makes the account send-only: mail addressed to it bounces back.
 
     ``locale`` and ``time_zone``, like the name and password, only apply when the account is created
     right away; an invited member picks their own on the setup form.
     """
 
     check_admin_permission("add members", f"{username}@{domain}")
-    account_request = frappe.new_doc("Mail Account Request")
+    from suite.suite_core.account_state import write
+    from suite.suite_core.storage import state
+
+    state(lock=True)
+    address = f"{username}@{domain}".strip().lower()
+    holder = frappe.db.get_value("User Settings", {"username": address}, "user")
+    completed = (
+        frappe.db.get_value(
+            "Mail Account Request",
+            {"account": address, "is_verified": 1, "suite_user": holder},
+            ["invited_by", "is_admin", "send_invite"],
+            as_dict=True,
+        )
+        if holder
+        else None
+    )
+    if completed:
+        if (
+            completed.invited_by != frappe.session.user
+            or bool(completed.is_admin) != bool(is_admin)
+            or bool(completed.send_invite) != bool(send_invite)
+        ):
+            frappe.throw(_("This business address is already claimed"))
+        from suite.suite_core.account_state import read
+
+        return {
+            "success": True,
+            "user": holder,
+            "status": read(holder).get("status", "Active"),
+            "error": None,
+            "temporary_password": None,
+            "expires_at": None,
+        }
+    pending = frappe.db.get_value("Mail Account Request", {"account": address, "is_verified": 0}, "name")
+    if pending:
+        account_request = frappe.get_doc("Mail Account Request", pending)
+        if bool(account_request.is_admin) != bool(is_admin) or bool(account_request.send_invite) != bool(
+            send_invite
+        ):
+            frappe.throw(
+                _(
+                    "This address has an existing creation request. Revoke it before changing its role or creation path."
+                )
+            )
+        if send_invite:
+            return {
+                "success": True,
+                "user": address,
+                "status": "Pending",
+                "error": None,
+                "temporary_password": None,
+                "expires_at": None,
+            }
+    else:
+        account_request = frappe.new_doc("Mail Account Request")
     account_request.account = f"{username}@{domain}"
     account_request.aliases = "\n".join(_listify(aliases))
     account_request.groups = "\n".join(str(g) for g in _listify(groups))
@@ -627,15 +666,47 @@ def add_member(
     if quota_gb is not None and flt(quota_gb) > 0:
         account_request.quota_gb = flt(quota_gb)
     account_request.is_admin = cint(is_admin)
+    account_request.disable_receiving = cint(disable_receiving)
     account_request.invited_by = frappe.session.user
     account_request.backup_email = backup_email
     account_request.send_invite = cint(send_invite)
     # Arrives as UTC like every other timestamp; the doctype field holds system time.
     account_request.expires_at = from_utc_z(expires_at)
-    account_request.insert()
+    if account_request.is_new():
+        account_request.insert(ignore_permissions=True)
 
     if not send_invite:
-        account_request.force_verify_and_create_account(first_name, last_name, password, locale, time_zone)
+        try:
+            credential = account_request.force_verify_and_create_account(
+                first_name, last_name, None, locale, time_zone
+            )
+        except Exception:
+            account_request.is_verified = 0
+            account_request.save(ignore_permissions=True)
+            if account_request.suite_user:
+                write(
+                    account_request.suite_user,
+                    account=address,
+                    operation=account_request.name,
+                    status="Setup failed",
+                )
+            return {
+                "success": False,
+                "user": address,
+                "status": "Setup failed",
+                "error": _("Account setup failed. Retry this creation; normal access remains blocked."),
+                "temporary_password": None,
+                "expires_at": None,
+            }
+        return {**credential, "success": True, "status": "Password change required", "error": None}
+    return {
+        "success": True,
+        "user": address,
+        "status": "Pending",
+        "error": None,
+        "temporary_password": None,
+        "expires_at": None,
+    }
 
 
 @frappe.whitelist()
@@ -711,16 +782,19 @@ def _attach_quotas(users: list[dict]) -> None:
     emails = [user["account"] for user in users if user.get("account")]
     if not emails:
         return
-    with suppress(Exception):
+    try:
         quotas = get_client().call("mail.accounts.get_quotas", emails=emails)
-        for user in users:
-            quota = quotas.get(user.get("account"))
-            if quota:
-                allotted = quota.get("disk_quota_gb")
-                user["quota_gb"] = (
-                    flt(allotted) if allotted is not None else None
-                )  # None: unknown, not unlimited
-                user["used_bytes"] = _bytes_or_none(quota.get("used_disk_bytes"))
+    except Exception as e:
+        # The page lists its accounts without quotas; the refusal's message must not reach it.
+        frappe.clear_last_message()
+        log_mail_error("Suite Cloud quota lookup failed", str(e))
+        return
+    for user in users:
+        quota = quotas.get(user.get("account"))
+        if quota:
+            allotted = quota.get("disk_quota_gb")
+            user["quota_gb"] = flt(allotted) if allotted is not None else None  # None: unknown, not unlimited
+            user["used_bytes"] = _bytes_or_none(quota.get("used_disk_bytes"))
 
 
 def _bytes_or_none(value) -> int | None:
@@ -817,6 +891,7 @@ def get_member(member_id: str) -> dict:
         "quota": _build_quota_usage(0, 0),
         "locale": None,
         "time_zone": None,
+        "disable_receiving": False,
     }
 
     email = get_account_email(member_id)
@@ -828,6 +903,7 @@ def get_member(member_id: str) -> dict:
         account = get_client().call("mail.accounts.get_account", email=email)
         result["locale"] = account.get("locale")
         result["time_zone"] = account.get("time_zone")
+        result["disable_receiving"] = bool(account.get("disable_receiving"))
         result["email_addresses"] = _email_addresses(
             account["email"], account.get("display_name"), account.get("aliases") or []
         )
@@ -881,43 +957,70 @@ def get_account_requests(
 def delete_account_requests(names: list) -> None:
     check_admin_permission("delete account requests", names)
     for name in names:
+        if frappe.db.get_value("Mail Account Request", name, "suite_user"):
+            frappe.throw(
+                _(
+                    "Keep the creation request until the partially created Mail account has been recovered or deleted"
+                )
+            )
         frappe.delete_doc("Mail Account Request", name)
 
 
 @frappe.whitelist(methods=["POST"])
-def delete_members(names: list) -> None:
-    user = check_admin_permission("delete members", names)
-    if user in names:
-        frappe.throw(_("You cannot delete your own account."))
-    for name in names:
-        check_member_target(name)
-        frappe.delete_doc("User", name)
+def delete_members(names: list, confirmation: str = "") -> dict:
+    """Delete one disabled member's mailbox, never its Suite User (§4.3)."""
+    check_admin_permission("delete Mail account", names)
+    if not isinstance(names, list) or len(names) != 1:
+        frappe.throw(_("Delete one Mail account at a time with its address confirmation"))
+    from suite.mail import administer_account
+
+    return administer_account("delete", user=names[0], confirmation=confirmation)
 
 
 @frappe.whitelist(methods=["POST"])
-def disable_members(names: list) -> None:
-    user = check_admin_permission("disable members", names)
-    if user in names:
-        frappe.throw(_("You cannot disable your own account."))
-    for name in names:
-        check_member_target(name)
-        member = frappe.get_doc("User", name)
-        if not member.enabled:
-            continue
-        member.enabled = 0
-        member.save(ignore_permissions=True)
+def disable_members(names: list[str]) -> list[dict]:
+    check_admin_permission("disable members", names)
+    return _set_members_enabled(names, enabled=False)
 
 
 @frappe.whitelist(methods=["POST"])
-def enable_members(names: list) -> None:
+def enable_members(names: list[str]) -> list[dict]:
     check_admin_permission("enable members", names)
-    for name in names:
-        check_member_target(name)
-        member = frappe.get_doc("User", name)
-        if member.enabled:
-            continue
-        member.enabled = 1
-        member.save(ignore_permissions=True)
+    return _set_members_enabled(names, enabled=True)
+
+
+def _set_members_enabled(names: list[str], *, enabled: bool) -> list[dict]:
+    """Keep successful lifecycle changes when another target fails (§6.2)."""
+    from uuid import uuid4
+
+    from suite.suite_core.administration import update_user
+    from suite.suite_core.audit import record
+
+    results = []
+    for name in dict.fromkeys(names):
+        savepoint = f"member_status_{uuid4().hex}"
+        frappe.db.savepoint(savepoint)
+        messages = len(frappe.local.message_log or [])
+        try:
+            check_member_target(name)
+            update_user(name, enabled=enabled)
+        except frappe.QueryDeadlockError:
+            # InnoDB has rolled back the entire request, including preceding
+            # successes. Never return per-target success for discarded changes.
+            raise
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            del frappe.local.message_log[messages:]
+            error = (
+                _("User could not be reactivated. Check Mail setup and provider access, then retry.")
+                if enabled
+                else _("User could not be disabled. Check Admin safeguards and provider access, then retry.")
+            )
+            record("users.update", name, "failed")
+            results.append({"user": name, "success": False, "error": error})
+        else:
+            results.append({"user": name, "success": True, "error": None})
+    return results
 
 
 @frappe.whitelist(methods=["POST"])
@@ -931,11 +1034,7 @@ def change_member_password(member_id: str, new_password: str) -> None:
         # One's own password changes through the flow that asks for the current one.
         frappe.throw(_("Change your own password from your account settings."), frappe.PermissionError)
     check_member_target(member_id)
-    if not new_password:
-        frappe.throw(_("New password is required."))
-    member = frappe.get_doc("User", member_id)
-    member.new_password = new_password
-    member.save(ignore_permissions=True)
+    frappe.throw(_("Use Replace temporary password to issue a generated one-time credential"))
 
 
 def _require_member_account(member_id: str) -> str:
@@ -967,9 +1066,16 @@ def update_member(
 
     check_admin_permission("update members", member_id)
     check_member_target(member_id)
+    if quota_gb not in (None, 0):
+        frappe.throw(_("Mail has no storage quota. Set a combined personal cap in Storage instead."))
 
     member = frappe.get_doc("User", member_id)
     if role is not None:
+        from suite.suite_core.administration import guard_user_change
+
+        if role not in ("admin", "user"):
+            frappe.throw(_("Choose Admin or Member"))
+        guard_user_change(member_id, is_admin=role == "admin")
         if role == "admin":
             member.append_roles("Suite Admin")
         else:
@@ -981,6 +1087,10 @@ def update_member(
         member.last_name = last or None
     member.save(ignore_permissions=True)
 
+    from suite.api.account import forget_logged_in_users
+
+    forget_logged_in_users()
+
     email = get_account_email(member_id)
     if not email:
         return
@@ -988,7 +1098,7 @@ def update_member(
     if description:
         changes["display_name"] = description
     if quota_gb is not None:
-        changes["disk_quota_gb"] = flt(quota_gb)
+        changes["disk_quota_gb"] = 0
     if locale is not None:
         changes["locale"] = locale or ""
     if time_zone is not None:
@@ -997,28 +1107,43 @@ def update_member(
         get_client().call("mail.accounts.update_account", email=email, **changes)
 
 
+# --- receiving (accounts and groups alike) ----------------------------------------------------------
+
+_RECEIVING_CALLS = {"accounts": "update_account", "groups": "update_group"}
+
+
+def _set_receiving_enabled(kind: str, email_id: str, enabled: bool) -> None:
+    updated = get_client().call(
+        f"mail.{kind}.{_RECEIVING_CALLS[kind]}", email=email_id, disable_receiving=not enabled
+    )
+    if bool(updated.get("disable_receiving")) == enabled:
+        # A Suite Cloud older than the option drops it unseen and answers as if all went well.
+        frappe.throw(_("Suite Cloud cannot change whether an address receives mail yet."))
+
+
+@frappe.whitelist(methods=["POST"])
+def set_member_receiving_enabled(member_id: str, enabled: bool) -> None:
+    """Lets the member's mailbox receive mail again, or makes it send-only: mail addressed to it
+    then bounces back to the sender, while the member still logs in and sends."""
+
+    enabled = bool(enabled)
+    check_admin_permission(
+        "enable receiving for members" if enabled else "disable receiving for members", member_id
+    )
+    _set_receiving_enabled("accounts", _require_member_account(member_id), enabled)
+
+
 # --- aliases (accounts, groups and lists alike) ------------------------------------------------------
 
 
 # Suite Cloud changes one alias at a time under a row lock, so two admins editing the same
 # object never drop each other's rows.
-_ALIAS_CALLS = {
-    "accounts": ("add_alias", "remove_alias", "set_alias_enabled"),
-    "groups": ("add_group_alias", "remove_group_alias", "set_group_alias_enabled"),
-    "mailing_lists": (
-        "add_mailing_list_alias",
-        "remove_mailing_list_alias",
-        "set_mailing_list_alias_enabled",
-    ),
-}
-
-
 def _add_alias(kind: str, email_id: str, alias: str, description: str | None) -> None:
     alias = (alias or "").strip().lower()
     validate_email_address(alias, throw=True)
     is_subaddressed_email(alias, raise_exception=True)
     get_client().call(
-        f"mail.{kind}.{_ALIAS_CALLS[kind][0]}",
+        f"mail.{kind}.add_alias",
         email=email_id,
         alias=alias,
         description=(description or "").strip() or None,
@@ -1026,14 +1151,12 @@ def _add_alias(kind: str, email_id: str, alias: str, description: str | None) ->
 
 
 def _remove_alias(kind: str, email_id: str, alias: str) -> None:
-    get_client().call(
-        f"mail.{kind}.{_ALIAS_CALLS[kind][1]}", email=email_id, alias=(alias or "").strip().lower()
-    )
+    get_client().call(f"mail.{kind}.remove_alias", email=email_id, alias=(alias or "").strip().lower())
 
 
 def _set_alias_enabled(kind: str, email_id: str, alias: str, enabled: bool) -> None:
     get_client().call(
-        f"mail.{kind}.{_ALIAS_CALLS[kind][2]}",
+        f"mail.{kind}.set_alias_enabled",
         email=email_id,
         alias=(alias or "").strip().lower(),
         enabled=bool(enabled),
@@ -1150,6 +1273,7 @@ def _group_row(group: dict) -> dict:
         "name": group["email"].split("@", 1)[0],
         "email": group["email"],
         "description": group.get("description"),
+        "disable_receiving": bool(group.get("disable_receiving")),
         "quota_gb": flt(group.get("disk_quota_gb")),
         "used_bytes": _bytes_or_none(group.get("used_disk_bytes")),
         "created_at": to_utc_z(group.get("created_at")),
@@ -1186,31 +1310,55 @@ def add_group(
     description: str | None = None,
     members: list | None = None,
     quota_gb: float | None = None,
+    disable_receiving: bool = False,
 ) -> str:
+    """``disable_receiving`` makes a group whose address takes no mail: what is sent to it bounces
+    back to the sender, while its members' own mail is not affected."""
+
     email = f"{name}@{domain}"
     check_admin_permission("add groups", email)
+    if quota_gb not in (None, 0):
+        frappe.throw(_("Group Mail storage is unlimited"))
     group = get_client().call(
         "mail.groups.create_group",
         email=email,
         description=description,
         members=_listify(members) or None,
-        # Unset means the Mail Settings default, as for accounts; Suite Cloud's own default is the
-        # last resort when that is blank too.
-        disk_quota_gb=flt(quota_gb) or flt(get_config("default_disk_quota_gb")) or None,
+        disk_quota_gb=0,
+        disable_receiving=bool(disable_receiving) or None,
     )
+    if disable_receiving and not group.get("disable_receiving"):
+        # A Suite Cloud older than the option drops it unseen and hands back an ordinary group,
+        # which would take the very mail this one was asked not to receive.
+        get_client().call("mail.groups.delete_group", email=group["email"])
+        frappe.throw(_("Suite Cloud cannot create groups with receiving disabled yet."))
     return group["email"]
 
 
 @frappe.whitelist(methods=["POST"])
 def update_group(group_id: str, description: str | None = None, quota_gb: float | None = None) -> None:
     check_admin_permission("update groups", group_id)
+    if quota_gb not in (None, 0):
+        frappe.throw(_("Group Mail storage is unlimited"))
     changes = {}
     if description is not None:
         changes["description"] = description
     if quota_gb is not None:
-        changes["disk_quota_gb"] = flt(quota_gb)
+        changes["disk_quota_gb"] = 0
     if changes:
         get_client().call("mail.groups.update_group", email=group_id, **changes)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_group_receiving_enabled(group_id: str, enabled: bool) -> None:
+    """Lets the group's address receive mail again, or stops it: mail addressed to it then bounces
+    back to the sender."""
+
+    enabled = bool(enabled)
+    check_admin_permission(
+        "enable receiving for groups" if enabled else "disable receiving for groups", group_id
+    )
+    _set_receiving_enabled("groups", group_id, enabled)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1236,7 +1384,7 @@ def add_group_members(group_id: str, account_ids: list) -> None:
     check_admin_permission("update groups", group_id)
     group = get_client().call("mail.groups.get_group", email=group_id)
     members = list(dict.fromkeys([*(group.get("members") or []), *_listify(account_ids)]))
-    get_client().call("mail.groups.set_group_members", email=group_id, members=members)
+    get_client().call("mail.groups.set_members", email=group_id, members=members)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1244,7 +1392,7 @@ def remove_group_member(group_id: str, account_id: str) -> None:
     check_admin_permission("update groups", f"{group_id} ({account_id})")
     group = get_client().call("mail.groups.get_group", email=group_id)
     members = [m for m in group.get("members") or [] if m != account_id]
-    get_client().call("mail.groups.set_group_members", email=group_id, members=members)
+    get_client().call("mail.groups.set_members", email=group_id, members=members)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1423,7 +1571,7 @@ def get_overview() -> dict:
         overview["pending_invites"] = invites["pending"]
 
     with suppress(Exception):
-        site = get_client().call("site.ping")
+        site = get_client().call("tenant.ping")
         usage = site.get("usage") or {}
         limits = site.get("limits") or {}
         overview["domains"] = usage.get("domains")
@@ -1431,13 +1579,12 @@ def get_overview() -> dict:
         overview["mailing_lists"] = usage.get("mailing_lists")
         overview["limits"] = limits
         overview["storage"] = {
-            "allocated_gb": usage.get("allocated_disk_gb"),
+            "used_bytes": _bytes_or_none(usage.get("used_disk_bytes")),
             "max_gb": limits.get("max_disk_gb"),
-            "default_quota_gb": limits.get("default_disk_quota_gb"),
         }
         overview["site"] = {
             k: site.get(k)
-            for k in ("site", "title", "status", "cluster", "mail_hostname", "jmap_url", "contact_email")
+            for k in ("tenant", "title", "status", "cluster", "mail_hostname", "jmap_url", "contact_email")
         }
 
     with suppress(Exception):

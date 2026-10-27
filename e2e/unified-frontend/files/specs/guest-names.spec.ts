@@ -1,13 +1,11 @@
-import { type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
-import { expect, test } from "../../helpers/flips";
 import { DRIVE, adminApi, createDocument, createFolder, purge, roots, runTag, type DriveNode } from "../../helpers/drive";
 
 /**
  * Stage 11 follow-up: guests sign their comments (spec §10.5, ticket 011).
  *
- * A guest opens each document through a comment link, which lands on its
- * `/d/` address.
+ * A guest opens each document through a comment link.
  */
 
 const SIGNED_OUT = { cookies: [], origins: [] };

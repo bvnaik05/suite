@@ -25,12 +25,19 @@ class AddDomainInput(TypedDict):
     description: NotRequired[str | None]
 
 
+class MemberOutcome(TypedDict):
+    user: str
+    success: bool
+    error: str | None
+
+
 class AddGroupInput(TypedDict):
     name: str
     domain: str
     description: NotRequired[str | None]
     members: NotRequired[list[str] | None]
     quota_gb: NotRequired[float | None]
+    disable_receiving: NotRequired[bool]
 
 
 class AddGroupEmailInput(TypedDict):
@@ -78,6 +85,16 @@ class AddMemberInput(TypedDict):
     quota_gb: NotRequired[float | None]
     locale: NotRequired[str | None]
     time_zone: NotRequired[str | None]
+    disable_receiving: NotRequired[bool]
+
+
+class CreationResult(TypedDict):
+    success: bool
+    user: str
+    status: str
+    error: str | None
+    temporary_password: str | None
+    expires_at: str | None
 
 
 class AddMemberEmailInput(TypedDict):
@@ -119,6 +136,7 @@ class DeleteMailingListsInput(TypedDict):
 
 class DeleteMembersInput(TypedDict):
     names: list[str]
+    confirmation: NotRequired[str]
 
 
 class DisableMembersInput(TypedDict):
@@ -215,6 +233,11 @@ class SetGroupEmailEnabledInput(TypedDict):
     enabled: int
 
 
+class SetGroupReceivingEnabledInput(TypedDict):
+    group_id: str
+    enabled: bool
+
+
 class SetMailingListEmailEnabledInput(TypedDict):
     list_id: str
     email: str
@@ -225,6 +248,11 @@ class SetMemberEmailEnabledInput(TypedDict):
     member_id: str
     email: str
     enabled: int
+
+
+class SetMemberReceivingEnabledInput(TypedDict):
+    member_id: str
+    enabled: bool
 
 
 class UpdateDomainInput(TypedDict):
@@ -279,7 +307,7 @@ _OPERATIONS: tuple[tuple[Callable[..., object], RouteKind, str, object, object],
         AddMailingListRecipientsInput,
         type(None),
     ),
-    (admin.add_member, "mutation", "admin.members.create", AddMemberInput, type(None)),
+    (admin.add_member, "mutation", "admin.members.create", AddMemberInput, CreationResult),
     (admin.add_member_email, "mutation", "admin.members.addEmail", AddMemberEmailInput, type(None)),
     (
         admin.add_member_to_groups,
@@ -318,9 +346,9 @@ _OPERATIONS: tuple[tuple[Callable[..., object], RouteKind, str, object, object],
         DeleteMailingListsInput,
         type(None),
     ),
-    (admin.delete_members, "mutation", "admin.members.delete", DeleteMembersInput, type(None)),
-    (admin.disable_members, "mutation", "admin.members.disable", DisableMembersInput, type(None)),
-    (admin.enable_members, "mutation", "admin.members.enable", EnableMembersInput, type(None)),
+    (admin.delete_members, "mutation", "admin.members.delete", DeleteMembersInput, CreationResult),
+    (admin.disable_members, "mutation", "admin.members.disable", DisableMembersInput, list[MemberOutcome]),
+    (admin.enable_members, "mutation", "admin.members.enable", EnableMembersInput, list[MemberOutcome]),
     (admin.get_account_options, "query", "admin.members.options", None, AccountOptions),
     (admin.get_accounts, "query", "admin.members.accounts", GetAccountsInput, list[AddressRef]),
     (admin.get_domain, "query", "admin.domains.get", GetDomainInput, Domain),
@@ -390,6 +418,13 @@ _OPERATIONS: tuple[tuple[Callable[..., object], RouteKind, str, object, object],
         type(None),
     ),
     (
+        admin.set_group_receiving_enabled,
+        "mutation",
+        "admin.groups.setReceivingEnabled",
+        SetGroupReceivingEnabledInput,
+        type(None),
+    ),
+    (
         admin.set_mailing_list_email_enabled,
         "mutation",
         "admin.mailingLists.setEmailEnabled",
@@ -401,6 +436,13 @@ _OPERATIONS: tuple[tuple[Callable[..., object], RouteKind, str, object, object],
         "mutation",
         "admin.members.setEmailEnabled",
         SetMemberEmailEnabledInput,
+        type(None),
+    ),
+    (
+        admin.set_member_receiving_enabled,
+        "mutation",
+        "admin.members.setReceivingEnabled",
+        SetMemberReceivingEnabledInput,
         type(None),
     ),
     (admin.update_domain, "mutation", "admin.domains.update", UpdateDomainInput, DomainRow | Domain),

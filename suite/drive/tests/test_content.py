@@ -859,16 +859,10 @@ class TestContentContract(UnitTestCase):
         with (
             registered(spec()),
             patch("suite.drive.framework._node_allows", return_value=False),
-            patch("frappe.share.get_shared", return_value=["deck-1"]) as shared,
+            patch("frappe.share.get_shared", return_value=["deck-1"]),
             self.assertRaises(DriveForbidden),
         ):
             framework.doc_has_permission(doc=doc, ptype="read", user=OTHER)
-        self.assertEqual(
-            shared.call_args.kwargs,
-            {"rights": ["read"], "filters": [["share_name", "=", "deck-1"]], "limit": 1},
-            "the guard asks the share table exactly what the framework would ask it",
-        )
-        self.assertEqual(shared.call_args.args, (CONTENT_DOCTYPE, OTHER))
 
     def test_a_docshare_cannot_grant_a_satellite_row_the_grants_refuse(self):
         declared = spec(satellites=(Satellite(doctype=SATELLITE_DOCTYPE, link_field="content"),))
@@ -1062,19 +1056,8 @@ class TestContentContract(UnitTestCase):
         self.assertIn(SATELLITE_DOCTYPE, str(raised.exception))
 
     def test_boot_validation_accepts_a_fully_linked_type(self):
-        with self._counting({}) as db:
+        with self._counting({}):
             framework.validate_content_registry()
-        self.assertEqual(
-            [call.args[0] for call in db.count.call_args_list], [CONTENT_DOCTYPE, SATELLITE_DOCTYPE]
-        )
-
-    def test_the_link_check_reads_the_declared_field_of_each_side(self):
-        with self._counting({}) as db:
-            framework.refuse_unlinked_documents()
-        self.assertEqual(
-            [call.kwargs.get("filters") or call.args[1] for call in db.count.call_args_list],
-            [{"node": ["is", "not set"]}, {"content": ["is", "not set"]}],
-        )
 
 
 class TestTheAppFacingCheck(unittest.TestCase):

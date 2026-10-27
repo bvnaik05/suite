@@ -7,6 +7,7 @@ import type { Removal } from '@/apps/writer/collab/removals'
 import { writerRender } from '@/apps/writer/collab/render'
 import { writerSchema } from '@/apps/writer/schema'
 import { openSignedInDeviceStore, type DeviceStore, type RecoveryRecord } from '@/platform/collab'
+import { randomId } from '@/platform/random-id'
 
 /**
  * Writer's recovery copies: work kept on this device because it could not
@@ -54,7 +55,7 @@ async function storeRemovedWork(
   blocks: yjs.XmlElement[],
 ): Promise<'kept' | 'unkept'> {
   // A sid of its own, since recover() files the copy under it and forgets that session
-  const id = crypto.randomUUID()
+  const id = randomId()
   const sid = `restructure-${id}`
   const keys = fresh.flatMap((removal) => removal.key ?? [])
   const state = removedDoc(blocks, keys)

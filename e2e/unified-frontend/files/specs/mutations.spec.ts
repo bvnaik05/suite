@@ -1,6 +1,4 @@
-import { type APIRequestContext } from "@playwright/test";
-
-import { expect, test } from "../../helpers/flips";
+import { type APIRequestContext, expect, test } from "@playwright/test";
 
 import {
 	adminApi,
@@ -101,11 +99,7 @@ test("Star from the row menu reaches the Starred view", async ({ page }) => {
 	await expect(page.getByText(target.title, { exact: true })).toBeVisible();
 });
 
-// BUG: NodeShape in suite/drive/http/shapes.py carries no `favourite` field, so
-// every listing row arrives without star state. The optimistic flag written by
-// toggleStar() disappears on the next refetch: the row never paints its star and
-// the menu never offers Unstar.
-test.fixme("a starred row shows its star and offers Unstar", async ({ page }) => {
+test("a starred row shows its star and offers Unstar", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}?view=list`);
 	await openRowMenu(page, target.title);
 	await page.getByRole("menuitem", { name: "Star", exact: true }).click();
@@ -115,12 +109,18 @@ test.fixme("a starred row shows its star and offers Unstar", async ({ page }) =>
 		.toBe(true);
 
 	await page.reload();
+	const star = page.locator(`[data-node='${target.name}'] .lucide-star`);
+	await expect(star).toBeVisible();
 	await openRowMenu(page, target.title);
 	await expect(page.getByRole("menuitem", { name: "Unstar" })).toBeVisible();
 	await page.getByRole("menuitem", { name: "Unstar" }).click();
 	await expect
 		.poll(async () => (await listView(api, "favourites")).rows.some((row) => row.name === target.name))
 		.toBe(false);
+	await page.reload();
+	await expect(star).toHaveCount(0);
+	await openRowMenu(page, target.title);
+	await expect(page.getByRole("menuitem", { name: "Star", exact: true })).toBeVisible();
 });
 
 test("Make a copy accepts the title the server returns", async ({ page }) => {
@@ -151,5 +151,7 @@ test("Share on a row opens the Drive share dialog", async ({ page }) => {
 	await page.goto(`/drive/f/${home.name}?view=list`);
 	await openRowMenu(page, target.title);
 	await page.getByRole("menuitem", { name: "Share" }).click();
-	await expect(page.getByRole("dialog", { name: `Share “${target.title}”` })).toBeVisible();
+	const dialog = page.getByRole("dialog", { name: "Share", exact: true });
+	await expect(dialog.getByText(target.title, { exact: true })).toBeVisible();
+	await expect(dialog.getByRole("region", { name: "Who has access" })).toBeVisible();
 });

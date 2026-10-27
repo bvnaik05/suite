@@ -10,6 +10,7 @@ import { writerRender } from '@/apps/writer/collab/render'
 import { writerSchema } from '@/apps/writer/schema'
 import type { WriterDocumentRow } from '@/apps/writer/surface/writerDocument'
 import { openSignedInDeviceStore } from '@/platform/collab'
+import { randomId } from '@/platform/random-id'
 
 import { keepPageCopy } from './copies'
 
@@ -178,7 +179,7 @@ async function keepState(node: string, title: string, state: Uint8Array) {
     return false
   }
 
-  const id = crypto.randomUUID()
+  const id = randomId()
   const sid = `old-editor-${id}`
   const entry = { doc: node, sid, seq: 0, bytes: state, sha: '', seenRev: 0 }
   try {

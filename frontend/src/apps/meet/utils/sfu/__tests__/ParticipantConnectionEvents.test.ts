@@ -75,6 +75,84 @@ describe('ParticipantConnection', () => {
     E2EEMeeting.instance.wipeMeetingContext()
   })
 
+  it('buffers producers during rejoin until the replacement receive side is synchronized', async () => {
+    const { handlers, manager, mediaManager, participantManager, sfuClient } = createManager()
+    participantManager.addParticipant({
+      participantId: 'remote-1',
+      userData: { name: 'Remote', video_enabled: true },
+    })
+    await manager.connect('token')
+    sfuClient.getRoomParticipants.mockResolvedValueOnce([
+      { participantId: 'remote-1', userData: { name: 'Remote', video_enabled: true } },
+    ] as never)
+    sfuClient.joinRoom.mockImplementationOnce(async () => {
+      // Rejoin removes the old server transports before its acknowledgement.
+      await handlers.get('producer_created')?.({
+        participantId: 'remote-1',
+        producerId: 'encrypted-video',
+        kind: 'video',
+      })
+    })
+
+    await manager.joinRoom(
+      { userId: 'me', name: 'Me' },
+      { audio_enabled: true, video_enabled: true },
+    )
+
+    expect(mediaManager.subscribeToRemoteProducer).not.toHaveBeenCalled()
+    await manager.setupExistingParticipants()
+    expect(mediaManager.subscribeToRemoteProducer).toHaveBeenCalledWith({
+      participantId: 'remote-1',
+      producerId: 'encrypted-video',
+      isScreen: false,
+    })
+  })
+
+  it.each([false, true])(
+    'restores prior buffering (%s) after a failed rejoin',
+    async (buffering) => {
+      const { handlers, manager, mediaManager, participantManager, sfuClient } = createManager()
+      participantManager.addParticipant({
+        participantId: 'remote-1',
+        userData: { name: 'Remote', audio_enabled: true },
+      })
+      await manager.connect('token')
+      manager.initialSyncInProgress = buffering
+      const rejected = new Error('Rejoin rejected')
+      sfuClient.joinRoom.mockImplementationOnce(async () => {
+        await handlers.get('producer_created')?.({
+          participantId: 'remote-1',
+          producerId: 'during-rejoin',
+          kind: 'audio',
+        })
+        throw rejected
+      })
+
+      await expect(
+        manager.joinRoom(
+          { userId: 'me', name: 'Me' },
+          { audio_enabled: true, video_enabled: true },
+        ),
+      ).rejects.toBe(rejected)
+      await handlers.get('producer_created')?.({
+        participantId: 'remote-1',
+        producerId: 'after-rejoin',
+        kind: 'audio',
+      })
+
+      if (buffering) {
+        expect(mediaManager.subscribeToRemoteProducer).not.toHaveBeenCalled()
+      } else {
+        expect(
+          mediaManager.subscribeToRemoteProducer.mock.calls.map(([producer]) => producer),
+        ).toEqual([
+          { participantId: 'remote-1', producerId: 'during-rejoin', isScreen: false },
+          { participantId: 'remote-1', producerId: 'after-rejoin', isScreen: false },
+        ])
+      }
+    },
+  )
+
   it('subscribes to remote audio producers', async () => {
     const { handlers, manager, mediaManager, participantManager } = createManager()
     participantManager.addParticipant({

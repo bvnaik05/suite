@@ -253,12 +253,14 @@ doc_events = {
         "validate": ["suite.drive.framework.refuse_governed_share"],
     },
     "User": {
+        "before_save": ["suite.composition.users.before_save"],
         # Roles are assigned before insert so they are present when Frappe's
         # User.validate runs — assigning them after insert triggers a spurious
-        # "No Roles Specified" warning and leaves user_type mis-resolved.
+        # "No Roles Specified" warning.
         "before_insert": [
             "suite.utils.user.assign_suite_role",
         ],
+        "before_validate": ["suite.mail.events.keep_new_password"],
         "after_insert": [
             "suite.composition.users.after_insert",
         ],
@@ -270,15 +272,24 @@ doc_events = {
             "suite.mail.events.clear_sessions_on_disable",
             "suite.mail.events.apply_disabled_account_role",
             "suite.mail.events.remove_disabled_account_role",
+            "suite.mail.email_suggestions.clear_directory_addresses",
         ],
         "on_trash": [
             "suite.composition.users.on_trash",
+            "suite.mail.email_suggestions.clear_directory_addresses",
         ],
+        "after_rename": ["suite.mail.email_suggestions.clear_directory_addresses"],
+    },
+    # Recipient suggestions list every account by its address; inserts fire on_update too.
+    "JMAP Account": {
+        "on_update": ["suite.mail.email_suggestions.clear_directory_addresses"],
+        "on_trash": ["suite.mail.email_suggestions.clear_directory_addresses"],
     },
 }
 
 user_invitation = {
     "allowed_roles": {
+        "Suite Admin": ["Suite User"],
         "System Manager": ["Suite User"],
     },
 }
@@ -288,7 +299,12 @@ setup_wizard_url = "/suite/setup"
 
 # Heal the user's JMAP push subscription on login (enqueued; a lost subscription silently
 # ends webhooks — realtime events and mailbox-count invalidation both ride on them)
-on_login = ["suite.mail.doctype.push_subscription.push_subscription.on_login"]
+on_login = [
+    "suite.composition.access.on_login",
+    "suite.mail.doctype.push_subscription.push_subscription.on_login",
+]
+auth_hooks = ["suite.composition.access.authenticated_request"]
+before_login = ["suite.composition.access.before_login"]
 
 # ============================================================================
 # Scheduled Tasks (per-frequency lists combined; cron keys de-duplicated)
@@ -315,6 +331,7 @@ scheduler_events = {
     "hourly": [
         # content
         "suite.content.jobs.trim_logs",
+        "suite.composition.admin_jobs.refresh_storage",
         # drive
         "suite.drive.webdav.locks.purge_expired_locks",
         # mail
@@ -347,7 +364,6 @@ after_install = "suite.composition.lifecycle.after_install"
 before_migrate = "suite.composition.lifecycle.before_migrate"
 after_migrate = "suite.composition.lifecycle.after_migrate"
 after_app_install = "suite.composition.lifecycle.after_app_install"
-extend_bootinfo = "suite.composition.lifecycle.extend_bootinfo"
 
 # drive — lets the listed sites frame Drive pages and API answers
 after_request = [

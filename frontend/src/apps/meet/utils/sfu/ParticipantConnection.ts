@@ -1,5 +1,7 @@
 /** Owns one browser endpoint's SFU lifecycle from setup through cleanup. */
 
+import { randomId } from '@/platform/random-id'
+
 import type { User } from '../../composables/useCurrentUser'
 import { isUnknownRecord, type JoinRoomMediaState, type JoinUserData } from '../../types'
 import type { ConsumerEntry } from '../media/ConsumerManager'
@@ -203,7 +205,7 @@ export class ParticipantConnection {
   private e2eeReadyForLifecycle = false
   private lastAuthToken: string | null = null
   private activeEscalation: Promise<boolean> | null = null
-  private readonly connectionId = crypto.randomUUID()
+  private readonly connectionId = randomId()
   private localProducerBytes = new Map<string, number>()
   private _state: ParticipantConnectionState = 'stopped'
   private static readonly INITIAL_RETRY_DELAY_MS = 1000
@@ -476,6 +478,10 @@ export class ParticipantConnection {
     conflictId?: string,
   ): Promise<boolean> {
     const generation = this.lifecycleGeneration
+    const wasBuffering = this.initialSyncInProgress
+    // Rejoin removes the server's old transports. Buffer producer events until
+    // the replacement media side is ready and setupExistingParticipants syncs it.
+    this.initialSyncInProgress = true
     try {
       await this.sfuClient.joinRoom(this.meetingId ?? '', userData, mediaState, {
         connectionId: this.connectionId,
@@ -490,6 +496,18 @@ export class ParticipantConnection {
       console.log('Successfully joined room:', this.meetingId)
       return true
     } catch (error) {
+      if (generation === this.lifecycleGeneration) {
+        this.initialSyncInProgress = wasBuffering
+        if (!wasBuffering) {
+          for (const event of this.bufferedReconciliationEvents.splice(0)) {
+            this.applyReconciliationEvent(event)
+          }
+          this.flushBufferedMediaStateUpdates()
+          await this.flushBufferedProducers().catch((flushError) => {
+            console.warn('Failed to resume subscriptions after rejected rejoin:', flushError)
+          })
+        }
+      }
       console.error('Failed to join room:', error)
       throw error
     }

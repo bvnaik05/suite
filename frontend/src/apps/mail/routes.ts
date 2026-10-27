@@ -51,7 +51,6 @@ const ShortcutRedirect = { render: () => null }
 // The MIME page and the Admin Dashboard need no mail account, so the suite router loads them
 // without the Mail capability. They carry no rail context (`area` unset), so the shell does not
 // answer them with "Mail is unavailable". The mail guard still decides who may see the dashboard.
-const dashboardMeta = { isDashboard: true, area: undefined }
 
 export const routes: RouteRecordRaw[] = [
   // --- Public (pre-auth) routes -------------------------------------------
@@ -176,20 +175,14 @@ export const routes: RouteRecordRaw[] = [
         name: 'mail-profile',
         component: () => import('@/apps/mail/pages/ProfileView.vue'),
       },
+      // The Screener had a page of its own; screened mail now waits in the Inbox, so an old link
+      // to it — or to one of its senders — lands there.
       {
-        path: 'account/:accountId/screener',
-        name: 'mail-screener',
-        component: () => import('@/apps/mail/pages/ScreenerView.vue'),
-        props: true,
-      },
-      // The open sender lives in the URL, as the open thread does: on mobile the preview is a
-      // full-screen overlay, so the back gesture has to close it rather than leave the screener.
-      // Same component — the param only says which sender is open.
-      {
-        path: 'account/:accountId/screener/:senderEmail',
-        name: 'mail-screener-sender',
-        component: () => import('@/apps/mail/pages/ScreenerView.vue'),
-        props: true,
+        path: 'account/:accountId/screener/:senderEmail?',
+        redirect: (to) => ({
+          name: 'mail-mailbox',
+          params: { accountId: to.params.accountId, mailbox: 'inbox' },
+        }),
       },
       {
         path: 'account/:accountId/outbox',
@@ -250,96 +243,6 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/apps/mail/pages/ContactsExchangeView.vue'),
         meta: { noLayout: true },
         props: true,
-      },
-      {
-        path: 'dashboard',
-        name: 'mail-overview',
-        component: () => import('@/apps/mail/pages/dashboard/OverviewView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/domains',
-        name: 'mail-domains',
-        component: () => import('@/apps/mail/pages/dashboard/DomainsView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/domains/:domainId',
-        name: 'mail-domain',
-        component: () => import('@/apps/mail/pages/dashboard/DomainView.vue'),
-        props: true,
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/dmarc',
-        name: 'mail-dmarc-reports',
-        component: () => import('@/apps/mail/pages/dashboard/DmarcReportsView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/dmarc/:reportId',
-        name: 'mail-dmarc-report',
-        component: () => import('@/apps/mail/pages/dashboard/DmarcReportView.vue'),
-        props: true,
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/tls',
-        name: 'mail-tls-reports',
-        component: () => import('@/apps/mail/pages/dashboard/TlsReportsView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/tls/:reportId',
-        name: 'mail-tls-report',
-        component: () => import('@/apps/mail/pages/dashboard/TlsReportView.vue'),
-        props: true,
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/accounts',
-        name: 'mail-accounts',
-        component: () => import('@/apps/mail/pages/dashboard/AccountsView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/invites',
-        name: 'mail-invites',
-        component: () => import('@/apps/mail/pages/dashboard/AccountsView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/accounts/:accountId',
-        name: 'mail-account',
-        component: () => import('@/apps/mail/pages/dashboard/AccountView.vue'),
-        props: true,
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/groups',
-        name: 'mail-groups',
-        component: () => import('@/apps/mail/pages/dashboard/GroupsView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/groups/:groupId',
-        name: 'mail-group',
-        component: () => import('@/apps/mail/pages/dashboard/GroupView.vue'),
-        props: true,
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/mailing-lists',
-        name: 'mail-mailing-lists',
-        component: () => import('@/apps/mail/pages/dashboard/MailingListsView.vue'),
-        meta: dashboardMeta,
-      },
-      {
-        path: 'dashboard/mailing-lists/:listId',
-        name: 'mail-mailing-list',
-        component: () => import('@/apps/mail/pages/dashboard/MailingListView.vue'),
-        props: true,
-        meta: dashboardMeta,
       },
       // Shortcut routes: short paths that resolve to their full
       // account-scoped equivalents once the active accountId is known

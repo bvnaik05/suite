@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createTransport, TransportError, type Transport } from '@/platform/transport'
 
+import { announceAccessChange } from './accessChanges'
 import { driveLinks } from './links'
 import { ACCESS_REFRESH_MS, MEDIA_REFRESH_MS, openDriveDocumentSession } from './session'
 import { testClient } from './testClient'
@@ -200,7 +201,11 @@ describe('document session media', () => {
       if (id === 'node_get') return documentNode('root')
       if (id === 'node_media') {
         mediaCalls += 1
-        return { media: [{ node: 'm1', url: `/f/blob?e=1&s=${mediaCalls}`, expires: 1 }] }
+        return {
+          media: [
+            { node: 'm1', url: `/private/files/b7x2k9q4mz/a.png?e=1&s=${mediaCalls}`, expires: 1 },
+          ],
+        }
       }
       return {}
     })
@@ -208,7 +213,7 @@ describe('document session media', () => {
     const handle = session.media('m1')
     await vi.runAllTicks()
     for (let i = 0; i < 15; i++) await Promise.resolve()
-    expect(handle.cacheKey.value).toBe('drive-media:/f/blob')
+    expect(handle.cacheKey.value).toBe('drive-media:/private/files/b7x2k9q4mz/')
     await vi.advanceTimersByTimeAsync(MEDIA_REFRESH_MS)
     expect(mediaCalls).toBeGreaterThanOrEqual(2)
     expect(handle.cacheKey.value).not.toContain('?')
@@ -298,6 +303,67 @@ describe('document session access refresh', () => {
     user = 'Administrator'
     fakeWindow.dispatchEvent(new Event('focus'))
     await vi.waitFor(() => expect(session.state.value).toBe('Refused'))
+    session.dispose()
+  })
+})
+
+describe('document session access', () => {
+  it('Changing sharing makes an open document re-read its own access at once', async () => {
+    const roles = [40, 10]
+    let reads = 0
+    const requester = transport((id, input) => {
+      if (id !== 'node_get') return {}
+      const role = roles[Math.min(reads, roles.length - 1)]
+      reads += 1
+      return { ...documentNode(input.node), access: { role, via_link: null } }
+    })
+    const session = await openDriveDocumentSession('deck', {
+      client: testClient(requester),
+      window: new EventTarget() as Window,
+    })
+    expect(reads).toBe(1)
+    expect(session.access.value.role).toBe(40)
+
+    announceAccessChange('deck')
+    await vi.waitFor(() => expect(session.access.value.role).toBe(10))
+    expect(reads).toBe(2)
+
+    announceAccessChange('other-node')
+    await Promise.resolve()
+    expect(reads).toBe(2)
+
+    session.dispose()
+    announceAccessChange('deck')
+    await Promise.resolve()
+    expect(reads).toBe(2)
+  })
+})
+
+describe('document session rename', () => {
+  it('leaves a refused rename to the header instead of a toast', async () => {
+    const feedback = vi.fn()
+    const conflict = new TransportError({
+      type: 'DriveConflict',
+      status: 409,
+      message: 'An active Drive node with this title already exists',
+      free_title: 'Rates (2)',
+    })
+    const session = await openDriveDocumentSession('sheet', {
+      node: documentNode('sheet') as never,
+      client: testClient(
+        {
+          request: (operation) =>
+            operation.id === 'node_patch.rename'
+              ? Promise.reject(conflict)
+              : Promise.resolve({} as never),
+        },
+        feedback,
+      ),
+    })
+
+    await expect(session.rename('Rates')).rejects.toBe(conflict)
+    expect(feedback).not.toHaveBeenCalled()
+    expect(session.title.value).toBe('sheet')
     session.dispose()
   })
 })

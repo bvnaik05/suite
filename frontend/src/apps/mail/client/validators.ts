@@ -41,12 +41,16 @@ import type {
   AddPushSubscriptionOutput,
   AllowScreeningSendersInput,
   AllowScreeningSendersOutput,
+  BlockSendersInput,
+  BlockSendersOutput,
   BookInput,
   BookOutput,
   CancelScheduledMailInput,
   CancelScheduledMailOutput,
   ChangeMemberPasswordInput,
   ChangeMemberPasswordOutput,
+  ClearListInput,
+  ClearListOutput,
   ContactCardAddToAddressBookInput,
   ContactCardAddToAddressBookOutput,
   ContactCardRemoveFromAddressBookInput,
@@ -131,6 +135,8 @@ import type {
   FetchMailAsEmlOutput,
   FetchPushSubscriptionsInput,
   FetchPushSubscriptionsOutput,
+  FileMailsInput,
+  FileMailsOutput,
   GetAccountOptionsInput,
   GetAccountOptionsOutput,
   GetAccountRequestInput,
@@ -209,14 +215,12 @@ import type {
   GetParticipantIdentitiesOutput,
   GetQuotaInput,
   GetQuotaOutput,
+  GetRecentThreadsFromInput,
+  GetRecentThreadsFromOutput,
   GetScheduledMailInput,
   GetScheduledMailOutput,
   GetScreenedAddressesInput,
   GetScreenedAddressesOutput,
-  GetScreeningSenderMailsInput,
-  GetScreeningSenderMailsOutput,
-  GetScreeningSendersInput,
-  GetScreeningSendersOutput,
   GetSieveScriptsInput,
   GetSieveScriptsOutput,
   GetSignupDomainsInput,
@@ -225,6 +229,8 @@ import type {
   GetSignupSettingsOutput,
   GetSubmissionsInput,
   GetSubmissionsOutput,
+  GetTabCountsInput,
+  GetTabCountsOutput,
   GetThreadInput,
   GetThreadOutput,
   GetThreadsInput,
@@ -237,8 +243,12 @@ import type {
   GetTlsSummaryOutput,
   GetUnifiedFoldersInput,
   GetUnifiedFoldersOutput,
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput,
   GetUnifiedThreadsInput,
   GetUnifiedThreadsOutput,
+  GetUnsubscribeOptionsInput,
+  GetUnsubscribeOptionsOutput,
   GetUserForResetPasswordKeyInput,
   GetUserForResetPasswordKeyOutput,
   GetUserInfoInput,
@@ -249,16 +259,18 @@ import type {
   InboxSummaryOutput,
   InviteInput,
   InviteOutput,
+  JunkSendersInboxMailInput,
+  JunkSendersInboxMailOutput,
   MoveMailsInput,
   MoveMailsOutput,
-  MoveScreeningMailsToInboxInput,
-  MoveScreeningMailsToInboxOutput,
   OngoingCalendarExchangeInput,
   OngoingCalendarExchangeOutput,
   OngoingExchangeInput,
   OngoingExchangeOutput,
   RebuildAutomationScriptForAccountInput,
   RebuildAutomationScriptForAccountOutput,
+  RegionalPreferencesInput,
+  RegionalPreferencesOutput,
   RemoveGroupEmailInput,
   RemoveGroupEmailOutput,
   RemoveGroupMemberInput,
@@ -305,6 +317,8 @@ import type {
   SetFlaggedOutput,
   SetGroupEmailEnabledInput,
   SetGroupEmailEnabledOutput,
+  SetGroupReceivingEnabledInput,
+  SetGroupReceivingEnabledOutput,
   SetMailingListEmailEnabledInput,
   SetMailingListEmailEnabledOutput,
   SetMailsMailboxesInput,
@@ -315,6 +329,8 @@ import type {
   SetMailsSpamStatusOutput,
   SetMemberEmailEnabledInput,
   SetMemberEmailEnabledOutput,
+  SetMemberReceivingEnabledInput,
+  SetMemberReceivingEnabledOutput,
   SetSignatureInput,
   SetSignatureOutput,
   SignaturesInput,
@@ -327,6 +343,8 @@ import type {
   UndoScreeningVerdictOutput,
   UnscreenEmailAddressesInput,
   UnscreenEmailAddressesOutput,
+  UnsubscribeMailInput,
+  UnsubscribeMailOutput,
   UpdateAccountPreferencesInput,
   UpdateAccountPreferencesOutput,
   UpdateBookInput,
@@ -353,6 +371,8 @@ import type {
   UpdateParticipantIdentityOutput,
   UpdatePreferencesInput,
   UpdatePreferencesOutput,
+  UpdateRegionalPreferencesInput,
+  UpdateRegionalPreferencesOutput,
   UpdateSieveScriptInput,
   UpdateSieveScriptOutput,
   UpdateSignatureInput,
@@ -576,6 +596,72 @@ export const operationExchangeList: Validators<ExchangeListInput, ExchangeListOu
   },
 }
 
+export const operationRegionalPreferences: Validators<
+  RegionalPreferencesInput,
+  RegionalPreferencesOutput
+> = {
+  validateInput(value: unknown): asserts value is RegionalPreferencesInput {
+    assertSchema(
+      value,
+      { type: 'object', properties: {}, required: [], additionalProperties: false, $defs: {} },
+      'regional_preferences input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is RegionalPreferencesOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          Option: {
+            properties: {
+              value: { title: 'Value', type: 'string' },
+              label: { title: 'Label', type: 'string' },
+            },
+            required: ['value', 'label'],
+            title: 'Option',
+            type: 'object',
+          },
+        },
+        properties: {
+          locale: { title: 'Locale', type: 'string' },
+          time_zone: { title: 'Time Zone', type: 'string' },
+          locales: { items: { $ref: '#/$defs/Option' }, title: 'Locales', type: 'array' },
+          time_zones: { items: { $ref: '#/$defs/Option' }, title: 'Time Zones', type: 'array' },
+        },
+        required: ['locale', 'time_zone', 'locales', 'time_zones'],
+        title: 'RegionalPreferences',
+        type: 'object',
+      },
+      'regional_preferences output',
+    )
+  },
+}
+
+export const operationUpdateRegionalPreferences: Validators<
+  UpdateRegionalPreferencesInput,
+  UpdateRegionalPreferencesOutput
+> = {
+  validateInput(value: unknown): asserts value is UpdateRegionalPreferencesInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          locale: { title: 'Locale', type: 'string' },
+          time_zone: { title: 'Time Zone', type: 'string' },
+        },
+        required: ['locale', 'time_zone'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'update_regional_preferences input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is UpdateRegionalPreferencesOutput {
+    assertSchema(value, { type: 'null' }, 'update_regional_preferences output')
+  },
+}
+
 export const operationCredentials: Validators<CredentialsInput, CredentialsOutput> = {
   validateInput(value: unknown): asserts value is CredentialsInput {
     assertSchema(
@@ -639,16 +725,22 @@ export const operationUpdatePreferences: Validators<
       {
         type: 'object',
         properties: {
-          group_messages_by: {
-            anyOf: [{ enum: ['None', 'Day', 'Month'], type: 'string' }, { type: 'null' }],
-            title: 'Group Messages By',
-          },
+          group_by_date: { enum: [0, 1], title: 'Group By Date', type: 'integer' },
           show_reading_pane: { enum: [0, 1], title: 'Show Reading Pane', type: 'integer' },
           undo_send_period: {
             enum: ['5', '10', '20', '30'],
             title: 'Undo Send Period',
             type: 'string',
           },
+          inbox_tabs: {
+            items: {
+              enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+              type: 'string',
+            },
+            title: 'Inbox Tabs',
+            type: 'array',
+          },
+          split_inbox: { enum: [0, 1], title: 'Split Inbox', type: 'integer' },
         },
         required: [],
         additionalProperties: false,
@@ -706,14 +798,14 @@ export const operationAccountPreferences: Validators<
           },
           enable_screening: { enum: [0, 1], title: 'Enable Screening', type: 'integer' },
           block_remote_images: { enum: [0, 1], title: 'Block Remote Images', type: 'integer' },
+          on_block_old_mail: {
+            enum: ['Ask', 'Move to Junk', 'Keep'],
+            title: 'On Block Old Mail',
+            type: 'string',
+          },
           default_outgoing_email: {
             anyOf: [{ type: 'string' }, { type: 'null' }],
             title: 'Default Outgoing Email',
-          },
-          on_mark_as_junk: {
-            enum: ["Junk Sender's Mail", 'Ask to Block Sender'],
-            title: 'On Mark As Junk',
-            type: 'string',
           },
         },
         required: [
@@ -723,8 +815,8 @@ export const operationAccountPreferences: Validators<
           'keep_forwarded_email_in_thread',
           'enable_screening',
           'block_remote_images',
+          'on_block_old_mail',
           'default_outgoing_email',
-          'on_mark_as_junk',
         ],
         title: 'AccountPreferences',
         type: 'object',
@@ -774,14 +866,14 @@ export const operationUpdateAccountPreferences: Validators<
               },
               enable_screening: { enum: [0, 1], title: 'Enable Screening', type: 'integer' },
               block_remote_images: { enum: [0, 1], title: 'Block Remote Images', type: 'integer' },
+              on_block_old_mail: {
+                enum: ['Ask', 'Move to Junk', 'Keep'],
+                title: 'On Block Old Mail',
+                type: 'string',
+              },
               default_outgoing_email: {
                 anyOf: [{ type: 'string' }, { type: 'null' }],
                 title: 'Default Outgoing Email',
-              },
-              on_mark_as_junk: {
-                enum: ["Junk Sender's Mail", 'Ask to Block Sender'],
-                title: 'On Mark As Junk',
-                type: 'string',
               },
             },
             title: 'AccountChanges',
@@ -985,7 +1077,12 @@ export const operationInvite: Validators<InviteInput, InviteOutput> = {
           invited_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Invited By' },
           expires_at: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Expires At' },
           quota_gb: { anyOf: [{ type: 'number' }, { type: 'null' }], title: 'Quota Gb' },
+          combined_cap_bytes: {
+            anyOf: [{ type: 'integer' }, { type: 'null' }],
+            title: 'Combined Cap Bytes',
+          },
           send_invite: { enum: [0, 1], title: 'Send Invite', type: 'integer' },
+          disable_receiving: { enum: [0, 1], title: 'Disable Receiving', type: 'integer' },
           is_verified: { enum: [0, 1], title: 'Is Verified', type: 'integer' },
           groups: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Groups' },
           mailing_lists: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailing Lists' },
@@ -999,7 +1096,9 @@ export const operationInvite: Validators<InviteInput, InviteOutput> = {
           'invited_by',
           'expires_at',
           'quota_gb',
+          'combined_cap_bytes',
           'send_invite',
+          'disable_receiving',
           'is_verified',
           'groups',
           'mailing_lists',
@@ -1021,9 +1120,14 @@ export const operationUpdateInvite: Validators<UpdateInviteInput, UpdateInviteOu
         properties: {
           name: { title: 'Name', type: 'string' },
           expires_at: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Expires At' },
-          quota_gb: { anyOf: [{ type: 'number' }, { type: 'null' }], title: 'Quota Gb' },
+          combined_cap_bytes: {
+            anyOf: [{ type: 'integer' }, { type: 'null' }],
+            title: 'Combined Cap Bytes',
+          },
+          account: { title: 'Account', type: 'string' },
+          is_admin: { title: 'Is Admin', type: 'boolean' },
         },
-        required: ['name', 'expires_at', 'quota_gb'],
+        required: ['name', 'expires_at', 'combined_cap_bytes'],
         additionalProperties: false,
         $defs: {},
       },
@@ -1402,12 +1506,9 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
                 anyOf: [{ type: 'string' }, { type: 'null' }],
                 title: 'Default Outgoing Email',
               },
-              on_mark_as_junk: {
-                anyOf: [{ type: 'string' }, { type: 'null' }],
-                title: 'On Mark As Junk',
-              },
               enable_screening: { title: 'Enable Screening', type: 'boolean' },
               block_remote_images: { title: 'Block Remote Images', type: 'boolean' },
+              on_block_old_mail: { title: 'On Block Old Mail', type: 'string' },
             },
             required: [
               'account',
@@ -1418,9 +1519,9 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'in_calendar',
               'jmap_account',
               'default_outgoing_email',
-              'on_mark_as_junk',
               'enable_screening',
               'block_remote_images',
+              'on_block_old_mail',
             ],
             title: 'UserAccount',
             type: 'object',
@@ -1439,10 +1540,7 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               api_key: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Api Key' },
               time_zone: { title: 'Time Zone', type: 'string' },
               system_time_zone: { title: 'System Time Zone', type: 'string' },
-              group_messages_by: {
-                anyOf: [{ type: 'string' }, { type: 'null' }],
-                title: 'Group Messages By',
-              },
+              group_by_date: { enum: [0, 1], title: 'Group By Date', type: 'integer' },
               show_reading_pane: { enum: [0, 1], title: 'Show Reading Pane', type: 'integer' },
               undo_send_period: {
                 anyOf: [{ type: 'string' }, { type: 'null' }],
@@ -1453,6 +1551,16 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               is_system_manager: { title: 'Is System Manager', type: 'boolean' },
               is_jmap_configured: { title: 'Is Jmap Configured', type: 'boolean' },
               max_attachment_size: { title: 'Max Attachment Size', type: 'integer' },
+              inbox_tabs: {
+                items: {
+                  enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                  type: 'string',
+                },
+                title: 'Inbox Tabs',
+                type: 'array',
+              },
+              split_inbox: { enum: [0, 1], title: 'Split Inbox', type: 'integer' },
+              email_classification: { title: 'Email Classification', type: 'boolean' },
               is_suite_cloud_configured: { title: 'Is Suite Cloud Configured', type: 'boolean' },
               accounts: {
                 items: { $ref: '#/$defs/UserAccount' },
@@ -1473,7 +1581,7 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'api_key',
               'time_zone',
               'system_time_zone',
-              'group_messages_by',
+              'group_by_date',
               'show_reading_pane',
               'undo_send_period',
               'user_settings',
@@ -1481,6 +1589,9 @@ export const operationGetUserInfo: Validators<GetUserInfoInput, GetUserInfoOutpu
               'is_system_manager',
               'is_jmap_configured',
               'max_attachment_size',
+              'inbox_tabs',
+              'split_inbox',
+              'email_classification',
               'is_suite_cloud_configured',
               'accounts',
             ],
@@ -1537,7 +1648,7 @@ export const operationGetUnifiedFolders: Validators<
               icon: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Icon' },
               color: {
                 anyOf: [
-                  { enum: ['Blue', 'Green', 'Amber', 'Red', 'Purple'], type: 'string' },
+                  { enum: ['Gray', 'Blue', 'Green', 'Amber', 'Red', 'Purple'], type: 'string' },
                   { type: 'null' },
                 ],
                 title: 'Color',
@@ -1610,7 +1721,7 @@ export const operationGetMailboxes: Validators<GetMailboxesInput, GetMailboxesOu
               icon: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Icon' },
               color: {
                 anyOf: [
-                  { enum: ['Blue', 'Green', 'Amber', 'Red', 'Purple'], type: 'string' },
+                  { enum: ['Gray', 'Blue', 'Green', 'Amber', 'Red', 'Purple'], type: 'string' },
                   { type: 'null' },
                 ],
                 title: 'Color',
@@ -1844,7 +1955,7 @@ export const operationGetScreenedAddresses: Validators<
           ScreenedAddress: {
             properties: {
               email: { title: 'Email', type: 'string' },
-              action: { enum: ['Reject', 'Spam', 'Accepted'], title: 'Action', type: 'string' },
+              action: { enum: ['Spam', 'Accepted'], title: 'Action', type: 'string' },
               creation: { title: 'Creation', type: 'string' },
               modified: { title: 'Modified', type: 'string' },
             },
@@ -1880,7 +1991,7 @@ export const operationGetGlobalScreenedAddresses: Validators<
           ScreenedAddress: {
             properties: {
               email: { title: 'Email', type: 'string' },
-              action: { enum: ['Reject', 'Spam', 'Accepted'], title: 'Action', type: 'string' },
+              action: { enum: ['Spam', 'Accepted'], title: 'Action', type: 'string' },
               creation: { title: 'Creation', type: 'string' },
               modified: { title: 'Modified', type: 'string' },
             },
@@ -2198,6 +2309,7 @@ export const operationGetGroups: Validators<GetGroupsInput, GetGroupsOutput> = {
               name: { title: 'Name', type: 'string' },
               email: { title: 'Email', type: 'string' },
               description: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Description' },
+              disable_receiving: { title: 'Disable Receiving', type: 'boolean' },
               quota_gb: { title: 'Quota Gb', type: 'number' },
               used_bytes: { anyOf: [{ type: 'integer' }, { type: 'null' }], title: 'Used Bytes' },
               created_at: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Created At' },
@@ -2207,6 +2319,7 @@ export const operationGetGroups: Validators<GetGroupsInput, GetGroupsOutput> = {
               'name',
               'email',
               'description',
+              'disable_receiving',
               'quota_gb',
               'used_bytes',
               'created_at',
@@ -2545,7 +2658,7 @@ export const operationScreenEmailAddresses: Validators<
         properties: {
           account: { title: 'Account', type: 'string' },
           emails: { items: { type: 'string' }, title: 'Emails', type: 'array' },
-          action: { enum: ['Reject', 'Spam', 'Accepted'], title: 'Action', type: 'string' },
+          action: { enum: ['Spam', 'Accepted'], title: 'Action', type: 'string' },
           override: { title: 'Override', type: 'boolean' },
         },
         required: ['account', 'emails'],
@@ -2609,6 +2722,62 @@ export const operationGetCalendarClientConfig: Validators<
         type: 'object',
       },
       'get_calendar_client_config output',
+    )
+  },
+}
+
+export const operationGetRecentThreadsFrom: Validators<
+  GetRecentThreadsFromInput,
+  GetRecentThreadsFromOutput
+> = {
+  validateInput(value: unknown): asserts value is GetRecentThreadsFromInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          email: { title: 'Email', type: 'string' },
+          limit: { title: 'Limit', type: 'integer' },
+        },
+        required: ['account', 'email'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_recent_threads_from input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetRecentThreadsFromOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          RecentThread: {
+            properties: {
+              thread_id: { title: 'Thread Id', type: 'string' },
+              subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
+              received_at: { title: 'Received At', type: 'string' },
+              mailboxes: {
+                items: { $ref: '#/$defs/RecentThreadMailbox' },
+                title: 'Mailboxes',
+                type: 'array',
+              },
+            },
+            required: ['thread_id', 'subject', 'received_at', 'mailboxes'],
+            title: 'RecentThread',
+            type: 'object',
+          },
+          RecentThreadMailbox: {
+            properties: { mailbox_id: { title: 'Mailbox Id', type: 'string' } },
+            required: ['mailbox_id'],
+            title: 'RecentThreadMailbox',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/RecentThread' },
+        type: 'array',
+      },
+      'get_recent_threads_from output',
     )
   },
 }
@@ -3461,7 +3630,7 @@ export const operationScreenEmailAddress: Validators<
         properties: {
           account: { title: 'Account', type: 'string' },
           email: { title: 'Email', type: 'string' },
-          action: { enum: ['Reject', 'Spam', 'Accepted'], title: 'Action', type: 'string' },
+          action: { enum: ['Spam', 'Accepted'], title: 'Action', type: 'string' },
         },
         required: ['account', 'email'],
         additionalProperties: false,
@@ -3472,28 +3641,6 @@ export const operationScreenEmailAddress: Validators<
   },
   validateOutput(value: unknown): asserts value is ScreenEmailAddressOutput {
     assertSchema(value, { type: 'null' }, 'screen_email_address output')
-  },
-}
-
-export const operationMoveScreeningMailsToInbox: Validators<
-  MoveScreeningMailsToInboxInput,
-  MoveScreeningMailsToInboxOutput
-> = {
-  validateInput(value: unknown): asserts value is MoveScreeningMailsToInboxInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: { account: { title: 'Account', type: 'string' } },
-        required: ['account'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'move_screening_mails_to_inbox input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is MoveScreeningMailsToInboxOutput {
-    assertSchema(value, { type: 'null' }, 'move_screening_mails_to_inbox output')
   },
 }
 
@@ -3962,6 +4109,7 @@ export const operationAddGroup: Validators<AddGroupInput, AddGroupOutput> = {
             title: 'Members',
           },
           quota_gb: { anyOf: [{ type: 'number' }, { type: 'null' }], title: 'Quota Gb' },
+          disable_receiving: { title: 'Disable Receiving', type: 'boolean' },
         },
         required: ['name', 'domain'],
         additionalProperties: false,
@@ -4129,6 +4277,7 @@ export const operationAddMember: Validators<AddMemberInput, AddMemberOutput> = {
           quota_gb: { anyOf: [{ type: 'number' }, { type: 'null' }], title: 'Quota Gb' },
           locale: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Locale' },
           time_zone: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Time Zone' },
+          disable_receiving: { title: 'Disable Receiving', type: 'boolean' },
         },
         required: ['username', 'domain', 'is_admin', 'send_invite', 'backup_email'],
         additionalProperties: false,
@@ -4138,7 +4287,26 @@ export const operationAddMember: Validators<AddMemberInput, AddMemberOutput> = {
     )
   },
   validateOutput(value: unknown): asserts value is AddMemberOutput {
-    assertSchema(value, { type: 'null' }, 'add_member output')
+    assertSchema(
+      value,
+      {
+        properties: {
+          success: { title: 'Success', type: 'boolean' },
+          user: { title: 'User', type: 'string' },
+          status: { title: 'Status', type: 'string' },
+          error: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Error' },
+          temporary_password: {
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+            title: 'Temporary Password',
+          },
+          expires_at: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Expires At' },
+        },
+        required: ['success', 'user', 'status', 'error', 'temporary_password', 'expires_at'],
+        title: 'CreationResult',
+        type: 'object',
+      },
+      'add_member output',
+    )
   },
 }
 
@@ -4328,7 +4496,10 @@ export const operationDeleteMembers: Validators<DeleteMembersInput, DeleteMember
       value,
       {
         type: 'object',
-        properties: { names: { items: { type: 'string' }, title: 'Names', type: 'array' } },
+        properties: {
+          names: { items: { type: 'string' }, title: 'Names', type: 'array' },
+          confirmation: { title: 'Confirmation', type: 'string' },
+        },
         required: ['names'],
         additionalProperties: false,
         $defs: {},
@@ -4337,7 +4508,26 @@ export const operationDeleteMembers: Validators<DeleteMembersInput, DeleteMember
     )
   },
   validateOutput(value: unknown): asserts value is DeleteMembersOutput {
-    assertSchema(value, { type: 'null' }, 'delete_members output')
+    assertSchema(
+      value,
+      {
+        properties: {
+          success: { title: 'Success', type: 'boolean' },
+          user: { title: 'User', type: 'string' },
+          status: { title: 'Status', type: 'string' },
+          error: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Error' },
+          temporary_password: {
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+            title: 'Temporary Password',
+          },
+          expires_at: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Expires At' },
+        },
+        required: ['success', 'user', 'status', 'error', 'temporary_password', 'expires_at'],
+        title: 'CreationResult',
+        type: 'object',
+      },
+      'delete_members output',
+    )
   },
 }
 
@@ -4356,7 +4546,26 @@ export const operationDisableMembers: Validators<DisableMembersInput, DisableMem
     )
   },
   validateOutput(value: unknown): asserts value is DisableMembersOutput {
-    assertSchema(value, { type: 'null' }, 'disable_members output')
+    assertSchema(
+      value,
+      {
+        $defs: {
+          MemberOutcome: {
+            properties: {
+              user: { title: 'User', type: 'string' },
+              success: { title: 'Success', type: 'boolean' },
+              error: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Error' },
+            },
+            required: ['user', 'success', 'error'],
+            title: 'MemberOutcome',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/MemberOutcome' },
+        type: 'array',
+      },
+      'disable_members output',
+    )
   },
 }
 
@@ -4375,7 +4584,26 @@ export const operationEnableMembers: Validators<EnableMembersInput, EnableMember
     )
   },
   validateOutput(value: unknown): asserts value is EnableMembersOutput {
-    assertSchema(value, { type: 'null' }, 'enable_members output')
+    assertSchema(
+      value,
+      {
+        $defs: {
+          MemberOutcome: {
+            properties: {
+              user: { title: 'User', type: 'string' },
+              success: { title: 'Success', type: 'boolean' },
+              error: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Error' },
+            },
+            required: ['user', 'success', 'error'],
+            title: 'MemberOutcome',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/MemberOutcome' },
+        type: 'array',
+      },
+      'enable_members output',
+    )
   },
 }
 
@@ -4768,6 +4996,7 @@ export const operationGetGroup: Validators<GetGroupInput, GetGroupOutput> = {
           name: { title: 'Name', type: 'string' },
           email: { title: 'Email', type: 'string' },
           description: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Description' },
+          disable_receiving: { title: 'Disable Receiving', type: 'boolean' },
           quota_gb: { title: 'Quota Gb', type: 'number' },
           used_bytes: { anyOf: [{ type: 'integer' }, { type: 'null' }], title: 'Used Bytes' },
           created_at: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Created At' },
@@ -4784,6 +5013,7 @@ export const operationGetGroup: Validators<GetGroupInput, GetGroupOutput> = {
           'name',
           'email',
           'description',
+          'disable_receiving',
           'quota_gb',
           'used_bytes',
           'created_at',
@@ -4967,6 +5197,7 @@ export const operationGetMember: Validators<GetMemberInput, GetMemberOutput> = {
           quota: { $ref: '#/$defs/Quota' },
           locale: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Locale' },
           time_zone: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Time Zone' },
+          disable_receiving: { title: 'Disable Receiving', type: 'boolean' },
         },
         required: [
           'name',
@@ -4984,6 +5215,7 @@ export const operationGetMember: Validators<GetMemberInput, GetMemberOutput> = {
           'quota',
           'locale',
           'time_zone',
+          'disable_receiving',
         ],
         title: 'Member',
         type: 'object',
@@ -5255,6 +5487,31 @@ export const operationSetGroupEmailEnabled: Validators<
   },
 }
 
+export const operationSetGroupReceivingEnabled: Validators<
+  SetGroupReceivingEnabledInput,
+  SetGroupReceivingEnabledOutput
+> = {
+  validateInput(value: unknown): asserts value is SetGroupReceivingEnabledInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          group_id: { title: 'Group Id', type: 'string' },
+          enabled: { title: 'Enabled', type: 'boolean' },
+        },
+        required: ['group_id', 'enabled'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'set_group_receiving_enabled input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is SetGroupReceivingEnabledOutput {
+    assertSchema(value, { type: 'null' }, 'set_group_receiving_enabled output')
+  },
+}
+
 export const operationSetMailingListEmailEnabled: Validators<
   SetMailingListEmailEnabledInput,
   SetMailingListEmailEnabledOutput
@@ -5304,6 +5561,31 @@ export const operationSetMemberEmailEnabled: Validators<
   },
   validateOutput(value: unknown): asserts value is SetMemberEmailEnabledOutput {
     assertSchema(value, { type: 'null' }, 'set_member_email_enabled output')
+  },
+}
+
+export const operationSetMemberReceivingEnabled: Validators<
+  SetMemberReceivingEnabledInput,
+  SetMemberReceivingEnabledOutput
+> = {
+  validateInput(value: unknown): asserts value is SetMemberReceivingEnabledInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          member_id: { title: 'Member Id', type: 'string' },
+          enabled: { title: 'Enabled', type: 'boolean' },
+        },
+        required: ['member_id', 'enabled'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'set_member_receiving_enabled input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is SetMemberReceivingEnabledOutput {
+    assertSchema(value, { type: 'null' }, 'set_member_receiving_enabled output')
   },
 }
 
@@ -6248,7 +6530,6 @@ export const operationGetOverview: Validators<GetOverviewInput, GetOverviewOutpu
               max_groups: { title: 'Max Groups', type: 'integer' },
               max_mailing_lists: { title: 'Max Mailing Lists', type: 'integer' },
               max_disk_gb: { title: 'Max Disk Gb', type: 'number' },
-              default_disk_quota_gb: { title: 'Default Disk Quota Gb', type: 'number' },
             },
             title: 'Limits',
             type: 'object',
@@ -6304,17 +6585,10 @@ export const operationGetOverview: Validators<GetOverviewInput, GetOverviewOutpu
           },
           Storage: {
             properties: {
-              allocated_gb: {
-                anyOf: [{ type: 'number' }, { type: 'null' }],
-                title: 'Allocated Gb',
-              },
+              used_bytes: { anyOf: [{ type: 'integer' }, { type: 'null' }], title: 'Used Bytes' },
               max_gb: { anyOf: [{ type: 'number' }, { type: 'null' }], title: 'Max Gb' },
-              default_quota_gb: {
-                anyOf: [{ type: 'number' }, { type: 'null' }],
-                title: 'Default Quota Gb',
-              },
             },
-            required: ['allocated_gb', 'max_gb', 'default_quota_gb'],
+            required: ['used_bytes', 'max_gb'],
             title: 'Storage',
             type: 'object',
           },
@@ -6748,6 +7022,7 @@ export const operationGetThreads: Validators<GetThreadsInput, GetThreadsOutput> 
           limit: { title: 'Limit', type: 'integer' },
           start: { title: 'Start', type: 'integer' },
           filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
           mailbox: { title: 'Mailbox', type: 'string' },
         },
         required: ['account', 'limit', 'mailbox'],
@@ -6797,6 +7072,7 @@ export const operationGetThreads: Validators<GetThreadsInput, GetThreadsOutput> 
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
             },
             required: [
               'name',
@@ -6844,6 +7120,7 @@ export const operationGetThreads: Validators<GetThreadsInput, GetThreadsOutput> 
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
               message_id: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Message Id' },
               subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
               html_body: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Html Body' },
@@ -6935,12 +7212,19 @@ export const operationGetThreads: Validators<GetThreadsInput, GetThreadsOutput> 
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
               account: { title: 'Account', type: 'string' },
               account_name: { title: 'Account Name', type: 'string' },
               view_mailbox: { title: 'View Mailbox', type: 'string' },
               inbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Inbox' },
+              sent: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Sent' },
               archive: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Archive' },
               trash: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Trash' },
+              unscreened_senders: {
+                items: { type: 'string' },
+                title: 'Unscreened Senders',
+                type: 'array',
+              },
               subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
               preview: { title: 'Preview', type: 'string' },
               recipients: {
@@ -7005,6 +7289,7 @@ export const operationGetUnifiedThreads: Validators<
           limit: { title: 'Limit', type: 'integer' },
           start: { title: 'Start', type: 'integer' },
           filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
           folder: { title: 'Folder', type: 'string' },
         },
         required: ['limit', 'folder'],
@@ -7054,6 +7339,7 @@ export const operationGetUnifiedThreads: Validators<
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
             },
             required: [
               'name',
@@ -7101,6 +7387,7 @@ export const operationGetUnifiedThreads: Validators<
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
               message_id: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Message Id' },
               subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
               html_body: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Html Body' },
@@ -7192,12 +7479,19 @@ export const operationGetUnifiedThreads: Validators<
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
               account: { title: 'Account', type: 'string' },
               account_name: { title: 'Account Name', type: 'string' },
               view_mailbox: { title: 'View Mailbox', type: 'string' },
               inbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Inbox' },
+              sent: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Sent' },
               archive: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Archive' },
               trash: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Trash' },
+              unscreened_senders: {
+                items: { type: 'string' },
+                title: 'Unscreened Senders',
+                type: 'array',
+              },
               subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
               preview: { title: 'Preview', type: 'string' },
               recipients: {
@@ -7244,6 +7538,154 @@ export const operationGetUnifiedThreads: Validators<
         type: 'object',
       },
       'get_unified_threads output',
+    )
+  },
+}
+
+export const operationGetTabCounts: Validators<GetTabCountsInput, GetTabCountsOutput> = {
+  validateInput(value: unknown): asserts value is GetTabCountsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          mailbox: { title: 'Mailbox', type: 'string' },
+        },
+        required: ['account', 'mailbox'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_tab_counts input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetTabCountsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          TabCount: {
+            properties: {
+              category: {
+                enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                title: 'Category',
+                type: 'string',
+              },
+              unread_threads: { title: 'Unread Threads', type: 'integer' },
+            },
+            required: ['category', 'unread_threads'],
+            title: 'TabCount',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/TabCount' },
+        type: 'array',
+      },
+      'get_tab_counts output',
+    )
+  },
+}
+
+export const operationGetUnifiedTabCounts: Validators<
+  GetUnifiedTabCountsInput,
+  GetUnifiedTabCountsOutput
+> = {
+  validateInput(value: unknown): asserts value is GetUnifiedTabCountsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { folder: { title: 'Folder', type: 'string' } },
+        required: ['folder'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_unified_tab_counts input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetUnifiedTabCountsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          TabCount: {
+            properties: {
+              category: {
+                enum: ['primary', 'updates', 'forums', 'promotions', 'social'],
+                title: 'Category',
+                type: 'string',
+              },
+              unread_threads: { title: 'Unread Threads', type: 'integer' },
+            },
+            required: ['category', 'unread_threads'],
+            title: 'TabCount',
+            type: 'object',
+          },
+        },
+        items: { $ref: '#/$defs/TabCount' },
+        type: 'array',
+      },
+      'get_unified_tab_counts output',
+    )
+  },
+}
+
+export const operationClearList: Validators<ClearListInput, ClearListOutput> = {
+  validateInput(value: unknown): asserts value is ClearListInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          action: { enum: ['read', 'archive', 'trash'], title: 'Action', type: 'string' },
+          account: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Account' },
+          mailbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailbox' },
+          folder: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Folder' },
+          category: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Category' },
+          filter_by: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filter By' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'clear_list input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is ClearListOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          ClearedMail: {
+            properties: {
+              account: { title: 'Account', type: 'string' },
+              ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+              mails: { items: { $ref: '#/$defs/Membership' }, title: 'Mails', type: 'array' },
+            },
+            required: ['account', 'ids'],
+            title: 'ClearedMail',
+            type: 'object',
+          },
+          Membership: {
+            properties: {
+              id: { title: 'Id', type: 'string' },
+              mailbox_ids: { items: { type: 'string' }, title: 'Mailbox Ids', type: 'array' },
+              junk: { title: 'Junk', type: 'integer' },
+            },
+            required: ['id', 'mailbox_ids', 'junk'],
+            title: 'Membership',
+            type: 'object',
+          },
+        },
+        properties: {
+          cleared: { items: { $ref: '#/$defs/ClearedMail' }, title: 'Cleared', type: 'array' },
+          failed: { items: { type: 'string' }, title: 'Failed', type: 'array' },
+        },
+        required: ['cleared', 'failed'],
+        title: 'Cleared',
+        type: 'object',
+      },
+      'clear_list output',
     )
   },
 }
@@ -7305,6 +7747,7 @@ export const operationGetThread: Validators<GetThreadInput, GetThreadOutput> = {
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
             },
             required: [
               'name',
@@ -7352,6 +7795,7 @@ export const operationGetThread: Validators<GetThreadInput, GetThreadOutput> = {
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
               message_id: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Message Id' },
               subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
               html_body: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Html Body' },
@@ -7458,6 +7902,7 @@ export const operationSearchMails: Validators<SearchMailsInput, SearchMailsOutpu
               to: { title: 'To', type: 'string' },
               cc: { title: 'Cc', type: 'string' },
               bcc: { title: 'Bcc', type: 'string' },
+              with: { title: 'With', type: 'string' },
               subject: { title: 'Subject', type: 'string' },
               body: { title: 'Body', type: 'string' },
               before: { title: 'Before', type: 'string' },
@@ -7520,311 +7965,6 @@ export const operationSearchMails: Validators<SearchMailsInput, SearchMailsOutpu
             title: 'Attachment',
             type: 'object',
           },
-          MailboxRef: {
-            properties: {
-              mailbox: { title: 'Mailbox', type: 'string' },
-              mailbox_id: { title: 'Mailbox Id', type: 'string' },
-              mailbox_name: {
-                anyOf: [{ type: 'string' }, { type: 'null' }],
-                title: 'Mailbox Name',
-              },
-            },
-            required: ['mailbox', 'mailbox_id', 'mailbox_name'],
-            title: 'MailboxRef',
-            type: 'object',
-          },
-          Recipient: {
-            properties: {
-              type: { enum: ['To', 'Cc', 'Bcc'], title: 'Type', type: 'string' },
-              email: { title: 'Email', type: 'string' },
-              display_name: {
-                anyOf: [{ type: 'string' }, { type: 'null' }],
-                title: 'Display Name',
-              },
-            },
-            required: ['type', 'email', 'display_name'],
-            title: 'Recipient',
-            type: 'object',
-          },
-          SearchRow: {
-            properties: {
-              account: { title: 'Account', type: 'string' },
-              account_name: { title: 'Account Name', type: 'string' },
-              view_mailbox: { title: 'View Mailbox', type: 'string' },
-              inbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Inbox' },
-              archive: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Archive' },
-              trash: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Trash' },
-              name: { title: 'Name', type: 'string' },
-              id: { title: 'Id', type: 'string' },
-              subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
-              preview: { title: 'Preview', type: 'string' },
-              recipients: {
-                items: { $ref: '#/$defs/Recipient' },
-                title: 'Recipients',
-                type: 'array',
-              },
-              sent_at: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Sent At' },
-              received_at: { title: 'Received At', type: 'string' },
-              from_name: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'From Name' },
-              from_email: { title: 'From Email', type: 'string' },
-              thread_id: { title: 'Thread Id', type: 'string' },
-              mailboxes: {
-                items: { $ref: '#/$defs/MailboxRef' },
-                title: 'Mailboxes',
-                type: 'array',
-              },
-              attachments: {
-                items: { $ref: '#/$defs/Attachment' },
-                title: 'Attachments',
-                type: 'array',
-              },
-              seen: { enum: [0, 1], title: 'Seen', type: 'integer' },
-              user_image: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'User Image' },
-            },
-            required: [
-              'name',
-              'id',
-              'subject',
-              'preview',
-              'recipients',
-              'sent_at',
-              'received_at',
-              'from_name',
-              'from_email',
-              'thread_id',
-              'mailboxes',
-              'attachments',
-              'seen',
-            ],
-            title: 'SearchRow',
-            type: 'object',
-          },
-        },
-        properties: {
-          rows: { items: { $ref: '#/$defs/SearchRow' }, title: 'Rows', type: 'array' },
-          total: { title: 'Total', type: 'integer' },
-        },
-        required: ['rows', 'total'],
-        title: 'SearchPage',
-        type: 'object',
-      },
-      'search_mails output',
-    )
-  },
-}
-
-export const operationGetMimeMessage: Validators<GetMimeMessageInput, GetMimeMessageOutput> = {
-  validateInput(value: unknown): asserts value is GetMimeMessageInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: { name: { title: 'Name', type: 'string' } },
-        required: ['name'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'get_mime_message input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is GetMimeMessageOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          MimeField: {
-            properties: {
-              label: { title: 'Label', type: 'string' },
-              value: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Value' },
-              description: { title: 'Description', type: 'string' },
-            },
-            required: ['label', 'value'],
-            title: 'MimeField',
-            type: 'object',
-          },
-        },
-        properties: {
-          message: { title: 'Message', type: 'string' },
-          message_id: { $ref: '#/$defs/MimeField' },
-          created_at: { $ref: '#/$defs/MimeField' },
-          subject: { $ref: '#/$defs/MimeField' },
-          from: { $ref: '#/$defs/MimeField' },
-          to: { $ref: '#/$defs/MimeField' },
-          cc: { $ref: '#/$defs/MimeField' },
-          bcc: { $ref: '#/$defs/MimeField' },
-          spf: { $ref: '#/$defs/MimeField' },
-          dkim: { $ref: '#/$defs/MimeField' },
-          dmarc: { $ref: '#/$defs/MimeField' },
-        },
-        required: ['message', 'message_id', 'created_at', 'subject', 'from', 'to', 'cc', 'bcc'],
-        title: 'MimeMessage',
-        type: 'object',
-      },
-      'get_mime_message output',
-    )
-  },
-}
-
-export const operationGetDeliveryStatus: Validators<
-  GetDeliveryStatusInput,
-  GetDeliveryStatusOutput
-> = {
-  validateInput(value: unknown): asserts value is GetDeliveryStatusInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: {
-          account: { title: 'Account', type: 'string' },
-          blob_id: { title: 'Blob Id', type: 'string' },
-        },
-        required: ['account', 'blob_id'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'get_delivery_status input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is GetDeliveryStatusOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          DeliveryRecipient: {
-            properties: {
-              email: { title: 'Email', type: 'string' },
-              action: { title: 'Action', type: 'string' },
-              status: { title: 'Status', type: 'string' },
-              diagnostic_code: { title: 'Diagnostic Code', type: 'string' },
-              remote_mta: { title: 'Remote Mta', type: 'string' },
-              will_retry_until: { title: 'Will Retry Until', type: 'string' },
-            },
-            required: [
-              'email',
-              'action',
-              'status',
-              'diagnostic_code',
-              'remote_mta',
-              'will_retry_until',
-            ],
-            title: 'DeliveryRecipient',
-            type: 'object',
-          },
-        },
-        properties: {
-          reporting_mta: { title: 'Reporting Mta', type: 'string' },
-          arrival_date: { title: 'Arrival Date', type: 'string' },
-          recipients: {
-            items: { $ref: '#/$defs/DeliveryRecipient' },
-            title: 'Recipients',
-            type: 'array',
-          },
-        },
-        required: ['reporting_mta', 'arrival_date', 'recipients'],
-        title: 'DeliveryReport',
-        type: 'object',
-      },
-      'get_delivery_status output',
-    )
-  },
-}
-
-export const operationGetScreeningSenders: Validators<
-  GetScreeningSendersInput,
-  GetScreeningSendersOutput
-> = {
-  validateInput(value: unknown): asserts value is GetScreeningSendersInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: { account: { title: 'Account', type: 'string' } },
-        required: ['account'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'get_screening_senders input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is GetScreeningSendersOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          ScreeningSender: {
-            properties: {
-              from_email: { title: 'From Email', type: 'string' },
-              from_name: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'From Name' },
-              subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
-              preview: { title: 'Preview', type: 'string' },
-              received_at: { title: 'Received At', type: 'string' },
-              count: { title: 'Count', type: 'integer' },
-              unread: { title: 'Unread', type: 'integer' },
-            },
-            required: [
-              'from_email',
-              'from_name',
-              'subject',
-              'preview',
-              'received_at',
-              'count',
-              'unread',
-            ],
-            title: 'ScreeningSender',
-            type: 'object',
-          },
-        },
-        items: { $ref: '#/$defs/ScreeningSender' },
-        type: 'array',
-      },
-      'get_screening_senders output',
-    )
-  },
-}
-
-export const operationGetScreeningSenderMails: Validators<
-  GetScreeningSenderMailsInput,
-  GetScreeningSenderMailsOutput
-> = {
-  validateInput(value: unknown): asserts value is GetScreeningSenderMailsInput {
-    assertSchema(
-      value,
-      {
-        type: 'object',
-        properties: {
-          account: { title: 'Account', type: 'string' },
-          from_email: { title: 'From Email', type: 'string' },
-        },
-        required: ['account', 'from_email'],
-        additionalProperties: false,
-        $defs: {},
-      },
-      'get_screening_sender_mails input',
-    )
-  },
-  validateOutput(value: unknown): asserts value is GetScreeningSenderMailsOutput {
-    assertSchema(
-      value,
-      {
-        $defs: {
-          Attachment: {
-            properties: {
-              filename: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Filename' },
-              type: { title: 'Type', type: 'string' },
-              size: { title: 'Size', type: 'integer' },
-              blob_id: { title: 'Blob Id', type: 'string' },
-              disposition: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Disposition' },
-              cid: { title: 'Cid', type: 'string' },
-              url: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Url' },
-              part_id: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Part Id' },
-              charset: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Charset' },
-              language: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Language' },
-              location: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Location' },
-            },
-            required: ['filename', 'type', 'size', 'blob_id', 'disposition', 'cid', 'url'],
-            title: 'Attachment',
-            type: 'object',
-          },
           Copy: {
             properties: {
               name: { title: 'Name', type: 'string' },
@@ -7842,6 +7982,7 @@ export const operationGetScreeningSenderMails: Validators<
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
             },
             required: [
               'name',
@@ -7889,6 +8030,7 @@ export const operationGetScreeningSenderMails: Validators<
               junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
               flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
               draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
               message_id: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Message Id' },
               subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
               html_body: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Html Body' },
@@ -7963,11 +8105,271 @@ export const operationGetScreeningSenderMails: Validators<
             title: 'ReplyAddress',
             type: 'object',
           },
+          SearchRow: {
+            properties: {
+              name: { title: 'Name', type: 'string' },
+              id: { title: 'Id', type: 'string' },
+              thread_id: { title: 'Thread Id', type: 'string' },
+              from_name: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'From Name' },
+              from_email: { title: 'From Email', type: 'string' },
+              received_at: { title: 'Received At', type: 'string' },
+              mailboxes: {
+                items: { $ref: '#/$defs/MailboxRef' },
+                title: 'Mailboxes',
+                type: 'array',
+              },
+              seen: { enum: [0, 1], title: 'Seen', type: 'integer' },
+              junk: { enum: [0, 1], title: 'Junk', type: 'integer' },
+              flagged: { enum: [0, 1], title: 'Flagged', type: 'integer' },
+              draft: { enum: [0, 1], title: 'Draft', type: 'integer' },
+              unscreened: { enum: [0, 1], title: 'Unscreened', type: 'integer' },
+              account: { title: 'Account', type: 'string' },
+              account_name: { title: 'Account Name', type: 'string' },
+              view_mailbox: { title: 'View Mailbox', type: 'string' },
+              inbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Inbox' },
+              sent: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Sent' },
+              archive: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Archive' },
+              trash: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Trash' },
+              unscreened_senders: {
+                items: { type: 'string' },
+                title: 'Unscreened Senders',
+                type: 'array',
+              },
+              subject: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Subject' },
+              preview: { title: 'Preview', type: 'string' },
+              recipients: {
+                items: { $ref: '#/$defs/Recipient' },
+                title: 'Recipients',
+                type: 'array',
+              },
+              attachments: {
+                items: { $ref: '#/$defs/Attachment' },
+                title: 'Attachments',
+                type: 'array',
+              },
+              messages: { items: { $ref: '#/$defs/Message' }, title: 'Messages', type: 'array' },
+              user_image: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'User Image' },
+              match_id: { title: 'Match Id', type: 'string' },
+            },
+            required: [
+              'name',
+              'id',
+              'thread_id',
+              'from_name',
+              'from_email',
+              'received_at',
+              'mailboxes',
+              'seen',
+              'junk',
+              'flagged',
+              'draft',
+              'subject',
+              'preview',
+              'recipients',
+              'attachments',
+              'messages',
+              'match_id',
+            ],
+            title: 'SearchRow',
+            type: 'object',
+          },
         },
-        items: { $ref: '#/$defs/Message' },
-        type: 'array',
+        properties: {
+          rows: { items: { $ref: '#/$defs/SearchRow' }, title: 'Rows', type: 'array' },
+          total: { title: 'Total', type: 'integer' },
+        },
+        required: ['rows', 'total'],
+        title: 'SearchPage',
+        type: 'object',
       },
-      'get_screening_sender_mails output',
+      'search_mails output',
+    )
+  },
+}
+
+export const operationGetMimeMessage: Validators<GetMimeMessageInput, GetMimeMessageOutput> = {
+  validateInput(value: unknown): asserts value is GetMimeMessageInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: { name: { title: 'Name', type: 'string' } },
+        required: ['name'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_mime_message input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetMimeMessageOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          MimeField: {
+            properties: {
+              label: { title: 'Label', type: 'string' },
+              value: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Value' },
+              description: { title: 'Description', type: 'string' },
+            },
+            required: ['label', 'value'],
+            title: 'MimeField',
+            type: 'object',
+          },
+        },
+        properties: {
+          message: { title: 'Message', type: 'string' },
+          message_id: { $ref: '#/$defs/MimeField' },
+          created_at: { $ref: '#/$defs/MimeField' },
+          subject: { $ref: '#/$defs/MimeField' },
+          from: { $ref: '#/$defs/MimeField' },
+          to: { $ref: '#/$defs/MimeField' },
+          cc: { $ref: '#/$defs/MimeField' },
+          bcc: { $ref: '#/$defs/MimeField' },
+          spf: { $ref: '#/$defs/MimeField' },
+          dkim: { $ref: '#/$defs/MimeField' },
+          dmarc: { $ref: '#/$defs/MimeField' },
+        },
+        required: ['message', 'message_id', 'created_at', 'subject', 'from', 'to', 'cc', 'bcc'],
+        title: 'MimeMessage',
+        type: 'object',
+      },
+      'get_mime_message output',
+    )
+  },
+}
+
+export const operationGetUnsubscribeOptions: Validators<
+  GetUnsubscribeOptionsInput,
+  GetUnsubscribeOptionsOutput
+> = {
+  validateInput(value: unknown): asserts value is GetUnsubscribeOptionsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+        },
+        required: ['account', 'ids'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_unsubscribe_options input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetUnsubscribeOptionsOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          UnsubscribeOption: {
+            properties: {
+              one_click: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'One Click' },
+              mailto: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailto' },
+              link: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Link' },
+              unsubscribed: { title: 'Unsubscribed', type: 'boolean' },
+            },
+            required: ['one_click', 'mailto', 'link', 'unsubscribed'],
+            title: 'UnsubscribeOption',
+            type: 'object',
+          },
+        },
+        additionalProperties: { $ref: '#/$defs/UnsubscribeOption' },
+        type: 'object',
+      },
+      'get_unsubscribe_options output',
+    )
+  },
+}
+
+export const operationUnsubscribeMail: Validators<UnsubscribeMailInput, UnsubscribeMailOutput> = {
+  validateInput(value: unknown): asserts value is UnsubscribeMailInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          id: { title: 'Id', type: 'string' },
+        },
+        required: ['account', 'id'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'unsubscribe_mail input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is UnsubscribeMailOutput {
+    assertSchema(
+      value,
+      { enum: ['one_click', 'mailto', 'already'], type: 'string' },
+      'unsubscribe_mail output',
+    )
+  },
+}
+
+export const operationGetDeliveryStatus: Validators<
+  GetDeliveryStatusInput,
+  GetDeliveryStatusOutput
+> = {
+  validateInput(value: unknown): asserts value is GetDeliveryStatusInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          blob_id: { title: 'Blob Id', type: 'string' },
+        },
+        required: ['account', 'blob_id'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'get_delivery_status input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is GetDeliveryStatusOutput {
+    assertSchema(
+      value,
+      {
+        $defs: {
+          DeliveryRecipient: {
+            properties: {
+              email: { title: 'Email', type: 'string' },
+              action: { title: 'Action', type: 'string' },
+              status: { title: 'Status', type: 'string' },
+              diagnostic_code: { title: 'Diagnostic Code', type: 'string' },
+              remote_mta: { title: 'Remote Mta', type: 'string' },
+              will_retry_until: { title: 'Will Retry Until', type: 'string' },
+            },
+            required: [
+              'email',
+              'action',
+              'status',
+              'diagnostic_code',
+              'remote_mta',
+              'will_retry_until',
+            ],
+            title: 'DeliveryRecipient',
+            type: 'object',
+          },
+        },
+        properties: {
+          reporting_mta: { title: 'Reporting Mta', type: 'string' },
+          arrival_date: { title: 'Arrival Date', type: 'string' },
+          recipients: {
+            items: { $ref: '#/$defs/DeliveryRecipient' },
+            title: 'Recipients',
+            type: 'array',
+          },
+        },
+        required: ['reporting_mta', 'arrival_date', 'recipients'],
+        title: 'DeliveryReport',
+        type: 'object',
+      },
+      'get_delivery_status output',
     )
   },
 }
@@ -8274,6 +8676,69 @@ export const operationMoveMails: Validators<MoveMailsInput, MoveMailsOutput> = {
   },
 }
 
+export const operationFileMails: Validators<FileMailsInput, FileMailsOutput> = {
+  validateInput(value: unknown): asserts value is FileMailsInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+          action: {
+            enum: ['archive', 'unarchive', 'move', 'junk', 'not_junk', 'trash'],
+            title: 'Action',
+            type: 'string',
+          },
+          mailbox: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Mailbox' },
+          screen_action: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Screen Action' },
+          leaves: { anyOf: [{ type: 'string' }, { type: 'null' }], title: 'Leaves' },
+          shows: {
+            anyOf: [
+              {
+                additionalProperties: { items: { $ref: '#/$defs/ShownFolder' }, type: 'array' },
+                type: 'object',
+              },
+              { type: 'null' },
+            ],
+            title: 'Shows',
+          },
+        },
+        required: ['account', 'ids', 'action'],
+        additionalProperties: false,
+        $defs: {
+          ShownFolder: {
+            properties: {
+              mailbox: { title: 'Mailbox', type: 'string' },
+              mailbox_id: { title: 'Mailbox Id', type: 'string' },
+              mailbox_name: { title: 'Mailbox Name', type: 'string' },
+            },
+            required: ['mailbox', 'mailbox_id', 'mailbox_name'],
+            title: 'ShownFolder',
+            type: 'object',
+          },
+        },
+      },
+      'file_mails input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is FileMailsOutput {
+    assertSchema(
+      value,
+      {
+        properties: {
+          updated: { items: { type: 'string' }, title: 'Updated', type: 'array' },
+          left_inbox: { title: 'Left Inbox', type: 'boolean' },
+        },
+        required: ['updated', 'left_inbox'],
+        title: 'FiledResult',
+        type: 'object',
+      },
+      'file_mails output',
+    )
+  },
+}
+
 export const operationAddMailsToMailbox: Validators<
   AddMailsToMailboxInput,
   AddMailsToMailboxOutput
@@ -8501,6 +8966,67 @@ export const operationUndoScreeningVerdict: Validators<
   },
   validateOutput(value: unknown): asserts value is UndoScreeningVerdictOutput {
     assertSchema(value, { type: 'null' }, 'undo_screening_verdict output')
+  },
+}
+
+export const operationBlockSenders: Validators<BlockSendersInput, BlockSendersOutput> = {
+  validateInput(value: unknown): asserts value is BlockSendersInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          from_emails: { items: { type: 'string' }, title: 'From Emails', type: 'array' },
+          ids: { items: { type: 'string' }, title: 'Ids', type: 'array' },
+        },
+        required: ['account', 'from_emails'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'block_senders input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is BlockSendersOutput {
+    assertSchema(
+      value,
+      {
+        properties: { inbox: { title: 'Inbox', type: 'integer' } },
+        required: ['inbox'],
+        title: 'BlockResult',
+        type: 'object',
+      },
+      'block_senders output',
+    )
+  },
+}
+
+export const operationJunkSendersInboxMail: Validators<
+  JunkSendersInboxMailInput,
+  JunkSendersInboxMailOutput
+> = {
+  validateInput(value: unknown): asserts value is JunkSendersInboxMailInput {
+    assertSchema(
+      value,
+      {
+        type: 'object',
+        properties: {
+          account: { title: 'Account', type: 'string' },
+          from_emails: { items: { type: 'string' }, title: 'From Emails', type: 'array' },
+        },
+        required: ['account', 'from_emails'],
+        additionalProperties: false,
+        $defs: {},
+      },
+      'junk_senders_inbox_mail input',
+    )
+  },
+  validateOutput(value: unknown): asserts value is JunkSendersInboxMailOutput {
+    assertSchema(
+      value,
+      { items: { type: 'string' }, type: 'array' },
+      'junk_senders_inbox_mail output',
+    )
   },
 }
 

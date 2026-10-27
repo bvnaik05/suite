@@ -1,6 +1,4 @@
-import { type APIRequestContext } from "@playwright/test";
-
-import { expect, test } from "../../helpers/flips";
+import { type APIRequestContext, expect, test } from "@playwright/test";
 
 import { adminApi, createFolder, getNode, purge, roots, runTag, type DriveNode } from "../../helpers/drive";
 
@@ -90,7 +88,7 @@ test("changing the destination clears the selection", async ({ page }) => {
 	await page.locator("[data-node]").first().click({ modifiers: ["ControlOrMeta"] });
 	await expect(page.getByText("1 selected")).toBeVisible();
 
-	await page.getByRole("navigation", { name: "File views" }).getByRole("link", { name: "Starred" }).click();
+	await page.getByRole("group", { name: "Views" }).getByRole("link", { name: "Starred" }).click();
 	await expect(page).toHaveURL(/\/drive\/starred$/);
 	await expect(page.getByText("selected")).toHaveCount(0);
 });
@@ -133,7 +131,9 @@ test("a clean bulk move to trash empties the selection", async ({ page }) => {
 	await listRows.nth(1).click({ modifiers: ["ControlOrMeta"] });
 
 	await page.getByRole("button", { name: "Move to trash" }).click();
-	await expect(page.getByText("2 moved to trash · 0 failed")).toBeVisible();
+	// Success is a toast; the outcome alert shows only when some items failed.
+	await expect(page.getByText("Moved 2 items to Trash")).toBeVisible();
+	await expect(page.getByText(/moved to trash · \d+ failed/)).toHaveCount(0);
 	await expect(page.getByText("selected")).toHaveCount(0);
 	expect((await getNode(api, rows[0]!.name)).state).toBe("Trashed");
 });

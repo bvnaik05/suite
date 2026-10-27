@@ -9,8 +9,6 @@ from unittest.mock import patch
 
 import frappe
 
-DEFAULT_QUOTA_GB = 5.0
-
 
 class FakeSuiteCloud:
     def __init__(self) -> None:
@@ -21,23 +19,31 @@ class FakeSuiteCloud:
         self.dmarc_reports: dict[str, dict] = {}
         self.tls_reports: dict[str, dict] = {}
         self.passwords: dict[str, str] = {}
+        self.emails: list[dict] = []  # what Suite Cloud was asked to send
         self.calls: list[tuple[str, dict]] = []
 
     # --- dispatch ---------------------------------------------------------------------------
 
     def call(self, method: str, **params):
-        """``site.<call>`` or ``mail.<resource>.<call>``, as the real client addresses them."""
+        """``tenant.<call>``, ``email.<call>`` or ``mail.<resource>.<call>``, as the real client
+        addresses them."""
 
         self.calls.append((method, params))
         api, _, name = method.partition(".")
-        assert api in ("site", "mail"), method
+        assert api in ("tenant", "email", "mail"), method
         handler = getattr(self, name.replace(".", "__"))
         return handler(**params)
+
+    def send_email(self, email_type: str, recipient: str, params: dict, request_key: str) -> dict:
+        self.emails.append(
+            {"email_type": email_type, "recipient": recipient, "params": params, "request_key": request_key}
+        )
+        return {"name": request_key, "status": "Sent", "error": None}
 
     site_title = "Acme"
     site_contact = "ops@acme.test"
 
-    def update_site_profile(self, title=None, contact_email=None) -> dict:
+    def update_tenant_profile(self, title=None, contact_email=None) -> dict:
         if title is not None:
             self.site_title = title.strip() or "acme.frappe.test"
         if contact_email is not None:
@@ -46,7 +52,7 @@ class FakeSuiteCloud:
 
     def ping(self) -> dict:
         return {
-            "site": "acme.frappe.test",
+            "tenant": "acme.frappe.test",
             "title": self.site_title,
             "status": "Active",
             "enabled": True,
@@ -60,14 +66,15 @@ class FakeSuiteCloud:
                 "max_groups": 50,
                 "max_mailing_lists": 50,
                 "max_disk_gb": 100,
-                "default_disk_quota_gb": DEFAULT_QUOTA_GB,
             },
             "usage": {
                 "domains": len(self.domains),
                 "accounts": len(self.accounts),
                 "groups": len(self.groups),
                 "mailing_lists": len(self.lists),
-                "allocated_disk_gb": sum(a["disk_quota_gb"] for a in self.accounts.values()),
+                "used_disk_bytes": sum(
+                    a["used_disk_bytes"] for a in (*self.accounts.values(), *self.groups.values())
+                ),
             },
         }
 
@@ -374,7 +381,7 @@ class FakeSuiteCloud:
                     "type": "SRV",
                     "host": "_imaps._tcp",
                     "fqdn": f"_imaps._tcp.{name}",
-                    "value": "mail.c1.example.test.",
+                    "value": "mail.c1.example.test",
                     "priority": 0,
                     "weight": 1,
                     "port": 993,
@@ -424,6 +431,8 @@ class FakeSuiteCloud:
         disk_quota_gb=None,
         locale=None,
         time_zone=None,
+        disable_receiving=None,
+        description=None,
         **_,
     ) -> dict:
         self._require_active_domain(email)
@@ -434,8 +443,10 @@ class FakeSuiteCloud:
         self.accounts[email] = {
             "email": email,
             "enabled": 1,
+            "disable_receiving": bool(disable_receiving),
+            "description": description,
             "display_name": display_name,
-            "disk_quota_gb": disk_quota_gb or DEFAULT_QUOTA_GB,
+            "disk_quota_gb": disk_quota_gb or 0,
             "used_disk_bytes": 0,
             "locale": locale or "en-US",
             "time_zone": time_zone,
@@ -460,6 +471,10 @@ class FakeSuiteCloud:
     def accounts__set_password(self, email, password) -> None:
         self._require(self.accounts, email)
         self.passwords[email] = password
+
+    def accounts__rotate_app_password(self, email) -> dict:
+        self._require(self.accounts, email)
+        return {"app_password": f"apppassword-rotated-{email}"}
 
     def accounts__set_aliases(self, email, aliases=None) -> dict:
         self._require(self.accounts, email)["aliases"] = self._alias_rows(aliases)
@@ -496,15 +511,15 @@ class FakeSuiteCloud:
         emails = self._matching(self.groups, search, ("email", "description"))
         return {"items": [self._group(e) for e in emails[start : start + limit]], "total": len(emails)}
 
-    def groups__add_group_alias(self, email, alias, description=None) -> dict:
+    def groups__add_alias(self, email, alias, description=None) -> dict:
         self._alias_add(self.groups, email, alias, description)
         return self._group(email)
 
-    def groups__remove_group_alias(self, email, alias) -> dict:
+    def groups__remove_alias(self, email, alias) -> dict:
         self._alias_remove(self.groups, email, alias)
         return self._group(email)
 
-    def groups__set_group_alias_enabled(self, email, alias, enabled) -> dict:
+    def groups__set_alias_enabled(self, email, alias, enabled) -> dict:
         self._alias_set_enabled(self.groups, email, alias, enabled)
         return self._group(email)
 
@@ -512,7 +527,7 @@ class FakeSuiteCloud:
         return self._group(self._require(self.groups, email)["email"])
 
     def groups__create_group(
-        self, email, description=None, aliases=None, members=None, disk_quota_gb=None
+        self, email, description=None, aliases=None, members=None, disk_quota_gb=None, disable_receiving=None
     ) -> dict:
         self._require_active_domain(email)
         if email in self.groups:
@@ -520,9 +535,10 @@ class FakeSuiteCloud:
         self.groups[email] = {
             "email": email,
             "description": description,
+            "disable_receiving": bool(disable_receiving),
             "aliases": self._alias_rows(aliases),
             "members": list(members or []),
-            "disk_quota_gb": disk_quota_gb or DEFAULT_QUOTA_GB,
+            "disk_quota_gb": disk_quota_gb or 0,
             "used_disk_bytes": 0,
         }
         for member in members or []:
@@ -533,11 +549,11 @@ class FakeSuiteCloud:
         self._require(self.groups, email).update({k: v for k, v in changes.items() if v is not None})
         return self._group(email)
 
-    def groups__set_group_aliases(self, email, aliases=None) -> dict:
+    def groups__set_aliases(self, email, aliases=None) -> dict:
         self._require(self.groups, email)["aliases"] = self._alias_rows(aliases)
         return self._group(email)
 
-    def groups__set_group_members(self, email, members=None) -> dict:
+    def groups__set_members(self, email, members=None) -> dict:
         group = self._require(self.groups, email)
         group["members"] = list(members or [])
         for account in self.accounts.values():
@@ -565,15 +581,15 @@ class FakeSuiteCloud:
         emails = self._matching(self.lists, search, ("email", "description"))
         return {"items": [self._list(e) for e in emails[start : start + limit]], "total": len(emails)}
 
-    def mailing_lists__add_mailing_list_alias(self, email, alias, description=None) -> dict:
+    def mailing_lists__add_alias(self, email, alias, description=None) -> dict:
         self._alias_add(self.lists, email, alias, description)
         return self._list(email)
 
-    def mailing_lists__remove_mailing_list_alias(self, email, alias) -> dict:
+    def mailing_lists__remove_alias(self, email, alias) -> dict:
         self._alias_remove(self.lists, email, alias)
         return self._list(email)
 
-    def mailing_lists__set_mailing_list_alias_enabled(self, email, alias, enabled) -> dict:
+    def mailing_lists__set_alias_enabled(self, email, alias, enabled) -> dict:
         self._alias_set_enabled(self.lists, email, alias, enabled)
         return self._list(email)
 
@@ -599,7 +615,7 @@ class FakeSuiteCloud:
             self._require(self.lists, email)["description"] = description
         return self._list(email)
 
-    def mailing_lists__set_mailing_list_aliases(self, email, aliases=None) -> dict:
+    def mailing_lists__set_aliases(self, email, aliases=None) -> dict:
         self._require(self.lists, email)["aliases"] = self._alias_rows(aliases)
         return self._list(email)
 
@@ -609,6 +625,14 @@ class FakeSuiteCloud:
             {"email": r, "enabled": bool(v)}
             for r, v in sorted(recipients.items())
             if not search or search in r
+        ]
+        return {"items": rows[start : start + limit], "total": len(rows)}
+
+    def mailing_lists__list_all_recipients(self, start=0, limit=1000) -> dict:
+        rows = [
+            {"mailing_list": email, "email": r, "enabled": bool(v)}
+            for email, ml in sorted(self.lists.items())
+            for r, v in sorted(ml["recipients"].items())
         ]
         return {"items": rows[start : start + limit], "total": len(rows)}
 
@@ -723,6 +747,9 @@ def fake_suite_cloud(fake: FakeSuiteCloud | None = None):
         "suite.mail.suite_cloud.get_client",
         "suite.mail.directory.get_client",
         "suite.mail.api.admin.get_client",
+        "suite.mail.account_lifecycle.get_client",
+        "suite.mail.health.get_client",
+        "suite.mail.storage.get_client",
     )
     patches = [patch(target, return_value=fake) for target in targets]
     # User Settings checks the app password against the JMAP server on save; there is none here.

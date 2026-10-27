@@ -98,7 +98,6 @@ export async function uploadFile(
 		headers: { "Content-Type": "application/octet-stream" },
 	});
 	if (!chunk.ok()) throw new Error(`upload chunk failed with ${chunk.status()}`);
-
 	return data<DriveNode>(api, "post", `${DRIVE}/uploads/${session.upload_id}/finish`, { parent_node: parent, title });
 }
 
@@ -127,6 +126,11 @@ export async function patchNode(api: APIRequestContext, node: string, patch: Rec
 	await data(api, "patch", `${DRIVE}/nodes/${node}`, patch);
 }
 
+/** Gives `principal` `role` on `node` (10 is Read). */
+export async function grantRole(api: APIRequestContext, node: string, principal: string, role: number): Promise<void> {
+	await data(api, "put", `${DRIVE}/nodes/${node}/grants/${encodeURIComponent(principal)}`, { role });
+}
+
 export function listView(
 	api: APIRequestContext,
 	view: string,
@@ -135,10 +139,16 @@ export function listView(
 	return data(api, "get", `${DRIVE}/views/${view}${query}`);
 }
 
-/** Permanent removal. The UI gates this behind ticket 007, the route does not. */
+/**
+ * Permanent removal. The server deletes only a trash root, so the node is
+ * trashed first; a node already gone or already trashed is fine.
+ */
 export async function purge(api: APIRequestContext, node: string): Promise<void> {
-	// Only a trash root can be deleted forever; a node already trashed or gone answers 409 or 404 here
-	await send(api, "patch", `${DRIVE}/nodes/${node}`, { state: "Trashed" });
+	const trash = await send(api, "patch", `${DRIVE}/nodes/${node}`, { state: "Trashed" });
+	if (trash.status() === 404) return;
+	if (!trash.ok() && trash.status() !== 409) {
+		throw new Error(`trashing ${node} failed with ${trash.status()}: ${await trash.text()}`);
+	}
 	const response = await send(api, "delete", `${DRIVE}/nodes/${node}`);
 	if (!response.ok() && response.status() !== 404) {
 		throw new Error(`purge ${node} failed with ${response.status()}: ${await response.text()}`);

@@ -1,8 +1,7 @@
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { type APIRequestContext, type Locator, type Page, type Route } from "@playwright/test";
-
-import { expect, test } from "../../helpers/flips";
+import { type APIRequestContext, type Locator, type Page, type Route, expect, test } from "@playwright/test";
 
 import {
 	DRIVE,
@@ -50,9 +49,11 @@ async function openFolder(page: Page, folder: DriveNode) {
 	await expect(page.getByRole("button", { name: "New", exact: true })).toBeVisible();
 }
 
-async function useNewMenu(page: Page, item: string) {
+/** New's Upload group comes after Create, whose "Folder" shares the upload folder's label. */
+async function useNewMenu(page: Page, item: "Upload files" | "Upload folder") {
 	await page.getByRole("button", { name: "New", exact: true }).click();
-	await page.getByRole("menuitem", { name: item, exact: true }).click();
+	const label = item === "Upload files" ? "Files" : "Folder";
+	await page.getByRole("menuitem", { name: label, exact: true }).last().click();
 }
 
 async function openTrash(page: Page) {
@@ -152,13 +153,11 @@ test("Upload new version replaces a file's bytes from its preview", async ({ pag
 	expect(replaced.size).toBe(replacement.length);
 	expect(replaced.title).toBe("notes.bin");
 	expect((await children(api, home.name)).rows.map((row) => row.title)).toEqual(["notes.bin"]);
-	await expect
-		.poll(async () => {
-			const href = await page.getByRole("link", { name: "Download" }).first().getAttribute("href");
-			const { pathname, searchParams } = new URL(href ?? "", page.url());
-			return [pathname, searchParams.get("download"), searchParams.get("v")];
-		})
-		.toEqual([`${DRIVE}/nodes/${file.name}/content`, "1", "1"]);
+	await expect(page.getByRole("link", { name: "Download" }).first()).toHaveAttribute(
+		"href",
+		// The download link asks for an attachment of the new revision.
+		new RegExp(`${DRIVE}/nodes/${file.name}/content\\?download=1&v=1$`),
+	);
 	expect(legacy).toEqual([]);
 });
 
@@ -168,7 +167,7 @@ test("a batch upload asks about a taken title and keeps both", async ({ page }) 
 	await openFolder(page, home);
 
 	const chooser = page.waitForEvent("filechooser");
-	await useNewMenu(page, "Files");
+	await useNewMenu(page, "Upload files");
 	await (await chooser).setFiles([
 		{ name: "report.pdf", mimeType: "application/pdf", buffer: Buffer.from("second") },
 		{ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") },
@@ -186,9 +185,12 @@ test("a batch upload asks about a taken title and keeps both", async ({ page }) 
 	expect(legacy).toEqual([]);
 });
 
-test("a reload mid-upload leaves an interrupted entry that Resume finishes", async ({ page }) => {
+test("a reload mid-upload leaves an interrupted entry that Resume finishes", async ({ page }, testInfo) => {
 	await openFolder(page, home);
 	const big = Buffer.alloc(17 * 1024 * 1024, 7);
+	// Pick the same disk file twice so its modification time is preserved.
+	const bigPath = testInfo.outputPath("big.bin");
+	await writeFile(bigPath, big);
 	let chunks = 0;
 	await page.route(CHUNK_ROUTE, async (route) => {
 		chunks += 1;
@@ -197,21 +199,22 @@ test("a reload mid-upload leaves an interrupted entry that Resume finishes", asy
 	});
 
 	const chooser = page.waitForEvent("filechooser");
-	await useNewMenu(page, "Files");
-	await (await chooser).setFiles({ name: "big.bin", mimeType: "application/octet-stream", buffer: big });
+	await useNewMenu(page, "Upload files");
+	await (await chooser).setFiles(bigPath);
 	await expect.poll(() => chunks).toBe(2);
-	await page.unroute(CHUNK_ROUTE);
 	await page.reload();
+	await page.unroute(CHUNK_ROUTE);
 
-	// The interrupted upload raises the red dot. The ring opens the tracker.
+	// The interrupted upload raises the red dot. The Drive item opens the tracker.
 	const drive = rail(page).getByRole("link", { name: /^Drive/ });
-	await expect(drive.locator("[data-slot='area-progress-attention']")).toBeVisible();
+	await expect(drive.getByRole("status")).toHaveText("Drive: Needs attention");
+	await expect(drive.locator("[data-slot='area-progress-dot']")).toHaveAttribute("data-attention", "true");
 	await drive.click();
 	await expect(page.locator("[data-slot='upload-entry'][data-state='interrupted']")).toBeVisible();
 
 	const again = page.waitForEvent("filechooser");
 	await page.getByRole("button", { name: "Resume" }).click();
-	await (await again).setFiles({ name: "big.bin", mimeType: "application/octet-stream", buffer: big });
+	await (await again).setFiles(bigPath);
 	await expect(doneEntries(page)).toHaveCount(1, { timeout: 30_000 });
 
 	const rows = (await children(api, home.name)).rows;
@@ -266,7 +269,7 @@ test("a batch larger than the free space offers to upload what fits", async ({ p
 	await openFolder(page, home);
 
 	const chooser = page.waitForEvent("filechooser");
-	await useNewMenu(page, "Files");
+	await useNewMenu(page, "Upload files");
 	await (await chooser).setFiles([
 		{ name: "fits.txt", mimeType: "text/plain", buffer: Buffer.from("small") },
 		{ name: "too-big.txt", mimeType: "text/plain", buffer: Buffer.alloc(100, 1) },
@@ -296,7 +299,7 @@ test("a restore whose folder is gone asks for a destination in the same root", a
 	await dialog.getByRole("button", { name: home.title }).click();
 	await dialog.getByRole("button", { name: "Restore here", exact: true }).click();
 
-	await expect(page.getByText("1 restored · 0 failed")).toBeVisible();
+	await expect(page.getByText(`Restored “${orphan.title}”`, { exact: true })).toBeVisible();
 	await expect(page.getByText("selected")).toHaveCount(0);
 	const restored = await getNode(api, orphan.name);
 	expect(restored.parent_node).toBe(home.name);
@@ -313,8 +316,13 @@ test("Delete forever on a mixed batch reports what failed and keeps it selected"
 	await select(page, first.title);
 	await select(page, second.title);
 	await expect(page.getByText("2 selected")).toBeVisible();
-	// Someone else deletes one of them first, so it fails in the batch.
-	await purge(api, second.name);
+	// Delete only after the batch captures both selected ids. A live refresh
+	// before the click can remove the missing item from the selection entirely.
+	await page.route(`**${DRIVE}/nodes/batch/purge`, async (route) => {
+		expect(route.request().postDataJSON().nodes.sort()).toEqual([first.name, second.name].sort());
+		await purge(api, second.name);
+		await route.continue();
+	}, { times: 1 });
 
 	await page.getByRole("button", { name: "Delete forever" }).click();
 	await page.getByRole("dialog").getByRole("button", { name: "Delete forever" }).click();
@@ -338,17 +346,20 @@ test("the upload ring shows on the Drive rail item in another area", async ({ pa
 	});
 
 	const chooser = page.waitForEvent("filechooser");
-	await useNewMenu(page, "Files");
+	await useNewMenu(page, "Upload files");
 	await (await chooser).setFiles({ name: "slow.txt", mimeType: "text/plain", buffer: Buffer.from("slow bytes") });
 	await expect(page.locator("[data-slot='upload-entry'][data-state='uploading']")).toBeVisible();
 
 	await rail(page).getByRole("link", { name: "Home" }).click();
 	await expect(page).toHaveURL(/\/home/);
 	const drive = rail(page).getByRole("link", { name: /^Drive/ });
-	await expect(drive.locator("[data-slot='area-progress-ring']")).toBeVisible();
+	await expect(drive.getByRole("status")).toHaveText("Drive: In progress");
+	await expect(drive.locator("[data-slot='area-progress-dot']")).toHaveAttribute("data-tone", "running");
 
 	release!();
-	await expect(drive.locator("[data-slot='area-progress-ring']")).toHaveAttribute("data-tone", "done");
+	await expect(drive.getByRole("status")).toHaveText("Drive: Done");
+	// The dot fades out once the work is done.
+	await expect(drive.locator("[data-slot='area-progress-dot']")).toHaveCount(0);
 	await page.unroute(CHUNK_ROUTE);
 	expect((await children(api, home.name)).rows.map((row) => row.title)).toEqual(["slow.txt"]);
 });

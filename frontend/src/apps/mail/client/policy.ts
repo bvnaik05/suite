@@ -29,7 +29,7 @@ function screeningPolicy(remove: boolean) {
               !addresses.has(row.email.toLowerCase()),
           )
           if (remove) return kept
-          const action = typeof input.action === 'string' ? input.action : 'Reject'
+          const action = typeof input.action === 'string' ? input.action : 'Spam'
           return [
             ...kept,
             ...input.emails.map((email) => ({ email, action, creation: '', modified: '' })),
@@ -48,6 +48,14 @@ export const registration: OwnerRegistration = {
   }): Policy<I, O> {
     if (reference.id === 'screen_email_addresses') return screeningPolicy(false)
     if (reference.id === 'unscreen_email_addresses') return screeningPolicy(true)
+    // Blocking moves mail to Junk as well as writing the rule, so it reads as a message change.
+    if (['block_senders', 'junk_senders_inbox_mail'].includes(reference.id))
+      return messagePolicy<I, O>(reference.id)
+    // Unsubscribing marks the message and nothing else a list shows: only the way out is read again.
+    if (reference.id === 'unsubscribe_mail')
+      return {
+        effects: { matches: matchingAccount, invalidates: ['mail.get_unsubscribe_options'] },
+      }
     if (reference.id === 'create_calendar_import' || reference.id === 'create_calendar_export')
       return { effects: { invalidates: ['mail.ongoing_calendar_exchange'] } }
     if (
@@ -105,16 +113,6 @@ export const registration: OwnerRegistration = {
     if (reference.id === 'set_signature')
       return { effects: { invalidates: ['mail.get_identities'] } }
     if (reference.id === 'screen_email_address') return screeningPolicy(false)
-    if (reference.id === 'move_screening_mails_to_inbox')
-      return {
-        effects: {
-          invalidates: [
-            'mail.get_mailboxes',
-            'mail.get_unified_folders',
-            'mail.get_all_inbox_unread_count',
-          ],
-        },
-      }
     if (
       [
         'create_mail_import',
@@ -127,7 +125,19 @@ export const registration: OwnerRegistration = {
     if (reference.id === 'update_preferences')
       return {
         effects: {
-          invalidates: ['mail.get_user_info'],
+          // The Inbox's categories are preferences too: a category turned off moves its mail into
+          // Primary, so the lists and their counts follow. No other preference touches them, and a
+          // split view toggle refetching the whole list was a reload for nothing.
+          invalidates: (input) =>
+            isRecord(input) && ('inbox_tabs' in input || 'split_inbox' in input)
+              ? [
+                  'mail.get_user_info',
+                  'mail.get_threads',
+                  'mail.get_unified_threads',
+                  'mail.get_tab_counts',
+                  'mail.get_unified_tab_counts',
+                ]
+              : ['mail.get_user_info'],
           optimisticReads: {
             references: ['mail.get_user_info'],
             update(input, _query, data) {
@@ -147,6 +157,8 @@ export const registration: OwnerRegistration = {
           ],
         },
       }
+    if (reference.id === 'update_regional_preferences')
+      return { effects: { invalidates: ['mail.regional_preferences'] } }
     if (reference.id === 'update_account_preferences')
       return {
         effects: {
@@ -182,8 +194,7 @@ export const registration: OwnerRegistration = {
     if (reference.id === 'subscribe_mailbox')
       return { effects: { invalidates: ['mail.get_mailboxes', 'mail.get_unified_folders'] } }
     if (reference.kind === 'mutation' && reference.publicName?.startsWith('admin.')) {
-      if (reference.id === 'change_member_password' || reference.id === 'send_invite')
-        return { effects: 'none' }
+      if (reference.id === 'change_member_password') return { effects: 'none' }
       const domain = reference.publicName.startsWith('admin.domains.')
       const readers = domain
         ? [
@@ -209,7 +220,12 @@ export const registration: OwnerRegistration = {
           ]
       return {
         effects: {
-          invalidates: [...readers, 'get_overview'].map((id) => `mail.${id}`),
+          invalidates: [
+            ...[...readers, 'get_overview'].map((id) => `mail.${id}`),
+            'suite.users_get',
+            'suite.account_get',
+            'suite.storage_get',
+          ],
           matches: matchingAdminTarget,
         },
       }
@@ -244,7 +260,7 @@ export const registration: OwnerRegistration = {
         )) ||
       reference.id === 'empty_user_mailbox'
     )
-      return messagePolicy<I, O>(reference.id)
+      return messagePolicy<I, O>(reference.id, reference.publicName)
     if (reference.kind === 'mutation' && reference.publicName?.startsWith('push.'))
       return { effects: { invalidates: ['mail.fetch_push_subscriptions'] } }
     return { staleTime: 30_000 }
@@ -255,11 +271,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// A write names its account, or a `folder` across every account (clearing an All accounts folder):
+// that one reaches every account's reads, not none of them. A write naming neither (a delete by
+// account-qualified names) still reaches no account's reads, so it can't touch another account's.
 function matchingAccount(input: unknown, queryInput: unknown): boolean {
   return (
     !isRecord(input) ||
     !isRecord(queryInput) ||
     !('account' in queryInput) ||
+    (!input.account && typeof input.folder === 'string') ||
     input.account === queryInput.account
   )
 }
@@ -288,27 +308,66 @@ const messageReaders = [
   'get_unified_threads',
   'get_thread',
   'search_mails',
+  'get_recent_threads_from',
   'get_mailboxes',
   'get_unified_folders',
+  'get_tab_counts',
+  'get_unified_tab_counts',
   'get_all_inbox_unread_count',
   'inbox_summary',
-  'get_screening_senders',
-  'get_screening_sender_mails',
-  'get_submissions',
-  'get_scheduled_mail',
 ].map((id) => `mail.${id}`)
 
-function messagePolicy<I, O>(id: string): Policy<I, O> {
+// The counts a write can move: each folder's, the Inbox's tabs, the badge on the app.
+const countReaders = [
+  'get_mailboxes',
+  'get_unified_folders',
+  'get_tab_counts',
+  'get_unified_tab_counts',
+  'get_all_inbox_unread_count',
+  'inbox_summary',
+].map((id) => `mail.${id}`)
+// Who a sent mail went to: the next to be suggested and carded.
+const peopleReaders = ['get_contacts', 'get_contact_cards', 'get_email_suggestions'].map(
+  (id) => `mail.${id}`,
+)
+// Mail on its way out: the Outbox, and the mail waiting for its time.
+const outgoingReaders = ['get_submissions', 'get_scheduled_mail'].map((id) => `mail.${id}`)
+
+/**
+ * What a write to mail reads again, beyond what its optimistic update already shows. Every write
+ * read everything once — the lists page by page, every count, the contacts — and some come with
+ * each click (opening unread mail marks it read) or every couple of seconds (a draft's autosave).
+ */
+function messageInvalidates(id: string, publicName: string | undefined, input: unknown) {
+  const sends =
+    isRecord(input) &&
+    ((id === 'create_mail' && !input.save_as_draft) ||
+      (id === 'update_draft_mail' && !!input.submit))
+  // Read: the rows say so already; only the unread counts move. Starred: nothing counts stars.
+  if (id === 'set_mails_seen') return countReaders
+  if (id === 'set_flagged') return []
+  // A draft saved: the composer reloads the lists itself, never mid-sentence (see useComposeMail),
+  // and only a new one changes a count.
+  if ((id === 'create_mail' || id === 'update_draft_mail') && !sends)
+    return id === 'create_mail' ? ['mail.get_mailboxes'] : []
+  const readers = [...messageReaders]
+  if (sends || publicName?.startsWith('scheduled.')) readers.push(...outgoingReaders)
+  if (sends) readers.push(...peopleReaders)
+  // A verdict on a sender, given outright or with a junking.
+  if (
+    publicName?.startsWith('screener.') ||
+    ['block_senders', 'junk_senders_inbox_mail'].includes(id) ||
+    (isRecord(input) && !!input.screen_action)
+  )
+    readers.push('mail.get_screened_addresses')
+  return readers
+}
+
+function messagePolicy<I, O>(id: string, publicName?: string): Policy<I, O> {
   return {
     effects: {
       matches: matchingAccount,
-      invalidates: [
-        ...messageReaders,
-        'mail.get_screened_addresses',
-        'mail.get_contacts',
-        'mail.get_contact_cards',
-        'mail.get_email_suggestions',
-      ],
+      invalidates: (input: I) => messageInvalidates(id, publicName, input),
       optimisticReads: {
         references: messageReaders,
         update(input, queryInput, data) {
@@ -337,31 +396,123 @@ function messagePolicy<I, O>(id: string): Policy<I, O> {
             )
               return row
             const messages = Array.isArray(row.messages) ? row.messages.map(patch) : undefined
+            // A message's other copies take the write too, or a star cleared from one comes back.
+            const duplicates = Array.isArray(row.duplicates) ? row.duplicates.map(patch) : undefined
             if (!field) return row
+            // A conversation is starred while any of its messages is, whichever one was starred —
+            // a copy the thread shows as one message (`duplicates`) included, as the server counts
+            // it. Worked out only for the conversation the write touched: any other keeps its star.
+            const copies = (m: Record<string, unknown>) => [
+              m,
+              ...(Array.isArray(m.duplicates) ? m.duplicates.filter(isRecord) : []),
+            ]
+            const starred = (copy: Record<string, unknown>) => !!copy.flagged
+            const touched =
+              ids.has(row.id) ||
+              !!messages?.some((m) => isRecord(m) && copies(m).some((c) => ids.has(c.id)))
+            const flagged =
+              field === 'flagged' && touched && messages?.length
+                ? {
+                    flagged: messages.some((m) => isRecord(m) && copies(m).some(starred)) ? 1 : 0,
+                  }
+                : {}
             return {
               ...row,
               ...(messages ? { messages } : {}),
+              ...(duplicates ? { duplicates } : {}),
               ...(ids.has(row.id) ? { [field]: input[field] ? 1 : 0 } : {}),
+              ...flagged,
             }
           }
           if (field) {
             if (Array.isArray(data)) return data.map(patch)
-            if (isRecord(data) && Array.isArray(data.rows))
-              return { ...data, rows: data.rows.map(patch) }
+            if (isRecord(data) && Array.isArray(data.rows)) {
+              const rows = data.rows.map(patch)
+              // Unstarred in Starred, a conversation with no star left leaves the list on the click:
+              // the star is the list's one rule, and nothing reads the list again after a star.
+              // The Starred folder, or any list filtered to starred mail.
+              // A list filtered to starred mail lets it go too, unless it is also filtered to unread:
+              // there what is changed in place stays until the list changes, read or unstarred
+              // (see useKeptRead).
+              const filters =
+                isRecord(queryInput) && typeof queryInput.filter_by === 'string'
+                  ? queryInput.filter_by.split(',')
+                  : []
+              const starredList =
+                isRecord(queryInput) &&
+                (queryInput.mailbox === 'starred' ||
+                  queryInput.folder === 'starred' ||
+                  (filters.includes('starred') && !filters.includes('unread')))
+              if (field !== 'flagged' || input.flagged || !starredList) return { ...data, rows }
+              const touched = (row: Record<string, unknown>) =>
+                ids.has(row.id) ||
+                (Array.isArray(row.messages) &&
+                  row.messages.some((m) => isRecord(m) && ids.has(m.id)))
+              // Any copy of any message, hidden ones included, as the server counts it.
+              const starred = (row: Record<string, unknown>) =>
+                Array.isArray(row.messages) && row.messages.length
+                  ? row.messages.some(
+                      (m) =>
+                        isRecord(m) &&
+                        (!!m.flagged ||
+                          (Array.isArray(m.duplicates) &&
+                            m.duplicates.some((d) => isRecord(d) && d.flagged))),
+                    )
+                  : !!row.flagged
+              return {
+                ...data,
+                rows: rows.filter((row) => !isRecord(row) || !touched(row) || starred(row)),
+              }
+            }
           }
           if (!isRecord(queryInput) || !isRecord(data) || !Array.isArray(data.rows))
             return undefined
+          // A filing names the folders each message is expected in after it, so a row that stays
+          // on the list shows them — and the actions they decide — on the click.
+          if (id === 'file_mails' && isRecord(input.shows)) {
+            const shows = input.shows
+            const refile = (item: unknown): unknown =>
+              isRecord(item) && typeof item.id === 'string' && Array.isArray(shows[item.id])
+                ? { ...item, mailboxes: shows[item.id] }
+                : item
+            // Ids are per account: a merged list's row from another account is someone else's mail.
+            const elsewhere = (row: Record<string, unknown>) =>
+              typeof row.account === 'string' &&
+              typeof input.account === 'string' &&
+              row.account !== input.account
+            data = {
+              ...data,
+              rows: data.rows.map((row) =>
+                isRecord(row) && !elsewhere(row)
+                  ? {
+                      ...(refile(row) as Record<string, unknown>),
+                      ...(Array.isArray(row.messages)
+                        ? { messages: row.messages.map(refile) }
+                        : {}),
+                    }
+                  : row,
+              ),
+            }
+            if (!input.leaves) return data
+          }
+          if (!isRecord(data) || !Array.isArray(data.rows)) return undefined
           const removing = [
             'move_mails',
             'delete_messages',
             'delete_mail',
             'empty_user_mailbox',
+            'file_mails',
           ].includes(id)
           if (
             !removing ||
             (id === 'move_mails' &&
               (input.mailbox === queryInput.mailbox ||
-                (input.mailbox === 'inbox' && queryInput.folder === 'inbox')))
+                (input.mailbox === 'inbox' && queryInput.folder === 'inbox'))) ||
+            // A filing says which list the conversation leaves; every other list keeps its rows
+            // (an Archive from a folder of yours, a move from Sent) until it is read again.
+            (id === 'file_mails' &&
+              (!input.leaves ||
+                (input.leaves !== queryInput.mailbox && input.leaves !== queryInput.folder)))
           )
             return undefined
           return {

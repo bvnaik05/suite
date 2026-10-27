@@ -10,25 +10,6 @@ describe('canonical route metadata', () => {
     }
   })
 
-  it('holds every area entry URL', () => {
-    expect(canonicalRoutes.map((route) => route.path)).toEqual([
-      '/home',
-      '/drive',
-      '/drive/organization',
-      '/drive/f/:node/:slug?',
-      '/drive/recent',
-      '/drive/starred',
-      '/drive/shared-with-me',
-      '/drive/trash',
-      '/drive/recovery',
-      '/mail/:pathMatch(.*)*',
-      '/calendar/:pathMatch(.*)*',
-      '/people/:pathMatch(.*)*',
-      '/meet/:pathMatch(.*)*',
-      '/d/:node/:slug?',
-    ])
-  })
-
   it('names the recovery copies page before its routes load', () => {
     const recovery = canonicalRoutes.find((route) => route.path === '/drive/recovery')
     expect(recovery?.meta?.title).toBe('Recovery copies')

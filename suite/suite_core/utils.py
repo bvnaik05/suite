@@ -4,7 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils.caching import request_cache
 
-SUITE_CLOUD_CONFIG_KEYS = ("suite_cloud_url", "site_api_key", "site_api_secret")
+SUITE_CLOUD_CONFIG_KEYS = ("suite_cloud_url", "suite_cloud_tenant", "suite_cloud_secret")
 
 
 @request_cache
@@ -20,7 +20,7 @@ def get_suite_cloud_config(key: str | tuple[str, ...] | None = None) -> dict[str
     config = {}
     for field in SUITE_CLOUD_CONFIG_KEYS:
         value = settings.get(field)
-        if value and field == "site_api_secret":
+        if value and field == "suite_cloud_secret":
             value = settings.get_password(field)
         config[field] = value or frappe.conf.get(field)
 
@@ -38,6 +38,9 @@ def get_suite_cloud_config(key: str | tuple[str, ...] | None = None) -> dict[str
 def is_suite_cloud_configured(raise_exception: bool = False) -> bool:
     """Whether the site knows where its Suite Cloud is and how to authenticate to it."""
 
+    # A developer-mode site can stand in a local fake for Suite Cloud (suite.mail.dev_suite_cloud).
+    if frappe.conf.get("suite_cloud_fake") and frappe.conf.get("developer_mode"):
+        return True
     if all(get_suite_cloud_config().values()):
         return True
     if raise_exception:

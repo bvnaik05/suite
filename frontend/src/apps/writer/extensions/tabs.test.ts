@@ -29,7 +29,9 @@ function makeEditor(labels: string[]) {
     extensions: [Document, Paragraph, Text, TabsExtension],
     content: labels.map(tabHTML).join(''),
   }
-  return new Editor(editorOptions)
+  const editor = new Editor(editorOptions)
+  editors.push(editor)
+  return editor
 }
 
 const labelsOf = (editor: Editor) =>
@@ -113,6 +115,7 @@ describe('ordered serialisation', () => {
       extensions: [Document, Paragraph, Text, TabsExtension],
       content: '<p>plain</p>',
     })
+    editors.push(editor)
     expect(editor.getHTML()).toBe('<p>plain</p>')
   })
 })

@@ -314,7 +314,7 @@ import {
   ListHeaderCellSort,
   ListRow,
 } from 'frappe-ui/list'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { InfiniteQueryState } from '@/api'
 import type { DriveNode } from '@/apps/drive/client/types'
@@ -363,6 +363,7 @@ const emit = defineEmits<{
 }>()
 const listing = ref<HTMLElement | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
+const sentinelVisible = ref(false)
 let observer: IntersectionObserver | null = null
 let longPress: ReturnType<typeof setTimeout> | null = null
 let longPressFired = false
@@ -431,12 +432,21 @@ const someSelected = computed(() => !allSelected.value && rows.value.some(isSele
 onMounted(() => {
   observer = new IntersectionObserver(
     ([entry]) => {
-      if (entry?.isIntersecting) void loadMore()
+      sentinelVisible.value = entry?.isIntersecting ?? false
     },
     { rootMargin: '240px' },
   )
   if (sentinel.value) observer.observe(sentinel.value)
 })
+// A refresh can finish while the sentinel stays visible. Resume then without
+// requiring another intersection, but leave a failed window for explicit Retry.
+watch(
+  [sentinelVisible, () => props.query.isFetching, () => props.query.hasNext],
+  () => {
+    if (sentinelVisible.value && !props.query.error) void loadMore()
+  },
+  { flush: 'post' },
+)
 onBeforeUnmount(() => {
   observer?.disconnect()
   cancelLongPress()
@@ -547,7 +557,7 @@ function onRowClick(event: MouseEvent, row: DriveNode) {
   else emit('open', row)
 }
 async function loadMore() {
-  if (!props.query.hasNext || props.query.isFetchingNext) return
+  if (!props.query.hasNext || props.query.isFetching || props.query.isFetchingNext) return
   // A failed window ends the walk. Without the flag the loop retries the same
   // cursor forever and the inline retry control never appears. The flag is
   // local, so pressing Retry starts a fresh walk.
@@ -557,7 +567,7 @@ async function loadMore() {
       return props.query.rows
     },
     get hasNext() {
-      return props.query.hasNext && !failed
+      return props.query.hasNext && !props.query.isFetching && !failed
     },
     async fetchNext() {
       await props.query.fetchNext()

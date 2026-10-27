@@ -1683,7 +1683,7 @@ class SlidesTest(unittest.TestCase):
         stored = dict(target.preview_rows["deck-node"])
         self.assertEqual(result.deck_previews_created, 1)
 
-        # `put_private_blob` is content addressed. A new encoder renames the
+        # `put_private_blob` deduplicates by content. A new encoder renames the
         # blob, and the stored row must still validate.
         calls = []
 

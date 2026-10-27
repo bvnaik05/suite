@@ -1,6 +1,6 @@
 <template>
   <Button
-    v-for="action in primaryActions(mail).filter((d) => d.condition !== false && !isCollapsed)"
+    v-for="action in shown(mail).filter((d) => !d.star)"
     :key="action.label"
     variant="ghost"
     :tooltip="action.label"
@@ -23,10 +23,24 @@
       </Button>
     </AdaptiveDropdown>
   </div>
+
+  <!-- The star last, past More: it says whether the message is marked as much as it acts, and the
+	     edge is where every list and folded row keeps it. -->
+  <Button
+    v-for="action in shown(mail).filter((d) => d.star)"
+    :key="action.label"
+    variant="ghost"
+    :tooltip="action.label"
+    @click.stop="action.onClick"
+  >
+    <template #icon>
+      <component :is="action.icon" class="text-ink-gray-5 icon" />
+    </template>
+  </Button>
 </template>
 
 <script lang="ts" setup>
-import { Button } from 'frappe-ui'
+import { Button, toast } from 'frappe-ui'
 import {
   Ban,
   CircleAlert,
@@ -46,16 +60,24 @@ import {
   Star,
   Trash2,
 } from 'lucide-vue-next'
-import { h, inject } from 'vue'
+import { computed, h, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { api, client, useMutation, type InputOf } from '@/api'
+import { api, client, type InputOf } from '@/api'
+import { useScreener } from '@/apps/mail/composables/useScreener'
 import { FLAGGED_STAR_STYLE } from '@/apps/mail/constants'
 import type { ComposeMailData, Identity, Mail, ScreenedAddress } from '@/apps/mail/types'
-import { downloadUrlAsFile, raiseError, raiseOptimisticToast, raiseToast } from '@/apps/mail/utils'
+import {
+  downloadUrlAsFile,
+  matchesScreenedValue,
+  raiseError,
+  raiseOptimisticToast,
+  raiseToast,
+} from '@/apps/mail/utils'
 import { injectAccountScope } from '@/apps/mail/utils/accountScope'
 import { useFilterBySender, useScreenSize, useUndo } from '@/apps/mail/utils/composables'
 import { mailCopyIds } from '@/apps/mail/utils/mailCopies'
+import { isReceived } from '@/apps/mail/utils/receivedMail'
 import { UNIFIED_ROUTE, UNIFIED_THREAD_ROUTE } from '@/apps/mail/utils/unifiedFolders'
 import AdaptiveDropdown from '@/components/AdaptiveDropdown.vue'
 
@@ -69,7 +91,10 @@ const {
   reply,
   replyAll,
   forward,
+  reloadMails,
+  dropMail,
   thread,
+  hideStar = false,
 } = defineProps<{
   mailbox: string
   mail: Mail
@@ -81,7 +106,11 @@ const {
   replyAll: (mail: Mail) => void
   forward: (mail: Mail) => void
   reloadMails: (isUndo?: boolean) => void
+  /** Takes the message out of the pane ahead of the server; returns what puts it back. */
+  dropMail: (mailId: string) => () => void
   thread: Mail[]
+  /** The host draws the star itself — a folded row, which keeps it at its far right. */
+  hideStar?: boolean
 }>()
 const emit = defineEmits(['setFlagged', 'syncUnseen', 'moveMail', 'markMailSpam', 'deleteMail'])
 const { isMobile } = useScreenSize()
@@ -97,31 +126,49 @@ const {
   screenedAddresses,
 } = injectAccountScope()
 const { setUndoAction, undo } = useUndo()
+const screener = useScreener()
 const { filterBySender } = useFilterBySender()
 const user = inject('$user')
 
-// A sender is "blocked" when screened with the Reject action (their mail is discarded) — either by their
+// A sender is "blocked" when screened with the Spam action (their mail goes to Junk) — either by their
 // exact address or by a '@domain' entry covering them.
 const isSenderBlocked = (email: string) =>
   screenedAddresses.value.data?.some(
-    (a: ScreenedAddress) => a.action === 'Reject' && matchesScreenedValue(email, a.email),
+    (a: ScreenedAddress) => a.action === 'Spam' && matchesScreenedValue(email, a.email),
   )
+// A message alone in its thread has the star beside the subject (MailThread), which stars that same
+// message: a second one a line below would only repeat it.
+const isAlone = computed(() => thread.filter((m) => !m.draft).length <= 1)
+const shown = (mail: Mail) =>
+  primaryActions(mail).filter((action) => action.condition !== false && !isCollapsed)
 const primaryActions = (mail: Mail): MailAction[] => [
   {
     label: __('Unstar'),
+    star: true,
     onClick: () => emit('setFlagged', mailCopyIds(mail), false),
     icon: () =>
       h(Star, {
         style: FLAGGED_STAR_STYLE,
       }),
-    condition: !!mail.flagged && mailbox !== mailboxIds.value.trash && !isMobile.value,
+    condition:
+      !!mail.flagged &&
+      mailbox !== mailboxIds.value.trash &&
+      !isMobile.value &&
+      !isAlone.value &&
+      !hideStar,
   },
   {
     label: __('Star'),
+    star: true,
     onClick: () => emit('setFlagged', mailCopyIds(mail), true),
     icon: Star,
     condition:
-      !mail.flagged && !mail.draft && mailbox !== mailboxIds.value.trash && !isMobile.value,
+      !mail.flagged &&
+      !mail.draft &&
+      mailbox !== mailboxIds.value.trash &&
+      !isMobile.value &&
+      !isAlone.value &&
+      !hideStar,
   },
   {
     label: __('Edit Draft'),
@@ -141,6 +188,8 @@ interface MailAction {
   onClick: () => void
   icon: typeof SquarePen
   condition?: boolean | (() => boolean)
+  /** Drawn last, after More (see the template). */
+  star?: boolean
 }
 interface GroupedAction {
   group: string
@@ -193,7 +242,11 @@ const moreActions = (mail: Mail): GroupedAction[] => [
         label: __('Mark as Junk'),
         onClick: () => emit('markMailSpam', mail, true),
         icon: CircleAlert,
-        condition: () => mailbox !== mailboxIds.value.drafts && mail.junk === 0,
+        // Only mail you received is junked: your own sent message stays in Sent (see receivedMail).
+        condition: () =>
+          mailbox !== mailboxIds.value.drafts &&
+          mail.junk === 0 &&
+          isReceived(mail, mailboxIds.value.sent),
       },
       {
         label: __('Mark as Not Junk'),
@@ -230,7 +283,6 @@ const moreActions = (mail: Mail): GroupedAction[] => [
         onClick: () => handleBlockAddress(true),
         icon: Ban,
         condition: () =>
-          mailbox !== mailboxIds.value.screener &&
           !(identities.value.data ?? []).some((i: Identity) => i.email === mail.from_email) &&
           !isSenderBlocked(mail.from_email),
       },
@@ -238,17 +290,13 @@ const moreActions = (mail: Mail): GroupedAction[] => [
         label: __('Unblock Sender'),
         onClick: () => handleBlockAddress(false),
         icon: LockOpen,
-        condition: () => mailbox !== mailboxIds.value.screener && isSenderBlocked(mail.from_email),
+        condition: () => isSenderBlocked(mail.from_email),
       },
       {
         label: __('Mark Domain as Trusted'),
         onClick: () => trustDomain(),
         icon: ShieldCheck,
-        condition: () =>
-          mailbox !== mailboxIds.value.screener &&
-          !mail.draft &&
-          !!mail.from_email &&
-          !isDomainTrusted(mail.from_email),
+        condition: () => !mail.draft && !!mail.from_email && !isDomainTrusted(mail.from_email),
       },
     ],
   },
@@ -288,16 +336,20 @@ async function downloadEmail() {
     raiseError(error)
   }
 }
-const setMailsSeen = useMutation(api.mail.messages.seen)
-async function setMailsSeenSubmit({ ids: requestedIds }: { ids: string[] }) {
+// Done on the click: the rows read unread at once (see the client policy), the toast says so and
+// the thread is left, while the request goes. A refusal says why and the server keeps the mail read.
+function setMailsSeenSubmit({ ids }: { ids: string[] }) {
   const input: InputOf<typeof api.mail.messages.seen> = {
     account: scopeAccountId.value,
-    ids: requestedIds,
+    ids,
     seen: false,
   }
-  const result = await setMailsSeen.run(input)
-  const ids = result
-  raiseToast(__('{0} marked as unread.', [ids.length === 1 ? __('Mail') : __('Mails')]))
+  const shown = raiseToast(
+    __('{0} marked as unread.', [ids.length === 1 ? __('Mail') : __('Mails')]),
+  )
+  // Through the client, not a mutation of this menu's: the thread is left at once, and a write of
+  // the menu's own would be canceled as it goes.
+  client.mutation(api.mail.messages.seen, input).catch(() => toast.dismiss(shown))
   // Leaving the thread is the point — staying would mark it read again. Return to whichever
   // list we came from: hardcoding the mailbox route threw the unified folder out of the merged view
   // and into the owning account's mailbox, which read as the page reloading.
@@ -336,36 +388,73 @@ const isDomainTrusted = (email: string) =>
     (a: ScreenedAddress) =>
       a.action === 'Accepted' && a.email.trim().toLowerCase() === senderDomain(email),
   )
-const trustDomain = async () => {
-  await client.mutation(api.mail.screening.set, {
-    account: scopeAccountId.value,
-    emails: [senderDomain(mail.from_email)],
-    action: 'Accepted',
-  })
-  raiseToast(__('Domain marked as trusted.'))
+// Said on the click; a refusal takes the toast down and says why.
+const trustDomain = () => {
+  const shown = raiseToast(__('Domain marked as trusted.'))
+  client
+    .mutation(api.mail.screening.set, {
+      account: scopeAccountId.value,
+      emails: [senderDomain(mail.from_email)],
+      action: 'Accepted',
+    })
+    .catch((error) => {
+      toast.dismiss(shown)
+      raiseError(error)
+    })
 }
-const handleBlockAddress = (block: boolean, isUndo = false) => {
-  const input = {
-    account: scopeAccountId.value,
-    emails: [mail.from_email],
-  }
-  const forward = block
-    ? client.mutation(
-        api.mail.screening.set,
-        {
-          ...input,
-          action: 'Reject',
-        },
-        {
-          silent: true,
-        },
-      )
-    : client.mutation(api.mail.screening.remove, input, {
-        silent: true,
-      })
-  const successMessage = block ? __('Sender blocked.') : __('Sender unblocked.')
-  if (isUndo) return raiseOptimisticToast(forward, successMessage)
-  setUndoAction(() => handleBlockAddress(!block, true))
-  raiseOptimisticToast(forward, successMessage, undo)
+const handleBlockAddress = (block: boolean) => (block ? blockSender() : unblockSender())
+
+const unblockSender = (isUndo = false) => {
+  const forward = client.mutation(
+    api.mail.screening.remove,
+    { account: scopeAccountId.value, emails: [mail.from_email] },
+    { silent: true },
+  )
+  if (isUndo) return raiseOptimisticToast(forward, __('Sender blocked.'))
+  setUndoAction(() => {
+    const back = client.mutation(
+      api.mail.screening.set,
+      { account: scopeAccountId.value, emails: [mail.from_email], action: 'Spam' },
+      { silent: true },
+    )
+    raiseOptimisticToast(back, __('Sender blocked.'))
+  })
+  raiseOptimisticToast(forward, __('Sender unblocked.'), undo)
+}
+
+// Blocking sends the sender's future mail to Junk, and this message with it — they were blocked while
+// it was being read. The rest of their mail stays put; the toast offers to move what is in the Inbox.
+const blockSender = () => {
+  const account = scopeAccountId.value
+  const from_emails = [mail.from_email]
+  const ids = mailCopyIds(mail)
+  // The message leaves at once, as a junked one does: waiting for the server let the refreshed block
+  // list mark it blocked while it was still on screen.
+  const putBack = dropMail(mail.id)
+  // Said on the click, as the message leaves on it (see raiseBlocked).
+  const landed = client
+    .mutation(api.mail.screening.block, { account, from_emails, ids })
+    .then((blocked) => blocked.inbox)
+  void landed.catch((error) => {
+    putBack()
+    raiseError(error)
+  })
+  screener.raiseBlocked(
+    from_emails,
+    () => {
+      putBack()
+      const back = Promise.all([
+        client.mutation(
+          api.mail.screening.remove,
+          { account, emails: from_emails },
+          { silent: true },
+        ),
+        client.mutation(api.mail.messages.spam, { account, ids, spam: false }, { silent: true }),
+      ]).then(() => reloadMails(true))
+      raiseOptimisticToast(back, __('Sender unblocked.'))
+    },
+    landed,
+    account,
+  )
 }
 </script>

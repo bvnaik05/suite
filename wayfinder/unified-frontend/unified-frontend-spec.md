@@ -1816,8 +1816,10 @@ Home lives in `composition/home/` because it composes product seams
 
 - Source: Calendar events only, through `GET /api/suite/calendar/events`.
   Meet has no list route [T012].
-- The window runs from now to the end of tomorrow, grouped as **Today** and
-  **Tomorrow** [T012].
+- Home and Meet Upcoming cover local today through the end of the next weekday.
+  Friday, Saturday and Sunday extend through Monday; intervening weekend events
+  remain eligible. This uses the browser timezone and no holiday calendar.
+  Ended events are omitted; existing row limits still apply.
 - The endpoint expands recurring events across the range [T012].
 - The query covers every account the caller owns. The request omits
   `account` (ask C2) [T012].
@@ -1972,9 +1974,9 @@ There is one Settings group per product, named after the product. Order
 - The Desk item moves from `apps/registry.ts` into `shell/accountMenu.ts`.
   The registry's Desk item is deleted [T016].
 - Open Desk and Upgrade plan both key on the `systemManager` capability
-  (section 3.8). There is no `systemUser` capability: Suite creates every
-  invited user as a System User, so "system users" would be nearly everyone
-  [T016, T021].
+  (section 3.8). There is no `systemUser` capability: Desk is the admin
+  console, and the Suite roles do not open it, so a "system user" is whoever
+  holds some other Desk role [T016, T021].
 - Open Desk is a plain `<a href="/app">`: a full page load in the same tab,
   placed after Settings and before Upgrade plan [T021].
 - Upgrade plan stays disabled with the tooltip "Not available yet" until
