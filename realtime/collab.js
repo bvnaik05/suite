@@ -259,9 +259,8 @@ function within_rate(connection) {
 
 function leave_rooms(connection, site, wanted) {
 	const { socket, pid } = connection;
-	for (const room of [...connection.joinedRooms]) {
-		if (wanted.has(room)) continue;
-
+	const left = [...connection.joinedRooms].filter((room) => !wanted.has(room));
+	for (const room of left) {
 		connection.joinedRooms.delete(room);
 		const members = site.rooms.get(room);
 		members?.delete(pid);
@@ -271,6 +270,9 @@ function leave_rooms(connection, site, wanted) {
 		}
 
 		socket.leave(room);
+	}
+
+	for (const room of left) {
 		socket.to(room).emit("suite_collab_presence_gone", { room, pid });
 	}
 }
@@ -383,6 +385,11 @@ async function handle_rooms_request(connection, payload, acknowledge) {
 		set_rooms(connection, rooms);
 		send_reply(acknowledge, join_reply(connection, rooms));
 	} catch {
+		try {
+			set_rooms(connection, []);
+		} catch {
+			// The rooms are left before others are told, so only the telling failed
+		}
 		send_reply(acknowledge, { error: "failed" });
 	}
 }

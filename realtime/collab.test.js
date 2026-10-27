@@ -184,6 +184,21 @@ test("a collab check that fails is answered as failed and asked again on the nex
 	}
 });
 
+test("a join that fails leaves the socket in no room, so nothing published after reaches it", async () => {
+	const nsp = fakeSite();
+	const faults = {};
+	const tab = connect(nsp, "a@example.com", faults);
+	await tab.joinRooms([roomA]);
+
+	faults.join = true;
+	const reply = await tab.joinRooms([roomA, roomB]);
+	nsp.to(roomA).emit("suite_collab_row", { room: roomA });
+
+	assert.deepEqual(reply, { error: "failed" });
+	assert.deepEqual(tab.heard("suite_collab_row"), []);
+	tab.close();
+});
+
 test("presence carries the user the server verified, never one the tab names", async () => {
 	const nsp = fakeSite();
 	const writer = connect(nsp, "writer@example.com");
