@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import frappe
+from frappe.utils.logging import get_log_db
 
 from suite import drive
 from suite.content import copies, live
@@ -113,7 +114,7 @@ class TestWriterDocumentRow(DriveCallbackCase):
             "Writer Document", self.docname_of(node), "html", "<p>foreign</p>", update_modified=False
         )
         frappe.db.commit()
-        alerts = frappe.db.count("Error Log", {"method": "Collab readable copy: written elsewhere"})
+        alerts = get_log_db().count("Error Log", {"method": "Collab readable copy: written elsewhere"})
 
         for _attempt in range(2):
             with self.assertRaisesRegex(drive.DriveConflict, "Open the document to refresh its export"):
@@ -126,5 +127,5 @@ class TestWriterDocumentRow(DriveCallbackCase):
             [(reason, bytes(payload)) for reason, payload in evidence], [("copy_foreign", b"<p>foreign</p>")]
         )
         self.assertEqual(
-            frappe.db.count("Error Log", {"method": "Collab readable copy: written elsewhere"}), alerts + 1
+            get_log_db().count("Error Log", {"method": "Collab readable copy: written elsewhere"}), alerts + 1
         )

@@ -9,6 +9,7 @@ import frappe
 import pycrdt
 from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_redis_conn
+from frappe.utils.logging import get_log_db
 
 from suite import drive
 from suite.content import (
@@ -100,7 +101,7 @@ class TestSuspect(compaction_case.CompactionCase):
         )
 
     def alert_count(self, title: str) -> int:
-        return frappe.db.count("Error Log", {"method": f"Collab document {title}"})
+        return get_log_db().count("Error Log", {"method": f"Collab document {title}"})
 
     def test_a_row_only_pycrdt_refuses_is_quarantined_and_the_document_compacts_again(self):
         node = self.new_document()
@@ -528,7 +529,7 @@ class TestSuspect(compaction_case.CompactionCase):
                 "method": "Collab compaction: fallback",
                 "error": ["like", f"%{doc_id}%"],
             }
-            alerts = frappe.db.count("Error Log", fallback_alerts)
+            alerts = get_log_db().count("Error Log", fallback_alerts)
             return FallbackOutcome(self.doc_row(node).suspect, alerts, self.requested)
 
         self.assertEqual(falls_back(), FallbackOutcome("fallback", 1, [(JUDGE, doc_id)]))

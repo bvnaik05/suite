@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.utils.background_jobs import create_job_id, get_job, get_redis_conn
+from frappe.utils.logging import get_log_db
 from redis.exceptions import RedisError
 from rq.job import Job, JobStatus
 
@@ -280,7 +281,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
             "creation": (">=", frappe.utils.now_datetime()),
         }
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(frappe.db.delete, "Error Log", logged)
+        self.addCleanup(get_log_db().delete, "Error Log", logged)
 
         def queue_down(method, **kwargs):
             raise ConnectionError("queue down")
@@ -300,7 +301,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
                 frappe.local.cache = {}
                 scheduling.request_compaction(writer_content.APP, "outage", "unused")
 
-        self.assertEqual(frappe.db.count("Error Log", logged), 1)
+        self.assertEqual(get_log_db().count("Error Log", logged), 1)
 
     def test_requests_reach_the_queue_again_once_the_pause_ends(self):
         tried: list[str] = []
@@ -309,7 +310,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
             "creation": (">=", frappe.utils.now_datetime()),
         }
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(frappe.db.delete, "Error Log", logged)
+        self.addCleanup(get_log_db().delete, "Error Log", logged)
 
         def queue_down(method, **kwargs):
             tried.append(kwargs["doc_id"])
@@ -333,7 +334,7 @@ class TestWriterCompactionTriggers(CheckpointCase):
             "creation": (">=", frappe.utils.now_datetime()),
         }
         self.addCleanup(frappe.db.commit)
-        self.addCleanup(frappe.db.delete, "Error Log", logged)
+        self.addCleanup(get_log_db().delete, "Error Log", logged)
 
         def queue_down(method, **kwargs):
             refused.append(kwargs["doc_id"])

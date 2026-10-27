@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import frappe
 import pycrdt
+from frappe.utils.logging import get_log_db
 
 from suite.content.http import routes
 from suite.writer import content as writer_content
@@ -219,11 +220,11 @@ class TestWriterCollab(CollabCase):
             "method": "Collab open: chain_break",
             "error": f"{writer_content.APP} document {doc_id}",
         }
-        self.addCleanup(frappe.db.delete, "Error Log", logged)
+        self.addCleanup(get_log_db().delete, "Error Log", logged)
 
         response = call_route(routes.document_get, node)
         # The request is a GET, so frappe rolls back what it wrote
         frappe.db.rollback()
 
         self.assertEqual((response.status_code, answer(response)), (503, {"collab": "chain_break"}))
-        self.assertEqual(frappe.db.count("Error Log", logged), 1)
+        self.assertEqual(get_log_db().count("Error Log", logged), 1)

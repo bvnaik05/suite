@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 import pycrdt
 from frappe.tests import IntegrationTestCase
+from frappe.utils.logging import get_log_db
 
 from suite import content, drive
 from suite.content import capacity, conversions, convert, copies, jobs, log, logged
@@ -303,7 +304,7 @@ class TestNoteEditor(NoteAppCase):
                 copies.write(note.EDITOR.app, self.doc_id, 1, json.dumps({"a": "<p>one</p>"}), good)
             )
 
-        alerts = frappe.db.count("Error Log", {"method": ["like", "Collab readable copy%"]})
+        alerts = get_log_db().count("Error Log", {"method": ["like", "Collab readable copy%"]})
         with patch.object(note, "EDITOR", replace(note.EDITOR, readable_copy=lossy)):
             self.assertFalse(copies.write(note.EDITOR.app, self.doc_id, 2, second, lossy))
             self.assertFalse(copies.write(note.EDITOR.app, self.doc_id, 2, second, lossy))
@@ -312,7 +313,7 @@ class TestNoteEditor(NoteAppCase):
         evidence = frappe.db.sql(f"SELECT `reason` FROM `{recovery_table}` WHERE `doc_id` = %s", self.doc_id)
         self.assertEqual([reason for (reason,) in evidence], ["copy_mismatch"])
         self.assertEqual(
-            frappe.db.count("Error Log", {"method": ["like", "Collab readable copy%"]}), alerts + 1
+            get_log_db().count("Error Log", {"method": ["like", "Collab readable copy%"]}), alerts + 1
         )
 
     def test_compaction_writes_a_note_body_into_the_apps_own_row(self):

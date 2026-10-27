@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from frappe.tests.test_api import make_request
 from frappe.utils import get_datetime, get_system_timezone, get_test_client
 from frappe.utils.background_jobs import create_job_id, get_redis_conn
+from frappe.utils.logging import get_log_db
 from rq.job import Job, JobStatus
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
@@ -788,7 +789,7 @@ class TestConversion(DriveCallbackCase):
             "method": "Collab conversion: writer did not run",
             "error": ("like", f"%{node}: QueryDeadlockError%"),
         }
-        self.assertTrue(frappe.db.exists("Error Log", deadlock))
+        self.assertTrue(get_log_db().exists("Error Log", deadlock))
         self.assertEqual(self.records(other), (("converted", None, "[]"),))
         self.assertFalse(frappe.db.exists("Drive Node", node))
         self.assertFalse(frappe.db.exists("Writer Document", {"node": node}))
@@ -885,7 +886,7 @@ class TestConversion(DriveCallbackCase):
             "method": "Collab conversion: writer did not run",
             "error": ("like", f"%{node}: QueryDeadlockError%"),
         }
-        self.assertTrue(frappe.db.exists("Error Log", deadlock))
+        self.assertTrue(get_log_db().exists("Error Log", deadlock))
         self.assertEqual(frappe.db.get_value("Writer Document", self.docname_of(node), "html"), "<p>Kept</p>")
         [captured] = frappe.get_all("Drive Node Version", {"node": node, "seq": [">", seq]}, pluck="seq")
         with read_version(Principals(WRITER, (WRITER, "$GENERAL"), ("$PUBLIC",)), node, captured) as stream:
@@ -985,7 +986,7 @@ class TestConversion(DriveCallbackCase):
             "method": "Collab conversion: writer did not run",
             "error": ("like", f"%{node}: DriveForbidden%"),
         }
-        self.assertTrue(frappe.db.exists("Error Log", refused))
+        self.assertTrue(get_log_db().exists("Error Log", refused))
         self.assertEqual(self.records(other), (("converted", None, "[]"),))
         purge(owner, node)
         frappe.db.commit()
@@ -1226,7 +1227,7 @@ class TestConversion(DriveCallbackCase):
         node = self.old_document("<p>Hello world</p>")
         seq = drive.take_version(node)
         frappe.db.commit()
-        logged_before = frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]})
+        logged_before = get_log_db().count("Error Log", {"error": ["like", "%Hello world%"]})
         with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue"):
             docs.convert_version(node, seq)
 
@@ -1234,14 +1235,14 @@ class TestConversion(DriveCallbackCase):
             self.run_as_job(node, seq)
 
         state = write.call_args_list[0].args[1]["state"]
-        self.assertEqual(frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]}), logged_before)
-        self.assertEqual(frappe.db.count("Error Log", {"error": ["like", f"%{state[:40]}%"]}), 0)
+        self.assertEqual(get_log_db().count("Error Log", {"error": ["like", "%Hello world%"]}), logged_before)
+        self.assertEqual(get_log_db().count("Error Log", {"error": ["like", f"%{state[:40]}%"]}), 0)
 
     def test_logs_no_document_text_when_the_conversion_job_cannot_read_its_input(self):
         node = self.old_document("<p>Hello world</p>")
         seq = drive.take_version(node)
         frappe.db.commit()
-        logged_before = frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]})
+        logged_before = get_log_db().count("Error Log", {"error": ["like", "%Hello world%"]})
         with patch.object(frappe.local, "job", None), patch.object(scheduling, "enqueue"):
             docs.convert_version(node, seq)
 
@@ -1257,7 +1258,7 @@ class TestConversion(DriveCallbackCase):
         with patch.object(frappe.cache, "get_value", side_effect=failing_read):
             self.run_as_job(node, seq)
 
-        self.assertEqual(frappe.db.count("Error Log", {"error": ["like", "%Hello world%"]}), logged_before)
+        self.assertEqual(get_log_db().count("Error Log", {"error": ["like", "%Hello world%"]}), logged_before)
         self.assertEqual(self.crashes_logged(node), [f"{node} v{seq}: ConnectionError"])
 
     def edit_while_converting(self, node: str, edits: int):
@@ -1894,7 +1895,7 @@ class TestConversion(DriveCallbackCase):
         return seen
 
     def reasons_logged(self, reason: str) -> int:
-        return frappe.db.count(
+        return get_log_db().count(
             "Error Log", {"method": "Collab conversion: writer did not run", "error": reason}
         )
 
@@ -2020,7 +2021,7 @@ class TestConversion(DriveCallbackCase):
             "method": "Collab conversion: writer did not run",
             "error": ("like", f"%{node}: DriveForbidden%"),
         }
-        self.assertTrue(frappe.db.exists("Error Log", refused))
+        self.assertTrue(get_log_db().exists("Error Log", refused))
         self.assertEqual(self.as_before(node), before)
         self.assertEqual((self.records(node), self.failures(node)), (((None, None, None),), [1]))
         self.assertEqual(self.records(other), (("converted", None, "[]"),))
