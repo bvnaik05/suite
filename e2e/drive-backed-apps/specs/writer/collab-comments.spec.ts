@@ -309,8 +309,12 @@ test.describe("Writer collaboration comments", () => {
 		await expect(threadHeader(row)).toHaveAttribute("aria-expanded", "true");
 
 		await page.route("**/api/suite/drive/threads/*/comments", loseAnswer);
+		const answerLost = page.waitForEvent("requestfailed", (request) =>
+			/\/api\/suite\/drive\/threads\/[^/]+\/comments/.test(request.url()),
+		);
 		await row.getByLabel("Reply", { exact: true }).fill("Sent twice");
 		await page.keyboard.press("Enter");
+		await answerLost;
 		await expect(row.getByLabel("Reply", { exact: true })).toHaveValue("Sent twice");
 
 		await page.unroute("**/api/suite/drive/threads/*/comments", loseAnswer);

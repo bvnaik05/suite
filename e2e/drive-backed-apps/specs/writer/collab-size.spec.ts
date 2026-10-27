@@ -218,8 +218,10 @@ test.describe("Writer collaboration", () => {
 		await expectSaved(owner.page);
 		expect(pieces.length).toBeGreaterThanOrEqual(3);
 		const log = await logId(testApi, node);
-		const rowCounts = await logRowCounts(testApi, log);
-		expect(rowCounts.stage).toBe(0);
+		// The readable copy's pieces stay staged until the queued render check installs it
+		await expect
+			.poll(async () => (await logRowCounts(testApi, log)).stage, { timeout: 30_000 })
+			.toBe(0);
 	});
 
 	test("a paste too large for one save is refused before it enters the document", async ({
