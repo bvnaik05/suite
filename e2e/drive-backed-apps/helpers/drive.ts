@@ -226,7 +226,7 @@ export async function restoreNode(request: APIRequestContext, node: string): Pro
 }
 
 /** Permanent removal of a trashed node (§8.8). */
-async function purgeNode(request: APIRequestContext, node: string): Promise<number> {
+export async function purgeNode(request: APIRequestContext, node: string): Promise<number> {
 	const answer = await driveRequest<NodePurgeOutput>(request, "delete", `nodes/${node}`);
 	return answer.count;
 }
