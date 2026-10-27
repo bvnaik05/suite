@@ -143,6 +143,7 @@ drive_content_types = [
     "suite.writer.drive.SPEC",
     "suite.slides.drive.SPEC",
     "suite.sheets.drive.SPEC",
+    "suite.draw.drive.SPEC",
 ]
 
 # Dotted paths to `suite.content.EditorSpec` objects, one per app whose documents the content layer keeps
@@ -152,6 +153,7 @@ suite_content_editors = ["suite.writer.content.EDITOR"]
 # Permissions — permission_query_conditions (deep-merged union; no key clashes)
 # ============================================================================
 permission_query_conditions = {
+    "Drawing": "suite.drive.framework.doc_query_conditions",
     # drive — one user's own rows
     "Drive Settings": "suite.drive.framework.own_row_query_conditions",
     "Drive Favourite": "suite.drive.framework.own_row_query_conditions",
@@ -182,6 +184,7 @@ permission_query_conditions = {
 # Permissions — has_permission (deep-merged union; no key clashes)
 # ============================================================================
 has_permission = {
+    "Drawing": "suite.drive.framework.doc_has_permission",
     # drive — one user's own rows
     "Drive Settings": "suite.drive.framework.own_row_has_permission",
     "Drive Favourite": "suite.drive.framework.own_row_has_permission",
@@ -293,6 +296,9 @@ user_invitation = {
         "System Manager": ["Suite User"],
     },
 }
+
+# Suite Core owns notification routing; Mail provides configured Suite Cloud delivery.
+suite_email_provider = "suite.mail"
 
 # Suite's onboarding replaces the built-in desk setup wizard
 setup_wizard_url = "/suite/setup"

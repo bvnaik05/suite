@@ -33,12 +33,14 @@ const testApiServer =
 			}
 		: undefined;
 
+const launchOptions = { args: ["--unsafely-treat-insecure-origin-as-secure=" + baseURL] };
+
 function chromeChoice() {
 	if (chromeExecutable) {
-		return { launchOptions: { executablePath: chromeExecutable } };
+		return { launchOptions: { ...launchOptions, executablePath: chromeExecutable } };
 	}
 
-	return { channel: "chrome" };
+	return { channel: "chrome", launchOptions };
 }
 
 const browser = { ...devices["Desktop Chrome"], ...chromeChoice() };

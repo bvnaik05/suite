@@ -7,3 +7,4 @@ Mail
 Calendar
 Suite Core
 Content
+Draw

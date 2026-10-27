@@ -90,10 +90,8 @@
     v-if="list.status === 'success' && list.total"
     :count="list.rows.length"
     :total="list.total ?? 0"
-    :page-length="pageLength"
     :has-more="list.hasNext"
     :loading="list.isFetching"
-    @update:page-length="(value) => (pageLength = value)"
     @load-more="list.fetchNext().catch(() => {})"
   />
 
@@ -117,7 +115,7 @@ import { api, useInfiniteQuery, useMutation, type InputOf } from '@/api'
 import DashboardPager from '@/apps/mail/components/DashboardPager.vue'
 import EditInviteModal from '@/apps/mail/components/Modals/EditInviteModal.vue'
 import { raiseToast } from '@/apps/mail/utils'
-import { DEFAULT_PAGE_LENGTH, type PageLength } from '@/apps/mail/utils/paging'
+import { DEFAULT_PAGE_LENGTH } from '@/apps/mail/utils/paging'
 import { DashboardSkeletonText } from '@/platform/dashboard'
 
 type InviteStatus = 'All' | 'Pending' | 'Accepted' | 'Expired'
@@ -146,7 +144,6 @@ const selectedInvite = ref('')
 const showEditInvite = ref(false)
 const showDeleteInvites = ref(false)
 const debouncedSearch = refDebounced(search, 300)
-const pageLength = ref<PageLength>(DEFAULT_PAGE_LENGTH)
 const list = useInfiniteQuery(api.mail.admin.invites.list, () => ({
   search: debouncedSearch.value,
   ...(status.value !== 'All'
@@ -155,7 +152,7 @@ const list = useInfiniteQuery(api.mail.admin.invites.list, () => ({
       }
     : {}),
   start: 0,
-  page_length: pageLength.value,
+  page_length: DEFAULT_PAGE_LENGTH,
 }))
 const inviteRows = computed<InviteRow[]>(() =>
   list.rows.map((row) => ({
