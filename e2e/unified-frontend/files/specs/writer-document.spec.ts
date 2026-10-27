@@ -135,7 +135,7 @@ test("losing edit access freezes the editor and cancels the pending save", async
 	expect(seen.errors).toEqual([]);
 });
 
-test("a toolbar-only change asks before leaving the document", async ({ page }) => {
+test("a toolbar-only change is saved before leaving the document", async ({ page }) => {
 	const editor = await openDocument(page);
 	await editor.click();
 	await page.getByRole("button", { name: /bullet list/i }).click();
@@ -147,8 +147,10 @@ test("a toolbar-only change asks before leaving the document", async ({ page }) 
 	});
 	await page.getByRole("navigation", { name: "Areas" }).getByRole("link", { name: "Drive" }).click();
 
-	await expect.poll(() => asked).toContain("recovery copy");
-	await expect(page).toHaveURL(new RegExp(`/d/${doc.name}`));
+	// The room saves the change on the way out, so there's nothing to recover and no reason to ask
+	await expect(page).not.toHaveURL(new RegExp(`/d/${doc.name}`));
+	expect(asked).toBe("");
+	await expect.poll(storedHtml).toContain("<ul");
 });
 
 test("adding a comment keeps the panel open and shows the comment", async ({ page }) => {
