@@ -608,7 +608,7 @@ function rowClass(thread: DocumentThread) {
       <button
         v-else
         type="button"
-        class="block w-full rounded-4 border border-[--surface-gray-2] bg-surface-gray-2 px-[11px] py-[5px] text-left text-sm text-ink-gray-4 hover:border-outline-elevation-2 hover:bg-surface-gray-3"
+        class="block w-full rounded-4 border border-[--surface-gray-2] bg-surface-gray-2 px-[7px] py-[5px] text-left text-sm text-ink-gray-4 hover:border-outline-elevation-2 hover:bg-surface-gray-3"
         @click="startDocumentComment"
       >
         Add a comment
