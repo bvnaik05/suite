@@ -120,6 +120,9 @@ BASELINE_DEBT = {
             "suite/writer/content/tests/test_media_sweep.py|import|suite.drive._core",
             "suite/writer/content/tests/test_purges.py|import|suite.drive._core.nodes",
             "suite/writer/content/tests/test_purges.py|import|suite.drive._core.principals",
+            # The lock-order case trashes a document and races its purge; neither is a public call yet
+            "suite/writer/content/tests/test_lock_order.py|import|suite.drive._core.nodes",
+            "suite/writer/content/tests/test_lock_order.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_touches.py|import|suite.drive._core",
             "suite/writer/content/tests/test_touches.py|import|suite.drive._core.principals",
             "suite/writer/content/tests/test_touches.py|import|suite.drive._core.versions",
@@ -329,6 +332,7 @@ BASELINE_DEBT = {
         (
             "suite/api/account.py|import|suite.mail.utils.user",
             "suite/tests/ci_smoke.py|dotted-string|suite.meet.api.recording.reconcile_pending_recordings",
+            "suite/tests/test_composition.py|dotted-string|suite.mail.email_suggestions.clear_directory_addresses",
             "suite/www/event_rsvp.py|import|suite.calendar.api.rsvp",
         ),
     ),
