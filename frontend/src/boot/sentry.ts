@@ -3,6 +3,8 @@ import type { Router } from 'vue-router'
 
 import { getSessionUser } from '@/boot/session'
 
+import { redactTelemetry } from './sentryPrivacy'
+
 export async function initSentry(app: App, router: Router): Promise<void> {
   if (!window.sentry_dsn) return
 
@@ -16,14 +18,23 @@ export async function initSentry(app: App, router: Router): Promise<void> {
       sampleRate: 1,
       integrations: [
         Sentry.browserTracingIntegration({ router }),
-        Sentry.replayIntegration({
-          maskAllText: true,
-          blockAllMedia: true,
-        }),
+        // Replay retains initial URLs, resource URLs and DOM attributes outside
+        // beforeSend. Keep it disabled until those recordings can be scrubbed.
       ],
       tracesSampleRate: 0,
       replaysSessionSampleRate: 0,
-      replaysOnErrorSampleRate: 1,
+      replaysOnErrorSampleRate: 0,
+      transport(options) {
+        const transport = Sentry.makeFetchTransport(options)
+        return {
+          ...transport,
+          send(envelope) {
+            // Runs after SDK processors, for errors, breadcrumbs and traces.
+            redactTelemetry(envelope)
+            return transport.send(envelope)
+          },
+        }
+      },
       initialScope: {
         user: { id: window.site_name },
         tags: { frappe_user: getSessionUser() ?? 'Guest' },
