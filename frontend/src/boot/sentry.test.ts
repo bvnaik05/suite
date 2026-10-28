@@ -1,3 +1,4 @@
+import { serializeEnvelope } from '@sentry/core'
 import * as Sentry from '@sentry/vue'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createApp } from 'vue'
@@ -5,7 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { initSentry } from './sentry'
 
-const { bodies } = vi.hoisted(() => ({ bodies: [] as string[] }))
+const { bodies } = vi.hoisted(() => ({ bodies: [] as (string | Uint8Array)[] }))
 const app = createApp({})
 vi.mock('@/boot/session', () => ({ getSessionUser: () => 'Guest' }))
 vi.mock('@sentry/vue', async (importOriginal) => {
@@ -13,11 +14,12 @@ vi.mock('@sentry/vue', async (importOriginal) => {
   // Actual SDK serialization; no executor can send a network request.
   const transport = (options: Parameters<typeof sdk.makeFetchTransport>[0]) =>
     sdk.createTransport(options, async (request) => {
-      bodies.push(String(request.body))
+      bodies.push(request.body)
       return { statusCode: 200 }
     })
   return {
     ...sdk,
+    replayIntegration: vi.fn(sdk.replayIntegration),
     makeFetchTransport: transport,
     init: (options: Parameters<typeof sdk.init>[0]) =>
       sdk.init({ ...options, transport: options.transport ?? transport }),
@@ -28,7 +30,7 @@ afterEach(async () => {
   bodies.length = 0
   window.history.replaceState({}, '', '/')
 })
-it('redacts SDK error and trace envelopes, including initial URLs and later errors; disables Replay', async () => {
+it('redacts SDK error and trace envelopes, including initial URLs and later errors', async () => {
   const code = 'SYNTHETIC_SHARE_CANARY'
   const signature = 'SYNTHETIC_SIGNATURE_CANARY'
   const initial = `/d/example#link=${code}`
@@ -70,8 +72,8 @@ it('redacts SDK error and trace envelopes, including initial URLs and later erro
   expect(serialized).not.toContain('Excluded validation')
   // HttpContext ran in the actual SDK on both sides of router cleanup.
   expect(serialized).toContain('/d/example#link=[Filtered]')
-  expect(client?.getIntegrationByName('Replay')).toBeUndefined()
-  expect(client?.getOptions().replaysOnErrorSampleRate).toBe(0)
+  expect(client?.getIntegrationByName('Replay')).toBeDefined()
+  expect(client?.getOptions().replaysOnErrorSampleRate).toBe(1)
   expect(serialized).not.toContain('replay_event')
   expect(serialized).not.toContain('replay_recording')
   await client?.getTransport()?.send([
@@ -98,4 +100,33 @@ it('does not initialize telemetry without a DSN', async () => {
   await initSentry(app, createRouter({ history: createMemoryHistory(), routes: [] }))
   expect(bodies).toEqual([])
   expect(Sentry.getClient()).toBe(previousClient)
+})
+
+it('passes binary Replay through SDK serialization unchanged', async () => {
+  window.sentry_dsn = 'https://synthetic@sentry.invalid/1'
+  await initSentry(app, createRouter({ history: createMemoryHistory(), routes: [] }))
+  const client = Sentry.getClient()!
+  expect(Sentry.replayIntegration).toHaveBeenLastCalledWith({
+    maskAllText: true,
+    maskAllInputs: true,
+    blockAllMedia: true,
+    networkDetailAllowUrls: [],
+    networkCaptureBodies: false,
+    networkRequestHeaders: [],
+    networkResponseHeaders: [],
+  })
+  expect(client.getOptions().replaysSessionSampleRate).toBe(0)
+  expect(client.getOptions().replaysOnErrorSampleRate).toBe(1)
+  const recording = new Uint8Array([0, 255, 120, 156, 42, 0])
+  const envelope: Parameters<NonNullable<ReturnType<typeof client.getTransport>>['send']>[0] = [
+    {},
+    [
+      [{ type: 'replay_event' }, { urls: ['https://suite.invalid/l/ACCEPTED_REPLAY_URL'] }],
+      [{ type: 'replay_recording' }, recording],
+    ],
+  ]
+  const expected = serializeEnvelope(envelope)
+  await client.getTransport()!.send(envelope)
+  expect(bodies.at(-1)).toEqual(expected)
+  expect(recording).toEqual(new Uint8Array([0, 255, 120, 156, 42, 0]))
 })

@@ -1,8 +1,6 @@
-/** Redact URL capabilities in every JSON envelope item, including nested SDK context.
- * Replay must stay disabled: its compressed recordings are not JSON event payloads.
- */
+/** Redact URL capabilities in normal telemetry JSON, including nested SDK context. */
 export function redactTelemetry(value: unknown): void {
-  if (!value || typeof value !== 'object') return
+  if (!value || typeof value !== 'object' || ArrayBuffer.isView(value)) return
   for (const [key, field] of Object.entries(value)) {
     if (typeof field === 'string') Reflect.set(value, key, redactUrlCredentials(field))
     else redactTelemetry(field)
