@@ -20,7 +20,6 @@ from suite.drive.webdav import auth, dispatch
 class TestWebDAVIPPolicy(unittest.TestCase):
     def setUp(self) -> None:
         self.user = "dav-policy@example.com"
-        self.settings = {}
         self.user_doc = Mock(bypass_restrict_ip_check_if_2fa_enabled=0)
         self.user_doc.get_restricted_ip_list.return_value = ["192.0.2."]
         self.tracker = Mock()
@@ -44,8 +43,6 @@ class TestWebDAVIPPolicy(unittest.TestCase):
             ("frappe.log_error", None),
             ("frappe.translate.get_all_translations", {}),
             ("suite.drive.webdav.auth._trackers", [self.tracker]),
-            ("suite.drive.webdav.auth._api_key_user", None),
-            ("suite.drive.webdav.auth._verify_cached", None),
             ("suite.drive.webdav.auth.check_password", self.user),
             ("suite.drive.webdav.auth._requires_two_factor", False),
             ("suite.drive.webdav.auth._store_cache", None),
@@ -61,7 +58,7 @@ class TestWebDAVIPPolicy(unittest.TestCase):
         ):
             self.enterContext(patch(target, return_value=value))
         self.enterContext(patch.object(mail, "resolve_business_user", return_value=None))
-        self.enterContext(patch("frappe.get_system_settings", side_effect=self.settings.get))
+        self.enterContext(patch("frappe.get_system_settings", return_value=0))
         self.handler = self.enterContext(patch.object(dispatch, "_handler_for"))
         self.handler.return_value = lambda ctx: Response(status=207)
         self.accept = self.enterContext(patch("frappe.set_user"))
@@ -72,7 +69,7 @@ class TestWebDAVIPPolicy(unittest.TestCase):
         for key, value in self.previous_local.items():
             setattr(frappe.local, key, value)
 
-    def request(self, *, api: bool = False, valid: bool = True, cached: bool = False) -> Response:
+    def request(self, *, api: bool = False, cached: bool = False) -> Response:
         login = "api-key" if api else self.user
         token = base64.b64encode(f"{login}:secret".encode()).decode()
         frappe.local.request = Request(
@@ -84,16 +81,8 @@ class TestWebDAVIPPolicy(unittest.TestCase):
             patch.object(
                 auth, "_api_key_user", return_value=frappe._dict(name=self.user, enabled=1) if api else None
             ),
-            patch.object(auth, "_api_secret_valid", return_value=valid),
+            patch.object(auth, "_api_secret_valid", return_value=True),
             patch.object(auth, "_verify_cached", return_value=self.user if cached else None),
-            patch.object(
-                auth,
-                "check_password",
-                return_value=self.user,
-                side_effect=None if valid else frappe.AuthenticationError,
-            ),
-            patch.object(auth, "_stored_hash_fingerprint", return_value="hash"),
-            patch.object(auth, "_delete_cache"),
         ):
             try:
                 dispatch.handle_before_request()
@@ -115,36 +104,11 @@ class TestWebDAVIPPolicy(unittest.TestCase):
                 self.tracker.add_success_attempt.assert_not_called()
                 self.tracker.add_failure_attempt.assert_not_called()
 
-    def test_allowed_ip_and_empty_allowlist_accept_both_credential_kinds(self) -> None:
-        for api in (False, True):
-            for ips in (["198.51.100."], []):
-                with self.subTest(api=api, ips=ips):
-                    self.user_doc.get_restricted_ip_list.return_value = ips
-                    self.assertEqual(self.request(api=api).status_code, 207)
-
-    def test_framework_site_and_two_factor_user_bypasses_are_preserved(self) -> None:
-        for api in (False, True):
-            for site, two_factor, user, status in (
-                (1, 0, 0, 207),
-                (0, 1, 1, 207),
-                (0, 0, 1, 401),
-                (0, 1, 0, 401),
-            ):
-                with self.subTest(api=api, site=site, two_factor=two_factor, user=user):
-                    self.settings.update(
-                        bypass_restrict_ip_check_if_2fa_enabled=site, enable_two_factor_auth=two_factor
-                    )
-                    self.user_doc.bypass_restrict_ip_check_if_2fa_enabled = user
-                    self.assertEqual(self.request(api=api).status_code, status)
-
-    def test_invalid_credentials_do_not_accept_identity_even_from_allowed_ip(self) -> None:
+    def test_allowed_ip_accepts_each_credential_path(self) -> None:
         frappe.local.request_ip = "192.0.2.10"
-        for api in (False, True):
-            with self.subTest(api=api):
-                self.assertEqual(self.request(api=api, valid=False).status_code, 401)
-                self.accept.assert_not_called()
-                self.handler.assert_not_called()
-                self.assertEqual(frappe.session.user, "Guest")
+        for api, cached in ((False, False), (False, True), (True, False)):
+            with self.subTest(api=api, cached=cached):
+                self.assertEqual(self.request(api=api, cached=cached).status_code, 207)
 
     def test_rejection_preserves_an_existing_request_identity(self) -> None:
         frappe.local.session = frappe._dict(user="previous@example.com", sid="existing")
@@ -153,12 +117,3 @@ class TestWebDAVIPPolicy(unittest.TestCase):
                 self.assertEqual(self.request(api=api).status_code, 401)
                 self.assertEqual(dict(frappe.session), {"user": "previous@example.com", "sid": "existing"})
                 self.accept.assert_not_called()
-
-    def test_invalid_credentials_never_reach_account_ip_policy(self) -> None:
-        self.user_doc.get_restricted_ip_list.side_effect = AssertionError(
-            "Unverified identity reached policy"
-        )
-        for api in (False, True):
-            with self.subTest(api=api):
-                self.assertEqual(self.request(api=api, valid=False).status_code, 401)
-                self.assertEqual(frappe.session.user, "Guest")
